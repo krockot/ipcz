@@ -1,0 +1,9 @@
+solutions = [
+  {
+    "name": ".",
+    "url": "https://github.com/krockot/ipcz",
+    "deps_file": "DEPS",
+    "managed": False,
+  },
+]
+

@@ -1,0 +1,121 @@
+# Copyright 2021 The Chromium Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build_overrides/ipcz.gni")
+import("//testing/test.gni")
+
+source_set("ipcz") {
+  sources = [ "api/api.cc" ]
+  public_deps = [ ":ipcz_sources" ]
+  deps = [ "//third_party/abseil-cpp:absl" ]
+  public_configs = [ ":ipcz_include_dir" ]
+  configs += [ ":ipcz_include_src_dir" ]
+}
+
+shared_library("ipcz_shared") {
+  output_name = "ipcz"
+  sources = [ "api/api.cc" ]
+  public_deps = [ ":ipcz_sources" ]
+  deps = [ "//third_party/abseil-cpp:absl" ]
+  defines = [ "IPCZ_SHARED_LIBRARY" ]
+  public_configs = [ ":ipcz_include_dir" ]
+  configs += [ ":ipcz_include_src_dir" ]
+}
+
+source_set("ipcz_sources") {
+  visibility = [ ":*" ]
+
+  public = [ "include/ipcz/ipcz.h" ]
+
+  sources = [
+    "core/direct_portal_backend.cc",
+    "core/direct_portal_backend.h",
+    "core/monitor.cc",
+    "core/monitor.h",
+    "core/name.cc",
+    "core/name.h",
+    "core/node.cc",
+    "core/node.h",
+    "core/portal.cc",
+    "core/portal.h",
+    "core/portal_backend.cc",
+    "core/portal_backend.h",
+    "core/routed_portal_backend.cc",
+    "core/routed_portal_backend.h",
+    "mem/atomic_memcpy.cc",
+    "mem/atomic_memcpy.h",
+    "mem/mpmc_queue.h",
+    "mem/mpsc_queue.h",
+    "mem/ref_counted.cc",
+    "mem/ref_counted.h",
+    "mem/seqlocked_data.cc",
+    "mem/seqlocked_data.h",
+    "mem/spsc_queue.h",
+    "os/channel.cc",
+    "os/channel.h",
+    "os/event.cc",
+    "os/event.h",
+    "os/handle.cc",
+    "os/handle.h",
+    "os/memory.cc",
+    "os/memory.h",
+    "os/process.cc",
+    "os/process.h",
+    "safe/math.h",
+  ]
+
+  deps = [ "//third_party/abseil-cpp:absl" ]
+
+  public_configs = [ ":ipcz_include_dir" ]
+  configs += [ ":ipcz_include_src_dir" ]
+}
+
+config("ipcz_include_dir") {
+  include_dirs = [ "${ipcz_include_root}" ]
+}
+
+config("ipcz_include_src_dir") {
+  include_dirs = [ "${ipcz_src_root}" ]
+}
+
+test("ipcz_tests") {
+  sources = [
+    "api/invalid_args_api_test.cc",
+    "api/node_api_test.cc",
+    "api/put_api_test.cc",
+    "api/query_status_api_test.cc",
+    "mem/mpmc_queue_test.cc",
+    "mem/mpsc_queue_test.cc",
+    "mem/ref_counted_test.cc",
+    "mem/spsc_queue_test.cc",
+    "os/channel_test.cc",
+    "os/event_test.cc",
+    "os/memory_test.cc",
+    "os/multiprocess_test.cc",
+    "test/api_test.cc",
+    "test/api_test.h",
+    "test/run_all_tests.cc",
+    "test/test_client.cc",
+    "test/test_client.h",
+  ]
+
+  deps = [
+    ":ipcz",
+    "//testing/gtest",
+    "//third_party/abseil-cpp:absl",
+    "//third_party/abseil-cpp/absl/flags:flag",
+    "//third_party/abseil-cpp/absl/flags:parse",
+  ]
+
+  configs += [ ":ipcz_include_src_dir" ]
+}
+
+group("all") {
+  testonly = true
+  deps = [
+    ":ipcz",
+    ":ipcz_shared",
+    ":ipcz_tests",
+  ]
+}
