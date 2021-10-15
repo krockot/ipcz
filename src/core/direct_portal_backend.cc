@@ -194,6 +194,15 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
     return result;
   }
 
+  // At this point success is inevitable, so we can take full ownership of any
+  // passed resources. This also means destroying any attached portals, as we've
+  // already taken ownership of their backends and their handles must no longer
+  // be in use.
+
+  for (IpczHandle handle : portals) {
+    std::unique_ptr<Portal> consumed_portal(&ToPortal(handle));
+  }
+
   parcel->data = std::vector<uint8_t>(data.begin(), data.end());
   parcel->os_handles.reserve(os_handles.size());
   for (const IpczOSHandle& handle : os_handles) {
