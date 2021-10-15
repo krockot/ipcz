@@ -43,7 +43,7 @@ TEST_F(EndPutAPITest, InvalidArgs) {
   ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
 }
 
-TEST_F(EndPutAPITest, NonExistent) {
+TEST_F(EndPutAPITest, NoPutInProgress) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));

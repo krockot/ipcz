@@ -998,16 +998,16 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        the caller, it will remain in queue with the rest of its data intact
   //        for a subsequent get operation to retrieve.
   //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid or
+  //        `num_data_bytes_consumed` is larger than the capacity of the buffer
+  //        originally returned by BeginGet().
+  //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
   //        the caller's specified capacity portals or OS handles. In this case,
   //        any non-null size pointer is updated to convey the minimum capacity
   //        that would have been required for an otherwise identical EndGet()
   //        call to have succeeded. Callers observing this result may wish to
   //        allocate storage accordingly and retry with updated parameters.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid or
-  //        `num_data_bytes_consumed` is larger than the capacity of the buffer
-  //        originally returned by BeginGet().
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase get operation
   //        in progress on `portal`.

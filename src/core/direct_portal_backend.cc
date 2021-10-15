@@ -351,21 +351,22 @@ IpczResult DirectPortalBackend::Get(void* data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  const bool empty = !state.incoming_parcels;
-  const bool closed = other_side().backend == nullptr;
-  if (empty && closed) {
-    return IPCZ_RESULT_NOT_FOUND;
-  } else if (empty) {
+  auto& next_parcel = state.incoming_parcels;
+  const bool empty = !next_parcel;
+  if (empty) {
+    const bool closed = other_side().backend == nullptr;
+    if (closed) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
   IpczResult result = IPCZ_RESULT_OK;
-  size_t available_data_storage = num_data_bytes ? *num_data_bytes : 0;
-  size_t available_handle_storage = num_portals ? *num_portals : 0;
-  size_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
-  auto& next_parcel = state.incoming_parcels;
+  uint32_t available_data_storage = num_data_bytes ? *num_data_bytes : 0;
+  uint32_t available_portal_storage = num_portals ? *num_portals : 0;
+  uint32_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
   if (next_parcel->data.size() > available_data_storage ||
-      next_parcel->portals.size() > available_handle_storage ||
+      next_parcel->portals.size() > available_portal_storage ||
       next_parcel->os_handles.size() > available_os_handle_storage) {
     result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
@@ -406,7 +407,42 @@ IpczResult DirectPortalBackend::BeginGet(const void** data,
                                          uint32_t* num_data_bytes,
                                          uint32_t* num_portals,
                                          uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&state_->mutex);
+  PortalState& state = this_side();
+  if (state.in_two_phase_get) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  auto& next_parcel = state.incoming_parcels;
+  const bool empty = !next_parcel;
+  if (empty) {
+    const bool closed = other_side().backend == nullptr;
+    if (closed) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
+    return IPCZ_RESULT_UNAVAILABLE;
+  }
+
+  const size_t data_size = next_parcel->data.size() - next_parcel->data_offset;
+  if (num_data_bytes) {
+    *num_data_bytes = static_cast<uint32_t>(data_size);
+  }
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(next_parcel->portals.size());
+  }
+  if (num_os_handles) {
+    *num_os_handles = static_cast<uint32_t>(next_parcel->os_handles.size());
+  }
+
+  if (data_size > 0) {
+    if (!data || !num_data_bytes) {
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+    }
+    *data = next_parcel->data.data() + next_parcel->data_offset;
+  }
+
+  state.in_two_phase_get = true;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
@@ -414,11 +450,52 @@ IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
                                           uint32_t* num_portals,
                                           IpczOSHandle* os_handles,
                                           uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&state_->mutex);
+  PortalState& state = this_side();
+  if (!state.in_two_phase_get) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  auto& next_parcel = state.incoming_parcels;
+  const size_t data_size = next_parcel->data.size() - next_parcel->data_offset;
+  if (num_data_bytes_consumed > data_size) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  uint32_t available_portal_storage = num_portals ? *num_portals : 0;
+  uint32_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(next_parcel->portals.size());
+  }
+  if (num_os_handles) {
+    *num_os_handles = static_cast<uint32_t>(next_parcel->os_handles.size());
+  }
+  if (available_portal_storage < next_parcel->portals.size() ||
+      available_os_handle_storage < next_parcel->os_handles.size()) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  if (num_data_bytes_consumed == data_size) {
+    next_parcel = std::move(next_parcel->next_parcel);
+    if (!next_parcel) {
+      state.last_incoming_parcel = nullptr;
+    }
+  } else {
+    next_parcel->data_offset += num_data_bytes_consumed;
+  }
+  state.in_two_phase_get = false;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult DirectPortalBackend::AbortGet() {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&state_->mutex);
+  PortalState& state = this_side();
+  if (!state.in_two_phase_get) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  state.in_two_phase_get = false;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult DirectPortalBackend::CreateMonitor(

@@ -48,7 +48,7 @@ TEST_F(GetAPITest, InsufficientStorage) {
   ASSERT_EQ(IPCZ_RESULT_OK, ipcz.Put(q, data, sizeof(data), portals, 2,
                                      &os_handle, 1, IPCZ_NO_FLAGS, nullptr));
 
-  // Start with no space for anything. All counts shold be updated.
+  // Start with no space for anything. All counts should be updated.
   uint32_t num_bytes = 0;
   uint32_t num_portals = 0;
   uint32_t num_os_handles = 0;
