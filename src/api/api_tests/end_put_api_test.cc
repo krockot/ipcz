@@ -33,7 +33,7 @@ TEST_F(EndPutAPITest, InvalidArgs) {
   uint32_t num_bytes = 4;
   void* data;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, nullptr, &data));
+            ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, &num_bytes, &data));
   EXPECT_EQ(4u, num_bytes);
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.EndPut(a, num_bytes * 2, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS,
@@ -62,7 +62,7 @@ TEST_F(EndPutAPITest, Oversized) {
   IpczHandle a, b;
   ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, nullptr, IPCZ_NO_FLAGS, nullptr, nullptr));
+            ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
   ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);

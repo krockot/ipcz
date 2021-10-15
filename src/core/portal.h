@@ -41,9 +41,9 @@ class Portal {
                  absl::Span<const IpczHandle> portals,
                  absl::Span<const IpczOSHandle> os_handles,
                  const IpczPutLimits* limits);
-  IpczResult BeginPut(uint32_t& num_data_bytes,
-                      IpczBeginPutFlags flags,
+  IpczResult BeginPut(IpczBeginPutFlags flags,
                       const IpczPutLimits* limits,
+                      uint32_t& num_data_bytes,
                       void** data);
   IpczResult CommitPut(uint32_t num_data_bytes_produced,
                        absl::Span<const IpczHandle> portals,
@@ -58,11 +58,13 @@ class Portal {
                  uint32_t* num_os_handles);
   IpczResult BeginGet(const void** data,
                       uint32_t* num_data_bytes,
-                      IpczHandle* portals,
                       uint32_t* num_portals,
-                      IpczOSHandle* os_handles,
                       uint32_t* num_os_handles);
-  IpczResult CommitGet(uint32_t num_data_bytes_consumed);
+  IpczResult CommitGet(uint32_t num_data_bytes_consumed,
+                       IpczHandle* portals,
+                       uint32_t* num_portals,
+                       IpczOSHandle* os_handles,
+                       uint32_t* num_os_handles);
   IpczResult AbortGet();
 
   IpczResult CreateMonitor(const IpczMonitorDescriptor& descriptor,

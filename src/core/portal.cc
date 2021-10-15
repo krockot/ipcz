@@ -70,12 +70,12 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   return backend_->Put(data, portals, os_handles, limits);
 }
 
-IpczResult Portal::BeginPut(uint32_t& num_data_bytes,
-                            IpczBeginPutFlags flags,
+IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
                             const IpczPutLimits* limits,
+                            uint32_t& num_data_bytes,
                             void** data) {
   absl::MutexLock lock(&mutex_);
-  return backend_->BeginPut(num_data_bytes, flags, limits, data);
+  return backend_->BeginPut(flags, limits, num_data_bytes, data);
 }
 
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
@@ -103,18 +103,20 @@ IpczResult Portal::Get(void* data,
 
 IpczResult Portal::BeginGet(const void** data,
                             uint32_t* num_data_bytes,
-                            IpczHandle* portals,
                             uint32_t* num_portals,
-                            IpczOSHandle* os_handles,
                             uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
-  return backend_->BeginGet(data, num_data_bytes, portals, num_portals,
-                            os_handles, num_os_handles);
+  return backend_->BeginGet(data, num_data_bytes, num_portals, num_os_handles);
 }
 
-IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed) {
+IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
+                             IpczHandle* portals,
+                             uint32_t* num_portals,
+                             IpczOSHandle* os_handles,
+                             uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
-  return backend_->CommitGet(num_data_bytes_consumed);
+  return backend_->CommitGet(num_data_bytes_consumed, portals, num_portals,
+                             os_handles, num_os_handles);
 }
 
 IpczResult Portal::AbortGet() {

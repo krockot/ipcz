@@ -15,25 +15,25 @@ using GetAPITest = test::APITest;
 TEST_F(GetAPITest, InvalidArgs) {
   // Invalid portal.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.Get(IPCZ_INVALID_HANDLE, nullptr, nullptr, nullptr, nullptr,
-                     nullptr, nullptr, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, nullptr,
+                     nullptr, nullptr, nullptr, nullptr, nullptr));
 
   uint32_t not_zero = 4;
 
   // Null data buffer but non-zero byte count
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.Get(q, nullptr, &not_zero, nullptr, nullptr, nullptr, nullptr,
-                     IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(q, IPCZ_NO_FLAGS, nullptr, nullptr, &not_zero, nullptr,
+                     nullptr, nullptr, nullptr));
 
   // Null portal buffer but non-zero portal count.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.Get(q, nullptr, nullptr, nullptr, &not_zero, nullptr, nullptr,
-                     IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(q, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
+                     &not_zero, nullptr, nullptr));
 
   // Null OS handle buffer but non-zero OS handle count.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.Get(q, nullptr, nullptr, nullptr, nullptr, nullptr, &not_zero,
-                     IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(q, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
+                     nullptr, nullptr, &not_zero));
 }
 
 TEST_F(GetAPITest, InsufficientStorage) {
@@ -53,8 +53,8 @@ TEST_F(GetAPITest, InsufficientStorage) {
   uint32_t num_portals = 0;
   uint32_t num_os_handles = 0;
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.Get(p, nullptr, &num_bytes, nullptr, &num_portals, nullptr,
-                     &num_os_handles, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(p, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes, nullptr,
+                     &num_portals, nullptr, &num_os_handles));
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
@@ -62,24 +62,24 @@ TEST_F(GetAPITest, InsufficientStorage) {
   // Verify the same result when only one of the arguments is insufficient.
   num_bytes = 0;
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.Get(p, data, &num_bytes, portals, &num_portals, &os_handle,
-                     &num_os_handles, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(p, IPCZ_NO_FLAGS, nullptr, data, &num_bytes, portals,
+                     &num_portals, &os_handle, &num_os_handles));
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
 
   num_portals = 0;
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.Get(p, data, &num_bytes, portals, &num_portals, &os_handle,
-                     &num_os_handles, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(p, IPCZ_NO_FLAGS, nullptr, data, &num_bytes, portals,
+                     &num_portals, &os_handle, &num_os_handles));
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
 
   num_os_handles = 0;
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.Get(p, data, &num_bytes, portals, &num_portals, &os_handle,
-                     &num_os_handles, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(p, IPCZ_NO_FLAGS, nullptr, data, &num_bytes, portals,
+                     &num_portals, &os_handle, &num_os_handles));
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
@@ -106,9 +106,9 @@ TEST_F(GetAPITest, OutputExactDimensionsOnSuccess) {
   IpczOSHandle out_os_handles[2];
   out_os_handles[0].size = sizeof(IpczOSHandle);
   uint32_t num_os_handles = 2;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.Get(p, out_data, &num_bytes, out_portals, &num_portals,
-                     out_os_handles, &num_os_handles, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Get(p, IPCZ_NO_FLAGS, nullptr, out_data,
+                                     &num_bytes, out_portals, &num_portals,
+                                     out_os_handles, &num_os_handles));
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
@@ -116,8 +116,8 @@ TEST_F(GetAPITest, OutputExactDimensionsOnSuccess) {
 
 TEST_F(GetAPITest, Empty) {
   EXPECT_EQ(IPCZ_RESULT_UNAVAILABLE,
-            ipcz.Get(q, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                     IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(q, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
+                     nullptr, nullptr, nullptr));
 }
 
 TEST_F(GetAPITest, Dead) {
@@ -125,8 +125,8 @@ TEST_F(GetAPITest, Dead) {
   OpenPortals(&a, &b);
   ClosePortals({b});
   EXPECT_EQ(IPCZ_RESULT_NOT_FOUND,
-            ipcz.Get(a, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                     IPCZ_NO_FLAGS, nullptr));
+            ipcz.Get(a, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
+                     nullptr, nullptr, nullptr));
   ClosePortals({a});
 }
 

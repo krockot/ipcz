@@ -215,9 +215,9 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult DirectPortalBackend::BeginPut(uint32_t& num_data_bytes,
-                                         IpczBeginPutFlags flags,
+IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
                                          const IpczPutLimits* limits,
+                                         uint32_t& num_data_bytes,
                                          void** data) {
   IpczResult result = IPCZ_RESULT_OK;
   absl::MutexLock lock(&state_->mutex);
@@ -404,14 +404,16 @@ IpczResult DirectPortalBackend::Get(void* data,
 
 IpczResult DirectPortalBackend::BeginGet(const void** data,
                                          uint32_t* num_data_bytes,
-                                         IpczHandle* portals,
                                          uint32_t* num_portals,
-                                         IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed) {
+IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
+                                          IpczHandle* portals,
+                                          uint32_t* num_portals,
+                                          IpczOSHandle* os_handles,
+                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 

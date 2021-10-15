@@ -12,7 +12,9 @@ namespace {
 using BeginGetAPITest = test::APITest;
 
 TEST_F(BeginGetAPITest, InvalidArgs) {
-  // TODO
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.BeginGet(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, nullptr,
+                          nullptr, nullptr, nullptr));
 }
 
 }  // namespace

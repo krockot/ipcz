@@ -38,9 +38,9 @@ class DirectPortalBackend : public PortalBackend {
                  absl::Span<const IpczHandle> portals,
                  absl::Span<const IpczOSHandle> os_handles,
                  const IpczPutLimits* limits) override;
-  IpczResult BeginPut(uint32_t& num_data_bytes,
-                      IpczBeginPutFlags flags,
+  IpczResult BeginPut(IpczBeginPutFlags flags,
                       const IpczPutLimits* limits,
+                      uint32_t& num_data_bytes,
                       void** data) override;
   IpczResult CommitPut(uint32_t num_data_bytes_produced,
                        absl::Span<const IpczHandle> portals,
@@ -54,11 +54,13 @@ class DirectPortalBackend : public PortalBackend {
                  uint32_t* num_os_handles) override;
   IpczResult BeginGet(const void** data,
                       uint32_t* num_data_bytes,
-                      IpczHandle* portals,
                       uint32_t* num_portals,
-                      IpczOSHandle* os_handles,
                       uint32_t* num_os_handles) override;
-  IpczResult CommitGet(uint32_t num_data_bytes_consumed) override;
+  IpczResult CommitGet(uint32_t num_data_bytes_consumed,
+                       IpczHandle* portals,
+                       uint32_t* num_portals,
+                       IpczOSHandle* os_handles,
+                       uint32_t* num_os_handles) override;
   IpczResult AbortGet() override;
   IpczResult CreateMonitor(const IpczMonitorDescriptor& descriptor,
                            IpczHandle* handle) override;

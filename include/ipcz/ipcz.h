@@ -428,12 +428,17 @@ extern "C" {
 //
 // Note that all functions follow a consistent parameter ordering:
 //
-//   1. Node (if applicable)
-//   2. Function-specific input values
-//   3. Function-specific in/out values
-//   4. Flags (possibly untyped and unused)
-//   5. Options (possibly untyped and unused)
-//   6. Output values
+//   1. Object handle (e.g. node, portal, or monitor) if applicable
+//   2. Function-specific strict input values
+//   3. Flags - possibly untyped and unused
+//   4. Options struct - possibly untyped and unused
+//   5. Function-specific in/out values
+//   6. Function-specific strict output values
+//
+// The rationale behind this convention is generally to have order flow from
+// input to output. Flags are inputs, and options provide an extension point for
+// future versions of these APIs; as such they skirt the boundary between strict
+// input values and in/out values.
 //
 // The order and signature (ABI) of functions defined here must never change,
 // but new functions may be added to the end.
@@ -778,9 +783,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
   IpczResult (*BeginPut)(IpczHandle portal,
-                         uint32_t* num_data_bytes,
                          IpczBeginPutFlags flags,
                          const struct IpczBeginPutOptions* options,
+                         uint32_t* num_data_bytes,
                          void** data);
 
   // Ends the two-phase put operation started by the most recent successful call
@@ -833,7 +838,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
                        uint32_t num_data_bytes_produced,
                        const IpczHandle* portals,
                        uint32_t num_portals,
-                       const IpczOSHandle* os_handles,
+                       const struct IpczOSHandle* os_handles,
                        uint32_t num_os_handles,
                        IpczEndPutFlags flags,
                        const void* options);
@@ -876,9 +881,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        the caller's specified capacity for either data bytes, portals, or
   //        OS handles. In this case, any non-null size pointer is updated to
   //        convey the minimum capacity that would have been required for an
-  //        otherwise identical IpczGet call to have succeeded. Callers
-  //        observing this result may wish to allocate storage accordingly and
-  //        retry with updated parameters.
+  //        otherwise identical Get() call to have succeeded. Callers observing
+  //        this result may wish to allocate storage accordingly and retry with
+  //        updated parameters.
   //
   //    IPCZ_RESULT_UNAVAILABLE if the portal's parcel queue is currently empty.
   //        In this case callers should wait before attempting to get anything
@@ -891,38 +896,43 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_ALREADY_EXISTS if there is a two-phase get operation in
   //        progress on `portal`.
   IpczResult (*Get)(IpczHandle portal,
+                    uint32_t flags,
+                    const void* options,
                     void* data,
                     uint32_t* num_data_bytes,
                     IpczHandle* portals,
                     uint32_t* num_portals,
                     struct IpczOSHandle* os_handles,
-                    uint32_t* num_os_handles,
-                    uint32_t flags,
-                    const void* options);
+                    uint32_t* num_os_handles);
 
   // Begins a two-phase get operation on `portal` to retreive data, portals, and
-  // OS handles from the frontmost parcel in its incoming queue. While a
-  // two-phase get operation is in progress on a portal, all other get
-  // operations on the portal will fail with IPCZ_RESULT_ALREADY_EXISTS.
+  // OS handles. While a two-phase get operation is in progress on a portal, all
+  // other get operations on the same portal will fail with
+  // IPCZ_RESULT_ALREADY_EXISTS.
   //
   // Unlike a plain Get() call, two-phase get operations allow the application
-  // to read directly from portal memory, potentially reducing memory access
+  // to read directly from parcel memory, potentially reducing memory access
   // costs by eliminating redundant copying and caching.
   //
-  // Like Get(), `num_portals` and `num_os_handles` if non-null specify how much
-  // capacity the caller has respectively in `portals` and `os_handles` to
-  // receive any portals and handles from the retrieved parcel. If either value
-  // is insufficient to hold the parcel's contents, BeginGet() returns
-  // IPCZ_RESULT_RESOURCE_EXHAUSTED and updates the pointed-to values (if the
-  // pointers are non-null) to reflect the required capacity for each.
-  //
-  // The input value of `num_data_bytes` is ignored. If `data` or
-  // `num_data_bytes` is null and the available parcel has at least one byte of
-  // data, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // If `data` or `num_data_bytes` is null and the available parcel has at least
+  // one byte of data, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
   // Otherwise if `data` and `num_data_bytes` are non-null, a successful
-  // BeginGet() updates them to expose portal memory for the application to
+  // BeginGet() updates them to expose parcel memory for the application to
   // consume.
+  //
+  // If `num_portals` or `num_os_handles` is non-null and this call is
+  // successful, the value(s) pointed to will respectively reflect the number of
+  // portals and OS handles in the next available parcel. The portals and
+  // handles are not retreived from the portal until the application issues a
+  // corresponding call to EndGet().
+  //
+  // NOTE: When performing two-phase get operations, callers should be mindful
+  // of time-of-check/time-of-use (TOCTOU) vulnerabilities. Exposed parcel
+  // memory may be shared with (and writable in) the process which placed the
+  // parcel into the portal, and that process may not be trustworthy. In such
+  // cases, applications should be careful to copy the data out before
+  // validating and using it.
   //
   // `flags` is ignored and must be IPCZ_NO_FLAGS.
   //
@@ -933,26 +943,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if the two-phase get was successfully initiated. In this
   //        case both `*data` and `*num_data_bytes` are updated (if `data` and
   //        `num_data_bytes` were non-null) to describe the portal memory from
-  //        which the application is free to read parcel data. Any portals in
-  //        the parcel are populated in `portals` and `os_handles` and the
-  //        values of `*num_portals` and `*num_os_handles` are updated to
-  //        reflect how many of each were retrieved. This get operation remains
-  //        in-progress until a corresponding EndGet() call is issued on
-  //        `portal`.
+  //        which the application is free to read parcel data. If `num_portals`
+  //        or `num_os_handles` is non-null, the value(s) pointed to are updated
+  //        to reflect the count of available portals and OS handles.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `num_portals` is
-  //        non-null and `*num_portals` is non-zero but `portals` is null, or
-  //        `num_os_handles` is non-null and `*num_os_handles` is non-zero but
-  //        `os_handles` is null.
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel has at least
-  //        one data byte but `data` or `num_data_bytes` is null; if the next
-  //        available parcel has at least one portal but `num_portals` is null
-  //        or `*num_portals` is 0; or if the next available parcel has at least
-  //        one OS handle but `num_os_handles` is null or `*num_os_handles` is
-  //        0. In any case, the value pointed to by any non-null pointer here
-  //        (except `data`) is updated to reflect the required capacity for a
-  //        BeginGet() retry to succeed.
+  //        one data byte but `data` or `num_data_bytes` is null.
   //
   //    IPCZ_RESULT_UNAVAILABLE if the portal's parcel queue is currently empty.
   //        In this case callers should wait before attempting to get anything
@@ -965,20 +963,25 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_ALREADY_EXISTS if there is already a two-phase get operation
   //        in progress on `portal`.
   IpczResult (*BeginGet)(IpczHandle portal,
+                         uint32_t flags,
+                         const void* options,
                          const void** data,
                          uint32_t* num_data_bytes,
-                         IpczHandle* portals,
                          uint32_t* num_portals,
-                         IpczOSHandle* os_handles,
-                         uint32_t* num_os_handles,
-                         uint32_t flags,
-                         const void* options);
+                         uint32_t* num_os_handles);
 
   // Ends the two-phase get operation started by the most recent successful call
   // to BeginGet() on `portal`.
   //
   // `num_data_bytes_consumed` specifies the number of bytes actually read from
   // the buffer that was returned from the original BeginGet() call.
+  //
+  // `portals`, `num_portals`, `os_handles`, and `num_os_handles` are used
+  // and behave exactly the same as with a Get() call. Note that BeginGet()
+  // also exposes the number of available portals and OS handles as its outputs,
+  // so applications expecting to receive either during a two-phase get should
+  // read those outputs and use them as hints to avoid a redundant call to
+  // EndGet() resulting in IPCZ_RESOURCE_EXHAUSTED.
   //
   // If IPCZ_END_GET_ABORT is given in `flags` and there is a two-phase get
   // operation in progress on `portal`, all other arguments are ignored and the
@@ -995,6 +998,13 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        the caller, it will remain in queue with the rest of its data intact
   //        for a subsequent get operation to retrieve.
   //
+  //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
+  //        the caller's specified capacity portals or OS handles. In this case,
+  //        any non-null size pointer is updated to convey the minimum capacity
+  //        that would have been required for an otherwise identical EndGet()
+  //        call to have succeeded. Callers observing this result may wish to
+  //        allocate storage accordingly and retry with updated parameters.
+  //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid or
   //        `num_data_bytes_consumed` is larger than the capacity of the buffer
   //        originally returned by BeginGet().
@@ -1004,7 +1014,11 @@ struct IPCZ_ALIGN(8) IpczAPI {
   IpczResult (*EndGet)(IpczHandle portal,
                        uint32_t num_data_bytes_consumed,
                        IpczEndGetFlags flags,
-                       const void* options);
+                       const void* options,
+                       IpczHandle* portals,
+                       uint32_t* num_portals,
+                       struct IpczOSHandle* os_handles,
+                       uint32_t* num_os_handles);
 
   // Creates a new monitor to watch for specific conditions on the given portal.
   // The conditions to monitor are given by `descriptor->conditions`.

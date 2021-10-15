@@ -188,8 +188,8 @@ IpczResult QueryPortalStatus(IpczHandle portal,
 IpczResult Put(IpczHandle portal,
                const void* data,
                uint32_t num_data_bytes,
-               const IpczHandle* ipcz_handles,
-               uint32_t num_ipcz_handles,
+               const IpczHandle* portals,
+               uint32_t num_portals,
                const IpczOSHandle* os_handles,
                uint32_t num_os_handles,
                uint32_t flags,
@@ -203,7 +203,7 @@ IpczResult Put(IpczHandle portal,
   if (num_data_bytes > 0 && !data) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_ipcz_handles > 0 && !ipcz_handles) {
+  if (num_portals > 0 && !portals) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles > 0 && !os_handles) {
@@ -217,15 +217,15 @@ IpczResult Put(IpczHandle portal,
 
   const auto* bytes = static_cast<const uint8_t*>(data);
   return ToPortal(portal).Put(absl::MakeSpan(bytes, num_data_bytes),
-                              absl::MakeSpan(ipcz_handles, num_ipcz_handles),
+                              absl::MakeSpan(portals, num_portals),
                               absl::MakeSpan(os_handles, num_os_handles),
                               limits);
 }
 
 IpczResult BeginPut(IpczHandle portal,
-                    uint32_t* num_data_bytes,
                     IpczBeginPutFlags flags,
                     const IpczBeginPutOptions* options,
+                    uint32_t* num_data_bytes,
                     void** data) {
   if (portal == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -242,13 +242,13 @@ IpczResult BeginPut(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToPortal(portal).BeginPut(*num_data_bytes, flags, limits, data);
+  return ToPortal(portal).BeginPut(flags, limits, *num_data_bytes, data);
 }
 
 IpczResult EndPut(IpczHandle portal,
                   uint32_t num_data_bytes_produced,
-                  const IpczHandle* ipcz_handles,
-                  uint32_t num_ipcz_handles,
+                  const IpczHandle* portals,
+                  uint32_t num_portals,
                   const IpczOSHandle* os_handles,
                   uint32_t num_os_handles,
                   IpczEndPutFlags flags,
@@ -256,7 +256,7 @@ IpczResult EndPut(IpczHandle portal,
   if (portal == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_ipcz_handles > 0 && !ipcz_handles) {
+  if (num_portals > 0 && !portals) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles > 0 && !os_handles) {
@@ -267,66 +267,67 @@ IpczResult EndPut(IpczHandle portal,
     return ToPortal(portal).AbortPut();
   }
 
-  return ToPortal(portal).CommitPut(
-      num_data_bytes_produced, absl::MakeSpan(ipcz_handles, num_ipcz_handles),
-      absl::MakeSpan(os_handles, num_os_handles));
+  return ToPortal(portal).CommitPut(num_data_bytes_produced,
+                                    absl::MakeSpan(portals, num_portals),
+                                    absl::MakeSpan(os_handles, num_os_handles));
 }
 
 IpczResult Get(IpczHandle portal,
+               uint32_t flags,
+               const void* options,
                void* data,
                uint32_t* num_data_bytes,
-               IpczHandle* ipcz_handles,
-               uint32_t* num_ipcz_handles,
+               IpczHandle* portals,
+               uint32_t* num_portals,
                IpczOSHandle* os_handles,
-               uint32_t* num_os_handles,
-               uint32_t flags,
-               const void* options) {
+               uint32_t* num_os_handles) {
   if (portal == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_data_bytes && *num_data_bytes > 0 && !data) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_ipcz_handles && *num_ipcz_handles > 0 && !ipcz_handles) {
+  if (num_portals && *num_portals > 0 && !portals) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles && *num_os_handles > 0 && !os_handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToPortal(portal).Get(data, num_data_bytes, ipcz_handles,
-                              num_ipcz_handles, os_handles, num_os_handles);
+  return ToPortal(portal).Get(data, num_data_bytes, portals, num_portals,
+                              os_handles, num_os_handles);
 }
 
 IpczResult BeginGet(IpczHandle portal,
+                    uint32_t flags,
+                    const void* options,
                     const void** data,
                     uint32_t* num_data_bytes,
-                    IpczHandle* ipcz_handles,
-                    uint32_t* num_ipcz_handles,
-                    IpczOSHandle* os_handles,
-                    uint32_t* num_os_handles,
-                    uint32_t flags,
-                    const void* options) {
+                    uint32_t* num_portals,
+                    uint32_t* num_os_handles) {
   if (portal == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_ipcz_handles && *num_ipcz_handles > 0 && !ipcz_handles) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-  if (num_os_handles && *num_os_handles > 0 && !os_handles) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
 
-  return ToPortal(portal).BeginGet(data, num_data_bytes, ipcz_handles,
-                                   num_ipcz_handles, os_handles,
+  return ToPortal(portal).BeginGet(data, num_data_bytes, num_portals,
                                    num_os_handles);
 }
 
 IpczResult EndGet(IpczHandle portal,
                   uint32_t num_data_bytes_consumed,
                   IpczEndGetFlags flags,
-                  const void* options) {
+                  const void* options,
+                  IpczHandle* portals,
+                  uint32_t* num_portals,
+                  struct IpczOSHandle* os_handles,
+                  uint32_t* num_os_handles) {
   if (portal == IPCZ_INVALID_HANDLE) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+  if (num_portals && *num_portals > 0 && !portals) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+  if (num_os_handles && *num_os_handles && !os_handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -334,7 +335,8 @@ IpczResult EndGet(IpczHandle portal,
     return ToPortal(portal).AbortGet();
   }
 
-  return ToPortal(portal).CommitGet(num_data_bytes_consumed);
+  return ToPortal(portal).CommitGet(num_data_bytes_consumed, portals,
+                                    num_portals, os_handles, num_os_handles);
 }
 
 IpczResult CreateMonitor(IpczHandle portal,

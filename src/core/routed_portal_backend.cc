@@ -34,9 +34,9 @@ IpczResult RoutedPortalBackend::Put(absl::Span<const uint8_t> data,
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult RoutedPortalBackend::BeginPut(uint32_t& num_data_bytes,
-                                         IpczBeginPutFlags flags,
+IpczResult RoutedPortalBackend::BeginPut(IpczBeginPutFlags flags,
                                          const IpczPutLimits* limits,
+                                         uint32_t& num_data_bytes,
                                          void** data) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
@@ -63,14 +63,16 @@ IpczResult RoutedPortalBackend::Get(void* data,
 
 IpczResult RoutedPortalBackend::BeginGet(const void** data,
                                          uint32_t* num_data_bytes,
-                                         IpczHandle* portals,
                                          uint32_t* num_portals,
-                                         IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult RoutedPortalBackend::CommitGet(uint32_t num_data_bytes_consumed) {
+IpczResult RoutedPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
+                                          IpczHandle* portals,
+                                          uint32_t* num_portals,
+                                          IpczOSHandle* os_handles,
+                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
