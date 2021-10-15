@@ -112,6 +112,8 @@ TEST_F(GetAPITest, OutputExactDimensionsOnSuccess) {
   EXPECT_EQ(sizeof(data), num_bytes);
   EXPECT_EQ(2u, num_portals);
   EXPECT_EQ(1u, num_os_handles);
+
+  ClosePortals({out_portals[0], out_portals[1]});
 }
 
 TEST_F(GetAPITest, Empty) {
