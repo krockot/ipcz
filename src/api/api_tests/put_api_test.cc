@@ -11,6 +11,50 @@ namespace {
 
 using PutAPITest = test::APITest;
 
+TEST_F(PutAPITest, InvalidArgs) {
+  // Invalid portal
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Put(IPCZ_INVALID_HANDLE, nullptr, 0, nullptr, 0, nullptr, 0,
+                     IPCZ_NO_FLAGS, nullptr));
+
+  IpczHandle a, b;
+  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+
+  // Invalid options
+  IpczPutOptions options = {0};
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, &options));
+
+  // Invalid limits
+  IpczPutLimits limits = {0};
+  options.size = sizeof(options);
+  options.limits = &limits;
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, &options));
+
+  // Null buffers with non-zero counts.
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.Put(a, nullptr, 1, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.Put(a, nullptr, 0, nullptr, 1, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr, 1, IPCZ_NO_FLAGS, nullptr));
+
+  // Putting a portal or its peer into itself is also invalid.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Put(a, nullptr, 0, &a, 1, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Put(a, nullptr, 0, &b, 1, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
+
+  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+}
+
 TEST_F(PutAPITest, PutData) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
@@ -94,86 +138,6 @@ TEST_F(PutAPITest, PutDataLimit) {
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-}
-
-TEST_F(PutAPITest, TwoPhaseNoOverlap) {
-  IpczHandle a, b;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
-
-  void* data;
-  uint32_t num_bytes = 4;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, nullptr, &data));
-  EXPECT_EQ(IPCZ_RESULT_ALREADY_EXISTS,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, nullptr, &data));
-  EXPECT_EQ(
-      IPCZ_RESULT_ALREADY_EXISTS,
-      ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
-
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-}
-
-TEST_F(PutAPITest, TwoPhaseEndNonExistent) {
-  IpczHandle a, b;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
-
-  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(
-      IPCZ_RESULT_FAILED_PRECONDITION,
-      ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_END_PUT_ABORT, nullptr));
-
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-}
-
-TEST_F(PutAPITest, TwoPhasePutParcelLimit) {
-  IpczHandle a, b;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
-
-  IpczPutLimits limits = {sizeof(limits)};
-  limits.max_queued_parcels = 2;
-  IpczBeginPutOptions options = {sizeof(options)};
-  options.limits = &limits;
-
-  void* data;
-  uint32_t num_bytes = 4;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, &options, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
-
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, &options, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
-
-  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, &options, &data));
-
-  limits.max_queued_parcels = 3;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, &num_bytes, IPCZ_NO_FLAGS, &options, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
-
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-}
-
-TEST_F(PutAPITest, TwoPhaseOversizedEnd) {
-  IpczHandle a, b;
-  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.BeginPut(a, nullptr, IPCZ_NO_FLAGS, nullptr, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 }  // namespace

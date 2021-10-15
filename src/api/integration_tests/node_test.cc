@@ -9,22 +9,22 @@
 namespace ipcz {
 namespace {
 
-using NodeAPITest = test::APITest;
+using NodeTest = test::APITest;
 
-TEST_F(NodeAPITest, CreateAndDestroyNode) {
+TEST_F(NodeTest, CreateAndDestroyNode) {
   IpczHandle node;
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
 }
 
-TEST_F(NodeAPITest, CreateAndDestroyBrokerNode) {
+TEST_F(NodeTest, CreateAndDestroyBrokerNode) {
   IpczHandle node;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.CreateNode(IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
 }
 
-TEST_F(NodeAPITest, OpenAndClosePortals) {
+TEST_F(NodeTest, OpenAndClosePortals) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));

@@ -9,9 +9,35 @@
 namespace ipcz {
 namespace {
 
-using QueryStatusAPITest = test::APITest;
+using QueryPortalStatusAPITest = test::APITest;
 
-TEST_F(QueryStatusAPITest, QueryClosedBit) {
+TEST_F(QueryPortalStatusAPITest, InvalidArgs) {
+  IpczHandle a, b;
+  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+
+  // Null status
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
+                                   IPCZ_NO_FLAGS, nullptr, nullptr));
+
+  // Invalid status size.
+  IpczPortalStatus status = {0};
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
+                                   IPCZ_NO_FLAGS, nullptr, &status));
+
+  // Invalid portal handle.
+  status.size = sizeof(status);
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.QueryPortalStatus(IPCZ_INVALID_HANDLE, IPCZ_PORTAL_STATUS_FIELD_BITS,
+                             IPCZ_NO_FLAGS, nullptr, &status));
+
+  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+}
+
+TEST_F(QueryPortalStatusAPITest, ClosedBit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
