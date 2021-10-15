@@ -12,7 +12,27 @@ namespace {
 using GetAPITest = test::APITest;
 
 TEST_F(GetAPITest, InvalidArgs) {
-  // TODO
+  // Invalid portal.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Get(IPCZ_INVALID_HANDLE, nullptr, nullptr, nullptr, nullptr,
+                     nullptr, nullptr, IPCZ_NO_FLAGS, nullptr));
+
+  uint32_t not_zero = 4;
+
+  // Null data buffer but non-zero byte count
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Get(q, nullptr, &not_zero, nullptr, nullptr, nullptr, nullptr,
+                     IPCZ_NO_FLAGS, nullptr));
+
+  // Null portal buffer but non-zero portal count.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Get(q, nullptr, nullptr, nullptr, &not_zero, nullptr, nullptr,
+                     IPCZ_NO_FLAGS, nullptr));
+
+  // Null OS handle buffer but non-zero OS handle count.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.Get(q, nullptr, nullptr, nullptr, nullptr, nullptr, &not_zero,
+                     IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

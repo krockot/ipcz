@@ -35,7 +35,7 @@ class DirectPortalBackend : public PortalBackend {
   IpczResult QueryStatus(IpczPortalStatusFieldFlags field_flags,
                          IpczPortalStatus& status) override;
   IpczResult Put(absl::Span<const uint8_t> data,
-                 absl::Span<const IpczHandle> ipcz_handles,
+                 absl::Span<const IpczHandle> portals,
                  absl::Span<const IpczOSHandle> os_handles,
                  const IpczPutLimits* limits) override;
   IpczResult BeginPut(uint32_t& num_data_bytes,
@@ -43,19 +43,19 @@ class DirectPortalBackend : public PortalBackend {
                       const IpczPutLimits* limits,
                       void** data) override;
   IpczResult CommitPut(uint32_t num_data_bytes_produced,
-                       absl::Span<const IpczHandle> ipcz_handles,
+                       absl::Span<const IpczHandle> portals,
                        absl::Span<const IpczOSHandle> os_handles) override;
   IpczResult AbortPut() override;
   IpczResult Get(void* data,
                  uint32_t* num_data_bytes,
-                 IpczHandle* ipcz_handles,
-                 uint32_t* num_ipcz_handles,
+                 IpczHandle* portals,
+                 uint32_t* num_portals,
                  IpczOSHandle* os_handles,
                  uint32_t* num_os_handles) override;
   IpczResult BeginGet(const void** data,
                       uint32_t* num_data_bytes,
-                      IpczHandle* ipcz_handles,
-                      uint32_t* num_ipcz_handles,
+                      IpczHandle* portals,
+                      uint32_t* num_portals,
                       IpczOSHandle* os_handles,
                       uint32_t* num_os_handles) override;
   IpczResult CommitGet(uint32_t num_data_bytes_consumed) override;

@@ -37,7 +37,7 @@ class PortalBackend {
                                  IpczPortalStatus& status) = 0;
 
   virtual IpczResult Put(absl::Span<const uint8_t> data,
-                         absl::Span<const IpczHandle> ipcz_handles,
+                         absl::Span<const IpczHandle> portals,
                          absl::Span<const IpczOSHandle> os_handles,
                          const IpczPutLimits* limits) = 0;
   virtual IpczResult BeginPut(uint32_t& num_data_bytes,
@@ -45,20 +45,20 @@ class PortalBackend {
                               const IpczPutLimits* limits,
                               void** data) = 0;
   virtual IpczResult CommitPut(uint32_t num_data_bytes_produced,
-                               absl::Span<const IpczHandle> ipcz_handles,
+                               absl::Span<const IpczHandle> portals,
                                absl::Span<const IpczOSHandle> os_handles) = 0;
   virtual IpczResult AbortPut() = 0;
 
   virtual IpczResult Get(void* data,
                          uint32_t* num_data_bytes,
-                         IpczHandle* ipcz_handles,
-                         uint32_t* num_ipcz_handles,
+                         IpczHandle* portals,
+                         uint32_t* num_portals,
                          IpczOSHandle* os_handles,
                          uint32_t* num_os_handles) = 0;
   virtual IpczResult BeginGet(const void** data,
                               uint32_t* num_data_bytes,
-                              IpczHandle* ipcz_handles,
-                              uint32_t* num_ipcz_handles,
+                              IpczHandle* portals,
+                              uint32_t* num_portals,
                               IpczOSHandle* os_handles,
                               uint32_t* num_os_handles) = 0;
   virtual IpczResult CommitGet(uint32_t num_data_bytes_consumed) = 0;

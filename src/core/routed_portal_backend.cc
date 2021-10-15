@@ -28,7 +28,7 @@ IpczResult RoutedPortalBackend::QueryStatus(
 }
 
 IpczResult RoutedPortalBackend::Put(absl::Span<const uint8_t> data,
-                                    absl::Span<const IpczHandle> ipcz_handles,
+                                    absl::Span<const IpczHandle> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
   return IPCZ_RESULT_UNIMPLEMENTED;
@@ -43,7 +43,7 @@ IpczResult RoutedPortalBackend::BeginPut(uint32_t& num_data_bytes,
 
 IpczResult RoutedPortalBackend::CommitPut(
     uint32_t num_data_bytes_produced,
-    absl::Span<const IpczHandle> ipcz_handles,
+    absl::Span<const IpczHandle> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
@@ -54,8 +54,8 @@ IpczResult RoutedPortalBackend::AbortPut() {
 
 IpczResult RoutedPortalBackend::Get(void* data,
                                     uint32_t* num_data_bytes,
-                                    IpczHandle* ipcz_handles,
-                                    uint32_t* num_ipcz_handles,
+                                    IpczHandle* portals,
+                                    uint32_t* num_portals,
                                     IpczOSHandle* os_handles,
                                     uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
@@ -63,8 +63,8 @@ IpczResult RoutedPortalBackend::Get(void* data,
 
 IpczResult RoutedPortalBackend::BeginGet(const void** data,
                                          uint32_t* num_data_bytes,
-                                         IpczHandle* ipcz_handles,
-                                         uint32_t* num_ipcz_handles,
+                                         IpczHandle* portals,
+                                         uint32_t* num_portals,
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;

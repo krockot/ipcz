@@ -20,6 +20,10 @@ class APITest : public testing::Test {
 
   IpczAPI ipcz;
 
+  // For convenience, every API test starts with connected portals q and p.
+  IpczHandle q;
+  IpczHandle p;
+
  private:
   IpczHandle node_;
 };

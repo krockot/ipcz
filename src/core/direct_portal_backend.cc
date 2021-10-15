@@ -22,6 +22,10 @@ Portal& ToPortal(IpczHandle handle) {
   return *reinterpret_cast<Portal*>(static_cast<uintptr_t>(handle));
 }
 
+IpczHandle ToHandle(Portal* portal) {
+  return static_cast<IpczHandle>(reinterpret_cast<uintptr_t>(portal));
+}
+
 // A parcel passed between two directly connected portals.
 struct Parcel {
   std::vector<uint8_t> data;
@@ -144,7 +148,7 @@ IpczResult DirectPortalBackend::QueryStatus(
 }
 
 IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
-                                    absl::Span<const IpczHandle> ipcz_handles,
+                                    absl::Span<const IpczHandle> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
   IpczResult result = IPCZ_RESULT_OK;
@@ -161,9 +165,9 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
   Portal* other_portal = other_backend->portal();
 
   auto parcel = std::make_unique<Parcel>();
-  parcel->portals.reserve(ipcz_handles.size());
+  parcel->portals.reserve(portals.size());
 
-  for (IpczHandle handle : ipcz_handles) {
+  for (IpczHandle handle : portals) {
     Portal& portal_to_put = ToPortal(handle);
 
     // Safety check: we can't put ourself or our peer into our own portal.
@@ -190,7 +194,7 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
   if (result != IPCZ_RESULT_OK) {
     // Give the caller their handles back, because we're going to fail.
     for (size_t i = 0; i < parcel->portals.size(); ++i) {
-      ToPortal(ipcz_handles[i]).SetBackend(std::move(parcel->portals[i]));
+      ToPortal(portals[i]).SetBackend(std::move(parcel->portals[i]));
     }
     return result;
   }
@@ -264,7 +268,7 @@ IpczResult DirectPortalBackend::BeginPut(uint32_t& num_data_bytes,
 
 IpczResult DirectPortalBackend::CommitPut(
     uint32_t num_data_bytes_produced,
-    absl::Span<const IpczHandle> ipcz_handles,
+    absl::Span<const IpczHandle> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   IpczResult result = IPCZ_RESULT_OK;
   absl::MutexLock lock(&state_->mutex);
@@ -285,8 +289,8 @@ IpczResult DirectPortalBackend::CommitPut(
 
   Portal* other_portal = other_backend->portal();
 
-  parcel->portals.reserve(ipcz_handles.size());
-  for (IpczHandle handle : ipcz_handles) {
+  parcel->portals.reserve(portals.size());
+  for (IpczHandle handle : portals) {
     Portal& portal_to_put = ToPortal(handle);
 
     // Safety check: we can't put ourself or our peer into our own portal.
@@ -301,7 +305,7 @@ IpczResult DirectPortalBackend::CommitPut(
   if (result != IPCZ_RESULT_OK) {
     // Give the caller their handles back, because we're going to fail.
     for (size_t i = 0; i < parcel->portals.size(); ++i) {
-      ToPortal(ipcz_handles[i]).SetBackend(std::move(parcel->portals[i]));
+      ToPortal(portals[i]).SetBackend(std::move(parcel->portals[i]));
     }
     parcel->portals.clear();
     return result;
@@ -342,17 +346,64 @@ IpczResult DirectPortalBackend::AbortPut() {
 
 IpczResult DirectPortalBackend::Get(void* data,
                                     uint32_t* num_data_bytes,
-                                    IpczHandle* ipcz_handles,
-                                    uint32_t* num_ipcz_handles,
+                                    IpczHandle* portals,
+                                    uint32_t* num_portals,
                                     IpczOSHandle* os_handles,
                                     uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&state_->mutex);
+  PortalState& state = this_side();
+  if (state.in_two_phase_get) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  const bool empty = !state.incoming_parcels;
+  const bool closed = other_side().backend == nullptr;
+  if (empty && closed) {
+    return IPCZ_RESULT_NOT_FOUND;
+  } else if (empty) {
+    return IPCZ_RESULT_UNAVAILABLE;
+  }
+
+  size_t available_data_storage = num_data_bytes ? *num_data_bytes : 0;
+  size_t available_handle_storage = num_portals ? *num_portals : 0;
+  size_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
+  auto& parcel = state.incoming_parcels;
+  if (parcel->data.size() > available_data_storage ||
+      parcel->portals.size() > available_handle_storage ||
+      parcel->handles.size() > available_os_handle_storage) {
+    if (num_data_bytes) {
+      *num_data_bytes = static_cast<uint32_t>(parcel->data.size());
+    }
+    if (num_portals) {
+      *num_portals = static_cast<uint32_t>(parcel->portals.size());
+    }
+    if (num_os_handles) {
+      *num_os_handles = static_cast<uint32_t>(parcel->handles.size());
+    }
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  std::unique_ptr<Parcel> retrieved_parcel = std::move(parcel);
+  parcel = std::move(retrieved_parcel->next_parcel);
+  if (!parcel) {
+    this_side().last_incoming_parcel = nullptr;
+  }
+
+  memcpy(data, parcel->data.data(), parcel->data.size());
+  for (size_t i = 0; i < parcel->portals.size(); ++i) {
+    auto portal = std::make_unique<Portal>(std::move(parcel->portals[i]));
+    portals[i] = ToHandle(portal.release());
+  }
+  for (size_t i = 0; i < parcel->handles.size(); ++i) {
+    os::Handle::ToIpczOSHandle(std::move(parcel->handles[i]), &os_handles[i]);
+  }
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult DirectPortalBackend::BeginGet(const void** data,
                                          uint32_t* num_data_bytes,
-                                         IpczHandle* ipcz_handles,
-                                         uint32_t* num_ipcz_handles,
+                                         IpczHandle* portals,
+                                         uint32_t* num_portals,
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles) {
   return IPCZ_RESULT_UNIMPLEMENTED;
