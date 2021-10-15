@@ -24,6 +24,21 @@ class APITest : public testing::Test {
   IpczHandle q;
   IpczHandle p;
 
+  // Shorthand for opening portals on node() and asserting success.
+  void OpenPortals(IpczHandle* a, IpczHandle* b) {
+    ASSERT_EQ(IPCZ_RESULT_OK,
+              ipcz.OpenPortals(node_, IPCZ_NO_FLAGS, nullptr, a, b));
+  }
+
+  // Shorthand for closing a list of portals.
+  template <size_t N>
+  void ClosePortals(const IpczHandle (&handles)[N]) {
+    for (IpczHandle handle : handles) {
+      ASSERT_EQ(IPCZ_RESULT_OK,
+                ipcz.ClosePortal(handle, IPCZ_NO_FLAGS, nullptr));
+    }
+  }
+
  private:
   IpczHandle node_;
 };
