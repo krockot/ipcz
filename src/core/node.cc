@@ -7,7 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include "core/monitor.h"
 #include "core/name.h"
 #include "core/portal.h"
 #include "mem/ref_counted.h"

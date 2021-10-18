@@ -157,21 +157,15 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  Portal* other_portal = other_backend->portal();
-
   auto parcel = std::make_unique<Parcel>();
   parcel->portals.reserve(portals.size());
 
   for (IpczHandle handle : portals) {
-    Portal& portal_to_put = ToPortal(handle);
+    Portal& portal = ToPortal(handle);
 
-    // Safety check: we can't put ourself or our peer into our own portal.
-    if (&portal_to_put == portal() || &portal_to_put == other_portal) {
-      result = IPCZ_RESULT_INVALID_ARGUMENT;
-      break;
-    }
+    // TODO: safety check to prevent a portal from eating itself
 
-    parcel->portals.push_back(portal_to_put.TakeBackend());
+    parcel->portals.push_back(portal.TakeBackend());
   }
 
   PortalState& other_state = other_side();
@@ -291,19 +285,13 @@ IpczResult DirectPortalBackend::CommitPut(
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  Portal* other_portal = other_backend->portal();
-
   parcel->portals.reserve(portals.size());
   for (IpczHandle handle : portals) {
-    Portal& portal_to_put = ToPortal(handle);
+    Portal& portal = ToPortal(handle);
 
-    // Safety check: we can't put ourself or our peer into our own portal.
-    if (&portal_to_put == portal() || &portal_to_put == other_portal) {
-      result = IPCZ_RESULT_INVALID_ARGUMENT;
-      break;
-    }
+    // TODO: safety check to prevent a portal from eating itself
 
-    parcel->portals.push_back(portal_to_put.TakeBackend());
+    parcel->portals.push_back(portal.TakeBackend());
   }
 
   if (result != IPCZ_RESULT_OK) {
@@ -505,12 +493,6 @@ IpczResult DirectPortalBackend::AbortGet() {
 
   state.in_two_phase_get = false;
   return IPCZ_RESULT_OK;
-}
-
-IpczResult DirectPortalBackend::CreateMonitor(
-    const IpczMonitorDescriptor& descriptor,
-    IpczHandle* handle) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
 DirectPortalBackend::PortalState& DirectPortalBackend::this_side() {

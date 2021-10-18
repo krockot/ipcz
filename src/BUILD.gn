@@ -31,8 +31,6 @@ source_set("ipcz_sources") {
   sources = [
     "core/direct_portal_backend.cc",
     "core/direct_portal_backend.h",
-    "core/monitor.cc",
-    "core/monitor.h",
     "core/name.cc",
     "core/name.h",
     "core/node.cc",
@@ -82,14 +80,14 @@ config("ipcz_include_src_dir") {
 test("ipcz_tests") {
   sources = [
     "api/api_tests/accept_remote_portal_api_test.cc",
-    "api/api_tests/activate_monitor_api_test.cc",
+    "api/api_tests/arm_trap_api_test.cc",
     "api/api_tests/begin_get_api_test.cc",
     "api/api_tests/begin_put_api_test.cc",
     "api/api_tests/close_portal_api_test.cc",
-    "api/api_tests/create_monitor_api_test.cc",
     "api/api_tests/create_node_api_test.cc",
-    "api/api_tests/destroy_monitor_api_test.cc",
+    "api/api_tests/create_trap_api_test.cc",
     "api/api_tests/destroy_node_api_test.cc",
+    "api/api_tests/destroy_trap_api_test.cc",
     "api/api_tests/end_get_api_test.cc",
     "api/api_tests/end_put_api_test.cc",
     "api/api_tests/get_api_test.cc",

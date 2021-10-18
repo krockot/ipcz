@@ -6,8 +6,11 @@
 #define IPCZ_SRC_CORE_PORTAL_H_
 
 #include <cstdint>
+#include <list>
 #include <utility>
+#include <vector>
 
+#include "core/portal_backend_observer.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -19,12 +22,12 @@ namespace core {
 class Node;
 class PortalBackend;
 
-class Portal {
+class Portal : private PortalBackendObserver {
  public:
   using Pair = std::pair<std::unique_ptr<Portal>, std::unique_ptr<Portal>>;
 
   explicit Portal(std::unique_ptr<PortalBackend> backend);
-  ~Portal();
+  ~Portal() override;
 
   static Pair CreateLocalPair(mem::Ref<Node> node);
 
@@ -67,10 +70,23 @@ class Portal {
                        uint32_t* num_os_handles);
   IpczResult AbortGet();
 
-  IpczResult CreateMonitor(const IpczMonitorDescriptor& descriptor,
-                           IpczHandle* handle);
+  IpczResult CreateTrap(const IpczTrapConditions& conditions,
+                        IpczTrapEventHandler handler,
+                        uintptr_t context,
+                        IpczPortalStatusFieldFlags status_fields,
+                        IpczHandle* trap);
+  IpczResult ArmTrap(IpczHandle trap,
+                     IpczTrapConditions* satisfied_conditions,
+                     IpczPortalStatus* status);
+  IpczResult DestroyTrap(IpczHandle trap);
 
  private:
+  // PortalBackendObserver:
+  void OnPeerClosed(const PortalBackendStatus& status) override;
+  void OnPortalDead(const PortalBackendStatus& status) override;
+  void OnQueueChanged(const PortalBackendStatus& status) override;
+  void OnPeerQueueChanged(const PortalBackendStatus& status) override;
+
   absl::Mutex mutex_;
   std::unique_ptr<PortalBackend> backend_ ABSL_GUARDED_BY(mutex_);
 };

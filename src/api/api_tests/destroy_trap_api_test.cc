@@ -9,11 +9,14 @@
 namespace ipcz {
 namespace {
 
-using DestroyMonitorAPITest = test::APITest;
+using DestroyTrapAPITest = test::APITest;
 
-TEST_F(DestroyMonitorAPITest, InvalidArgs) {
+TEST_F(DestroyTrapAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.DestroyMonitor(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr));
+            ipcz.DestroyTrap(p, IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.DestroyTrap(IPCZ_INVALID_HANDLE, IPCZ_INVALID_HANDLE,
+                             IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

@@ -16,7 +16,7 @@ namespace ipcz {
 namespace core {
 
 class Node;
-class Portal;
+class PortalBackendObserver;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
 // one backend to another if its peer is moved onto or off of the same node.
@@ -26,16 +26,14 @@ class PortalBackend {
   PortalBackend();
   virtual ~PortalBackend();
 
-  // Back-reference to our owning Portal. This is managed by the portal itself,
-  // is only modified by one portal at a time and only under the portal's own
-  // internal mutex. Null if the backend is in transit.
-  void set_portal(Portal* portal) { portal_ = portal; }
-  Portal* portal() const { return portal_; }
+  // This is managed by the portal itself. May be null if there no current
+  // observer.
+  void set_observer(PortalBackendObserver* observer) { observer_ = observer; }
+  PortalBackendObserver* observer() const { return observer_; }
 
   virtual IpczResult Close() = 0;
   virtual IpczResult QueryStatus(IpczPortalStatusFieldFlags field_flags,
                                  IpczPortalStatus& status) = 0;
-
   virtual IpczResult Put(absl::Span<const uint8_t> data,
                          absl::Span<const IpczHandle> portals,
                          absl::Span<const IpczOSHandle> os_handles,
@@ -48,7 +46,6 @@ class PortalBackend {
                                absl::Span<const IpczHandle> portals,
                                absl::Span<const IpczOSHandle> os_handles) = 0;
   virtual IpczResult AbortPut() = 0;
-
   virtual IpczResult Get(void* data,
                          uint32_t* num_data_bytes,
                          IpczHandle* portals,
@@ -66,11 +63,8 @@ class PortalBackend {
                                uint32_t* num_os_handles) = 0;
   virtual IpczResult AbortGet() = 0;
 
-  virtual IpczResult CreateMonitor(const IpczMonitorDescriptor& descriptor,
-                                   IpczHandle* handle) = 0;
-
  private:
-  Portal* portal_ = nullptr;
+  PortalBackendObserver* observer_ = nullptr;
 };
 
 }  // namespace core

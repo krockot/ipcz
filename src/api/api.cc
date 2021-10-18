@@ -8,7 +8,6 @@
 #include <tuple>
 
 #include "build/build_config.h"
-#include "core/monitor.h"
 #include "core/name.h"
 #include "core/node.h"
 #include "core/portal.h"
@@ -43,11 +42,6 @@ ipcz::mem::Ref<ipcz::core::Node>& ToNode(IpczHandle node) {
 
 ipcz::core::Portal& ToPortal(IpczHandle portal) {
   return *reinterpret_cast<ipcz::core::Portal*>(static_cast<uintptr_t>(portal));
-}
-
-ipcz::core::Monitor& ToMonitor(IpczHandle monitor) {
-  return *reinterpret_cast<ipcz::core::Monitor*>(
-      static_cast<uintptr_t>(monitor));
 }
 
 }  // namespace
@@ -339,42 +333,47 @@ IpczResult EndGet(IpczHandle portal,
                                     num_portals, os_handles, num_os_handles);
 }
 
-IpczResult CreateMonitor(IpczHandle portal,
-                         const IpczMonitorDescriptor* descriptor,
-                         uint32_t flags,
-                         const void* options,
-                         IpczHandle* monitor) {
-  if (portal == IPCZ_INVALID_HANDLE || !monitor) {
+IpczResult CreateTrap(IpczHandle portal,
+                      const IpczTrapConditions* conditions,
+                      IpczTrapEventHandler handler,
+                      uintptr_t context,
+                      IpczPortalStatusFieldFlags status_fields,
+                      uint32_t flags,
+                      const void* options,
+                      IpczHandle* trap) {
+  if (portal == IPCZ_INVALID_HANDLE || !trap || !handler) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (!descriptor || descriptor->size < sizeof(IpczMonitorDescriptor)) {
+  if (!conditions || conditions->size < sizeof(IpczTrapConditions)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToPortal(portal).CreateMonitor(*descriptor, monitor);
+  return ToPortal(portal).CreateTrap(*conditions, handler, context,
+                                     status_fields, trap);
 }
 
-IpczResult ActivateMonitor(IpczHandle monitor,
-                           uint32_t flags,
-                           const void* options,
-                           IpczMonitorConditionFlags* conditions,
-                           IpczPortalStatus* status) {
-  if (monitor == IPCZ_INVALID_HANDLE) {
+IpczResult ArmTrap(IpczHandle portal,
+                   IpczHandle trap,
+                   uint32_t flags,
+                   const void* options,
+                   IpczTrapConditions* satisfied_conditions,
+                   IpczPortalStatus* status) {
+  if (portal == IPCZ_INVALID_HANDLE || trap == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToMonitor(monitor).Activate(conditions, status);
+  return ToPortal(portal).ArmTrap(trap, satisfied_conditions, status);
 }
 
-IpczResult DestroyMonitor(IpczHandle monitor,
-                          uint32_t flags,
-                          const void* options) {
-  if (monitor == IPCZ_INVALID_HANDLE) {
+IpczResult DestroyTrap(IpczHandle portal,
+                       IpczHandle trap,
+                       uint32_t flags,
+                       const void* options) {
+  if (portal == IPCZ_INVALID_HANDLE || trap == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  std::unique_ptr<ipcz::core::Monitor> doomed_monitor(&ToMonitor(monitor));
-  return IPCZ_RESULT_OK;
+  return ToPortal(portal).DestroyTrap(trap);
 }
 
 constexpr IpczAPI kCurrentAPI = {
@@ -392,13 +391,13 @@ constexpr IpczAPI kCurrentAPI = {
     Get,
     BeginGet,
     EndGet,
-    CreateMonitor,
-    ActivateMonitor,
-    DestroyMonitor,
+    CreateTrap,
+    ArmTrap,
+    DestroyTrap,
 };
 
 constexpr size_t kVersion0APISize =
-    offsetof(IpczAPI, DestroyMonitor) + sizeof(kCurrentAPI.DestroyMonitor);
+    offsetof(IpczAPI, DestroyTrap) + sizeof(kCurrentAPI.DestroyTrap);
 
 MAYBE_EXPORT IpczResult IpczGetAPI(IpczAPI* api) {
   if (!api || api->size < kVersion0APISize) {

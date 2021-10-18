@@ -57,8 +57,6 @@ class RoutedPortalBackend : public PortalBackend {
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) override;
   IpczResult AbortGet() override;
-  IpczResult CreateMonitor(const IpczMonitorDescriptor& descriptor,
-                           IpczHandle* handle) override;
 
  private:
   const mem::Ref<Node> node_;

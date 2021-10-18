@@ -234,8 +234,8 @@ typedef uint32_t IpczEndGetFlags;
 // aborted without consuming any data from the portal.
 #define IPCZ_END_GET_ABORT IPCZ_FLAG_BIT(0)
 
-// Status field selectors given to QueryPortalStatus() or CreateMonitor() to
-// select which fields of an IpczPortalStatus are interesting to the caller.
+// Status field selectors given to QueryPortalStatus() or CreateTrap() to select
+// which fields of an IpczPortalStatus are interesting to the caller.
 //
 // When an IpczPortalStatus is populated by ipcz on behalf of a caller, only the
 // fields selected by these flags are populated, and all other fields are left
@@ -273,7 +273,7 @@ typedef uint32_t IpczPortalStatusBits;
 #define IPCZ_PORTAL_STATUS_BIT_CLOSED IPCZ_FLAG_BIT(0)
 
 // Information returned by QueryPortalStatus() or provided to
-// IpczMonitorEventHandlers when a portal monitor's conditions on their portal.
+// IpczTrapEventHandlers when a trap's conditions on their portal.
 struct IPCZ_ALIGN(8) IpczPortalStatus {
   // The exact size of this structure in bytes. Must be set accurately before
   // passing the structure to any functions.
@@ -287,7 +287,7 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
   // The number of unretrieved parcels queued on this portal.
   //
   // Set only if IPCZ_PORTAL_STATUS_FIELD_LOCAL_PARCELS is selected on the
-  // corresponding CreateMonitor() or QueryPortalStatus() call. Otherwise this
+  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
   // value is unspecified.
   uint64_t num_local_parcels;
 
@@ -295,14 +295,14 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
   // this portal.
   //
   // Set only if IPCZ_PORTAL_STATUS_FIELD_LOCAL_BYTES is selected on the
-  // corresponding CreateMonitor() or QueryPortalStatus() call. Otherwise this
+  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
   // value is unspecified.
   uint64_t num_local_bytes;
 
   // The number of unretrieved parcels queued on the opposite portal.
   //
   // Set only if IPCZ_PORTAL_STATUS_FIELD_REMOTE_PARCELS is selected on the
-  // corresponding CreateMonitor() or QueryPortalStatus() call. Otherwise this
+  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
   // value is unspecified.
   uint64_t num_remote_parcels;
 
@@ -310,116 +310,101 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
   // the opposite portal.
   //
   // Set only if IPCZ_PORTAL_STATUS_FIELD_REMOTE_BYTES is selected on the
-  // corresponding CreateMonitor() or QueryPortalStatus() call. Otherwise this
+  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
   // value is unspecified.
   uint64_t num_remote_bytes;
 };
 
-// Flags given to IpczMonitorConditions to indicate which types of conditions a
-// monitor should observe.
-typedef uint32_t IpczMonitorConditionFlags;
+// Flags given to IpczTrapConditions to indicate which types of conditions a
+// trap should observe.
+typedef uint32_t IpczTrapConditionFlags;
 
-// Triggers a monitor event whenever the opposite portal is closed. Typically
-// applications are interested in the more specific IPCZ_MONITOR_CONDITION_DEAD.
-#define IPCZ_MONITOR_CONDITION_CLOSED IPCZ_FLAG_BIT(0)
+// Triggers a trap event whenever the trap itself is destroyed, either
+// explicitly via DestroyTrap() or implicitly by closing its portal. This is the
+// only condition which can cause a trap to fire an event while disarmed, and
+// this flag will always be set on last event fired by any trap which specifies
+// it as a condition.
+#define IPCZ_TRAP_CONDITION_DESTROYED IPCZ_FLAG_BIT(0)
 
-// Triggers a monitor event whenever there are no more parcels available to
+// Triggers a trap event whenever the opposite portal is closed. Typically
+// applications are interested in the more specific IPCZ_TRAP_CONDITION_DEAD.
+#define IPCZ_TRAP_CONDITION_PEER_CLOSED IPCZ_FLAG_BIT(1)
+
+// Triggers a trap event whenever there are no more parcels available to
 // retrieve from this portal AND the opposite portal is closed. This means the
 // portal will never again have parcels to retrieve and is effectively useless
-#define IPCZ_MONITOR_CONDITION_DEAD IPCZ_FLAG_BIT(1)
+#define IPCZ_TRAP_CONDITION_DEAD IPCZ_FLAG_BIT(2)
 
-// Triggers a monitor event whenever the number of parcels queued for retrieval
-// by this portal exceeds the threshold given by `min_local_parcels` in
-// IpczMonitorConditions.
-#define IPCZ_MONITOR_CONDITION_LOCAL_PARCELS IPCZ_FLAG_BIT(2)
+// Triggers a trap event whenever the number of parcels queued for retrieval by
+// this portal exceeds the threshold given by `min_local_parcels` in
+// IpczTrapConditions.
+#define IPCZ_TRAP_CONDITION_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
 
-// Triggers a monitor event whenever the number of bytes queued for retrieval by
+// Triggers a trap event whenever the number of bytes queued for retrieval by
 // this portal exceeds the threshold given by `min_local_bytes` in
-// IpczMonitorConditions.
-#define IPCZ_MONITOR_CONDITION_LOCAL_BYTES IPCZ_FLAG_BIT(3)
+// IpczTrapConditions.
+#define IPCZ_TRAP_CONDITION_LOCAL_BYTES IPCZ_FLAG_BIT(4)
 
-// Triggers a monitor event whenever the number of parcels queued for retrieval
-// on the opposite portal drops below the threshold given by
-// `max_remote_parcels` in IpczMonitorConditions.
-#define IPCZ_MONITOR_CONDITION_REMOTE_PARCELS IPCZ_FLAG_BIT(2)
+// Triggers a trap event whenever the number of parcels queued for retrieval on
+// the opposite portal drops below the threshold given by `max_remote_parcels`
+// in IpczTrapConditions.
+#define IPCZ_TRAP_CONDITION_REMOTE_PARCELS IPCZ_FLAG_BIT(5)
 
-// Triggers a monitor event whenever the number of bytes queued for retrieval
-// on the opposite portal drops below the threshold given by `max_remote_bytes`
-// in IpczMonitorConditions.
-#define IPCZ_MONITOR_CONDITION_LOCAL_BYTES IPCZ_FLAG_BIT(3)
+// Triggers a trap event whenever the number of bytes queued for retrieval on
+// the opposite portal drops below the threshold given by `max_remote_bytes` in
+// in IpczTrapConditions.
+#define IPCZ_TRAP_CONDITION_REMOTE_BYTES IPCZ_FLAG_BIT(6)
 
-// A structure describing portal conditions which should trigger an active
-// monitor to invoke its event handler.
-struct IPCZ_ALIGN(8) IpczMonitorConditions {
+// A structure describing portal conditions necessary to trigger a trap and
+// invoke its event handler.
+struct IPCZ_ALIGN(8) IpczTrapConditions {
   // The exact size of this structure in bytes. Must be set accurately before
-  // passing the structure to CreateMonitor() via IpczMonitorDescriptor.
+  // passing the structure to CreateTrap() or ArmTrap().
   uint32_t size;
 
-  // See the IPCZ_MONITOR_CONDITION_* flags described above.
-  IpczMonitorConditionFlags flags;
+  // See the IPCZ_TRAP_CONDITION_* flags described above.
+  IpczTrapConditionFlags flags;
 
-  // See IPCZ_MONITOR_CONDITION_LOCAL_PARCELS. If that flag is not set in
+  // See IPCZ_TRAP_CONDITION_LOCAL_PARCELS. If that flag is not set in
   // `flags`, this field is ignored.
   uint32_t min_local_parcels;
 
-  // See IPCZ_MONITOR_CONDITION_LOCAL_BYTES. If that flag is not set in
+  // See IPCZ_TRAP_CONDITION_LOCAL_BYTES. If that flag is not set in
   // `flags`, this field is ignored.
   uint32_t min_local_bytes;
 
-  // See IPCZ_MONITOR_CONDITION_REMOTE_PARCELS. If that flag is not set in
+  // See IPCZ_TRAP_CONDITION_REMOTE_PARCELS. If that flag is not set in
   // `flags`, this field is ignored.
   uint32_t max_remote_parcels;
 
-  // See IPCZ_MONITOR_CONDITION_REMOTE_BYTES. If that flag is not set in
+  // See IPCZ_TRAP_CONDITION_REMOTE_BYTES. If that flag is not set in
   // `flags`, this field is ignored.
   uint32_t max_remote_bytes;
 };
 
-// Structure passed to each IpczMonitorEventHandler invocation with details
-// about the event.
-struct IPCZ_ALIGN(8) IpczMonitorEvent {
-  // The context value originally given to CreateMonitor() when creating the
-  // monitor which triggered this event.
+// Structure passed to each IpczTrapEventHandler invocation with details about
+// the event.
+struct IPCZ_ALIGN(8) IpczTrapEvent {
+  // The size of this structure in bytes. Populated by ipcz to indicate which
+  // version is being provided to the handler.
+  uint32_t size;
+
+  // The context value originally given to CreateTrap() when creating the trap
+  // which fired this event.
   uintptr_t context;
 
   // Flags indicating which condition(s) triggered this event.
-  IpczMonitorConditionFlags condition_flags;
+  IpczTrapConditionFlags condition_flags;
 
   // The current status of the portal which triggered this event. Only the
-  // fields indicated by the monitor's IpczPortalStatusFields value will be
+  // fields indicated by the trap's IpczPortalStatusFields value will be
   // populated. The rest are unspecified.
-  const IpczPortalStatus* portal_status;
+  const IpczPortalStatus* status;
 };
 
-// An application-defined function to be invoked by a portal monitor when its
-// observed conditions are satisfied on the monitored portal.
-typedef void (*IpczMonitorEventHandler)(const struct IpczMonitorEvent* event);
-
-// A structure describing a new portal monitor to create with CreateMonitor().
-struct IPCZ_ALIGN(8) IpczMonitorDescriptor {
-  // The exact size of this structure in bytes. Must be set accurately before
-  // passing the structure to CreateMonitor().
-  uint32_t size;
-
-  // The conditions under which this monitor should invoke its handler when
-  // active.
-  const struct IpczMonitorConditions* conditions;
-
-  // The event handler to invoke any time this monitor is active and its
-  // conditions become satisfied on the monitored portal.
-  IpczMonitorEventHandler handler;
-
-  // An arbitrary application-provided value which will be passed to every
-  // invocation of `handler` made on behalf of this monitor. This allows a
-  // common event handler to differentiate between the monitors invoking it.
-  uintptr_t context;
-
-  // Flags selecting which IpczPortalStatus fields are interesting to `handler`.
-  // Every invocation of `handler` is provided an instance of IpczPortalStatus,
-  // but only the fields specified by this value will be populated with each
-  // invocation. Other fields will have unspecified values.
-  IpczPortalStatusFieldFlags status_fields;
-};
+// An application-defined function to be invoked by a trap when its observed
+// conditions are satisfied on the monitored portal.
+typedef void (*IpczTrapEventHandler)(const struct IpczTrapEvent* event);
 
 extern "C" {
 
@@ -428,7 +413,7 @@ extern "C" {
 //
 // Note that all functions follow a consistent parameter ordering:
 //
-//   1. Object handle (e.g. node, portal, or monitor) if applicable
+//   1. Object handle (node or portal) if applicable
 //   2. Function-specific strict input values
 //   3. Flags - possibly untyped and unused
 //   4. Options struct - possibly untyped and unused
@@ -635,6 +620,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
                                    IpczHandle* portal);
 
   // Closes the portal identified by `portal`.
+  //
+  // This function is NOT thread-safe. It is the application's responsibility to
+  // ensure that no other threads are performing other operations on `portal`
+  // concurrently with this call or any time thereafter.
   //
   // `flags` is ignored and must be 0.
   //
@@ -1020,35 +1009,36 @@ struct IPCZ_ALIGN(8) IpczAPI {
                        struct IpczOSHandle* os_handles,
                        uint32_t* num_os_handles);
 
-  // Creates a new monitor to watch for specific conditions on the given portal.
-  // The conditions to monitor are given by `descriptor->conditions`.
+  // Creates a trap to catch interesting changes to a portal's state.
   //
-  // Monitors are created in an inactive state, and an inactive monitor will
-  // never invoke its handler. To activate a monitor, call ActivateMonitor.
+  // Traps are created in a disarmed state and must be armed explicitly by a
+  // call to ArmTrap(). Once armed they can fire the given `handler` exactly
+  // once, at which point they are automatically disarmed again.
   //
-  // Whenever a monitor is active and a portal transitions to state which meets
-  // the monitor's conditions, `descriptor->handler` is invoked with
-  // `descriptor->context` from whichever thread changed the portal's state
-  // accordingly. This invocation will also provide an IpczPortalStatus
-  // structure to convey the last known status of the portal to the handler.
-  // Only fields selected by `descriptor->status_fields` will be populated on
-  // each invocation.
+  // An armed trap will invoke its `handler` as soon as any condition described
+  // by `conditions` becomes satisfied. For example if `conditions` specifies an
+  // interest in IPCZ_TRAP_CONDITION_LOCAL_PARCELS with a value of 1 in
+  // `min_local_parcels` and the trap is armed, then `handler` will be invoked
+  // as soon as there is at least one incoming parcel available for retrieval on
+  // `portal`.
   //
-  // A portal's state may be changed by any thread, including an internal ipcz
-  // thread observing incoming parcels from out-of-process. Because of this,
-  // applications should assume that `handler` may be invoked at any time on any
-  // thread, and so it must always be thread-safe.
+  // When `handler` is invoked, it's passed the value of `context`, which
+  // applications may use to differentiate between multiple traps using the same
+  // handler. It's also passed an IpczPortalStatus structure partially populated
+  // according to the fields selected by `status_fields`, indicating details of
+  // the portal's state at the time of the invocation.
   //
-  // If a relevant state change is elicited directly by the application calling
-  // an ipcz function (for example, putting a parcel into the opposite portal
-  // with Put()), any corresponding `handler` invocation will be deferred until
-  // just before the stack unwinds from the outermost ipcz API invocation. This
-  // avoids potential reentrancy issues in ipcz.
+  // A disarmed trap will never invoke its handler, with one exception: traps
+  // watching IPCZ_TRAP_CONDITION_DESTROYED can fire an event even while
+  // disarmed to indicate that the trap has been destroyed. This is always the
+  // last event fired by such traps, and it is fired whether the trap is
+  // destroyed explicitly by a call to DestroyTrap() or implicitly by closing
+  // the portal itself.
   //
-  // Handlers do not need to support reentrancy either, as ipcz will never run
-  // overlapping IpczMonitorEventHandlers. If an action taken by one handler
-  // would elicit the invocation of another handler, the latter handler's
-  // invocation is deferred until immediately after the first handler returns.
+  // Note that a portal's state may be changed by any thread, including an
+  // internal ipcz thread observing incoming parcels from out-of-process.
+  // Because of this, application developers must be mindful of thread safety
+  // within `handler` and whatever logic might arm or destroy traps.
   //
   // `flags` is ignored and must be 0.
   //
@@ -1056,72 +1046,72 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the monitor was created successfully. The monitor must
-  //        still be activated before it can invoke `handler` in response to any
-  //        state changes on `portal`. Upon return, `*monitor` is populated with
-  //        a handle to the new monitor object.
+  //    IPCZ_RESULT_OK if the trap was created successfully as described above.
+  //        `*trap* is populated with a handle the application may use in
+  //        subsequent calls to ArmTrap() or DestroyTrap().
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `descriptor` is
-  //        null or invalid, `conditions` is null or invalid, or `monitor` is
-  //        null.
-  IpczResult (*CreateMonitor)(IpczHandle portal,
-                              const struct IpczMonitorDescriptor* descriptor,
-                              uint32_t flags,
-                              const void* options,
-                              IpczHandle* monitor);
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `conditions` is
+  //        null or invalid, `handler` is null, or `trap` is null.
+  IpczResult (*CreateTrap)(IpczHandle portal,
+                           const struct IpczTrapConditions* conditions,
+                           IpczTrapEventHandler handler,
+                           uintptr_t context,
+                           IpczPortalStatusFieldFlags status_fields,
+                           uint32_t flags,
+                           const void* options,
+                           IpczHandle* trap);
 
-  // Activates `monitor` if possible.
+  // Arms a trap.
   //
-  // Note that a monitor can only be activated while its conditions are NOT met.
-  // Otherwise this call will fail with an error indicating that some condition
-  // is already met, and the value pointed to by `conditions` (if non-null) will
-  // be updated with one or more flags indicating which condition(s) are already
-  // met.
+  // If successful the trap may invoke its event handler at any time on any
+  // thread, as soon as its specified conditions become satisfied.
+  // Once this occurs the trap is once again disarmed and must be re-armed by
+  // another call to ArmTrap().
   //
-  // If `status` is non-null, then it will also be populated with details of the
-  // portal's current status, according to the monitor's interest in various
-  // status fields given by its IpczMonitorDescriptor at creation time. Similar
-  // to QueryPortalStatus(), status fields not explicitly requested by the
-  // IpczMonitorDescriptor will not be populated here.
+  // If the trap's conditions are already satisfied at the time of this call,
+  // the call fails with IPCZ_RESULT_FAILED_PRECONDITION. See below for
+  // additional details.
   //
-  // Once a monitor is successfully activated, it can invoke its handler exactly
-  // once, the next time the portal's state changes to satisfy one of the
-  // monitor's conditions. This may even occur just before ActivateMonitor()
-  // returns with IPCZ_RESULT_OK, so its important for the application's
-  // activation logic to be synchronized against any side effects of the
-  // handler's execution.
-  //
-  // Immediately before the handler is invoked in response to an event, the
-  // monitor is automatically deactivated and it must be activated again by the
-  // application before it will invoke `handler` again.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
+  // As noted in the CreateTrap() description above, a trap may also be tripped
+  // while unarmed, if and only if it's trapping IPCZ_TRAP_CONDITION_DESTROYED.
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the monitor was successfully activated. Its handler
-  //        may be invoked any time after activation succeeds, even before this
-  //        result is returned; although the invocation in that case would have
-  //        to occur on some other thread.
+  //    IPCZ_RESULT_OK if the trap was successfully armed. In this case the
+  //        `conditions` and `status` arguments ignored.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `monitor` is invalid, or status is
-  //        non-null and invalid.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if at least one of the monitor's
-  //        conditions is already met, such that activation would have caused
-  //        an event to fire immediately. In this case `conditions` and
-  //        `status`, if non-null, will be populated according to the
-  //        description given above, allowing the application to deduce the
-  //        precise reasons why activation could not succeed.
-  IpczResult (*ActivateMonitor)(IpczHandle monitor,
-                                uint32_t flags,
-                                const void* options,
-                                IpczMonitorConditionFlags* conditions,
-                                struct IpczPortalStatus* status);
+  //    IPCZ_RESULT_FAILED_PRECONDITION if one or more of the trap's conditions
+  //        are already satisfied, such that the trap would fire an event
+  //        immediately once armed. If `satisfied_conditions` is non-null it
+  //        will be populated to indicate which satisfied condition(s) blocked
+  //        the arming of the trap, and if `status` is not null it will be
+  //        partially populated with details about the portal's current status,
+  //        according to the trap's selected status fields (see CreateTrap()
+  //        above.)
+  IpczResult (*ArmTrap)(IpczHandle portal,
+                        IpczHandle trap,
+                        uint32_t flags,
+                        const void* options,
+                        struct IpczTrapConditions* satisfied_conditions,
+                        struct IpczPortalStatus* status);
 
-  // Destroys a portal monitor previously created by CreateMonitor().
+  // Destroys a trap on `portal`.
+  //
+  // Upon success the specified trap will no longer exist on `portal` and it is
+  // guaranteed to never invoke its handler again.
+  //
+  // Note that an event may occur on another thread which trips the trap and
+  // invokes its handler immediately before or during this call, so applications
+  // must take care to synchronize access to any state shared between the trap
+  // handler and whatever logic manages the trap's lifecycle.
+  //
+  // If the trap trips on another thread concurrently during this call, behavior
+  // is non-deterministic but well defined: either the handler will be invoked
+  // and this call will block until it completes, or the trap will be destroyed
+  // before the handler is invoked, and the handler will then never be invoked.
+  //
+  // If the trap is watching for IPCZ_TRAP_CONDITION_DESTROYED, its handler will
+  // be invoked by DestroyTrap() to indicate that condition before returning.
   //
   // `flags` is ignored and must be 0.
   //
@@ -1129,21 +1119,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the monitor was successfully destroyed. Once this
-  //        result is returned, ipcz guarantees that the monitor's handler will
-  //        no longer be invoked. If the handler is currently executing on
-  //        another thread when this is called, this call will block until the
-  //        handler terminates.
+  //    IPCZ_RESULT_OK if the trap was successfully destroyed. The trap's
+  //        handler will never be invoked after this result is returned.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `monitor` is invalid`.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if the calling thread is currently
-  //        executing the monitor's handler. The monitor cannot be destroyed in
-  //        this case because monitor destruction blocks on handler termination,
-  //        and this would deadlock.
-  IpczResult (*DestroyMonitor)(IpczHandle monitor,
-                               uint32_t flags,
-                               const void* options);
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid`, or if `trap` is
+  //        invalid or doesn't name an existing trap on `portal`.
+  IpczResult (*DestroyTrap)(IpczHandle portal,
+                            IpczHandle trap,
+                            uint32_t flags,
+                            const void* options);
 };
 
 // Populates `api` with a table of ipcz API functions. The `size` field must be

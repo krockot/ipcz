@@ -80,11 +80,5 @@ IpczResult RoutedPortalBackend::AbortGet() {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult RoutedPortalBackend::CreateMonitor(
-    const IpczMonitorDescriptor& descriptor,
-    IpczHandle* handle) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
-}
-
 }  // namespace core
 }  // namespace ipcz
