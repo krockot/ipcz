@@ -163,7 +163,10 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
   for (IpczHandle handle : portals) {
     Portal& portal = ToPortal(handle);
 
-    // TODO: safety check to prevent a portal from eating itself
+    // safety check: a portal must not eat itself
+    if (&portal == owner() || &portal == other_backend->owner()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     parcel->portals.push_back(portal.TakeBackend());
   }
@@ -289,7 +292,10 @@ IpczResult DirectPortalBackend::CommitPut(
   for (IpczHandle handle : portals) {
     Portal& portal = ToPortal(handle);
 
-    // TODO: safety check to prevent a portal from eating itself
+    // safety check: a portal must not eat itself
+    if (&portal == owner() || &portal == other_backend->owner()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     parcel->portals.push_back(portal.TakeBackend());
   }

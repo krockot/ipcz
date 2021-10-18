@@ -16,6 +16,7 @@ namespace ipcz {
 namespace core {
 
 class Node;
+class Portal;
 class PortalBackendObserver;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
@@ -26,8 +27,10 @@ class PortalBackend {
   PortalBackend();
   virtual ~PortalBackend();
 
-  // This is managed by the portal itself. May be null if there no current
-  // observer.
+  // These are managed by the portal itself. May be null if there no current
+  // owner/observer.
+  void set_owner(const Portal* owner) { owner_ = owner; }
+  const Portal* owner() const { return owner_; }
   void set_observer(PortalBackendObserver* observer) { observer_ = observer; }
   PortalBackendObserver* observer() const { return observer_; }
 
@@ -64,6 +67,7 @@ class PortalBackend {
   virtual IpczResult AbortGet() = 0;
 
  private:
+  const Portal* owner_ = nullptr;
   PortalBackendObserver* observer_ = nullptr;
 };
 

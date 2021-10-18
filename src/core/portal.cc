@@ -41,6 +41,7 @@ std::unique_ptr<Portal> Portal::CreateRouted(mem::Ref<Node> node) {
 
 std::unique_ptr<PortalBackend> Portal::TakeBackend() {
   absl::MutexLock lock(&mutex_);
+  backend_->set_owner(nullptr);
   backend_->set_observer(nullptr);
   return std::move(backend_);
 }
@@ -49,6 +50,7 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!backend_);
   backend_ = std::move(backend);
+  backend_->set_owner(this);
   backend_->set_observer(this);
 }
 
