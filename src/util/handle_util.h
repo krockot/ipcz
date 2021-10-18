@@ -17,7 +17,7 @@ IpczHandle ToHandle(T* ptr) {
 }
 
 template <typename T>
-IpczHandle ToPtr(IpczHandle handle) {
+T* ToPtr(IpczHandle handle) {
   return reinterpret_cast<T*>(static_cast<uintptr_t>(handle));
 }
 

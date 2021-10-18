@@ -13,6 +13,7 @@
 #include "core/portal_backend_observer.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
@@ -81,6 +82,13 @@ class Portal : private PortalBackendObserver {
   IpczResult DestroyTrap(IpczHandle trap);
 
  private:
+  struct Trap {
+    IpczTrapConditions conditions;
+    IpczTrapEventHandler handler;
+    uintptr_t context;
+    IpczPortalStatusFieldFlags status_fields;
+  };
+
   // PortalBackendObserver:
   void OnPeerClosed(const PortalBackendStatus& status) override;
   void OnPortalDead(const PortalBackendStatus& status) override;
@@ -89,6 +97,7 @@ class Portal : private PortalBackendObserver {
 
   absl::Mutex mutex_;
   std::unique_ptr<PortalBackend> backend_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_set<std::unique_ptr<Trap>> traps_;
 };
 
 }  // namespace core

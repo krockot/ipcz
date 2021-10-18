@@ -132,7 +132,15 @@ IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
                               uintptr_t context,
                               IpczPortalStatusFieldFlags status_fields,
                               IpczHandle* trap) {
+  auto new_trap = std::make_unique<Trap>();
+  new_trap->conditions = conditions;
+  new_trap->handler = handler;
+  new_trap->context = context;
+  new_trap->status_fields = status_fields;
+  *trap = ToHandle(new_trap.get());
+
   absl::MutexLock lock(&mutex_);
+  traps_.insert(std::move(new_trap));
   return IPCZ_RESULT_OK;
 }
 
@@ -143,6 +151,10 @@ IpczResult Portal::ArmTrap(IpczHandle trap,
 }
 
 IpczResult Portal::DestroyTrap(IpczHandle trap) {
+  absl::MutexLock lock(&mutex_);
+  if (traps_.erase(ToPtr<Trap>(trap)) == 0) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
   return IPCZ_RESULT_OK;
 }
 
