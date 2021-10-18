@@ -165,7 +165,6 @@ IpczResult ClosePortal(IpczHandle portal, uint32_t flags, const void* options) {
 }
 
 IpczResult QueryPortalStatus(IpczHandle portal,
-                             IpczPortalStatusFieldFlags field_flags,
                              uint32_t flags,
                              const void* options,
                              IpczPortalStatus* status) {
@@ -176,7 +175,7 @@ IpczResult QueryPortalStatus(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToPortal(portal).QueryStatus(field_flags, *status);
+  return ToPortal(portal).QueryStatus(*status);
 }
 
 IpczResult Put(IpczHandle portal,
@@ -337,7 +336,6 @@ IpczResult CreateTrap(IpczHandle portal,
                       const IpczTrapConditions* conditions,
                       IpczTrapEventHandler handler,
                       uintptr_t context,
-                      IpczPortalStatusFieldFlags status_fields,
                       uint32_t flags,
                       const void* options,
                       IpczHandle* trap) {
@@ -348,8 +346,7 @@ IpczResult CreateTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToPortal(portal).CreateTrap(*conditions, handler, context,
-                                     status_fields, trap);
+  return ToPortal(portal).CreateTrap(*conditions, handler, context, *trap);
 }
 
 IpczResult ArmTrap(IpczHandle portal,

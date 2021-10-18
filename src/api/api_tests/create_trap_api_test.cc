@@ -16,31 +16,31 @@ TEST_F(CreateTrapAPITest, InvalidArgs) {
   auto handler = [](const IpczTrapEvent* event) {};
 
   // Null conditions.
-  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.CreateTrap(q, nullptr, handler, 0, IPCZ_NO_FLAGS,
-                            IPCZ_NO_FLAGS, nullptr, &trap));
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.CreateTrap(q, nullptr, handler, 0, IPCZ_NO_FLAGS, nullptr, &trap));
 
   // Invalid conditions.
   IpczTrapConditions conditions = {0};
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.CreateTrap(q, &conditions, handler, 0, IPCZ_NO_FLAGS,
-                            IPCZ_NO_FLAGS, nullptr, &trap));
+            ipcz.CreateTrap(q, &conditions, handler, 0, IPCZ_NO_FLAGS, nullptr,
+                            &trap));
 
   // Invalid portal.
   conditions.size = sizeof(conditions);
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.CreateTrap(IPCZ_INVALID_HANDLE, &conditions, handler, 0,
-                            IPCZ_NO_FLAGS, IPCZ_NO_FLAGS, nullptr, &trap));
+                            IPCZ_NO_FLAGS, nullptr, &trap));
 
   // Null handler.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.CreateTrap(q, &conditions, nullptr, 0, IPCZ_NO_FLAGS,
-                            IPCZ_NO_FLAGS, nullptr, &trap));
+            ipcz.CreateTrap(q, &conditions, nullptr, 0, IPCZ_NO_FLAGS, nullptr,
+                            &trap));
 
   // Null output handle.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.CreateTrap(q, &conditions, handler, 0, IPCZ_NO_FLAGS,
-                            IPCZ_NO_FLAGS, nullptr, nullptr));
+            ipcz.CreateTrap(q, &conditions, handler, 0, IPCZ_NO_FLAGS, nullptr,
+                            nullptr));
 }
 
 }  // namespace

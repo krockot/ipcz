@@ -10,7 +10,9 @@
 
 #include "core/node.h"
 #include "core/portal_backend.h"
+#include "core/trap.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -63,6 +65,9 @@ struct DirectPortalBackend::PortalState {
 
   // A pending parcel for an in-progress two-phase put.
   std::unique_ptr<Parcel> pending_parcel;
+
+  // Traps installed on this portal.
+  absl::flat_hash_set<std::unique_ptr<Trap>> traps;
 };
 
 // State shared between two directly connected portals. Both portals' states are
@@ -76,8 +81,80 @@ struct DirectPortalBackend::SharedState : public mem::RefCounted {
   absl::Mutex mutex;
   PortalState sides[2] ABSL_GUARDED_BY(mutex);
 
+  void EnqueueParcelFrom(size_t sender_side, std::unique_ptr<Parcel> parcel) {
+    mutex.AssertHeld();
+    const size_t data_size = parcel->data.size();
+    PortalState& receiver = sides[sender_side ^ 1];
+    Parcel* prev_tail = receiver.last_incoming_parcel;
+    receiver.last_incoming_parcel = parcel.get();
+    if (prev_tail) {
+      prev_tail->next_parcel = std::move(parcel);
+    } else {
+      receiver.incoming_parcels = std::move(parcel);
+    }
+
+    receiver.num_queued_parcels++;
+    receiver.num_queued_data_bytes += data_size;
+  }
+
+  std::vector<uint8_t> ConsumeParcelFrom(size_t receiver_side,
+                                         IpczHandle* portals,
+                                         IpczOSHandle* os_handles) {
+    mutex.AssertHeld();
+    PortalState& receiver = sides[receiver_side];
+    std::unique_ptr<Parcel> parcel = std::move(receiver.incoming_parcels);
+    if (!parcel->next_parcel) {
+      receiver.last_incoming_parcel = nullptr;
+    }
+    receiver.incoming_parcels = std::move(parcel->next_parcel);
+    ConsumePortalsAndHandles(*parcel, portals, os_handles);
+
+    receiver.num_queued_parcels--;
+    receiver.num_queued_data_bytes -= parcel->data.size();
+
+    // TODO: scan sender traps for ones monitoring remote queue shrinkage
+    // TODO: scan receiver traps for ones monitoring local queue growth
+
+    return std::move(parcel->data);
+  }
+
+  void ConsumePartialParcelFrom(size_t receiver_side,
+                                size_t num_bytes_consumed,
+                                IpczHandle* portals,
+                                IpczOSHandle* os_handles) {
+    mutex.AssertHeld();
+    PortalState& receiver = sides[receiver_side];
+
+    receiver.num_queued_data_bytes -= num_bytes_consumed;
+
+    Parcel* parcel = receiver.incoming_parcels.get();
+    ABSL_ASSERT(parcel);
+    parcel->data_offset += num_bytes_consumed;
+
+    ConsumePortalsAndHandles(*parcel, portals, os_handles);
+
+    receiver.num_queued_data_bytes -= num_bytes_consumed;
+
+    // TODO: scan sender traps for ones monitoring remote queue shrinkage
+    // TODO: scan receiver traps for ones monitoring local queue growth
+  }
+
  private:
   ~SharedState() override = default;
+
+  void ConsumePortalsAndHandles(Parcel& parcel,
+                                IpczHandle* portals,
+                                IpczOSHandle* os_handles) {
+    mutex.AssertHeld();
+    for (size_t i = 0; i < parcel.portals.size(); ++i) {
+      auto portal = std::make_unique<Portal>(std::move(parcel.portals[i]));
+      portals[i] = ToHandle(portal.release());
+    }
+    for (size_t i = 0; i < parcel.os_handles.size(); ++i) {
+      os::Handle::ToIpczOSHandle(std::move(parcel.os_handles[i]),
+                                 &os_handles[i]);
+    }
+  }
 };
 
 DirectPortalBackend::DirectPortalBackend(mem::Ref<SharedState> state,
@@ -108,37 +185,19 @@ IpczResult DirectPortalBackend::Close() {
   state.last_incoming_parcel = nullptr;
   state.num_queued_data_bytes = 0;
   state.num_queued_parcels = 0;
+
+  // TODO: scan remote traps for ones monitoring peer closure or portal death
+
   return IPCZ_RESULT_OK;
 }
 
-IpczResult DirectPortalBackend::QueryStatus(
-    IpczPortalStatusFieldFlags field_flags,
-    IpczPortalStatus& status) {
+IpczResult DirectPortalBackend::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&state_->mutex);
-  if (field_flags & IPCZ_PORTAL_STATUS_FIELD_BITS) {
-    if (other_side().backend == nullptr) {
-      status.bits = IPCZ_PORTAL_STATUS_BIT_CLOSED;
-    } else {
-      status.bits = 0;
-    }
-  }
-
-  if (field_flags & IPCZ_PORTAL_STATUS_FIELD_LOCAL_PARCELS) {
-    status.num_local_parcels = this_side().num_queued_parcels;
-  }
-
-  if (field_flags & IPCZ_PORTAL_STATUS_FIELD_LOCAL_BYTES) {
-    status.num_local_bytes = this_side().num_queued_data_bytes;
-  }
-
-  if (field_flags & IPCZ_PORTAL_STATUS_FIELD_REMOTE_PARCELS) {
-    status.num_remote_parcels = other_side().num_queued_parcels;
-  }
-
-  if (field_flags & IPCZ_PORTAL_STATUS_FIELD_REMOTE_BYTES) {
-    status.num_remote_bytes = other_side().num_queued_data_bytes;
-  }
-
+  status.flags = other_side().backend ? 0 : IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  status.num_local_parcels = this_side().num_queued_parcels;
+  status.num_local_bytes = this_side().num_queued_data_bytes;
+  status.num_remote_parcels = other_side().num_queued_parcels;
+  status.num_remote_bytes = other_side().num_queued_data_bytes;
   return IPCZ_RESULT_OK;
 }
 
@@ -206,18 +265,7 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
     parcel->os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
   }
 
-  if (other_state.last_incoming_parcel) {
-    Parcel* old_tail = other_state.last_incoming_parcel;
-    other_state.last_incoming_parcel = parcel.get();
-    old_tail->next_parcel = std::move(parcel);
-  } else {
-    other_state.last_incoming_parcel = parcel.get();
-    other_state.incoming_parcels = std::move(parcel);
-  }
-
-  other_state.num_queued_parcels++;
-  other_state.num_queued_data_bytes += data.size();
-
+  state_->EnqueueParcelFrom(side_, std::move(parcel));
   return IPCZ_RESULT_OK;
 }
 
@@ -315,19 +363,7 @@ IpczResult DirectPortalBackend::CommitPut(
     parcel->os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
   }
 
-  PortalState& other_state = other_side();
-  other_state.num_queued_parcels++;
-  other_state.num_queued_data_bytes += parcel->data.size();
-
-  if (other_state.last_incoming_parcel) {
-    Parcel* old_tail = other_state.last_incoming_parcel;
-    other_state.last_incoming_parcel = parcel.get();
-    old_tail->next_parcel = std::move(parcel);
-  } else {
-    other_state.last_incoming_parcel = parcel.get();
-    other_state.incoming_parcels = std::move(parcel);
-  }
-
+  state_->EnqueueParcelFrom(side_, std::move(parcel));
   return IPCZ_RESULT_OK;
 }
 
@@ -388,21 +424,9 @@ IpczResult DirectPortalBackend::Get(void* data,
     return result;
   }
 
-  std::unique_ptr<Parcel> parcel = std::move(next_parcel);
-  next_parcel = std::move(parcel->next_parcel);
-  if (!next_parcel) {
-    this_side().last_incoming_parcel = nullptr;
-  }
-
-  memcpy(data, parcel->data.data(), parcel->data.size());
-  for (size_t i = 0; i < parcel->portals.size(); ++i) {
-    auto portal = std::make_unique<Portal>(std::move(parcel->portals[i]));
-    portals[i] = ToHandle(portal.release());
-  }
-  for (size_t i = 0; i < parcel->os_handles.size(); ++i) {
-    os::Handle::ToIpczOSHandle(std::move(parcel->os_handles[i]),
-                               &os_handles[i]);
-  }
+  std::vector<uint8_t> parcel_data =
+      state_->ConsumeParcelFrom(side_, portals, os_handles);
+  memcpy(data, parcel_data.data(), parcel_data.size());
   return IPCZ_RESULT_OK;
 }
 
@@ -479,12 +503,10 @@ IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
   }
 
   if (num_data_bytes_consumed == data_size) {
-    next_parcel = std::move(next_parcel->next_parcel);
-    if (!next_parcel) {
-      state.last_incoming_parcel = nullptr;
-    }
+    state_->ConsumeParcelFrom(side_, portals, os_handles);
   } else {
-    next_parcel->data_offset += num_data_bytes_consumed;
+    state_->ConsumePartialParcelFrom(side_, num_data_bytes_consumed, portals,
+                                     os_handles);
   }
   state.in_two_phase_get = false;
   return IPCZ_RESULT_OK;
@@ -509,6 +531,33 @@ DirectPortalBackend::PortalState& DirectPortalBackend::this_side() {
 DirectPortalBackend::PortalState& DirectPortalBackend::other_side() {
   state_->mutex.AssertHeld();
   return state_->sides[side_ ^ 1];
+}
+
+IpczResult DirectPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
+  absl::MutexLock lock(&state_->mutex);
+  this_side().traps.emplace(std::move(trap));
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult DirectPortalBackend::ArmTrap(
+    Trap& trap,
+    IpczTrapConditions* satisfied_conditions,
+    IpczPortalStatus* status) {
+  absl::MutexLock lock(&state_->mutex);
+  if (this_side().traps.find(&trap) == this_side().traps.end()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  // TODO
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult DirectPortalBackend::RemoveTrap(Trap& trap) {
+  absl::MutexLock lock(&state_->mutex);
+  if (this_side().traps.erase(&trap) == 0) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+  return IPCZ_RESULT_OK;
 }
 
 }  // namespace core

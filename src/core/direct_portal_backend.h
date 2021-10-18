@@ -32,8 +32,7 @@ class DirectPortalBackend : public PortalBackend {
 
   // PortalBackend:
   IpczResult Close() override;
-  IpczResult QueryStatus(IpczPortalStatusFieldFlags field_flags,
-                         IpczPortalStatus& status) override;
+  IpczResult QueryStatus(IpczPortalStatus& status) override;
   IpczResult Put(absl::Span<const uint8_t> data,
                  absl::Span<const IpczHandle> portals,
                  absl::Span<const IpczOSHandle> os_handles,
@@ -62,6 +61,11 @@ class DirectPortalBackend : public PortalBackend {
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) override;
   IpczResult AbortGet() override;
+  IpczResult AddTrap(std::unique_ptr<Trap> trap) override;
+  IpczResult ArmTrap(Trap& trap,
+                     IpczTrapConditions* satisfied_conditions,
+                     IpczPortalStatus* status) override;
+  IpczResult RemoveTrap(Trap& trap) override;
 
  private:
   struct SharedState;

@@ -6,14 +6,10 @@
 #define IPCZ_SRC_CORE_PORTAL_H_
 
 #include <cstdint>
-#include <list>
 #include <utility>
-#include <vector>
 
-#include "core/portal_backend_observer.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
@@ -23,12 +19,12 @@ namespace core {
 class Node;
 class PortalBackend;
 
-class Portal : private PortalBackendObserver {
+class Portal {
  public:
   using Pair = std::pair<std::unique_ptr<Portal>, std::unique_ptr<Portal>>;
 
   explicit Portal(std::unique_ptr<PortalBackend> backend);
-  ~Portal() override;
+  ~Portal();
 
   static Pair CreateLocalPair(mem::Ref<Node> node);
 
@@ -38,8 +34,7 @@ class Portal : private PortalBackendObserver {
   void SetBackend(std::unique_ptr<PortalBackend> backend);
 
   IpczResult Close();
-  IpczResult QueryStatus(IpczPortalStatusFieldFlags field_flags,
-                         IpczPortalStatus& status);
+  IpczResult QueryStatus(IpczPortalStatus& status);
 
   IpczResult Put(absl::Span<const uint8_t> data,
                  absl::Span<const IpczHandle> portals,
@@ -74,30 +69,15 @@ class Portal : private PortalBackendObserver {
   IpczResult CreateTrap(const IpczTrapConditions& conditions,
                         IpczTrapEventHandler handler,
                         uintptr_t context,
-                        IpczPortalStatusFieldFlags status_fields,
-                        IpczHandle* trap);
+                        IpczHandle& trap);
   IpczResult ArmTrap(IpczHandle trap,
                      IpczTrapConditions* satisfied_conditions,
                      IpczPortalStatus* status);
   IpczResult DestroyTrap(IpczHandle trap);
 
  private:
-  struct Trap {
-    IpczTrapConditions conditions;
-    IpczTrapEventHandler handler;
-    uintptr_t context;
-    IpczPortalStatusFieldFlags status_fields;
-  };
-
-  // PortalBackendObserver:
-  void OnPeerClosed(const PortalBackendStatus& status) override;
-  void OnPortalDead(const PortalBackendStatus& status) override;
-  void OnQueueChanged(const PortalBackendStatus& status) override;
-  void OnPeerQueueChanged(const PortalBackendStatus& status) override;
-
   absl::Mutex mutex_;
   std::unique_ptr<PortalBackend> backend_ ABSL_GUARDED_BY(mutex_);
-  absl::flat_hash_set<std::unique_ptr<Trap>> traps_;
 };
 
 }  // namespace core

@@ -9,15 +9,13 @@
 #include <utility>
 
 #include "ipcz/ipcz.h"
-#include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
 
-class Node;
 class Portal;
-class PortalBackendObserver;
+class Trap;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
 // one backend to another if its peer is moved onto or off of the same node.
@@ -31,12 +29,9 @@ class PortalBackend {
   // owner/observer.
   void set_owner(const Portal* owner) { owner_ = owner; }
   const Portal* owner() const { return owner_; }
-  void set_observer(PortalBackendObserver* observer) { observer_ = observer; }
-  PortalBackendObserver* observer() const { return observer_; }
 
   virtual IpczResult Close() = 0;
-  virtual IpczResult QueryStatus(IpczPortalStatusFieldFlags field_flags,
-                                 IpczPortalStatus& status) = 0;
+  virtual IpczResult QueryStatus(IpczPortalStatus& status) = 0;
   virtual IpczResult Put(absl::Span<const uint8_t> data,
                          absl::Span<const IpczHandle> portals,
                          absl::Span<const IpczOSHandle> os_handles,
@@ -65,10 +60,14 @@ class PortalBackend {
                                IpczOSHandle* os_handles,
                                uint32_t* num_os_handles) = 0;
   virtual IpczResult AbortGet() = 0;
+  virtual IpczResult AddTrap(std::unique_ptr<Trap> trap) = 0;
+  virtual IpczResult ArmTrap(Trap& trap,
+                             IpczTrapConditions* satisfied_conditions,
+                             IpczPortalStatus* status) = 0;
+  virtual IpczResult RemoveTrap(Trap& trap) = 0;
 
  private:
   const Portal* owner_ = nullptr;
-  PortalBackendObserver* observer_ = nullptr;
 };
 
 }  // namespace core

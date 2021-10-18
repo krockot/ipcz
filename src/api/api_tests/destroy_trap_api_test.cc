@@ -21,9 +21,8 @@ TEST_F(DestroyTrapAPITest, InvalidArgs) {
   IpczTrapConditions conditions = {sizeof(conditions)};
   auto handler = [](const IpczTrapEvent* event) {};
   IpczHandle trap;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateTrap(p, &conditions, handler, 0, IPCZ_NO_FLAGS,
-                            IPCZ_NO_FLAGS, nullptr, &trap));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.CreateTrap(p, &conditions, handler, 0,
+                                            IPCZ_NO_FLAGS, nullptr, &trap));
   ASSERT_NE(IPCZ_INVALID_HANDLE, trap);
   EXPECT_EQ(
       IPCZ_RESULT_INVALID_ARGUMENT,

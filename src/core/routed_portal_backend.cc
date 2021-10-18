@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "core/node.h"
+#include "core/trap.h"
 
 namespace ipcz {
 namespace core {
@@ -21,9 +22,7 @@ IpczResult RoutedPortalBackend::Close() {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult RoutedPortalBackend::QueryStatus(
-    IpczPortalStatusFieldFlags field_flags,
-    IpczPortalStatus& status) {
+IpczResult RoutedPortalBackend::QueryStatus(IpczPortalStatus& status) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
@@ -77,6 +76,21 @@ IpczResult RoutedPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
 }
 
 IpczResult RoutedPortalBackend::AbortGet() {
+  return IPCZ_RESULT_UNIMPLEMENTED;
+}
+
+IpczResult RoutedPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
+  return IPCZ_RESULT_UNIMPLEMENTED;
+}
+
+IpczResult RoutedPortalBackend::ArmTrap(
+    Trap& trap,
+    IpczTrapConditions* satisfied_conditions,
+    IpczPortalStatus* status) {
+  return IPCZ_RESULT_UNIMPLEMENTED;
+}
+
+IpczResult RoutedPortalBackend::RemoveTrap(Trap& trap) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 

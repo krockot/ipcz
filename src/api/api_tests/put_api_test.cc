@@ -66,8 +66,7 @@ TEST_F(PutAPITest, PutData) {
 
   IpczPortalStatus status = {sizeof(status)};
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.QueryPortalStatus(b, IPCZ_PORTAL_STATUS_FIELD_LOCAL_PARCELS,
-                                   IPCZ_NO_FLAGS, nullptr, &status));
+            ipcz.QueryPortalStatus(b, IPCZ_NO_FLAGS, nullptr, &status));
   EXPECT_EQ(1u, status.num_local_parcels);
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));

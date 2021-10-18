@@ -17,21 +17,18 @@ TEST_F(QueryPortalStatusAPITest, InvalidArgs) {
 
   // Null status
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
-                                   IPCZ_NO_FLAGS, nullptr, nullptr));
+            ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, nullptr));
 
   // Invalid status size.
   IpczPortalStatus status = {0};
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
-                                   IPCZ_NO_FLAGS, nullptr, &status));
+            ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, &status));
 
   // Invalid portal handle.
   status.size = sizeof(status);
-  EXPECT_EQ(
-      IPCZ_RESULT_INVALID_ARGUMENT,
-      ipcz.QueryPortalStatus(IPCZ_INVALID_HANDLE, IPCZ_PORTAL_STATUS_FIELD_BITS,
-                             IPCZ_NO_FLAGS, nullptr, &status));
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.QueryPortalStatus(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr,
+                                   &status));
 
   ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
   ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
@@ -44,14 +41,12 @@ TEST_F(QueryPortalStatusAPITest, ClosedBit) {
 
   IpczPortalStatus status = {sizeof(status)};
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
-                                   IPCZ_NO_FLAGS, nullptr, &status));
-  EXPECT_EQ(IPCZ_NO_FLAGS, status.bits);
+            ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, &status));
+  EXPECT_EQ(IPCZ_NO_FLAGS, status.flags);
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.QueryPortalStatus(a, IPCZ_PORTAL_STATUS_FIELD_BITS,
-                                   IPCZ_NO_FLAGS, nullptr, &status));
-  EXPECT_EQ(IPCZ_PORTAL_STATUS_BIT_CLOSED, status.bits);
+            ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, &status));
+  EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED, status.flags);
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
 }

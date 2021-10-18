@@ -12,6 +12,7 @@
 #include "core/node.h"
 #include "core/portal_backend.h"
 #include "core/routed_portal_backend.h"
+#include "core/trap.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "util/handle_util.h"
 
@@ -42,7 +43,6 @@ std::unique_ptr<Portal> Portal::CreateRouted(mem::Ref<Node> node) {
 std::unique_ptr<PortalBackend> Portal::TakeBackend() {
   absl::MutexLock lock(&mutex_);
   backend_->set_owner(nullptr);
-  backend_->set_observer(nullptr);
   return std::move(backend_);
 }
 
@@ -51,7 +51,6 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
   ABSL_ASSERT(!backend_);
   backend_ = std::move(backend);
   backend_->set_owner(this);
-  backend_->set_observer(this);
 }
 
 IpczResult Portal::Close() {
@@ -59,10 +58,9 @@ IpczResult Portal::Close() {
   return backend_->Close();
 }
 
-IpczResult Portal::QueryStatus(IpczPortalStatusFieldFlags field_flags,
-                               IpczPortalStatus& status) {
+IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&mutex_);
-  return backend_->QueryStatus(field_flags, status);
+  return backend_->QueryStatus(status);
 }
 
 IpczResult Portal::Put(absl::Span<const uint8_t> data,
@@ -130,41 +128,25 @@ IpczResult Portal::AbortGet() {
 IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
                               IpczTrapEventHandler handler,
                               uintptr_t context,
-                              IpczPortalStatusFieldFlags status_fields,
-                              IpczHandle* trap) {
-  auto new_trap = std::make_unique<Trap>();
-  new_trap->conditions = conditions;
-  new_trap->handler = handler;
-  new_trap->context = context;
-  new_trap->status_fields = status_fields;
-  *trap = ToHandle(new_trap.get());
+                              IpczHandle& trap) {
+  auto new_trap = std::make_unique<Trap>(conditions, handler, context);
+  trap = ToHandle(new_trap.get());
 
   absl::MutexLock lock(&mutex_);
-  traps_.insert(std::move(new_trap));
-  return IPCZ_RESULT_OK;
+  return backend_->AddTrap(std::move(new_trap));
 }
 
 IpczResult Portal::ArmTrap(IpczHandle trap,
                            IpczTrapConditions* satisfied_conditions,
                            IpczPortalStatus* status) {
-  return IPCZ_RESULT_OK;
+  absl::MutexLock lock(&mutex_);
+  return backend_->ArmTrap(ToRef<Trap>(trap), satisfied_conditions, status);
 }
 
 IpczResult Portal::DestroyTrap(IpczHandle trap) {
   absl::MutexLock lock(&mutex_);
-  if (traps_.erase(ToPtr<Trap>(trap)) == 0) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-  return IPCZ_RESULT_OK;
+  return backend_->RemoveTrap(ToRef<Trap>(trap));
 }
-
-void Portal::OnPeerClosed(const PortalBackendStatus& status) {}
-
-void Portal::OnPortalDead(const PortalBackendStatus& status) {}
-
-void Portal::OnQueueChanged(const PortalBackendStatus& status) {}
-
-void Portal::OnPeerQueueChanged(const PortalBackendStatus& status) {}
 
 }  // namespace core
 }  // namespace ipcz

@@ -41,6 +41,8 @@ source_set("ipcz_sources") {
     "core/portal_backend.h",
     "core/routed_portal_backend.cc",
     "core/routed_portal_backend.h",
+    "core/trap.cc",
+    "core/trap.h",
     "mem/atomic_memcpy.cc",
     "mem/atomic_memcpy.h",
     "mem/mpmc_queue.h",

@@ -234,43 +234,14 @@ typedef uint32_t IpczEndGetFlags;
 // aborted without consuming any data from the portal.
 #define IPCZ_END_GET_ABORT IPCZ_FLAG_BIT(0)
 
-// Status field selectors given to QueryPortalStatus() or CreateTrap() to select
-// which fields of an IpczPortalStatus are interesting to the caller.
-//
-// When an IpczPortalStatus is populated by ipcz on behalf of a caller, only the
-// fields selected by these flags are populated, and all other fields are left
-// with unspecified values. See IPCZ_PORTAL_STATUS_FIELD_* flags described
-// below.
-typedef uint32_t IpczPortalStatusFieldFlags;
-
-// Indicates an interest in the portal's status bits. See IpczPortalStatus
-// and IPCZ_PORTAL_STATUS_BIT_* flags described below.
-#define IPCZ_PORTAL_STATUS_FIELD_BITS IPCZ_FLAG_BIT(0)
-
-// Indicates an interest in the number of queued parcels yet to be retrieved
-// from this portal. See IpczPortalStatus.
-#define IPCZ_PORTAL_STATUS_FIELD_LOCAL_PARCELS IPCZ_FLAG_BIT(1)
-
-// Indicates an interest in the number of queued bytes (across all queued
-// parcels) yet to be retrieved from this portal. See IpczPortalStatus.
-#define IPCZ_PORTAL_STATUS_FIELD_LOCAL_BYTES IPCZ_FLAG_BIT(2)
-
-// Indicates an interest in the number of queued parcels yet to be retrieved by
-// the opposite portal. See IpczPortalStatus.
-#define IPCZ_PORTAL_STATUS_FIELD_REMOTE_PARCELS IPCZ_FLAG_BIT(3)
-
-// Indicates an interest in the number of queued bytes (across all queued
-// parcels) yet to be retrieved by the opposite portal. See IpczPortalStatus.
-#define IPCZ_PORTAL_STATUS_FIELD_REMOTE_BYTES IPCZ_FLAG_BIT(4)
-
-// Flags given by the `status_bits` field in IpczPortalStatus.
-typedef uint32_t IpczPortalStatusBits;
+// Flags given by the `flags` field in IpczPortalStatus.
+typedef uint32_t IpczPortalStatusFlags;
 
 // Indicates that the opposite portal is closed. Subsequent put operations on
 // this portal will always fail with IPCZ_RESULT_NOT_FOUND. If there are not
 // currently any unretrieved parcels in the portal either, subsequent get
 // operations will also fail with the same error.
-#define IPCZ_PORTAL_STATUS_BIT_CLOSED IPCZ_FLAG_BIT(0)
+#define IPCZ_PORTAL_STATUS_PEER_CLOSED IPCZ_FLAG_BIT(0)
 
 // Information returned by QueryPortalStatus() or provided to
 // IpczTrapEventHandlers when a trap's conditions on their portal.
@@ -279,39 +250,22 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
   // passing the structure to any functions.
   uint32_t size;
 
-  // Flags. Only populated if IPCZ_PORTAL_STATUS_FIELD_BITS is given. See the
-  // IPCZ_PORTAL_STATUS_BIT_* flags described above for possible bits set in
-  // this value.
-  IpczPortalStatusBits bits;
+  // Flags. See the IPCZ_PORTAL_STATUS_* flags described above for the possible
+  // flags combined in this value.
+  IpczPortalStatusFlags flags;
 
   // The number of unretrieved parcels queued on this portal.
-  //
-  // Set only if IPCZ_PORTAL_STATUS_FIELD_LOCAL_PARCELS is selected on the
-  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
-  // value is unspecified.
   uint64_t num_local_parcels;
 
   // The number of unretrieved bytes (across all unretrieved parcels) queued on
   // this portal.
-  //
-  // Set only if IPCZ_PORTAL_STATUS_FIELD_LOCAL_BYTES is selected on the
-  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
-  // value is unspecified.
   uint64_t num_local_bytes;
 
   // The number of unretrieved parcels queued on the opposite portal.
-  //
-  // Set only if IPCZ_PORTAL_STATUS_FIELD_REMOTE_PARCELS is selected on the
-  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
-  // value is unspecified.
   uint64_t num_remote_parcels;
 
   // The number of unretrieved bytes (across all unretrieved parcels) queued on
   // the opposite portal.
-  //
-  // Set only if IPCZ_PORTAL_STATUS_FIELD_REMOTE_BYTES is selected on the
-  // corresponding CreateTrap() or QueryPortalStatus() call. Otherwise this
-  // value is unspecified.
   uint64_t num_remote_bytes;
 };
 
@@ -396,9 +350,7 @@ struct IPCZ_ALIGN(8) IpczTrapEvent {
   // Flags indicating which condition(s) triggered this event.
   IpczTrapConditionFlags condition_flags;
 
-  // The current status of the portal which triggered this event. Only the
-  // fields indicated by the trap's IpczPortalStatusFields value will be
-  // populated. The rest are unspecified.
+  // The current status of the portal which triggered this event.
   const IpczPortalStatus* status;
 };
 
@@ -654,15 +606,12 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the requested query was completed successfully. Any
-  //        fields indicated by `field_flags` will have a corresponding field
-  //        populated in `status` upon return. Other fields are left in an
-  //        unspecified state.
+  //    IPCZ_RESULT_OK if the requested query was completed successfully.
+  //        `status` is populated with details.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT `portal` is invalid. `status` is null, or
-  //        `status` is non-null but invalid.
+  //    IPCZ_RESULT_INVALID_ARGUMENT `portal` is invalid. `status` is null or
+  //        invalid.
   IpczResult (*QueryPortalStatus)(IpczHandle portal,
-                                  IpczPortalStatusFieldFlags field_flags,
                                   uint32_t flags,
                                   const void* options,
                                   struct IpczPortalStatus* status);
@@ -1024,9 +973,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // When `handler` is invoked, it's passed the value of `context`, which
   // applications may use to differentiate between multiple traps using the same
-  // handler. It's also passed an IpczPortalStatus structure partially populated
-  // according to the fields selected by `status_fields`, indicating details of
-  // the portal's state at the time of the invocation.
+  // handler. It's also passed an IpczPortalStatus structure indicating details
+  // about the portal's state at the time of the invocation.
   //
   // A disarmed trap will never invoke its handler, with one exception: traps
   // watching IPCZ_TRAP_CONDITION_DESTROYED can fire an event even while
@@ -1056,7 +1004,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
                            const struct IpczTrapConditions* conditions,
                            IpczTrapEventHandler handler,
                            uintptr_t context,
-                           IpczPortalStatusFieldFlags status_fields,
                            uint32_t flags,
                            const void* options,
                            IpczHandle* trap);
@@ -1085,9 +1032,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        immediately once armed. If `satisfied_conditions` is non-null it
   //        will be populated to indicate which satisfied condition(s) blocked
   //        the arming of the trap, and if `status` is not null it will be
-  //        partially populated with details about the portal's current status,
-  //        according to the trap's selected status fields (see CreateTrap()
-  //        above.)
+  //        populated with details about the portal's current status.
   IpczResult (*ArmTrap)(IpczHandle portal,
                         IpczHandle trap,
                         uint32_t flags,
