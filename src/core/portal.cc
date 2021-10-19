@@ -13,31 +13,53 @@
 #include "core/portal_backend.h"
 #include "core/routed_portal_backend.h"
 #include "core/trap.h"
+#include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
 
 namespace ipcz {
 namespace core {
 
-Portal::Portal(std::unique_ptr<PortalBackend> backend) {
+namespace {
+
+bool ValidatePortalsForTravel(Portal& sender,
+                              absl::Span<const IpczHandle> handles) {
+  for (IpczHandle handle : handles) {
+    if (!ToRef<Portal>(handle).CanTravelThroughPortal(sender)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
+Portal::Portal(Node& node) : node_(mem::WrapRefCounted(&node)) {}
+
+Portal::Portal(Node& node, std::unique_ptr<PortalBackend> backend)
+    : Portal(node) {
   SetBackend(std::move(backend));
 }
 
-Portal::~Portal() {}
+Portal::~Portal() = default;
 
 // static
-Portal::Pair Portal::CreateLocalPair(mem::Ref<Node> node) {
+Portal::Pair Portal::CreateLocalPair(Node& node) {
+  auto portal0 = mem::MakeRefCounted<Portal>(node);
+  auto portal1 = mem::MakeRefCounted<Portal>(node);
   DirectPortalBackend::Pair backends =
-      DirectPortalBackend::CreatePair(std::move(node));
-  auto portal0 = std::make_unique<Portal>(std::move(backends.first));
-  auto portal1 = std::make_unique<Portal>(std::move(backends.second));
+      DirectPortalBackend::CreatePair(*portal0, *portal1);
+  portal0->SetBackend(std::move(backends.first));
+  portal1->SetBackend(std::move(backends.second));
   return {std::move(portal0), std::move(portal1)};
 }
 
 // static
-std::unique_ptr<Portal> Portal::CreateRouted(mem::Ref<Node> node) {
-  return std::make_unique<Portal>(std::make_unique<RoutedPortalBackend>(
-      std::move(node), PortalName(Name::kRandom)));
+mem::Ref<Portal> Portal::CreateRouted(Node& node) {
+  return mem::MakeRefCounted<Portal>(
+      node, std::make_unique<RoutedPortalBackend>(PortalName(Name::kRandom)));
 }
 
 std::unique_ptr<PortalBackend> Portal::TakeBackend() {
@@ -53,9 +75,22 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
   backend_->set_owner(this);
 }
 
-IpczResult Portal::Close() {
+bool Portal::CanTravelThroughPortal(Portal& sender) {
   absl::MutexLock lock(&mutex_);
-  return backend_->Close();
+  return backend_->CanTravelThroughPortal(sender);
+}
+
+IpczResult Portal::Close() {
+  std::vector<mem::Ref<Portal>> other_portals_to_close;
+  IpczResult result;
+  {
+    absl::MutexLock lock(&mutex_);
+    result = backend_->Close(other_portals_to_close);
+  }
+  for (mem::Ref<Portal>& portal : other_portals_to_close) {
+    portal->Close();
+  }
+  return result;
 }
 
 IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
@@ -67,8 +102,15 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> portals,
                        absl::Span<const IpczOSHandle> os_handles,
                        const IpczPutLimits* limits) {
+  if (!ValidatePortalsForTravel(*this, portals)) {
+    // At least one of the portals given was either `this` or its peer, which is
+    // not allowed.
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  Node::LockedRouter router(*node_);
   absl::MutexLock lock(&mutex_);
-  return backend_->Put(data, portals, os_handles, limits);
+  return backend_->Put(router, data, portals, os_handles, limits);
 }
 
 IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
@@ -82,8 +124,16 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
                              absl::Span<const IpczHandle> portals,
                              absl::Span<const IpczOSHandle> os_handles) {
+  if (!ValidatePortalsForTravel(*this, portals)) {
+    // At least one of the portals given was either `this` or its peer, which is
+    // not allowed.
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  Node::LockedRouter router(*node_);
   absl::MutexLock lock(&mutex_);
-  return backend_->CommitPut(num_data_bytes_produced, portals, os_handles);
+  return backend_->CommitPut(router, num_data_bytes_produced, portals,
+                             os_handles);
 }
 
 IpczResult Portal::AbortPut() {

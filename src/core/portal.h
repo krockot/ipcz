@@ -19,19 +19,21 @@ namespace core {
 class Node;
 class PortalBackend;
 
-class Portal {
+class Portal : public mem::RefCounted {
  public:
-  using Pair = std::pair<std::unique_ptr<Portal>, std::unique_ptr<Portal>>;
+  using Pair = std::pair<mem::Ref<Portal>, mem::Ref<Portal>>;
 
-  explicit Portal(std::unique_ptr<PortalBackend> backend);
-  ~Portal();
+  explicit Portal(Node& node);
+  Portal(Node& node, std::unique_ptr<PortalBackend> backend);
 
-  static Pair CreateLocalPair(mem::Ref<Node> node);
+  static Pair CreateLocalPair(Node& node);
 
-  static std::unique_ptr<Portal> CreateRouted(mem::Ref<Node> node);
+  static mem::Ref<Portal> CreateRouted(Node& node);
 
   std::unique_ptr<PortalBackend> TakeBackend();
   void SetBackend(std::unique_ptr<PortalBackend> backend);
+
+  bool CanTravelThroughPortal(Portal& sender);
 
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);
@@ -76,6 +78,9 @@ class Portal {
   IpczResult DestroyTrap(IpczHandle trap);
 
  private:
+  ~Portal() override;
+
+  const mem::Ref<Node> node_;
   absl::Mutex mutex_;
   std::unique_ptr<PortalBackend> backend_ ABSL_GUARDED_BY(mutex_);
 };

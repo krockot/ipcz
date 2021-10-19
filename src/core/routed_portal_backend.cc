@@ -12,13 +12,17 @@
 namespace ipcz {
 namespace core {
 
-RoutedPortalBackend::RoutedPortalBackend(mem::Ref<Node> node,
-                                         const PortalName& name)
-    : node_(std::move(node)), name_(name) {}
+RoutedPortalBackend::RoutedPortalBackend(const PortalName& name)
+    : name_(name) {}
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
-IpczResult RoutedPortalBackend::Close() {
+bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
+  return false;
+}
+
+IpczResult RoutedPortalBackend::Close(
+    std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
@@ -26,7 +30,8 @@ IpczResult RoutedPortalBackend::QueryStatus(IpczPortalStatus& status) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
-IpczResult RoutedPortalBackend::Put(absl::Span<const uint8_t> data,
+IpczResult RoutedPortalBackend::Put(Node::LockedRouter& router,
+                                    absl::Span<const uint8_t> data,
                                     absl::Span<const IpczHandle> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
@@ -41,6 +46,7 @@ IpczResult RoutedPortalBackend::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult RoutedPortalBackend::CommitPut(
+    Node::LockedRouter& router,
     uint32_t num_data_bytes_produced,
     absl::Span<const IpczHandle> portals,
     absl::Span<const IpczOSHandle> os_handles) {

@@ -15,7 +15,6 @@
 namespace ipcz {
 namespace core {
 
-class Node;
 class Portal;
 
 // PortalBackend implementation for a portal whose peer lives in the same node.
@@ -28,12 +27,15 @@ class DirectPortalBackend : public PortalBackend {
 
   ~DirectPortalBackend() override;
 
-  static Pair CreatePair(mem::Ref<Node> node);
+  static Pair CreatePair(Portal& portal0, Portal& portal1);
 
   // PortalBackend:
-  IpczResult Close() override;
+  bool CanTravelThroughPortal(Portal& sender) override;
+  IpczResult Close(
+      std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
   IpczResult QueryStatus(IpczPortalStatus& status) override;
-  IpczResult Put(absl::Span<const uint8_t> data,
+  IpczResult Put(Node::LockedRouter& router,
+                 absl::Span<const uint8_t> data,
                  absl::Span<const IpczHandle> portals,
                  absl::Span<const IpczOSHandle> os_handles,
                  const IpczPutLimits* limits) override;
@@ -41,7 +43,8 @@ class DirectPortalBackend : public PortalBackend {
                       const IpczPutLimits* limits,
                       uint32_t& num_data_bytes,
                       void** data) override;
-  IpczResult CommitPut(uint32_t num_data_bytes_produced,
+  IpczResult CommitPut(Node::LockedRouter& router,
+                       uint32_t num_data_bytes_produced,
                        absl::Span<const IpczHandle> portals,
                        absl::Span<const IpczOSHandle> os_handles) override;
   IpczResult AbortPut() override;

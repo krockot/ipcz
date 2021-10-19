@@ -28,6 +28,9 @@ void RefCounted::ReleaseRef() {
 
 GenericRef::GenericRef() = default;
 
+GenericRef::GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr)
+    : ptr_(ptr) {}
+
 GenericRef::GenericRef(RefCounted* ptr) : ptr_(ptr) {
   if (ptr_) {
     ptr_->AcquireRef();
@@ -70,6 +73,12 @@ void GenericRef::reset() {
     ptr_->ReleaseRef();
     ptr_ = nullptr;
   }
+}
+
+void* GenericRef::ReleaseImpl() {
+  void* ptr = ptr_;
+  ptr_ = nullptr;
+  return ptr;
 }
 
 }  // namespace mem

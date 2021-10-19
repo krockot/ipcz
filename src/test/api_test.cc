@@ -7,6 +7,14 @@
 namespace ipcz {
 namespace test {
 
+APITest::Parcel::Parcel() = default;
+
+APITest::Parcel::Parcel(Parcel&&) = default;
+
+APITest::Parcel& APITest::Parcel::operator=(Parcel&&) = default;
+
+APITest::Parcel::~Parcel() = default;
+
 APITest::APITest() {
   ipcz.size = sizeof(ipcz);
   IpczGetAPI(&ipcz);

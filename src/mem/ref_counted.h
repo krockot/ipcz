@@ -14,6 +14,8 @@ namespace mem {
 
 class RefCounted {
  public:
+  enum { kAdoptExistingRef };
+
   RefCounted();
   virtual ~RefCounted();
 
@@ -27,6 +29,11 @@ class RefCounted {
 class GenericRef {
  public:
   GenericRef();
+
+  // Does not increase the ref count, effectively assuming ownership of a
+  // previously acquired ref.
+  GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr);
+
   explicit GenericRef(RefCounted* ptr);
   GenericRef(GenericRef&& other);
   GenericRef& operator=(GenericRef&& other);
@@ -34,9 +41,15 @@ class GenericRef {
   GenericRef& operator=(const GenericRef& other);
   ~GenericRef();
 
+  explicit operator bool() const { return ptr_ != nullptr; }
+  bool operator==(const GenericRef& other) const { return ptr_ == other.ptr_; }
+  bool operator!=(const GenericRef& other) const { return ptr_ != other.ptr_; }
+
   void reset();
 
  protected:
+  void* ReleaseImpl();
+
   RefCounted* ptr_ = nullptr;
 };
 
@@ -45,11 +58,15 @@ class Ref : public GenericRef {
  public:
   Ref() = default;
   explicit Ref(T* ptr) : GenericRef(ptr) {}
+  Ref(decltype(RefCounted::kAdoptExistingRef), T* ptr)
+      : GenericRef(RefCounted::kAdoptExistingRef, ptr) {}
 
   T* get() const { return static_cast<T*>(ptr_); }
   T* operator->() const { return get(); }
   T& operator*() const { return *get(); }
   operator T*() const { return get(); }
+
+  T* release() { return static_cast<T*>(ReleaseImpl()); }
 };
 
 template <typename T, typename... Args>

@@ -7,14 +7,18 @@
 
 #include <cstdint>
 #include <utility>
+#include <vector>
 
+#include "core/node.h"
 #include "ipcz/ipcz.h"
+#include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
 
 class Portal;
+class Router;
 class Trap;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
@@ -30,9 +34,12 @@ class PortalBackend {
   void set_owner(const Portal* owner) { owner_ = owner; }
   const Portal* owner() const { return owner_; }
 
-  virtual IpczResult Close() = 0;
+  virtual bool CanTravelThroughPortal(Portal& sender) = 0;
+  virtual IpczResult Close(
+      std::vector<mem::Ref<Portal>>& other_portals_to_close) = 0;
   virtual IpczResult QueryStatus(IpczPortalStatus& status) = 0;
-  virtual IpczResult Put(absl::Span<const uint8_t> data,
+  virtual IpczResult Put(Node::LockedRouter& router,
+                         absl::Span<const uint8_t> data,
                          absl::Span<const IpczHandle> portals,
                          absl::Span<const IpczOSHandle> os_handles,
                          const IpczPutLimits* limits) = 0;
@@ -40,7 +47,8 @@ class PortalBackend {
                               const IpczPutLimits* limits,
                               uint32_t& num_data_bytes,
                               void** data) = 0;
-  virtual IpczResult CommitPut(uint32_t num_data_bytes_produced,
+  virtual IpczResult CommitPut(Node::LockedRouter& router,
+                               uint32_t num_data_bytes_produced,
                                absl::Span<const IpczHandle> portals,
                                absl::Span<const IpczOSHandle> os_handles) = 0;
   virtual IpczResult AbortPut() = 0;

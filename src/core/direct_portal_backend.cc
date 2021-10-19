@@ -11,18 +11,16 @@
 #include "core/node.h"
 #include "core/portal_backend.h"
 #include "core/trap.h"
+#include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "util/handle_util.h"
 
 namespace ipcz {
 namespace core {
 
 namespace {
-
-Portal& ToPortal(IpczHandle handle) {
-  return *reinterpret_cast<Portal*>(static_cast<uintptr_t>(handle));
-}
 
 IpczHandle ToHandle(Portal* portal) {
   return static_cast<IpczHandle>(reinterpret_cast<uintptr_t>(portal));
@@ -31,7 +29,7 @@ IpczHandle ToHandle(Portal* portal) {
 // A parcel passed between two directly connected portals.
 struct Parcel {
   std::vector<uint8_t> data;
-  std::vector<std::unique_ptr<PortalBackend>> portals;
+  std::vector<mem::Ref<Portal>> portals;
   std::vector<os::Handle> os_handles;
 
   // Offset into data from which the next bytes will be read. Non-zero only for
@@ -46,9 +44,11 @@ struct Parcel {
 
 // State for one side of a directly connected portal pair.
 struct DirectPortalBackend::PortalState {
-  // Back-reference to the DirectPortalBackend which controls this side of the
-  // portal pair. If the side is closed already, this is null.
-  DirectPortalBackend* backend = nullptr;
+  explicit PortalState(Portal& portal) : portal(mem::WrapRefCounted(&portal)) {}
+
+  // A reference back to the Portal who effectively owns this state. Closed if
+  // the portal is null.
+  mem::Ref<Portal> portal;
 
   // Incoming parcel queue; messages from the other side are placed here
   // directly.
@@ -74,9 +74,8 @@ struct DirectPortalBackend::PortalState {
 // hosted here behind a common mutex to simplify synchronization when operating
 // on either one.
 struct DirectPortalBackend::SharedState : public mem::RefCounted {
-  explicit SharedState(mem::Ref<Node> node) : node(std::move(node)) {}
-
-  const mem::Ref<Node> node;
+  explicit SharedState(Portal& portal0, Portal& portal1)
+      : sides{PortalState(portal0), PortalState(portal1)} {}
 
   absl::Mutex mutex;
   PortalState sides[2] ABSL_GUARDED_BY(mutex);
@@ -147,8 +146,7 @@ struct DirectPortalBackend::SharedState : public mem::RefCounted {
                                 IpczOSHandle* os_handles) {
     mutex.AssertHeld();
     for (size_t i = 0; i < parcel.portals.size(); ++i) {
-      auto portal = std::make_unique<Portal>(std::move(parcel.portals[i]));
-      portals[i] = ToHandle(portal.release());
+      portals[i] = ToHandle(parcel.portals[i].release());
     }
     for (size_t i = 0; i < parcel.os_handles.size(); ++i) {
       os::Handle::ToIpczOSHandle(std::move(parcel.os_handles[i]),
@@ -164,27 +162,37 @@ DirectPortalBackend::DirectPortalBackend(mem::Ref<SharedState> state,
 DirectPortalBackend::~DirectPortalBackend() = default;
 
 // static
-DirectPortalBackend::Pair DirectPortalBackend::CreatePair(mem::Ref<Node> node) {
-  auto state = mem::MakeRefCounted<SharedState>(std::move(node));
+DirectPortalBackend::Pair DirectPortalBackend::CreatePair(Portal& portal0,
+                                                          Portal& portal1) {
+  auto state = mem::MakeRefCounted<SharedState>(portal0, portal1);
   std::unique_ptr<DirectPortalBackend> backend0(
       new DirectPortalBackend(state, 0));
   std::unique_ptr<DirectPortalBackend> backend1(
       new DirectPortalBackend(state, 1));
-
-  absl::MutexLock lock(&state->mutex);
-  state->sides[0].backend = backend0.get();
-  state->sides[1].backend = backend1.get();
   return {std::move(backend0), std::move(backend1)};
 }
 
-IpczResult DirectPortalBackend::Close() {
+bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
+  absl::MutexLock lock(&state_->mutex);
+  return &sender != this_side().portal && &sender != other_side().portal;
+}
+
+IpczResult DirectPortalBackend::Close(
+    std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&state_->mutex);
   PortalState& state = this_side();
-  state.backend = nullptr;
-  state.incoming_parcels.reset();
+  state.portal.reset();
   state.last_incoming_parcel = nullptr;
   state.num_queued_data_bytes = 0;
   state.num_queued_parcels = 0;
+
+  std::unique_ptr<Parcel> parcel = std::move(state.incoming_parcels);
+  while (parcel) {
+    for (mem::Ref<Portal>& portal : parcel->portals) {
+      other_portals_to_close.emplace_back(std::move(portal));
+    }
+    parcel = std::move(parcel->next_parcel);
+  }
 
   // TODO: scan remote traps for ones monitoring peer closure or portal death
 
@@ -193,7 +201,7 @@ IpczResult DirectPortalBackend::Close() {
 
 IpczResult DirectPortalBackend::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&state_->mutex);
-  status.flags = other_side().backend ? 0 : IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  status.flags = other_side().portal ? 0 : IPCZ_PORTAL_STATUS_PEER_CLOSED;
   status.num_local_parcels = this_side().num_queued_parcels;
   status.num_local_bytes = this_side().num_queued_data_bytes;
   status.num_remote_parcels = other_side().num_queued_parcels;
@@ -201,53 +209,33 @@ IpczResult DirectPortalBackend::QueryStatus(IpczPortalStatus& status) {
   return IPCZ_RESULT_OK;
 }
 
-IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
+IpczResult DirectPortalBackend::Put(Node::LockedRouter& router,
+                                    absl::Span<const uint8_t> data,
                                     absl::Span<const IpczHandle> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
-  IpczResult result = IPCZ_RESULT_OK;
   absl::MutexLock lock(&state_->mutex);
-  PortalBackend* other_backend = other_side().backend;
-  if (!other_backend) {
+  if (!other_side().portal) {
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  if (this_side().pending_parcel) {
+  PortalState& state = this_side();
+  if (state.pending_parcel) {
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
   auto parcel = std::make_unique<Parcel>();
-  parcel->portals.reserve(portals.size());
-
-  for (IpczHandle handle : portals) {
-    Portal& portal = ToPortal(handle);
-
-    // safety check: a portal must not eat itself
-    if (&portal == owner() || &portal == other_backend->owner()) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    parcel->portals.push_back(portal.TakeBackend());
-  }
 
   PortalState& other_state = other_side();
-  if (result == IPCZ_RESULT_OK && limits) {
+  if (limits) {
     if (limits->max_queued_parcels > 0 &&
         other_state.num_queued_parcels >= limits->max_queued_parcels) {
-      result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
                other_state.num_queued_data_bytes + data.size() >
                    limits->max_queued_bytes) {
-      result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
-  }
-
-  if (result != IPCZ_RESULT_OK) {
-    // Give the caller their portals back, because we're going to fail.
-    for (size_t i = 0; i < parcel->portals.size(); ++i) {
-      ToPortal(portals[i]).SetBackend(std::move(parcel->portals[i]));
-    }
-    return result;
   }
 
   // At this point success is inevitable, so we can take full ownership of any
@@ -255,8 +243,12 @@ IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
   // already taken ownership of their backends and their handles must no longer
   // be in use.
 
-  for (IpczHandle handle : portals) {
-    std::unique_ptr<Portal> consumed_portal(&ToPortal(handle));
+  parcel->portals.reserve(portals.size());
+  for (IpczHandle portal : portals) {
+    // Assume ownership of the IpczHandle's implicit ref since the handle is no
+    // longer in use.
+    parcel->portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
+                                 ToPtr<Portal>(portal));
   }
 
   parcel->data = std::vector<uint8_t>(data.begin(), data.end());
@@ -273,10 +265,9 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
                                          const IpczPutLimits* limits,
                                          uint32_t& num_data_bytes,
                                          void** data) {
-  IpczResult result = IPCZ_RESULT_OK;
   absl::MutexLock lock(&state_->mutex);
-  PortalBackend* other_backend = other_side().backend;
-  if (!other_backend) {
+  PortalState& other_state = other_side();
+  if (!other_state.portal) {
     return IPCZ_RESULT_NOT_FOUND;
   }
 
@@ -285,11 +276,10 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  PortalState& other_state = other_side();
   if (limits) {
     if (limits->max_queued_parcels > 0 &&
         other_state.num_queued_parcels >= limits->max_queued_parcels) {
-      result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
                other_state.num_queued_data_bytes + num_data_bytes >
                    limits->max_queued_bytes) {
@@ -298,13 +288,9 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
         num_data_bytes =
             limits->max_queued_bytes - other_state.num_queued_data_bytes;
       } else {
-        result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
+        return IPCZ_RESULT_RESOURCE_EXHAUSTED;
       }
     }
-  }
-
-  if (result != IPCZ_RESULT_OK) {
-    return result;
   }
 
   parcel = std::make_unique<Parcel>();
@@ -316,10 +302,10 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult DirectPortalBackend::CommitPut(
+    Node::LockedRouter& router,
     uint32_t num_data_bytes_produced,
     absl::Span<const IpczHandle> portals,
     absl::Span<const IpczOSHandle> os_handles) {
-  IpczResult result = IPCZ_RESULT_OK;
   absl::MutexLock lock(&state_->mutex);
 
   auto& parcel = this_side().pending_parcel;
@@ -331,30 +317,16 @@ IpczResult DirectPortalBackend::CommitPut(
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  PortalBackend* other_backend = other_side().backend;
-  if (!other_backend) {
+  if (!other_side().portal) {
     return IPCZ_RESULT_NOT_FOUND;
   }
 
   parcel->portals.reserve(portals.size());
-  for (IpczHandle handle : portals) {
-    Portal& portal = ToPortal(handle);
-
-    // safety check: a portal must not eat itself
-    if (&portal == owner() || &portal == other_backend->owner()) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    parcel->portals.push_back(portal.TakeBackend());
-  }
-
-  if (result != IPCZ_RESULT_OK) {
-    // Give the caller their portals back, because we're going to fail.
-    for (size_t i = 0; i < parcel->portals.size(); ++i) {
-      ToPortal(portals[i]).SetBackend(std::move(parcel->portals[i]));
-    }
-    parcel->portals.clear();
-    return result;
+  for (IpczHandle portal : portals) {
+    // Assume ownership of the IpczHandle's implicit ref since the handle is no
+    // longer in use.
+    parcel->portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
+                                 ToPtr<Portal>(portal));
   }
 
   parcel->data.resize(num_data_bytes_produced);
@@ -393,7 +365,7 @@ IpczResult DirectPortalBackend::Get(void* data,
   auto& next_parcel = state.incoming_parcels;
   const bool empty = !next_parcel;
   if (empty) {
-    const bool closed = other_side().backend == nullptr;
+    const bool closed = !other_side().portal;
     if (closed) {
       return IPCZ_RESULT_NOT_FOUND;
     }
@@ -443,7 +415,7 @@ IpczResult DirectPortalBackend::BeginGet(const void** data,
   auto& next_parcel = state.incoming_parcels;
   const bool empty = !next_parcel;
   if (empty) {
-    const bool closed = other_side().backend == nullptr;
+    const bool closed = !other_side().portal;
     if (closed) {
       return IPCZ_RESULT_NOT_FOUND;
     }

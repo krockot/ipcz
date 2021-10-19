@@ -4,7 +4,6 @@
 
 #include "core/node.h"
 
-#include <memory>
 #include <utility>
 
 #include "core/name.h"
@@ -16,24 +15,29 @@
 namespace ipcz {
 namespace core {
 
+Node::LockedRouter::LockedRouter(Node& node)
+    : router_(node.router_), lock_(&node.router_mutex_) {}
+
+Node::LockedRouter::~LockedRouter() = default;
+
 Node::Node() = default;
 
 Node::~Node() = default;
 
 Portal::Pair Node::OpenPortals() {
-  return Portal::CreateLocalPair(mem::WrapRefCounted(this));
+  return Portal::CreateLocalPair(*this);
 }
 
 IpczResult Node::OpenRemotePortal(os::Channel channel,
                                   os::Process process,
-                                  std::unique_ptr<Portal>& out_portal) {
-  out_portal = Portal::CreateRouted(mem::WrapRefCounted(this));
+                                  mem::Ref<Portal>& out_portal) {
+  out_portal = Portal::CreateRouted(*this);
   return IPCZ_RESULT_OK;
 }
 
 IpczResult Node::AcceptRemotePortal(os::Channel channel,
-                                    std::unique_ptr<Portal>& out_portal) {
-  out_portal = Portal::CreateRouted(mem::WrapRefCounted(this));
+                                    mem::Ref<Portal>& out_portal) {
+  out_portal = Portal::CreateRouted(*this);
   return IPCZ_RESULT_OK;
 }
 

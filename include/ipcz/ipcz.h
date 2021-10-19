@@ -201,12 +201,12 @@ struct IPCZ_ALIGN(8) IpczPutOptions {
 typedef uint32_t IpczBeginPutFlags;
 
 // Indicates that the caller is willing to produce less data than originally
-// requested by their `*num_data_bytes` argument to BeginPut(). If the
-// implementation would prefer a smaller chunk of data or if the requested size
-// would exceed limits specified in the call's corresponding IpczPutLimits,
-// passing this flag may allow the call to succeed while returning a smaller
-// acceptable value in `*num_data_bytes`, rather than simply failing the call
-// with IPCZ_RESULT_RESOURCE_EXHAUSTED.
+// requested by their `*num_bytes` argument to BeginPut(). If the implementation
+// would prefer a smaller chunk of data or if the requested size would exceed
+// limits specified in the call's corresponding IpczPutLimits, passing this flag
+// may allow the call to succeed while returning a smaller acceptable value in
+// `*num_bytes`, rather than simply failing the call with
+// IPCZ_RESULT_RESOURCE_EXHAUSTED.
 #define IPCZ_BEGIN_PUT_ALLOW_PARTIAL IPCZ_FLAG_BIT(0)
 
 // Options given to BeginPut() to modify its default behavior.
@@ -629,8 +629,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // succeeds, their ownership is assumed by ipcz.
   //
   // Data to be submitted is read directly from the address given by the `data`
-  // argument, and `num_data_bytes` specifies how many bytes of data to copy
-  // from there.
+  // argument, and `num_bytes` specifies how many bytes of data to copy from
+  // there.
   //
   // Callers may wish to request a view directly into portal memory for direct
   // writing (for example, in cases where copying first from some other source
@@ -644,7 +644,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        successfully placed into the portal as a new parcel.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
-  //        `num_data_bytes` is non-zero, `portals` is null but `num_portals` is
+  //        `num_bytes` is non-zero, `portals` is null but `num_portals` is
   //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
   //        `options` is non-null but invalid, or one of the portals in
   //        `portals` is equal to `portal` or its local opposite if applicable.
@@ -665,7 +665,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        to OS-level privilege constraints.
   IpczResult (*Put)(IpczHandle portal,
                     const void* data,
-                    uint32_t num_data_bytes,
+                    uint32_t num_bytes,
                     const IpczHandle* portals,
                     uint32_t num_portals,
                     const struct IpczOSHandle* os_handles,
@@ -681,16 +681,16 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // to write directly into portal memory, potentially reducing memory access
   // costs by eliminating redundant copying and caching.
   //
-  // The input value of `*num_data_bytes` tells ipcz how much data the caller
-  // would like to place into the portal.
+  // The input value of `*num_bytes` tells ipcz how much data the caller would
+  // like to place into the portal.
   //
   // Limits provided to BeginPut() elicit similar behavior to Put(), with the
   // exception that `flags` may specify IPCZ_BEGIN_PUT_ALLOW_PARTIAL to allow
   // BeginPut() to succeed even the caller's suggested value of
-  // `*num_data_bytes` would cause the portal to exceed the maximum queued byte
-  // limit given by `options->limits`. In that case BeginPut() may update
-  // `*num_data_bytes` to reflect the remaining capacity of the portal, allowing
-  // the caller to commit at least some portion of their data with EndPut().
+  // `*num_bytes` would cause the portal to exceed the maximum queued byte limit
+  // given by `options->limits`. In that case BeginPut() may update `*num_bytes`
+  // to reflect the remaining capacity of the portal, allowing the caller to
+  // commit at least some portion of their data with EndPut().
   //
   // Handles for two-phase puts are only provided when finalizing the operation
   // with EndPut().
@@ -701,18 +701,18 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        initiated. This operation must be completed with EndPut() before any
   //        further Put() or BeginPut() calls are allowed on `portal`. `*data`
   //        is set to the address of a portal buffer into which the application
-  //        may copy its data, and `*num_data_bytes` is updated to reflect the
+  //        may copy its data, and `*num_bytes` is updated to reflect the
   //        capacity of that buffer, which may be greater than (or less than, if
   //        and only if IPCZ_BEGIN_PUT_ALLOW_PARTIAL was set in `flags`) the
-  //        capacity requested by the input value of `*num_data_bytes`.
+  //        capacity requested by the input value of `*num_bytes`.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `*num_data_bytes`
-  //        is non-zero but `data` is null, or options is non-null and invalid.
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `*num_bytes` is
+  //        non-zero but `data` is null, or options is non-null and invalid.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if completing the put with the number of
-  //        bytes specified by `*num_data_bytes` would cause the portal to
-  //        exceed the queued parcel limit or (if IPCZ_BEGIN_PUT_ALLOW_PARTIAL
-  //        is not specified in `flags`) data byte limit specified by
+  //        bytes specified by `*num_bytes` would cause the portal to exceed the
+  //        queued parcel limit or (if IPCZ_BEGIN_PUT_ALLOW_PARTIAL is not
+  //        specified in `flags`) data byte limit specified by
   //        `options->limits`.
   //
   //    IPCZ_RESULT_ALREADY_EXISTS if there is already a two-phase put operation
@@ -723,14 +723,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   IpczResult (*BeginPut)(IpczHandle portal,
                          IpczBeginPutFlags flags,
                          const struct IpczBeginPutOptions* options,
-                         uint32_t* num_data_bytes,
+                         uint32_t* num_bytes,
                          void** data);
 
   // Ends the two-phase put operation started by the most recent successful call
   // to BeginPut() on `portal`.
   //
-  // `num_data_bytes_produced` specifies the number of bytes actually written
-  // into the buffer that was returned from the original BeginPut() call.
+  // `num_bytes_produced` specifies the number of bytes actually written into
+  // the buffer that was returned from the original BeginPut() call.
   //
   // Usage of `portals`, `num_portals`, `os_handles`, and `num_os_handles` is
   // identical to Put().
@@ -760,8 +760,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `num_portals` is
   //        non-zero but `portals` is null, `num_os_handles` is non-zero but
-  //        `os_handles` is null, or `num_data_bytes_produced` is larger than
-  //        the capacity of the buffer originally returned by BeginPut().
+  //        `os_handles` is null, or `num_bytes_produced` is larger than the
+  //        capacity of the buffer originally returned by BeginPut().
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase put operation
   //        in progress on `portal`.
@@ -773,7 +773,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        into the portal which could not be transferred to the other side due
   //        to OS-level privilege constraints.
   IpczResult (*EndPut)(IpczHandle portal,
-                       uint32_t num_data_bytes_produced,
+                       uint32_t num_bytes_produced,
                        const IpczHandle* portals,
                        uint32_t num_portals,
                        const struct IpczOSHandle* os_handles,
@@ -784,17 +784,17 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Retrieves some combination of raw data, portals, and OS handles from a
   // portal, as placed by a prior put operation on the opposite portal.
   //
-  // On input, the values pointed to by `num_data_bytes`, `num_portals`, and
+  // On input, the values pointed to by `num_bytes`, `num_portals`, and
   // `num_os_handles` must specify the capacity of each corresponding buffer
   // argument. A null pointer is equivalent to a pointer pointing to a zero
   // value. It is an error to specify a non-zero capacity if the corresponding
   // buffer (`data`, `portals`, or `os_handles`, respectively) is null.
   //
   // Normally the data consumed by this call is copied directly to the address
-  // given by the `data` argument, and `*num_data_bytes` specifies how many
-  // bytes of storage are available there.  If an application wishes to read
-  // directly from portal memory instead, a two-phase get operation can be used
-  // by calling BeginGet() and EndGet() as defined below.
+  // given by the `data` argument, and `*num_bytes` specifies how many bytes of
+  // storage are available there.  If an application wishes to read directly
+  // from portal memory instead, a two-phase get operation can be used by
+  // calling BeginGet() and EndGet() as defined below.
   //
   // `flags` is ignored and must be IPCZ_NO_FLAGS.
   //
@@ -805,15 +805,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if there was at a parcel available in the portal's queue
   //        and its data, portals, and OS handles were able to be copied into
   //        the caller's provided buffers. In this case values pointed to by
-  //        `num_data_bytes`, `num_portals`, and `num_os_handles` (for each one
-  //        that is non-null) are updated to reflect what was actually consumed.
-  //        Note that the caller assumes ownership of all returned portals and
-  //        OS handles.
+  //        `num_bytes`, `num_portals`, and `num_os_handles` (for each one that
+  //        is non-null) are updated to reflect what was actually consumed. Note
+  //        that the caller assumes ownership of all returned portals and OS
+  //        handles.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
-  //        `*num_data_bytes` is non-zero, `portals` is null but `*num_portals`
-  //        is non-zero, or `os_handles` is null but `*num_os_handles` is
-  //        non-zero.
+  //        `*num_bytes` is non-zero, `portals` is null but `*num_portals` is
+  //        non-zero, or `os_handles` is null but `*num_os_handles` is non-zero.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
   //        the caller's specified capacity for either data bytes, portals, or
@@ -837,7 +836,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
                     uint32_t flags,
                     const void* options,
                     void* data,
-                    uint32_t* num_data_bytes,
+                    uint32_t* num_bytes,
                     IpczHandle* portals,
                     uint32_t* num_portals,
                     struct IpczOSHandle* os_handles,
@@ -852,12 +851,11 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // to read directly from parcel memory, potentially reducing memory access
   // costs by eliminating redundant copying and caching.
   //
-  // If `data` or `num_data_bytes` is null and the available parcel has at least
-  // one byte of data, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // If `data` or `num_bytes` is null and the available parcel has at least one
+  // byte of data, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
-  // Otherwise if `data` and `num_data_bytes` are non-null, a successful
-  // BeginGet() updates them to expose parcel memory for the application to
-  // consume.
+  // Otherwise if `data` and `num_bytes` are non-null, a successful BeginGet()
+  // updates them to expose parcel memory for the application to consume.
   //
   // If `num_portals` or `num_os_handles` is non-null and this call is
   // successful, the value(s) pointed to will respectively reflect the number of
@@ -879,16 +877,16 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Returns:
   //
   //    IPCZ_RESULT_OK if the two-phase get was successfully initiated. In this
-  //        case both `*data` and `*num_data_bytes` are updated (if `data` and
-  //        `num_data_bytes` were non-null) to describe the portal memory from
-  //        which the application is free to read parcel data. If `num_portals`
-  //        or `num_os_handles` is non-null, the value(s) pointed to are updated
-  //        to reflect the count of available portals and OS handles.
+  //        case both `*data` and `*num_bytes` are updated (if `data` and
+  //        `num_bytes` were non-null) to describe the portal memory from which
+  //        the application is free to read parcel data. If `num_portals` or
+  //        `num_os_handles` is non-null, the value(s) pointed to are updated to
+  //        reflect the count of available portals and OS handles.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel has at least
-  //        one data byte but `data` or `num_data_bytes` is null.
+  //        one data byte but `data` or `num_bytes` is null.
   //
   //    IPCZ_RESULT_UNAVAILABLE if the portal's parcel queue is currently empty.
   //        In this case callers should wait before attempting to get anything
@@ -904,15 +902,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
                          uint32_t flags,
                          const void* options,
                          const void** data,
-                         uint32_t* num_data_bytes,
+                         uint32_t* num_bytes,
                          uint32_t* num_portals,
                          uint32_t* num_os_handles);
 
   // Ends the two-phase get operation started by the most recent successful call
   // to BeginGet() on `portal`.
   //
-  // `num_data_bytes_consumed` specifies the number of bytes actually read from
-  // the buffer that was returned from the original BeginGet() call.
+  // `num_bytes_consumed` specifies the number of bytes actually read from the
+  // buffer that was returned from the original BeginGet() call.
   //
   // `portals`, `num_portals`, `os_handles`, and `num_os_handles` are used
   // and behave exactly the same as with a Get() call. Note that BeginGet()
@@ -937,7 +935,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        for a subsequent get operation to retrieve.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid or
-  //        `num_data_bytes_consumed` is larger than the capacity of the buffer
+  //        `num_bytes_consumed` is larger than the capacity of the buffer
   //        originally returned by BeginGet().
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
@@ -950,7 +948,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase get operation
   //        in progress on `portal`.
   IpczResult (*EndGet)(IpczHandle portal,
-                       uint32_t num_data_bytes_consumed,
+                       uint32_t num_bytes_consumed,
                        IpczEndGetFlags flags,
                        const void* options,
                        IpczHandle* portals,
