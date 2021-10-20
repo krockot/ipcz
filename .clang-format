@@ -1,3 +1,14 @@
 BasedOnStyle: Chromium
 Standard: Cpp11
 ColumnLimit: 80
+
+MacroBlockBegin: "^\
+MSG_BEGIN|\
+MSG_BEGIN_DATA|\
+MSG_REPLY\
+$"
+
+MacroBlockEnd: "^\
+MSG_END|\
+MSG_END_DATA\
+$"

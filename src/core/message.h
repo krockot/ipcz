@@ -14,42 +14,83 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 #define MSG_ID(x) static constexpr uint8_t kId = x
-#define MSG_VERSION(x) static constexpr uint8_t kCurrentVersion = x
+#define MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
-#define MSG_START(name, id_decl, version_decl)                                \
-  struct IPCZ_ALIGN(8) name : Message {                                       \
-    id_decl;                                                                  \
-    version_decl;                                                             \
-    name() : Message(kId, sizeof(name) - sizeof(Message), kCurrentVersion) {} \
-    absl::Span<uint8_t> data() {                                              \
-      return absl::MakeSpan(reinterpret_cast<uint8_t*>(this), sizeof(*this)); \
-    }                                                                         \
-    absl::Span<os::Handle> handles() { return {}; }
+#define MSG_BEGIN(name, id_decl) \
+  struct IPCZ_ALIGN(8) name {    \
+    id_decl;                     \
+    static constexpr bool kIsReply = false;
 
-#define MSG_FIELD(type, name_etc) type name_etc;
+#define MSG_BEGIN_DATA(version_decl) \
+  struct IPCZ_ALIGN(8) Data {        \
+    struct IPCZ_ALIGN(8) Params {    \
+      version_decl;                  \
+      internal::StructHeader struct_header;
+
+#define MSG_DATA(type, name_etc) type name_etc;
+
+#define MSG_END_DATA()                                               \
+  }                                                                  \
+  ;                                                                  \
+  internal::MessageHeader header;                                    \
+  Params params;                                                     \
+  Data() {                                                           \
+    memset(this, 0, sizeof(*this));                                  \
+    header.size = sizeof(header);                                    \
+    header.version = 0;                                              \
+    header.message_id = kId;                                         \
+    header.expects_reply = kExpectsReply;                            \
+    header.is_reply = kIsReply;                                      \
+    params.struct_header.size = sizeof(Params);                      \
+    params.struct_header.version = Params::kVersion;                 \
+  }                                                                  \
+  }                                                                  \
+  ;                                                                  \
+  internal::MessageHeader& header() { return data_storage.header; }  \
+  const internal::MessageHeader& header() const {                    \
+    return data_storage.header;                                      \
+  }                                                                  \
+  Data data_storage;                                                 \
+  Data::Params& params() { return data_storage.params; }             \
+  const Data::Params& params() const { return data_storage.params; } \
+  absl::Span<uint8_t> data() {                                       \
+    return absl::MakeSpan(reinterpret_cast<uint8_t*>(&data_storage), \
+                          sizeof(data_storage));                     \
+  }
+
+#define MSG_NO_DATA(version_decl)           \
+  struct IPCZ_ALIGN(8) data {               \
+    struct IPCZ_ALIGN(8) Params {           \
+      version_decl;                         \
+      internal::StructHeader struct_header; \
+  MSG_END_DATA                              \
+  ()
+
+// TODO: this is not sufficient for dealing with versioning of handle attachment
+// expectations. good enough for now.
+#define MSG_NUM_HANDLES(n)      \
+  os::Handle handle_storage[n]; \
+  absl::Span<os::Handle> handles() { return absl::MakeSpan(handle_storage); }
+
+#define MSG_HANDLE_OPTIONAL(index, name) \
+  internal::OSHandleInfo name{false, handle_storage[index]};
+
+#define MSG_HANDLE_REQUIRED(index, name) \
+  internal::OSHandleInfo name{true, handle_storage[index]};
+
+#define MSG_NO_HANDLES() \
+  absl::Span<os::Handle> handles() { return {}; }
+
+#define MSG_NO_REPLY() static constexpr bool kExpectsReply = false;
+
+#define MSG_REPLY()                           \
+  static constexpr bool kExpectsReply = true; \
+  struct IPCZ_ALIGN(8) Reply {                \
+    static constexpr bool kIsReply = true;    \
+    static constexpr bool kExpectsReply = false;
+
 #define MSG_END() \
   }               \
   ;
-
-namespace ipcz {
-namespace core {
-
-struct IPCZ_ALIGN(8) Message {
-  explicit Message(uint8_t id, uint32_t size, uint32_t version) {
-    memset(&header, 0, sizeof(header));
-    header.size = sizeof(header);
-    header.version = 0;
-    header.message_id = id;
-    params_header.size = size;
-    params_header.version = version;
-  }
-
-  internal::MessageHeader header;
-  internal::StructHeader params_header;
-};
-static_assert(sizeof(Message) == 16, "Unexpected size");
-
-}  // namespace core
-}  // namespace ipcz
 
 #endif  // IPCZ_SRC_CORE_MESSAGE_H_

@@ -52,7 +52,8 @@ mem::Ref<NodeLink> Node::AddNodeLink(os::Channel channel, os::Process process) {
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process));
   msg::RequestBrokerLink request;
-  link->Send(request);
+  link->Send(request,
+             [](const msg::RequestBrokerLink::Reply* reply) { return false; });
   anonymous_node_links_.emplace(link);
   return link;
 }

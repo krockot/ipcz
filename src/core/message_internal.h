@@ -68,6 +68,12 @@ struct IPCZ_ALIGN(8) StructHeader {
 };
 static_assert(sizeof(StructHeader) == 8, "Unexpected size");
 
+// NOTE: Not a wire structure, but used for metadata on message objects.
+struct OSHandleInfo {
+  bool required;
+  os::Handle& handle;
+};
+
 }  // namespace internal
 }  // namespace core
 }  // namespace ipcz

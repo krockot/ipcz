@@ -8,9 +8,25 @@ namespace ipcz {
 namespace core {
 namespace msg {
 
-// Requests an os::Channel connected to the broker in the recipient's cluster of
-// connected nodes.
-MSG_START(RequestBrokerLink, MSG_ID(0), MSG_VERSION(0))
+enum class LinkTransportType : uint8_t {
+  // The default os::Channel type for the current platform.
+  kChannel = 0,
+};
+
+MSG_BEGIN(RequestBrokerLink, MSG_ID(0))
+  MSG_BEGIN_DATA(MSG_VERSION(0))
+    MSG_DATA(LinkTransportType, requested_transport_type)
+  MSG_END_DATA()
+  MSG_NO_HANDLES()
+
+  MSG_REPLY()
+    MSG_BEGIN_DATA(MSG_VERSION(0))
+      MSG_DATA(LinkTransportType, provided_transport_type)
+    MSG_END_DATA()
+
+    MSG_NUM_HANDLES(1)
+    MSG_HANDLE_OPTIONAL(0, channel_handle)
+  MSG_END()
 MSG_END()
 
 }  // namespace msg

@@ -24,11 +24,30 @@ NodeLink::NodeLink(Node& node, os::Channel channel, os::Process remote_process)
 NodeLink::~NodeLink() = default;
 
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
+  absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(channel_.is_valid());
+  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
+  internal::MessageHeader& header =
+      *reinterpret_cast<internal::MessageHeader*>(data.data());
+  header.request_id = 0;
+  channel_.Send(os::Channel::Data(data));
+}
+
+void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
+                                    absl::Span<os::Handle> handles,
+                                    GenericReplyHandler reply_handler) {
+  absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(channel_.is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
   internal::MessageHeader& header =
       *reinterpret_cast<internal::MessageHeader*>(data.data());
   header.request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+  while (
+      !header.request_id ||
+      !pending_requests_.try_emplace(header.request_id, reply_handler).second) {
+    header.request_id =
+        next_request_id_.fetch_add(1, std::memory_order_relaxed);
+  }
   channel_.Send(os::Channel::Data(data));
 }
 
@@ -43,9 +62,17 @@ bool NodeLink::OnMessage(os::Channel::Message message) {
     return false;
   }
 
-  // switch (header.message_id) {
+  switch (header.message_id) {
+    case msg::RequestBrokerLink::kId:
+      printf("got a broker request\n");
+      break;
 
-  // }
+    default:
+      // Unknown message types may come from clients using a newer ipcz version.
+      // Silently ignore them.
+      break;
+  }
+
   return true;
 }
 
