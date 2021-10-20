@@ -178,6 +178,7 @@ bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
 }
 
 IpczResult DirectPortalBackend::Close(
+    Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&state_->mutex);
   PortalState& state = this_side();

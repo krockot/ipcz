@@ -52,6 +52,7 @@ IpczResult DestroyNode(IpczHandle node, uint32_t flags, const void* options) {
 
   mem::Ref<core::Node> doomed_node(mem::RefCounted::kAdoptExistingRef,
                                    ToPtr<core::Node>(node));
+  doomed_node->ShutDown();
   doomed_node.reset();
   return IPCZ_RESULT_OK;
 }

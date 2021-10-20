@@ -12,10 +12,13 @@
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
 namespace core {
+
+class NodeLink;
 
 // Node encompasses the state of an isolated ipcz node.
 class Node : public mem::RefCounted {
@@ -37,6 +40,8 @@ class Node : public mem::RefCounted {
 
   Node();
 
+  void ShutDown();
+
   Portal::Pair OpenPortals();
   IpczResult OpenRemotePortal(os::Channel channel,
                               os::Process process,
@@ -49,8 +54,13 @@ class Node : public mem::RefCounted {
 
   ~Node() override;
 
+  // Adds a connection to another node, using `channel` as the medium. `process`
+  // is a handle to the process in which the other node lives, if available.
+  mem::Ref<NodeLink> AddNodeLink(os::Channel channel, os::Process process);
+
   absl::Mutex router_mutex_;
   Router router_;
+  absl::flat_hash_set<mem::Ref<NodeLink>> anonymous_node_links_;
 };
 
 }  // namespace core

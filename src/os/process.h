@@ -53,6 +53,9 @@ class Process {
   ~Process();
 
   static Process FromIpczOSProcessHandle(const IpczOSProcessHandle& handle);
+  static bool ToIpczOSProcessHandle(Process procss, IpczOSProcessHandle& out);
+
+  static Process GetCurrent();
 
   bool is_valid() const {
 #if defined(OS_FUCHSIA)

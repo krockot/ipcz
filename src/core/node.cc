@@ -7,9 +7,10 @@
 #include <utility>
 
 #include "core/name.h"
+#include "core/node_link.h"
+#include "core/node_messages.h"
 #include "core/portal.h"
 #include "mem/ref_counted.h"
-#include "os/handle.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -24,6 +25,8 @@ Node::Node() = default;
 
 Node::~Node() = default;
 
+void Node::ShutDown() {}
+
 Portal::Pair Node::OpenPortals() {
   return Portal::CreateLocalPair(*this);
 }
@@ -31,14 +34,27 @@ Portal::Pair Node::OpenPortals() {
 IpczResult Node::OpenRemotePortal(os::Channel channel,
                                   os::Process process,
                                   mem::Ref<Portal>& out_portal) {
-  out_portal = Portal::CreateRouted(*this);
+  mem::Ref<Portal> portal = Portal::CreateRouted(*this);
+  AddNodeLink(std::move(channel), std::move(process));
+  out_portal = std::move(portal);
   return IPCZ_RESULT_OK;
 }
 
 IpczResult Node::AcceptRemotePortal(os::Channel channel,
                                     mem::Ref<Portal>& out_portal) {
-  out_portal = Portal::CreateRouted(*this);
+  mem::Ref<Portal> portal = Portal::CreateRouted(*this);
+  AddNodeLink(std::move(channel), os::Process());
+  out_portal = std::move(portal);
   return IPCZ_RESULT_OK;
+}
+
+mem::Ref<NodeLink> Node::AddNodeLink(os::Channel channel, os::Process process) {
+  mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
+      *this, std::move(channel), std::move(process));
+  msg::RequestBrokerLink request;
+  link->Send(request);
+  anonymous_node_links_.emplace(link);
+  return link;
 }
 
 }  // namespace core

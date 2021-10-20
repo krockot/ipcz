@@ -9,6 +9,7 @@
 #include "os/memory.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
@@ -30,6 +31,7 @@ TEST_CLIENT(BasicClient, c) {
   c.Listen([&received](Channel::Message message) {
     EXPECT_EQ(kTestMessage1, message.data.AsString());
     received.Notify();
+    return true;
   });
   received.WaitForNotification();
 }
@@ -55,9 +57,10 @@ TEST_CLIENT(PassMemoryClient, c) {
   absl::Notification received;
   c.Listen([&received, &memory_handle](Channel::Message message) {
     EXPECT_EQ("hi", message.data.AsString());
-    ASSERT_EQ(1u, message.handles.size());
+    ABSL_ASSERT(message.handles.size() == 1u);
     memory_handle = std::move(message.handles[0]);
     received.Notify();
+    return true;
   });
   received.WaitForNotification();
   c.StopListening();
@@ -104,11 +107,12 @@ TEST_CLIENT(SynchronizedMemoryClient, c) {
   Event event;
   absl::Notification received;
   c.Listen([&mapping, &notifier, &event, &received](Channel::Message message) {
-    ASSERT_EQ(3u, message.handles.size());
+    ABSL_ASSERT(message.handles.size() == 3u);
     mapping = Memory(std::move(message.handles[0]), 8).Map();
     notifier = Event::Notifier(std::move(message.handles[1]));
     event = Event(std::move(message.handles[2]));
     received.Notify();
+    return true;
   });
   received.WaitForNotification();
 

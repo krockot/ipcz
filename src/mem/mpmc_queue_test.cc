@@ -13,6 +13,7 @@
 #include "os/memory.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 
 namespace ipcz {
@@ -77,10 +78,11 @@ TEST_CLIENT(MpmcQueueClient, c) {
   os::Memory::Mapping mapping;
   absl::Notification ready;
   c.Listen([&ready, &mapping](os::Channel::Message message) {
-    ASSERT_EQ(1u, message.handles.size());
+    ABSL_ASSERT(message.handles.size() == 1u);
     os::Memory memory(std::move(message.handles[0]), sizeof(TestQueue));
     mapping = memory.Map();
     ready.Notify();
+    return true;
   });
   ready.WaitForNotification();
   c.StopListening();

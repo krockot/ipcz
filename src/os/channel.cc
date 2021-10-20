@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "build/build_config.h"
+#include "debug/hex_dump.h"
 
 #if defined(OS_POSIX)
 #include <fcntl.h>
@@ -19,6 +20,14 @@
 
 namespace ipcz {
 namespace os {
+
+namespace {
+
+// "4 kB should be enough for anyone." -- anonymous
+constexpr size_t kMaxDataSize = 4096;
+constexpr size_t kMaxHandlesPerMessage = 64;
+
+}  // namespace
 
 Channel::Data::Data() = default;
 
@@ -106,6 +115,18 @@ Channel Channel::FromIpczOSTransport(const IpczOSTransport& transport) {
   return Channel(Handle::FromIpczOSHandle(transport.handles[0]));
 }
 
+// static
+bool Channel::ToOSTransport(Channel channel, OSTransportWithHandle& out) {
+#if defined(OS_WIN)
+  out.type = IPCZ_OS_TRANSPORT_WINDOWS_IO;
+#elif defined(OS_FUCHSIA)
+  out.type = IPCZ_OS_TRANSPORT_FUCHSIA_CHANNEL;
+#elif defined(OS_POSIX)
+  out.type = IPCZ_OS_TRANSPORT_UNIX_SOCKET;
+#endif
+  return os::Handle::ToIpczOSHandle(channel.TakeHandle(), &out.handle);
+}
+
 Handle Channel::TakeHandle() {
   StopListening();
   return std::move(handle_);
@@ -145,8 +166,8 @@ bool Channel::Send(Message message) {
 
   iovec iov = {const_cast<uint8_t*>(message.data.data()), message.data.size()};
 
-  ABSL_ASSERT(message.handles.size() <= 128);
-  char cmsg_buf[CMSG_SPACE(128 * sizeof(int))];
+  ABSL_ASSERT(message.handles.size() <= kMaxHandlesPerMessage);
+  char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
   struct msghdr msg = {};
   msg.msg_iov = &iov;
   msg.msg_iovlen = 1;
@@ -208,9 +229,9 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
 
     ABSL_ASSERT(poll_fds[0].revents & POLLIN);
 
-    uint8_t data[4096];
-    struct iovec iov = {data, 4096};
-    char cmsg_buf[CMSG_SPACE(128 * sizeof(int))];
+    uint8_t data[kMaxDataSize];
+    struct iovec iov = {data, kMaxDataSize};
+    char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
     struct msghdr msg = {};
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
@@ -245,8 +266,14 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       }
     }
 
-    handler(Message(Data(absl::MakeSpan(&data[0], result)),
-                    absl::MakeSpan(handles)));
+    auto data_view = absl::MakeSpan(data, result);
+    if (!handler(Message(Data(data_view), absl::MakeSpan(handles)))) {
+      std::string dump = debug::HexDump(data_view);
+      printf(
+          "disconnecting Channel for producing a message we didn't like: %s\n",
+          dump.c_str());
+      return;
+    }
   }
 #endif
 }

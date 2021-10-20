@@ -67,6 +67,11 @@ class Ref : public GenericRef {
   operator T*() const { return get(); }
 
   T* release() { return static_cast<T*>(ReleaseImpl()); }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const Ref<T>& ref) {
+    return H::combine(std::move(h), ref.get());
+  }
 };
 
 template <typename T, typename... Args>

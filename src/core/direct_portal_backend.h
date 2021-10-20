@@ -32,6 +32,7 @@ class DirectPortalBackend : public PortalBackend {
   // PortalBackend:
   bool CanTravelThroughPortal(Portal& sender) override;
   IpczResult Close(
+      Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
   IpczResult QueryStatus(IpczPortalStatus& status) override;
   IpczResult Put(Node::LockedRouter& router,

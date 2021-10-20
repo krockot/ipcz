@@ -31,10 +31,12 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
     c.Listen([&c_finished](Channel::Message message) {
       EXPECT_EQ(kTestMessage2, message.data.AsString());
       c_finished.Notify();
+      return true;
     });
 
     c_finished.WaitForNotification();
     b_finished.Notify();
+    return true;
   });
 
   Channel c, d;

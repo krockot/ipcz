@@ -22,6 +22,7 @@ bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
 }
 
 IpczResult RoutedPortalBackend::Close(
+    Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }

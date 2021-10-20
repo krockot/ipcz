@@ -150,19 +150,20 @@ struct IPCZ_ALIGN(8) IpczOSTransport {
 // See CreateNode() and the IPCZ_CREATE_NODE_* flag descriptions below.
 typedef uint32_t IpczCreateNodeFlags;
 
-// Indicates that the created node will serve as a broker.
+// Indicates that the created node will serve as the broker in its cluster.
 //
-// Brokers are expected to live in relatively trusted and privileged processes,
-// as they're responsible for helping other nodes establish direct lines of
-// communication, as well as in some cases facilitating proxying of data and
-// relaying of OS handles.
+// Brokers are expected to live in relatively trusted processes -- not elevated
+// in privelege but also generally not restricted by sandbox constraints and not
+// prone to processing risky, untrusted data -- as they're responsible for
+// helping other nodes establish direct lines of communication, as well as in
+// some cases facilitating proxying of data and relaying of OS handles.
 //
-// Broker nodes do not expose any additional APIs or require much other special
-// care on the part of the application**, but for most applications on most
-// platforms, it's beneficial for a cluster of nodes to always have at least one
-// node designated as a broker. Without at least one broker it may not be
-// possible to transfer various types of handles through portals spanning a
-// process boundary.
+// Broker nodes do not expose any additional ipcz APIs or require much other
+// special care on the part of the application**, but every cluster of connected
+// nodes must have a node designated as the broker. Typically this is the first
+// node created by an application's main process or a system-wide service
+// coordinator, and all other nodes are created in processes spawned by that one
+// or in processes which otherwise trust it.
 //
 // ** See notes on DestroyNode() regarding destruction of broker nodes.
 #define IPCZ_CREATE_NODE_AS_BROKER IPCZ_FLAG_BIT(0)
@@ -392,8 +393,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // All other ipcz calls are scoped to a specific node, or to a more specific
   // object which is itself scoped to a specific node.
   //
-  // If `flags` contains IPCZ_CREATE_NODE_AS_BROKER then the node will act as a
-  // broker in its connected cluster of nodes. See details on that flag
+  // If `flags` contains IPCZ_CREATE_NODE_AS_BROKER then the node will act as
+  // the broker in its cluster of connected nodes. See details on that flag
   // description above.
   //
   // `options` is ignored and must be null.
@@ -422,10 +423,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // `options` is ignored and must be null.
   //
-  // NOTE: If `node` is the only broker node in its cluster of connected nodes,
+  // NOTE: If `node` is the broker node in its cluster of connected nodes,
   // certain operations across the cluster -- such as handle transmission
-  // through portals -- may begin to fail spontaneously on some platforms once
-  // destruction is complete.
+  // through portals or portal transferrence in general -- may begin to fail
+  // spontaneously once destruction is complete.
   //
   // Returns:
   //

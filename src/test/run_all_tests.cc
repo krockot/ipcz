@@ -4,6 +4,10 @@
 
 #include <string>
 
+#ifndef NDEBUG
+#include "debug/stack_trace.h"
+#endif
+
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/flags/flag.h"
@@ -13,6 +17,10 @@ ABSL_FLAG(std::string, run_test_client, "", "test client entry point name");
 ABSL_FLAG(uint64_t, client_channel_handle, 0, "client channel handle");
 
 int main(int argc, char** argv) {
+#ifndef NDEBUG
+  ipcz::debug::StackTrace::EnableStackTraceSymbolization(argv[0]);
+#endif
+
   testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
 

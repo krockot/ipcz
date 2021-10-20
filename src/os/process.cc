@@ -69,6 +69,31 @@ Process Process::FromIpczOSProcessHandle(const IpczOSProcessHandle& handle) {
 #endif
 }
 
+// static
+bool Process::ToIpczOSProcessHandle(Process process, IpczOSProcessHandle& out) {
+  out.size = sizeof(out);
+#if defined(OS_WIN)
+  out.value =
+      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(process.handle_));
+#elif defined(OS_FUCHA)
+  out.value = reinterpret_cast<uint64_t>(process.process_);
+#else
+  out.value = static_cast<uint64_t>(process.handle_);
+#endif
+  return true;
+}
+
+// static
+Process Process::GetCurrent() {
+#if defined(OS_WIN)
+  return Process(::GetCurrentProcess);
+#elif defined(OS_FUCHSIA)
+  return Process(zx_process_self());
+#elif defined(OS_POSIX)
+  return Process(getpid());
+#endif
+}
+
 void Process::reset() {
 #if defined(OS_WIN)
   is_current_process_ = false;

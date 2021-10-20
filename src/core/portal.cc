@@ -82,15 +82,19 @@ bool Portal::CanTravelThroughPortal(Portal& sender) {
 
 IpczResult Portal::Close() {
   std::vector<mem::Ref<Portal>> other_portals_to_close;
-  IpczResult result;
   {
+    Node::LockedRouter router(*node_);
     absl::MutexLock lock(&mutex_);
-    result = backend_->Close(other_portals_to_close);
+    IpczResult result = backend_->Close(router, other_portals_to_close);
+    if (result != IPCZ_RESULT_OK) {
+      return result;
+    }
   }
+
   for (mem::Ref<Portal>& portal : other_portals_to_close) {
     portal->Close();
   }
-  return result;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
