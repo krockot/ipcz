@@ -8,8 +8,8 @@
 #include <atomic>
 #include <functional>
 
-#include "core/message.h"
 #include "core/node.h"
+#include "core/node_messages.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
@@ -44,7 +44,8 @@ class NodeLink : public mem::RefCounted {
   // Sends a message which does not expect a reply.
   template <typename T, typename = std::enable_if_t<!T::kExpectsReply>>
   void Send(T& message) {
-    Send(message.data(), message.handles());
+    message.Serialize();
+    Send(message.data_view(), message.handles_view());
   }
 
   // Sends a message which expects a specific type of reply. If the remote node
@@ -52,25 +53,17 @@ class NodeLink : public mem::RefCounted {
   // version and don't understand the request), then `reply_handler` receives a
   // null value.
   template <typename T, typename = std::enable_if_t<T::kExpectsReply>>
-  void Send(T& message,
-            std::function<bool(const typename T::Reply*)> reply_handler) {
+  void Send(T& message, std::function<bool(typename T::Reply*)> reply_handler) {
+    message.Serialize();
     SendWithReplyHandler(
-        message.data(), message.handles(),
-        [reply_handler](const os::Channel::Message* message) {
-          // NOTE: `message` is already partially validated (for correct type
-          // and data size) by the time this handler is invoked, so this cast is
-          // safe.
-          if (!message) {
-            return reply_handler(nullptr);
-          } else {
-            return reply_handler(reinterpret_cast<const typename T::Reply*>(
-                message->data.data()));
-          }
+        message.data_view(), message.handles_view(),
+        [reply_handler](void* message) {
+          return reply_handler(static_cast<typename T::Reply*>(message));
         });
   }
 
   // Generic implementations to support the above template helpers.
-  using GenericReplyHandler = std::function<bool(const os::Channel::Message*)>;
+  using GenericReplyHandler = std::function<bool(void*)>;
   void Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles = {});
   void SendWithReplyHandler(absl::Span<uint8_t> data,
                             absl::Span<os::Handle> handles,
@@ -79,7 +72,39 @@ class NodeLink : public mem::RefCounted {
  private:
   ~NodeLink() override;
 
+  // Generic entry point for all messages. While the memory addressed by
+  // `message` is guaranteed to be safely addressable, it may be untrusted
+  // shared memory. No other validation is assumed by this method.
   bool OnMessage(os::Channel::Message message);
+
+  // Generic entry point for message replies. Always dispatched to a
+  // corresponding callback after some validation.
+  bool OnReply(os::Channel::Message message);
+
+  // Strongly typed message handlers, dispatched by the generic OnMessage()
+  // above. If these methods are invoked, the message is at least superficially
+  // well-formed (plausible header, sufficient data payload, sufficient
+  // handles.)
+  //
+  // These message objects live in private memory and are safe from TOCTOU.
+  //
+  // Apart from checking for sufficient and reasonable data payload size, number
+  // of handle slots, and presence of any required OS handles, no other
+  // validation is done. Methods here must assume that field values can take on
+  // any legal value for their underlying POD type.
+  bool OnMessage(msg::RequestBrokerLink& m);
+
+  struct PendingReply {
+    PendingReply();
+    PendingReply(uint8_t message_id, GenericReplyHandler handler);
+    PendingReply(const PendingReply&) = delete;
+    PendingReply& operator=(const PendingReply&) = delete;
+    PendingReply(PendingReply&&);
+    PendingReply& operator=(PendingReply&&);
+    ~PendingReply();
+    uint8_t message_id;
+    GenericReplyHandler handler;
+  };
 
   const mem::Ref<Node> node_;
   std::atomic<uint16_t> next_request_id_{1};
@@ -87,7 +112,7 @@ class NodeLink : public mem::RefCounted {
   absl::Mutex mutex_;
   os::Channel channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
-  absl::flat_hash_map<uint16_t, GenericReplyHandler> pending_requests_;
+  absl::flat_hash_map<uint16_t, PendingReply> pending_replies_;
 };
 
 }  // namespace core

@@ -2,33 +2,51 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/message.h"
+#ifndef CORE_NODE_MESSAGES_H_
+#define CORE_NODE_MESSAGES_H_
+
+#include <cstdint>
+
+#include "core/message_internal.h"
+#include "ipcz/ipcz.h"
+#include "os/channel.h"
+#include "os/handle.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
 namespace msg {
 
-enum class LinkTransportType : uint8_t {
-  // The default os::Channel type for the current platform.
-  kChannel = 0,
-};
+// This file is used to push message definitions through the preprocessor to
+// emit message structure declarations. See node_message_defs.h for the actual
+// message definitions.
 
-MSG_BEGIN(RequestBrokerLink, MSG_ID(0))
-  MSG_BEGIN_DATA(MSG_VERSION(0))
-    MSG_DATA(LinkTransportType, requested_transport_type)
-  MSG_END_DATA()
-  MSG_NO_HANDLES()
+#pragma pack(push, 1)
 
-  MSG_REPLY()
-    MSG_BEGIN_DATA(MSG_VERSION(0))
-      MSG_DATA(LinkTransportType, provided_transport_type)
-    MSG_END_DATA()
+#include "core/message_macros/message_data_declaration_macros.h"
+#include "core/node_message_defs.h"
 
-    MSG_NUM_HANDLES(1)
-    MSG_HANDLE_OPTIONAL(0, channel_handle)
-  MSG_END()
-MSG_END()
+#include "core/message_macros/undef_message_macros.h"
+
+#include "core/message_macros/message_handle_data_declaration_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
+
+#include "core/message_macros/message_handle_declaration_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
+
+#include "core/message_macros/message_declaration_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
+
+#pragma pack(pop)
 
 }  // namespace msg
 }  // namespace core
 }  // namespace ipcz
+
+#endif  // CORE_NODE_MESSAGES_H_

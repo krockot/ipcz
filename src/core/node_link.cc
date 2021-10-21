@@ -42,9 +42,11 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
   internal::MessageHeader& header =
       *reinterpret_cast<internal::MessageHeader*>(data.data());
   header.request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+  PendingReply pending_reply(header.message_id, std::move(reply_handler));
   while (
       !header.request_id ||
-      !pending_requests_.try_emplace(header.request_id, reply_handler).second) {
+      !pending_replies_.try_emplace(header.request_id, std::move(pending_reply))
+           .second) {
     header.request_id =
         next_request_id_.fetch_add(1, std::memory_order_relaxed);
   }
@@ -56,25 +58,92 @@ bool NodeLink::OnMessage(os::Channel::Message message) {
     return false;
   }
 
+  // TODO: copy header before validating.
   const auto& header =
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
   if (header.size < sizeof(internal::MessageHeader)) {
     return false;
   }
 
+  if (header.is_reply) {
+    return OnReply(message);
+  }
+
   switch (header.message_id) {
-    case msg::RequestBrokerLink::kId:
-      printf("got a broker request\n");
-      break;
+#include "core/message_macros/message_dispatch_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
 
     default:
       // Unknown message types may come from clients using a newer ipcz version.
-      // Silently ignore them.
-      break;
+      // If they expect a reply, reply to indicate that we don't know what
+      // they're talking about. Otherwise we silently ignore the message.
+      if (header.expects_reply) {
+        internal::MessageHeader nope{sizeof(nope)};
+        nope.message_id = header.message_id;
+        nope.wont_reply = true;
+        nope.request_id = header.request_id;
+        Send(absl::MakeSpan(reinterpret_cast<uint8_t*>(&nope), sizeof(nope)));
+      }
+      return true;
+  }
+}
+
+bool NodeLink::OnReply(os::Channel::Message message) {
+  // TODO: make sure we get a validated header from OnMessage(), and separately
+  // copy message data
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
+
+  PendingReply pending_reply;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = pending_replies_.find(header.request_id);
+    pending_reply = std::move(it->second);
+    pending_replies_.erase(it);
   }
 
-  return true;
+  // Not the message type we were expecting for this reply. Reject!
+  if (header.message_id != pending_reply.message_id) {
+    return false;
+  }
+
+  // The receiving Node did not understand our request.
+  if (header.wont_reply) {
+    pending_reply.handler(nullptr);
+    return true;
+  }
+
+  switch (header.message_id) {
+#include "core/message_macros/message_reply_dispatch_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
+
+    default:
+      // Replies for unrecognized message IDs don't make sense. Reject!
+      return false;
+  }
 }
+
+bool NodeLink::OnMessage(msg::RequestBrokerLink& m) {
+  printf("u gib me broker plz?\n");
+  return false;
+}
+
+NodeLink::PendingReply::PendingReply() = default;
+
+NodeLink::PendingReply::PendingReply(uint8_t message_id,
+                                     GenericReplyHandler handler)
+    : message_id(message_id), handler(handler) {}
+
+NodeLink::PendingReply::PendingReply(PendingReply&&) = default;
+
+NodeLink::PendingReply& NodeLink::PendingReply::operator=(PendingReply&&) =
+    default;
+
+NodeLink::PendingReply::~PendingReply() = default;
 
 }  // namespace core
 }  // namespace ipcz

@@ -68,11 +68,58 @@ struct IPCZ_ALIGN(8) StructHeader {
 };
 static_assert(sizeof(StructHeader) == 8, "Unexpected size");
 
-// NOTE: Not a wire structure, but used for metadata on message objects.
-struct OSHandleInfo {
-  bool required;
-  os::Handle& handle;
+enum OSHandleDataType : uint8_t {
+  // No handle. Only valid if the handle slot was designated as optional.
+  kNone = 0,
+
+  // A POSIX file descriptor. Encoded handle value is a 0-based index into the
+  // array of actual file descriptors attached to the message, indicating which
+  // file descriptor to associate with this handle slot.
+  kFileDescriptor = 1,
+
+  // TODO: etc...
 };
+
+// Wire format for encoded OS handles.
+//
+// TODO: revisit for other platforms, version safety, extensibility.
+struct IPCZ_ALIGN(8) OSHandleData {
+  StructHeader header{16, 0};
+
+  OSHandleDataType type;
+  uint64_t value;
+};
+
+template <typename T>
+constexpr size_t GetNumOSHandles() {
+  return (sizeof(T) - sizeof(StructHeader)) / sizeof(OSHandleData);
+}
+
+// Serializes handles from a locally created message, into that message's handle
+// data. Depending on how handle transmission is implemented on the platform,
+// this may either leave the handles intact and fill in only metadata within the
+// message, or it may consume the handles and encode them directly into the
+// message data in a way that is useful to the destination process.
+void SerializeHandles(absl::Span<os::Handle> handles,
+                      absl::Span<OSHandleData> data);
+
+// Attempts to deserialize a message from `incoming_data`. Only the full
+// addressability of the input span has been validated, and it may be located
+// within untrusted shared memory.
+bool DeserializeData(absl::Span<const uint8_t> incoming_data,
+                     absl::Span<uint8_t> out_header,
+                     absl::Span<uint8_t> out_data,
+                     absl::Span<uint8_t> out_handle_data);
+
+// Deserializes handles and handle data to produce the set of os::Handles
+// attached to an incoming message. `incoming_handles` are handles that were
+// attached out-of-bad (if any, which depends on platform) and `incoming_data`
+// is handle data from the same message, already copied out and validated.
+//
+//
+bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
+                        absl::Span<OSHandleData> incoming_data,
+                        absl::Span<os::Handle> out_handles);
 
 }  // namespace internal
 }  // namespace core
