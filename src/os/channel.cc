@@ -159,26 +159,35 @@ bool Channel::Send(Message message) {
   ABSL_ASSERT(handle_.is_valid());
 
 #if defined(OS_POSIX)
-  if (message.handles.empty()) {
+  size_t num_valid_handles = 0;
+  for (const Handle& handle : message.handles) {
+    if (handle.is_valid()) {
+      ++num_valid_handles;
+    }
+  }
+  if (num_valid_handles == 0) {
     return send(handle_.fd(), message.data.data(), message.data.size(),
                 MSG_NOSIGNAL) == static_cast<ssize_t>(message.data.size());
   }
 
   iovec iov = {const_cast<uint8_t*>(message.data.data()), message.data.size()};
 
-  ABSL_ASSERT(message.handles.size() <= kMaxHandlesPerMessage);
+  ABSL_ASSERT(num_valid_handles <= kMaxHandlesPerMessage);
   char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
   struct msghdr msg = {};
   msg.msg_iov = &iov;
   msg.msg_iovlen = 1;
   msg.msg_control = cmsg_buf;
-  msg.msg_controllen = CMSG_LEN(message.handles.size() * sizeof(int));
+  msg.msg_controllen = CMSG_LEN(num_valid_handles * sizeof(int));
   struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
   cmsg->cmsg_level = SOL_SOCKET;
   cmsg->cmsg_type = SCM_RIGHTS;
-  cmsg->cmsg_len = CMSG_LEN(message.handles.size() * sizeof(int));
-  for (size_t i = 0; i < message.handles.size(); ++i) {
-    reinterpret_cast<int*>(CMSG_DATA(cmsg))[i] = message.handles[i].fd();
+  cmsg->cmsg_len = CMSG_LEN(num_valid_handles * sizeof(int));
+  size_t next_handle = 0;
+  for (const Handle& handle : message.handles) {
+    if (handle.is_valid()) {
+      reinterpret_cast<int*>(CMSG_DATA(cmsg))[next_handle++] = handle.fd();
+    }
   }
   for (;;) {
     ssize_t result = sendmsg(handle_.fd(), &msg, MSG_NOSIGNAL);

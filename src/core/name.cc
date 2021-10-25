@@ -38,43 +38,6 @@ namespace core {
 
 namespace {
 
-// Jacked from Chromium base::HashInts64.
-// Implement hashing for pairs of up-to 64-bit integer values.
-// We use the compound integer hash method to produce a 64-bit hash code, by
-// breaking the two 64-bit inputs into 4 32-bit values:
-// http://opendatastructures.org/versions/edition-0.1d/ods-java/node33.html#SECTION00832000000000000000
-// Then we reduce our result to 32 bits if required, similar to above.
-size_t HashInts64(uint64_t value1, uint64_t value2) {
-  uint32_t short_random1 = 842304669U;
-  uint32_t short_random2 = 619063811U;
-  uint32_t short_random3 = 937041849U;
-  uint32_t short_random4 = 3309708029U;
-
-  uint32_t value1a = static_cast<uint32_t>(value1 & 0xffffffff);
-  uint32_t value1b = static_cast<uint32_t>((value1 >> 32) & 0xffffffff);
-  uint32_t value2a = static_cast<uint32_t>(value2 & 0xffffffff);
-  uint32_t value2b = static_cast<uint32_t>((value2 >> 32) & 0xffffffff);
-
-  uint64_t product1 = static_cast<uint64_t>(value1a) * short_random1;
-  uint64_t product2 = static_cast<uint64_t>(value1b) * short_random2;
-  uint64_t product3 = static_cast<uint64_t>(value2a) * short_random3;
-  uint64_t product4 = static_cast<uint64_t>(value2b) * short_random4;
-
-  uint64_t hash64 = product1 + product2 + product3 + product4;
-
-  if (sizeof(size_t) >= sizeof(uint64_t)) {
-    return static_cast<size_t>(hash64);
-  }
-
-  uint64_t odd_random = 1578233944LL << 32 | 194370989LL;
-  uint32_t shift_random = 20591U << 16;
-
-  hash64 = hash64 * odd_random + shift_random;
-  size_t high_bits =
-      static_cast<size_t>(hash64 >> (8 * (sizeof(uint64_t) - sizeof(size_t))));
-  return high_bits;
-}
-
 void FillRandom(absl::Span<uint64_t> words) {
   size_t num_bytes = words.size() * sizeof(uint64_t);
 #if defined(OS_WIN)
@@ -110,10 +73,6 @@ Name::Name(decltype(kRandom)) {
 }
 
 Name::~Name() = default;
-
-size_t Name::Hash() const {
-  return HashInts64(words_[0], words_[1]);
-}
 
 }  // namespace core
 }  // namespace ipcz

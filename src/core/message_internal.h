@@ -62,6 +62,9 @@ struct IPCZ_ALIGN(8) MessageHeader {
 };
 static_assert(sizeof(MessageHeader) == 8, "Unexpected size");
 
+using MessageHeaderV0 = MessageHeader;
+using LatestMessageHeaderVersion = MessageHeaderV0;
+
 struct IPCZ_ALIGN(8) StructHeader {
   uint32_t size;
   uint32_t version;
@@ -84,7 +87,7 @@ enum OSHandleDataType : uint8_t {
 //
 // TODO: revisit for other platforms, version safety, extensibility.
 struct IPCZ_ALIGN(8) OSHandleData {
-  StructHeader header{16, 0};
+  StructHeader header{24, 0};
 
   OSHandleDataType type;
   uint64_t value;
@@ -101,25 +104,24 @@ constexpr size_t GetNumOSHandles() {
 // message, or it may consume the handles and encode them directly into the
 // message data in a way that is useful to the destination process.
 void SerializeHandles(absl::Span<os::Handle> handles,
-                      absl::Span<OSHandleData> data);
+                      absl::Span<OSHandleData> out_handle_data_storage);
 
 // Attempts to deserialize a message from `incoming_data`. Only the full
 // addressability of the input span has been validated, and it may be located
 // within untrusted shared memory.
-bool DeserializeData(absl::Span<const uint8_t> incoming_data,
-                     absl::Span<uint8_t> out_header,
-                     absl::Span<uint8_t> out_data,
-                     absl::Span<uint8_t> out_handle_data);
+bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
+                     uint32_t current_params_version,
+                     absl::Span<uint8_t> out_header_storage,
+                     absl::Span<uint8_t> out_data_storage,
+                     absl::Span<uint8_t> out_handle_data_storage);
 
 // Deserializes handles and handle data to produce the set of os::Handles
 // attached to an incoming message. `incoming_handles` are handles that were
 // attached out-of-bad (if any, which depends on platform) and `incoming_data`
-// is handle data from the same message, already copied out and validated.
-//
-//
+// is handle data from the same message, already copied out.
 bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
-                        absl::Span<OSHandleData> incoming_data,
-                        absl::Span<os::Handle> out_handles);
+                        absl::Span<const OSHandleData> incoming_handle_data,
+                        absl::Span<os::Handle> out_handle_storage);
 
 }  // namespace internal
 }  // namespace core

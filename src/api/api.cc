@@ -40,7 +40,9 @@ IpczResult CreateNode(IpczCreateNodeFlags flags,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  auto node_ptr = mem::MakeRefCounted<core::Node>();
+  auto node_ptr = mem::MakeRefCounted<core::Node>(
+      (flags & IPCZ_CREATE_NODE_AS_BROKER) != 0 ? core::Node::Type::kBroker
+                                                : core::Node::Type::kNormal);
   *node = ToHandle(node_ptr.release());
   return IPCZ_RESULT_OK;
 }

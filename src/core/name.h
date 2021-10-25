@@ -38,11 +38,11 @@ class Name {
            std::tie(rhs.words_[0], rhs.words_[1]);
   }
 
-  struct Hasher {
-    size_t operator()(const Name& name) const { return name.Hash(); }
-  };
-
-  size_t Hash() const;
+  // Support for absl::Hash.
+  template <typename H>
+  friend H AbslHashValue(H h, const Name& name) {
+    return H::combine(std::move(h), name.words_[0], name.words_[1]);
+  }
 
  public:
   uint64_t words_[2];

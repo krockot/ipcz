@@ -92,7 +92,7 @@ class NodeLink : public mem::RefCounted {
   // of handle slots, and presence of any required OS handles, no other
   // validation is done. Methods here must assume that field values can take on
   // any legal value for their underlying POD type.
-  bool OnMessage(msg::RequestBrokerLink& m);
+  bool OnMessage(msg::InviteNode& m);
 
   struct PendingReply {
     PendingReply();

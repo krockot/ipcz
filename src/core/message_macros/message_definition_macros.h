@@ -36,7 +36,7 @@
   }                                                                     \
   bool name::Deserialize(os::Channel::Message& message) {               \
     return internal::DeserializeData(                                   \
-               message.data,                                            \
+               message.data, kVersion,                                  \
                absl::MakeSpan(reinterpret_cast<uint8_t*>(&header),      \
                               sizeof(header)),                          \
                absl::MakeSpan(reinterpret_cast<uint8_t*>(&data),        \

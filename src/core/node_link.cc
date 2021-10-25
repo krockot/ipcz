@@ -127,9 +127,10 @@ bool NodeLink::OnReply(os::Channel::Message message) {
   }
 }
 
-bool NodeLink::OnMessage(msg::RequestBrokerLink& m) {
-  printf("u gib me broker plz?\n");
-  return false;
+bool NodeLink::OnMessage(msg::InviteNode& m) {
+  printf("name=%016lx%016lx broker=%016lx%016lx\n", m.data.high, m.data.low,
+         m.data.broker_high, m.data.broker_low);
+  return true;
 }
 
 NodeLink::PendingReply::PendingReply() = default;

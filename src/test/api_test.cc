@@ -18,7 +18,7 @@ APITest::Parcel::~Parcel() = default;
 APITest::APITest() {
   ipcz.size = sizeof(ipcz);
   IpczGetAPI(&ipcz);
-  ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node_);
+  ipcz.CreateNode(IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node_);
   OpenPortals(&q, &p);
 }
 

@@ -12,10 +12,10 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)               \
-  case msg::name::kId: {                                 \
-    msg::name m;                                         \
-    return m.Deserialize(message) && OnMessage(message); \
+#define IPCZ_MSG_BEGIN(name, version_decl)         \
+  case msg::name::kId: {                           \
+    msg::name m;                                   \
+    return m.Deserialize(message) && OnMessage(m); \
   }
 
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \

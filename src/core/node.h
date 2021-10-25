@@ -12,7 +12,7 @@
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
-#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -38,9 +38,18 @@ class Node : public mem::RefCounted {
     absl::MutexLock lock_;
   };
 
-  Node();
+  enum class Type {
+    kNormal,
+    kBroker,
+  };
+
+  explicit Node(Type type);
 
   void ShutDown();
+
+  bool is_broker() const { return type_ == Type::kBroker; }
+
+  mem::Ref<NodeLink> GetBrokerLink();
 
   Portal::Pair OpenPortals();
   IpczResult OpenRemotePortal(os::Channel channel,
@@ -54,13 +63,13 @@ class Node : public mem::RefCounted {
 
   ~Node() override;
 
-  // Adds a connection to another node, using `channel` as the medium. `process`
-  // is a handle to the process in which the other node lives, if available.
-  mem::Ref<NodeLink> AddNodeLink(os::Channel channel, os::Process process);
+  const Type type_;
 
-  absl::Mutex router_mutex_;
+  absl::Mutex mutex_;
+  NodeName name_;
   Router router_;
-  absl::flat_hash_set<mem::Ref<NodeLink>> anonymous_node_links_;
+  mem::Ref<NodeLink> broker_link_;
+  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> peer_links_;
 };
 
 }  // namespace core
