@@ -11,7 +11,7 @@
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "third_party/abseil-cpp/absl/types/span.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -38,18 +38,19 @@ namespace core {
 
 namespace {
 
-void FillRandom(absl::Span<uint64_t> words) {
-  size_t num_bytes = words.size() * sizeof(uint64_t);
+void RandomUint128(absl::uint128& value) {
 #if defined(OS_WIN)
   char* output = reinterpret_cast<char*>(words.data());
-  const bool ok = RtlGenRandom(words.data(), num_bytes);
+  const bool ok = RtlGenRandom(&value, sizeof(value));
   ABSL_ASSERT(ok);
 #elif defined(OS_FUCHSIA)
-  zx_cprng_draw(words.data(), num_bytes);
+  zx_cprng_draw(&value, sizeof(value));
 #elif defined(OS_LINUX) || defined(OS_CHROMEOS)
   ssize_t bytes = 0;
+  size_t num_bytes = sizeof(value);
   while (num_bytes > 0) {
-    ssize_t result = getrandom(words.data() + bytes, num_bytes, 0);
+    ssize_t result =
+        getrandom(reinterpret_cast<uint8_t*>(&value) + bytes, num_bytes, 0);
     if (result == -1) {
       ABSL_ASSERT(errno == EINTR);
       continue;
@@ -59,7 +60,7 @@ void FillRandom(absl::Span<uint64_t> words) {
     num_bytes -= result;
   }
 #elif defined(OS_MAC)
-  const bool ok = getentropy(words.data(), num_bytes) == 0;
+  const bool ok = getentropy(&value, sizeof(value)) == 0;
   ABSL_ASSERT(ok);
 #else
 #error "Unsupported platform"
@@ -69,7 +70,7 @@ void FillRandom(absl::Span<uint64_t> words) {
 }  // namespace
 
 Name::Name(decltype(kRandom)) {
-  FillRandom(words_);
+  RandomUint128(value_);
 }
 
 Name::~Name() = default;

@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <tuple>
 
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
+
 namespace ipcz {
 namespace core {
 
@@ -16,50 +18,42 @@ class Name {
  public:
   enum { kRandom };
 
-  constexpr Name() : words_{0, 0} {}
+  constexpr Name() = default;
   explicit Name(decltype(kRandom));
-  constexpr Name(uint64_t high, uint64_t low) : words_{high, low} {}
+  constexpr Name(absl::uint128 value) : value_(value) {}
   ~Name();
 
   bool is_valid() const { return high() != 0 && low() != 0; }
 
-  uint64_t high() const { return words_[0]; }
-  uint64_t low() const { return words_[1]; }
+  uint64_t high() const { return absl::Uint128High64(value_); }
+  uint64_t low() const { return absl::Uint128Low64(value_); }
 
-  bool operator==(const Name& rhs) const {
-    return std::tie(words_[0], words_[1]) ==
-           std::tie(rhs.words_[0], rhs.words_[1]);
-  }
-
-  bool operator!=(const Name& rhs) const { return !(*this == rhs); }
-
-  bool operator<(const Name& rhs) const {
-    return std::tie(words_[0], words_[1]) <
-           std::tie(rhs.words_[0], rhs.words_[1]);
-  }
+  bool operator==(const Name& rhs) const { return value_ == rhs.value_; }
+  bool operator!=(const Name& rhs) const { return value_ != rhs.value_; }
+  bool operator<(const Name& rhs) const { return value_ < rhs.value_; }
 
   // Support for absl::Hash.
   template <typename H>
   friend H AbslHashValue(H h, const Name& name) {
-    return H::combine(std::move(h), name.words_[0], name.words_[1]);
+    return H::combine(std::move(h), name.value_);
   }
 
  public:
-  uint64_t words_[2];
+  absl::uint128 value_ = 0;
 };
 
 class PortalName : public Name {
  public:
   constexpr PortalName() = default;
   PortalName(decltype(kRandom)) : Name(kRandom) {}
-  PortalName(uint64_t high, uint64_t low) : Name(high, low) {}
+  explicit PortalName(absl::uint128 value) : Name(value) {}
 };
 
 class NodeName : public Name {
  public:
   constexpr NodeName() = default;
   NodeName(decltype(kRandom)) : Name(kRandom) {}
-  NodeName(uint64_t high, uint64_t low) : Name(high, low) {}
+  explicit NodeName(absl::uint128 value) : Name(value) {}
 };
 
 }  // namespace core

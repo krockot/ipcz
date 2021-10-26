@@ -49,12 +49,10 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process));
 
-  NodeName name{Name::kRandom};
+  const NodeName their_name{Name::kRandom};
   msg::InviteNode invitation;
-  invitation.data.high = name.high();
-  invitation.data.low = name.low();
-  invitation.data.broker_high = name_.high();
-  invitation.data.broker_low = name_.low();
+  invitation.data.your_name = their_name;
+  invitation.data.broker_name = name_;
   link->Send(invitation);
 
   mem::Ref<Portal> portal = Portal::CreateRouted(*this);
