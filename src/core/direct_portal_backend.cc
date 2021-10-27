@@ -172,9 +172,13 @@ DirectPortalBackend::Pair DirectPortalBackend::CreatePair(Portal& portal0,
   return {std::move(backend0), std::move(backend1)};
 }
 
+PortalBackend::Type DirectPortalBackend::GetType() const {
+  return Type::kDirect;
+}
+
 bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
   absl::MutexLock lock(&state_->mutex);
-  return &sender != this_side().portal && &sender != other_side().portal;
+  return &sender != other_side().portal;
 }
 
 IpczResult DirectPortalBackend::Close(

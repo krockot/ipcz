@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_DIRECT_PORTAL_BACKEND_H_
-#define IPCZ_SRC_CORE_DIRECT_PORTAL_BACKEND_H_
+#ifndef IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
+#define IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
 
 #include <cstdint>
 #include <utility>
@@ -17,17 +17,15 @@ namespace core {
 
 class Portal;
 
-// PortalBackend implementation for a portal whose peer lives in the same node.
-// This backend grants portals direct access to each others' state for more
-// efficient operations with no dependency on Node state or routing behavior.
-class DirectPortalBackend : public PortalBackend {
+// PortalBackend implementation for a portal whose remote peer is either unknown
+// or temporarily unreachable. A buffering backend never receives parcels, and
+// it queues all parcels put into it locally. When a Node has enough information
+// to begin transmitting parcels to and from the owning portal, this is replaced
+// with a RoutedPortalBackend.
+class BufferingPortalBackend : public PortalBackend {
  public:
-  using Pair = std::pair<std::unique_ptr<DirectPortalBackend>,
-                         std::unique_ptr<DirectPortalBackend>>;
-
-  ~DirectPortalBackend() override;
-
-  static Pair CreatePair(Portal& portal0, Portal& portal1);
+  BufferingPortalBackend();
+  ~BufferingPortalBackend() override;
 
   // PortalBackend:
   Type GetType() const override;
@@ -71,21 +69,9 @@ class DirectPortalBackend : public PortalBackend {
                      IpczTrapConditions* satisfied_conditions,
                      IpczPortalStatus* status) override;
   IpczResult RemoveTrap(Trap& trap) override;
-
- private:
-  struct SharedState;
-  struct PortalState;
-
-  DirectPortalBackend(mem::Ref<SharedState> state, size_t side);
-
-  PortalState& this_side();
-  PortalState& other_side();
-
-  const mem::Ref<SharedState> state_;
-  const size_t side_;
 };
 
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_DIRECT_PORTAL_BACKEND_H_
+#endif  // IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_

@@ -9,6 +9,7 @@
 
 // no-include-guard-because-multiply-included
 
+#undef IPCZ_PROTOCOL_VERSION
 #undef IPCZ_ENUM_BEGIN
 #undef IPCZ_ENUM_VALUE
 #undef IPCZ_ENUM_VALUE_DEFAULT
@@ -20,6 +21,6 @@
 #undef IPCZ_MSG_WITH_REPLY
 #undef IPCZ_MSG_REPLY
 #undef IPCZ_MSG_END
-#undef IPCZ_MSG_DATA
+#undef IPCZ_MSG_PARAM
 #undef IPCZ_MSG_HANDLE_OPTIONAL
 #undef IPCZ_MSG_HANDLE_REQUIRED

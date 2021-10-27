@@ -24,7 +24,7 @@ namespace msg {
 
 #pragma pack(push, 1)
 
-#include "core/message_macros/message_data_declaration_macros.h"
+#include "core/message_macros/message_params_declaration_macros.h"
 #include "core/node_message_defs.h"
 
 #include "core/message_macros/undef_message_macros.h"

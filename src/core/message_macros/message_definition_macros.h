@@ -4,6 +4,8 @@
 
 // no-include-guard-because-multiply-included
 
+#define IPCZ_PROTOCOL_VERSION(n) const uint32_t kProtocolVersion = n;
+
 #define IPCZ_ENUM_BEGIN(name, type)
 #define IPCZ_ENUM_VALUE(name, value)
 #define IPCZ_ENUM_VALUE_DEFAULT(name, value)
@@ -14,7 +16,7 @@
 
 #define IPCZ_MSG_BEGIN(name, version_decl)                              \
   constexpr size_t kDataSize_##name = sizeof(internal::MessageHeader) + \
-                                      sizeof(name##_Data) +             \
+                                      sizeof(name##_Params) +           \
                                       sizeof(name##_HandleData);        \
   name::name() {                                                        \
     memset(&header, 0, kDataSize_##name);                               \
@@ -23,8 +25,8 @@
     header.message_id = kId;                                            \
     header.expects_reply = kExpectsReply;                               \
     header.is_reply = kIsReply;                                         \
-    data.header.size = sizeof(data);                                    \
-    data.header.version = kVersion;                                     \
+    params.header.size = sizeof(params);                                \
+    params.header.version = kVersion;                                   \
     handle_data.header.size = sizeof(handle_data);                      \
     handle_data.header.version = 0;                                     \
   }                                                                     \
@@ -39,8 +41,8 @@
                message.data, kVersion,                                  \
                absl::MakeSpan(reinterpret_cast<uint8_t*>(&header),      \
                               sizeof(header)),                          \
-               absl::MakeSpan(reinterpret_cast<uint8_t*>(&data),        \
-                              sizeof(data)),                            \
+               absl::MakeSpan(reinterpret_cast<uint8_t*>(&params),      \
+                              sizeof(params)),                          \
                absl::MakeSpan(reinterpret_cast<uint8_t*>(&handle_data), \
                               sizeof(handle_data))) &&                  \
            internal::DeserializeHandles(                                \
@@ -58,6 +60,6 @@
 #define IPCZ_MSG_REPLY(name, version_decl) \
   IPCZ_MSG_BEGIN(name##_Reply, version_decl)
 
-#define IPCZ_MSG_DATA(type, name)
+#define IPCZ_MSG_PARAM(type, name)
 #define IPCZ_MSG_HANDLE_OPTIONAL(name)
 #define IPCZ_MSG_HANDLE_REQUIRED(name)

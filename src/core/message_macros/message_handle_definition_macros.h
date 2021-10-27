@@ -4,6 +4,8 @@
 
 // no-include-guard-because-multiply-included
 
+#define IPCZ_PROTOCOL_VERSION(n)
+
 #define IPCZ_ENUM_BEGIN(name, type)
 #define IPCZ_ENUM_VALUE(name, value)
 #define IPCZ_ENUM_VALUE_DEFAULT(name, value)
@@ -23,6 +25,6 @@
 #define IPCZ_MSG_END() \
   sentinel_macro_helper(0) {}
 
-#define IPCZ_MSG_DATA(type, name)
+#define IPCZ_MSG_PARAM(type, name)
 #define IPCZ_MSG_HANDLE_OPTIONAL(name) name(*storage++),
 #define IPCZ_MSG_HANDLE_REQUIRED(name) name(*storage++),

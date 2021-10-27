@@ -6,10 +6,12 @@
 
 #include <utility>
 
+#include "core/buffering_portal_backend.h"
 #include "core/name.h"
 #include "core/node_link.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
+#include "core/routed_portal_backend.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
@@ -49,14 +51,29 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process));
 
-  const NodeName their_name{Name::kRandom};
+  const NodeName their_node_name{Name::kRandom};
+  const PortalName their_portal_name{Name::kRandom};
+  const PortalName our_portal_name{Name::kRandom};
   msg::InviteNode invitation;
-  invitation.data.your_name = their_name;
-  invitation.data.broker_name = name_;
-  link->Send(invitation);
+  invitation.params.protocol_version = msg::kProtocolVersion;
+  invitation.params.your_portal = {their_node_name, their_portal_name};
+  invitation.params.broker_portal = {name_, our_portal_name};
+  link->Send(invitation, [link](const msg::InviteNode_Reply* reply) {
+    if (!reply->params.accepted) {
+      return false;
+    }
 
-  mem::Ref<Portal> portal = Portal::CreateRouted(*this);
+    link->SetRemoteProtocolVersion(reply->params.protocol_version);
+    return true;
+  });
+
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
+      *this,
+      std::make_unique<RoutedPortalBackend>(
+          our_portal_name, PortalAddress(their_node_name, their_portal_name)));
   out_portal = std::move(portal);
+
+  link->Listen();
   return IPCZ_RESULT_OK;
 }
 
@@ -67,17 +84,38 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
   mem::Ref<NodeLink> link =
       mem::MakeRefCounted<NodeLink>(*this, std::move(channel), os::Process());
 
-  mem::Ref<Portal> portal = Portal::CreateRouted(*this);
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
+      *this, std::make_unique<BufferingPortalBackend>());
+  portal_waiting_for_invitation_ = portal;
   out_portal = std::move(portal);
 
   absl::MutexLock lock(&mutex_);
   if (broker_link_) {
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
-
-  broker_link_ = std::move(link);
-
+  link->Listen();
+  broker_link_ = link;
   return IPCZ_RESULT_OK;
+}
+
+bool Node::AcceptInvitation(const PortalAddress& my_address,
+                            const PortalAddress& broker_portal) {
+  if (type_ == Type::kBroker) {
+    return false;
+  }
+
+  absl::MutexLock lock(&mutex_);
+  if (!portal_waiting_for_invitation_) {
+    return true;
+  }
+
+  if (name_.is_valid()) {
+    return false;
+  }
+
+  name_ = my_address.node();
+  return portal_waiting_for_invitation_->StartRouting(my_address.portal(),
+                                                      broker_portal);
 }
 
 }  // namespace core

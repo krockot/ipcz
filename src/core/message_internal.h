@@ -106,13 +106,13 @@ constexpr size_t GetNumOSHandles() {
 void SerializeHandles(absl::Span<os::Handle> handles,
                       absl::Span<OSHandleData> out_handle_data_storage);
 
-// Attempts to deserialize a message from `incoming_data`. Only the full
+// Attempts to deserialize a message from `incoming_bytes`. Only the full
 // addressability of the input span has been validated, and it may be located
 // within untrusted shared memory.
 bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
                      uint32_t current_params_version,
                      absl::Span<uint8_t> out_header_storage,
-                     absl::Span<uint8_t> out_data_storage,
+                     absl::Span<uint8_t> out_params_storage,
                      absl::Span<uint8_t> out_handle_data_storage);
 
 // Deserializes handles and handle data to produce the set of os::Handles

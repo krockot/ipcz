@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
+#include <string>
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -74,6 +76,18 @@ Name::Name(decltype(kRandom)) {
 }
 
 Name::~Name() = default;
+
+std::string Name::ToString() const {
+  char chars[33];
+  int length = snprintf(chars, 33, "%016lx%016lx", absl::Uint128High64(value_),
+                        absl::Uint128Low64(value_));
+  ABSL_ASSERT(length == 32);
+  return std::string(chars, 32);
+}
+
+std::string PortalAddress::ToString() const {
+  return node_.ToString() + ":" + portal_.ToString();
+}
 
 }  // namespace core
 }  // namespace ipcz

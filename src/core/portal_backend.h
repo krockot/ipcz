@@ -23,9 +23,14 @@ class Trap;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
 // one backend to another if its peer is moved onto or off of the same node.
-// Compare DirectPortalBackend with RoutedPortalBackend.
 class PortalBackend {
  public:
+  enum class Type {
+    kDirect,
+    kBuffering,
+    kRouted,
+  };
+
   PortalBackend();
   virtual ~PortalBackend();
 
@@ -34,6 +39,7 @@ class PortalBackend {
   void set_owner(const Portal* owner) { owner_ = owner; }
   const Portal* owner() const { return owner_; }
 
+  virtual Type GetType() const = 0;
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
   virtual IpczResult Close(
       Node::LockedRouter& router,

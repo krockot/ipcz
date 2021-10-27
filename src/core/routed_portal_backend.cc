@@ -6,16 +6,27 @@
 
 #include <utility>
 
+#include "core/buffering_portal_backend.h"
 #include "core/node.h"
 #include "core/trap.h"
 
 namespace ipcz {
 namespace core {
 
-RoutedPortalBackend::RoutedPortalBackend(const PortalName& name)
-    : name_(name) {}
+RoutedPortalBackend::RoutedPortalBackend(const PortalName& name,
+                                         const PortalAddress& peer_address)
+    : name_(name), peer_address_(peer_address) {}
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
+
+void RoutedPortalBackend::UpgradeBufferingBackend(
+    BufferingPortalBackend& backend) {
+  // TODO
+}
+
+PortalBackend::Type RoutedPortalBackend::GetType() const {
+  return Type::kRouted;
+}
 
 bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return false;

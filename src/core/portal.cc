@@ -56,12 +56,6 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
   return {std::move(portal0), std::move(portal1)};
 }
 
-// static
-mem::Ref<Portal> Portal::CreateRouted(Node& node) {
-  return mem::MakeRefCounted<Portal>(
-      node, std::make_unique<RoutedPortalBackend>(PortalName(Name::kRandom)));
-}
-
 std::unique_ptr<PortalBackend> Portal::TakeBackend() {
   absl::MutexLock lock(&mutex_);
   backend_->set_owner(nullptr);
@@ -77,7 +71,22 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
 
 bool Portal::CanTravelThroughPortal(Portal& sender) {
   absl::MutexLock lock(&mutex_);
-  return backend_->CanTravelThroughPortal(sender);
+  return &sender != this && backend_->CanTravelThroughPortal(sender);
+}
+
+bool Portal::StartRouting(const PortalName& my_name,
+                          const PortalAddress& peer_address) {
+  absl::MutexLock lock(&mutex_);
+  if (!backend_ || backend_->GetType() != PortalBackend::Type::kBuffering) {
+    return false;
+  }
+
+  auto new_backend =
+      std::make_unique<RoutedPortalBackend>(my_name, peer_address);
+  new_backend->UpgradeBufferingBackend(
+      reinterpret_cast<BufferingPortalBackend&>(*backend_));
+  backend_ = std::move(new_backend);
+  return true;
 }
 
 IpczResult Portal::Close() {

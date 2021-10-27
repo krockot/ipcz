@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <tuple>
 
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
@@ -23,7 +24,7 @@ class Name {
   constexpr Name(absl::uint128 value) : value_(value) {}
   ~Name();
 
-  bool is_valid() const { return high() != 0 && low() != 0; }
+  bool is_valid() const { return value_ != 0; }
 
   uint64_t high() const { return absl::Uint128High64(value_); }
   uint64_t low() const { return absl::Uint128Low64(value_); }
@@ -37,6 +38,8 @@ class Name {
   friend H AbslHashValue(H h, const Name& name) {
     return H::combine(std::move(h), name.value_);
   }
+
+  std::string ToString() const;
 
  public:
   absl::uint128 value_ = 0;
@@ -54,6 +57,42 @@ class NodeName : public Name {
   constexpr NodeName() = default;
   NodeName(decltype(kRandom)) : Name(kRandom) {}
   explicit NodeName(absl::uint128 value) : Name(value) {}
+};
+
+class PortalAddress {
+ public:
+  constexpr PortalAddress() = default;
+  PortalAddress(NodeName node, PortalName portal)
+      : node_(node), portal_(portal) {}
+  ~PortalAddress() = default;
+
+  bool is_valid() const { return node_.is_valid() && portal_.is_valid(); }
+
+  NodeName node() const { return node_; }
+  PortalName portal() const { return portal_; }
+
+  bool operator==(const PortalAddress& rhs) const {
+    return std::tie(node_, portal_) == std::tie(rhs.node_, rhs.portal_);
+  }
+
+  bool operator!=(const PortalAddress& rhs) const {
+    return std::tie(node_, portal_) != std::tie(rhs.node_, rhs.portal_);
+  }
+  bool operator<(const PortalAddress& rhs) const {
+    return std::tie(node_, portal_) < std::tie(rhs.node_, rhs.portal_);
+  }
+
+  // Support for absl::Hash.
+  template <typename H>
+  friend H AbslHashValue(H h, const PortalAddress& address) {
+    return H::combine(std::move(h), address.node_, address.portal_);
+  }
+
+  std::string ToString() const;
+
+ private:
+  NodeName node_;
+  PortalName portal_;
 };
 
 }  // namespace core

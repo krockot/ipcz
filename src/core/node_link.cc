@@ -15,13 +15,21 @@ namespace core {
 NodeLink::NodeLink(Node& node, os::Channel channel, os::Process remote_process)
     : node_(mem::WrapRefCounted(&node)),
       channel_(std::move(channel)),
-      remote_process_(std::move(remote_process)) {
+      remote_process_(std::move(remote_process)) {}
+
+NodeLink::~NodeLink() = default;
+
+void NodeLink::Listen() {
+  absl::MutexLock lock(&mutex_);
   channel_.Listen([this](os::Channel::Message message) {
     return this->OnMessage(message);
   });
 }
 
-NodeLink::~NodeLink() = default;
+void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
+  absl::MutexLock lock(&mutex_);
+  remote_protocol_version_ = version;
+}
 
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
@@ -58,7 +66,6 @@ bool NodeLink::OnMessage(os::Channel::Message message) {
     return false;
   }
 
-  // TODO: copy header before validating.
   const auto& header =
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
   if (header.size < sizeof(internal::MessageHeader)) {
@@ -127,11 +134,8 @@ bool NodeLink::OnReply(os::Channel::Message message) {
   }
 }
 
-bool NodeLink::OnMessage(msg::InviteNode& m) {
-  printf("name=%016lx%016lx broker=%016lx%016lx\n", m.data.your_name.high(),
-         m.data.your_name.low(), m.data.broker_name.high(),
-         m.data.broker_name.low());
-  return true;
+bool NodeLink::OnInviteNode(msg::InviteNode& m) {
+  return node_->AcceptInvitation(m.params.your_portal, m.params.broker_portal);
 }
 
 NodeLink::PendingReply::PendingReply() = default;

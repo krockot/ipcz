@@ -12,20 +12,26 @@
 #include "core/portal_backend.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
 namespace core {
 
+class BufferingPortalBackend;
 class Node;
 
 // PortalBackend implementation for a portal whose peer may live in a different
 // node.
 class RoutedPortalBackend : public PortalBackend {
  public:
-  explicit RoutedPortalBackend(const PortalName& name);
+  RoutedPortalBackend(const PortalName& name,
+                      const PortalAddress& peer_address);
   ~RoutedPortalBackend() override;
 
+  void UpgradeBufferingBackend(BufferingPortalBackend& backend);
+
   // PortalBackend:
+  Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
   IpczResult Close(
       Node::LockedRouter& router,
@@ -69,6 +75,9 @@ class RoutedPortalBackend : public PortalBackend {
 
  private:
   const PortalName name_;
+
+  absl::Mutex mutex_;
+  PortalAddress peer_address_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

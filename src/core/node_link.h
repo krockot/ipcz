@@ -15,6 +15,7 @@
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -41,11 +42,16 @@ class NodeLink : public mem::RefCounted {
   // other new nodes (e.g. their own child processes) to the broker node.
   NodeLink(Node& node, os::Channel channel, os::Process remote_process);
 
+  // Starts listening for incoming messages.
+  void Listen();
+
+  void SetRemoteProtocolVersion(uint32_t version);
+
   // Sends a message which does not expect a reply.
   template <typename T, typename = std::enable_if_t<!T::kExpectsReply>>
   void Send(T& message) {
     message.Serialize();
-    Send(message.data_view(), message.handles_view());
+    Send(message.params_view(), message.handles_view());
   }
 
   // Sends a message which expects a specific type of reply. If the remote node
@@ -56,7 +62,7 @@ class NodeLink : public mem::RefCounted {
   void Send(T& message, std::function<bool(typename T::Reply*)> reply_handler) {
     message.Serialize();
     SendWithReplyHandler(
-        message.data_view(), message.handles_view(),
+        message.params_view(), message.handles_view(),
         [reply_handler](void* message) {
           return reply_handler(static_cast<typename T::Reply*>(message));
         });
@@ -92,7 +98,7 @@ class NodeLink : public mem::RefCounted {
   // of handle slots, and presence of any required OS handles, no other
   // validation is done. Methods here must assume that field values can take on
   // any legal value for their underlying POD type.
-  bool OnMessage(msg::InviteNode& m);
+  bool OnInviteNode(msg::InviteNode& m);
 
   struct PendingReply {
     PendingReply();
@@ -110,6 +116,7 @@ class NodeLink : public mem::RefCounted {
   std::atomic<uint16_t> next_request_id_{1};
 
   absl::Mutex mutex_;
+  absl::optional<uint32_t> remote_protocol_version_;
   os::Channel channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<uint16_t, PendingReply> pending_replies_;

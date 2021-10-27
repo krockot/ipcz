@@ -4,6 +4,8 @@
 
 // no-include-guard-because-multiply-included
 
+#define IPCZ_PROTOCOL_VERSION(n)
+
 #define IPCZ_ENUM_BEGIN(name, type)
 #define IPCZ_ENUM_VALUE(name, value)
 #define IPCZ_ENUM_VALUE_DEFAULT(name, value)
@@ -12,10 +14,10 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)         \
-  case msg::name::kId: {                           \
-    msg::name m;                                   \
-    return m.Deserialize(message) && OnMessage(m); \
+#define IPCZ_MSG_BEGIN(name, version_decl)        \
+  case msg::name::kId: {                          \
+    msg::name m;                                  \
+    return m.Deserialize(message) && On##name(m); \
   }
 
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
@@ -26,6 +28,6 @@
 
 #define IPCZ_MSG_END()
 
-#define IPCZ_MSG_DATA(type, name)
+#define IPCZ_MSG_PARAM(type, name)
 #define IPCZ_MSG_HANDLE_OPTIONAL(name)
 #define IPCZ_MSG_HANDLE_REQUIRED(name)

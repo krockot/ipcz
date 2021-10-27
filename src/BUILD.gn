@@ -29,12 +29,12 @@ source_set("ipcz_sources") {
   public = [ "include/ipcz/ipcz.h" ]
 
   sources = [
+    "core/buffering_portal_backend.cc",
+    "core/buffering_portal_backend.h",
     "core/direct_portal_backend.cc",
     "core/direct_portal_backend.h",
     "core/message_internal.cc",
     "core/message_internal.h",
-    "core/message_macros/message_data_declaration_macros.h",
-    "core/message_macros/message_data_definition_macros.h",
     "core/message_macros/message_declaration_macros.h",
     "core/message_macros/message_definition_macros.h",
     "core/message_macros/message_dispatch_macros.h",
@@ -42,6 +42,8 @@ source_set("ipcz_sources") {
     "core/message_macros/message_handle_data_definition_macros.h",
     "core/message_macros/message_handle_declaration_macros.h",
     "core/message_macros/message_handle_definition_macros.h",
+    "core/message_macros/message_params_declaration_macros.h",
+    "core/message_macros/message_params_definition_macros.h",
     "core/message_macros/message_reply_dispatch_macros.h",
     "core/message_macros/undef_message_macros.h",
     "core/name.cc",

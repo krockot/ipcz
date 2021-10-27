@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "core/name.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -28,12 +29,14 @@ class Portal : public mem::RefCounted {
 
   static Pair CreateLocalPair(Node& node);
 
-  static mem::Ref<Portal> CreateRouted(Node& node);
-
   std::unique_ptr<PortalBackend> TakeBackend();
   void SetBackend(std::unique_ptr<PortalBackend> backend);
 
   bool CanTravelThroughPortal(Portal& sender);
+
+  // Transitions from buffering to routing.
+  bool StartRouting(const PortalName& my_name,
+                    const PortalAddress& peer_address);
 
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);
