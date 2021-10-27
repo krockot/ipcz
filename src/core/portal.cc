@@ -83,7 +83,7 @@ bool Portal::StartRouting(const PortalName& my_name,
 
   auto new_backend =
       std::make_unique<RoutedPortalBackend>(my_name, peer_address);
-  new_backend->UpgradeBufferingBackend(
+  new_backend->AdoptBufferingBackendState(
       reinterpret_cast<BufferingPortalBackend&>(*backend_));
   backend_ = std::move(new_backend);
   return true;

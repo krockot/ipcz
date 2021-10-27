@@ -12,8 +12,12 @@
 namespace ipcz {
 namespace core {
 
-NodeLink::NodeLink(Node& node, os::Channel channel, os::Process remote_process)
+NodeLink::NodeLink(Node& node,
+                   os::Channel channel,
+                   os::Process remote_process,
+                   Node::Type remote_node_type)
     : node_(mem::WrapRefCounted(&node)),
+      remote_node_type_(remote_node_type),
       channel_(std::move(channel)),
       remote_process_(std::move(remote_process)) {}
 
@@ -135,6 +139,10 @@ bool NodeLink::OnReply(os::Channel::Message message) {
 }
 
 bool NodeLink::OnInviteNode(msg::InviteNode& m) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
   return node_->AcceptInvitation(m.params.your_portal, m.params.broker_portal);
 }
 

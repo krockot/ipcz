@@ -146,9 +146,11 @@ IpczResult ClosePortal(IpczHandle portal, uint32_t flags, const void* options) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  mem::Ref<core::Portal> doomed_portal(mem::RefCounted::kAdoptExistingRef,
-                                       ToPtr<core::Portal>(portal));
-  doomed_portal->Close();
+  // The Portal may outlive this call, but it's no longer reachable through any
+  // ipcz API calls.
+  mem::Ref<core::Portal> released_portal(mem::RefCounted::kAdoptExistingRef,
+                                         ToPtr<core::Portal>(portal));
+  released_portal->Close();
   return IPCZ_RESULT_OK;
 }
 

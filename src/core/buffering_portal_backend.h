@@ -5,12 +5,16 @@
 #ifndef IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
 #define IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 #include "core/portal_backend.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -69,6 +73,25 @@ class BufferingPortalBackend : public PortalBackend {
                      IpczTrapConditions* satisfied_conditions,
                      IpczPortalStatus* status) override;
   IpczResult RemoveTrap(Trap& trap) override;
+
+ private:
+  friend class RoutedPortalBackend;
+
+  struct Parcel {
+    Parcel();
+    Parcel(Parcel&& other);
+    Parcel& operator=(Parcel&& other);
+    ~Parcel();
+    std::vector<uint8_t> data;
+    std::vector<mem::Ref<Portal>> portals;
+    std::vector<os::Handle> os_handles;
+  };
+
+  absl::Mutex mutex_;
+  bool closed_ ABSL_GUARDED_BY(mutex_) = false;
+  absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
+  std::vector<Parcel> outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+  size_t num_outgoing_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace core

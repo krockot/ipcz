@@ -288,7 +288,7 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
     } else if (limits->max_queued_bytes > 0 &&
                other_state.num_queued_data_bytes + num_data_bytes >
                    limits->max_queued_bytes) {
-      if (flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL &&
+      if ((flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) &&
           other_state.num_queued_data_bytes < limits->max_queued_bytes) {
         num_data_bytes =
             limits->max_queued_bytes - other_state.num_queued_data_bytes;
@@ -367,7 +367,7 @@ IpczResult DirectPortalBackend::Get(void* data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  auto& next_parcel = state.incoming_parcels;
+  std::unique_ptr<Parcel>& next_parcel = state.incoming_parcels;
   const bool empty = !next_parcel;
   if (empty) {
     const bool closed = !other_side().portal;
@@ -417,7 +417,7 @@ IpczResult DirectPortalBackend::BeginGet(const void** data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  auto& next_parcel = state.incoming_parcels;
+  std::unique_ptr<Parcel>& next_parcel = state.incoming_parcels;
   const bool empty = !next_parcel;
   if (empty) {
     const bool closed = !other_side().portal;
@@ -460,7 +460,7 @@ IpczResult DirectPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  auto& next_parcel = state.incoming_parcels;
+  std::unique_ptr<Parcel>& next_parcel = state.incoming_parcels;
   const size_t data_size = next_parcel->data.size() - next_parcel->data_offset;
   if (num_data_bytes_consumed > data_size) {
     return IPCZ_RESULT_INVALID_ARGUMENT;

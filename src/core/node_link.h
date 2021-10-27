@@ -40,7 +40,10 @@ class NodeLink : public mem::RefCounted {
   // it should be passed in `remote_process`. Generally this is only necessary
   // for links initiated by the broker node or by nodes who wish to introduce
   // other new nodes (e.g. their own child processes) to the broker node.
-  NodeLink(Node& node, os::Channel channel, os::Process remote_process);
+  NodeLink(Node& node,
+           os::Channel channel,
+           os::Process remote_process,
+           Node::Type remote_node_type);
 
   // Starts listening for incoming messages.
   void Listen();
@@ -113,6 +116,7 @@ class NodeLink : public mem::RefCounted {
   };
 
   const mem::Ref<Node> node_;
+  const Node::Type remote_node_type_;
   std::atomic<uint16_t> next_request_id_{1};
 
   absl::Mutex mutex_;

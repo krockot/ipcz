@@ -38,8 +38,9 @@ TEST_F(RemotePortalTest, BasicConnection) {
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.AcceptRemotePortal(other_node, &remote_transport,
                                     IPCZ_NO_FLAGS, nullptr, &b));
+  Put(b, "hey hey", {}, {});
 
-  // Put(a, "hello!", {}, {});
+  Put(a, "hello!", {}, {});
 
   while (true)
     ;

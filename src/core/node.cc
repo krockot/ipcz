@@ -49,7 +49,7 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   ABSL_ASSERT(type_ == Type::kBroker);
 
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
-      *this, std::move(channel), std::move(process));
+      *this, std::move(channel), std::move(process), Type::kNormal);
 
   const NodeName their_node_name{Name::kRandom};
   const PortalName their_portal_name{Name::kRandom};
@@ -81,8 +81,8 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
                                     mem::Ref<Portal>& out_portal) {
   ABSL_ASSERT(type_ != Type::kBroker);
 
-  mem::Ref<NodeLink> link =
-      mem::MakeRefCounted<NodeLink>(*this, std::move(channel), os::Process());
+  mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
+      *this, std::move(channel), os::Process(), Type::kBroker);
 
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
       *this, std::make_unique<BufferingPortalBackend>());
