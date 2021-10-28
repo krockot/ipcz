@@ -70,6 +70,8 @@ source_set("ipcz_sources") {
     "core/trap.h",
     "debug/hex_dump.cc",
     "debug/hex_dump.h",
+    "debug/log.cc",
+    "debug/log.h",
     "debug/stack_trace.cc",
     "debug/stack_trace.h",
     "mem/atomic_memcpy.cc",

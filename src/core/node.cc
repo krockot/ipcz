@@ -12,6 +12,7 @@
 #include "core/node_messages.h"
 #include "core/portal.h"
 #include "core/routed_portal_backend.h"
+#include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
@@ -121,9 +122,8 @@ bool Node::AcceptInvitation(const PortalAddress& my_address,
 void Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
   mutex_.AssertHeld();
 
-  std::string addr = destination.ToString();
-  printf("Routing parcel with %zu bytes to %s\n", parcel.data_view().size(),
-         addr.c_str());
+  LOG(INFO) << "Routing parcel with " << parcel.data_view().size()
+            << " bytes to " << destination.ToString();
 }
 
 }  // namespace core
