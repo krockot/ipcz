@@ -5,15 +5,22 @@
 #ifndef IPCZ_SRC_CORE_ROUTER_H_
 #define IPCZ_SRC_CORE_ROUTER_H_
 
+#include "core/name.h"
+
 namespace ipcz {
 namespace core {
 
+class Parcel;
+
+// An interface implemented privately by Node and exposed only via a
+// LockedRouter, which holds the Node's internal lock throughout its lifetime.
+// This enables certain Portal entry points to call into the Node's Router
+// interface under the safe assumption that the Node's internal lock is already
+// held.
 class Router {
  public:
-  Router();
-  ~Router();
-
- private:
+  virtual void RouteParcel(const PortalAddress& destination,
+                           Parcel& parcel) = 0;
 };
 
 }  // namespace core

@@ -21,7 +21,7 @@ namespace core {
 class NodeLink;
 
 // Node encompasses the state of an isolated ipcz node.
-class Node : public mem::RefCounted {
+class Node : public mem::RefCounted, private Router {
  public:
   // Scoped accessor to the Node's internal Router, ensuring the Router's mutex
   // is held during access.
@@ -66,11 +66,13 @@ class Node : public mem::RefCounted {
 
   ~Node() override;
 
+  // Router:
+  void RouteParcel(const PortalAddress& destination, Parcel& parcel) override;
+
   const Type type_;
 
   absl::Mutex mutex_;
   NodeName name_;
-  Router router_;
   mem::Ref<NodeLink> broker_link_;
   mem::Ref<Portal> portal_waiting_for_invitation_;
   absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> peer_links_;

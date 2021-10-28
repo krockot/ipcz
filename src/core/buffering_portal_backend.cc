@@ -40,7 +40,7 @@ IpczResult BufferingPortalBackend::QueryStatus(IpczPortalStatus& status) {
   status.num_local_parcels = 0;
   status.num_local_bytes = 0;
   status.num_remote_parcels = outgoing_parcels_.size();
-  status.num_remote_bytes = static_cast<uint32_t>(num_outgoing_bytes_);
+  status.num_remote_bytes = num_outgoing_bytes_;
   return IPCZ_RESULT_OK;
 }
 
@@ -66,19 +66,24 @@ IpczResult BufferingPortalBackend::Put(
     }
   }
 
-  Parcel parcel;
-  parcel.data = std::vector<uint8_t>(data.begin(), data.end());
-  parcel.portals.reserve(portals.size());
+  std::vector<mem::Ref<Portal>> parcel_portals;
+  parcel_portals.reserve(portals.size());
   for (IpczHandle portal : portals) {
-    parcel.portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
+    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
                                 ToPtr<Portal>(portal));
   }
-  parcel.os_handles.reserve(os_handles.size());
+
+  std::vector<os::Handle> parcel_os_handles;
+  parcel_os_handles.reserve(os_handles.size());
   for (const IpczOSHandle& handle : os_handles) {
-    parcel.os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
+    parcel_os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
   }
 
-  outgoing_parcels_.push_back(std::move(parcel));
+  Parcel parcel;
+  parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
+  parcel.SetPortals(std::move(parcel_portals));
+  parcel.SetOSHandles(std::move(parcel_os_handles));
+  outgoing_parcels_.push(std::move(parcel));
   return IPCZ_RESULT_OK;
 }
 
@@ -110,8 +115,8 @@ IpczResult BufferingPortalBackend::BeginPut(IpczBeginPutFlags flags,
 
   pending_parcel_.emplace();
   if (data) {
-    pending_parcel_->data.resize(num_data_bytes);
-    *data = pending_parcel_->data.data();
+    pending_parcel_->ResizeData(num_data_bytes);
+    *data = pending_parcel_->data_view().data();
   }
   return IPCZ_RESULT_OK;
 }
@@ -127,25 +132,30 @@ IpczResult BufferingPortalBackend::CommitPut(
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  if (pending_parcel_->data.size() < num_data_bytes_produced) {
+  if (pending_parcel_->data_view().size() < num_data_bytes_produced) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Parcel parcel = std::move(pending_parcel_.value());
-  pending_parcel_.reset();
-
-  parcel.data.resize(num_data_bytes_produced);
-  parcel.portals.reserve(portals.size());
+  std::vector<mem::Ref<Portal>> parcel_portals;
+  parcel_portals.reserve(portals.size());
   for (IpczHandle portal : portals) {
-    parcel.portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
+    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
                                 ToPtr<Portal>(portal));
   }
-  parcel.os_handles.reserve(os_handles.size());
+
+  std::vector<os::Handle> parcel_os_handles;
+  parcel_os_handles.reserve(os_handles.size());
   for (const IpczOSHandle& handle : os_handles) {
-    parcel.os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
+    parcel_os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
   }
 
-  outgoing_parcels_.push_back(std::move(parcel));
+  Parcel parcel = std::move(*pending_parcel_);
+  pending_parcel_.reset();
+
+  parcel.ResizeData(num_data_bytes_produced);
+  parcel.SetPortals(std::move(parcel_portals));
+  parcel.SetOSHandles(std::move(parcel_os_handles));
+  outgoing_parcels_.push(std::move(parcel));
   return IPCZ_RESULT_OK;
 }
 
@@ -202,15 +212,6 @@ IpczResult BufferingPortalBackend::ArmTrap(
 IpczResult BufferingPortalBackend::RemoveTrap(Trap& trap) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
-
-BufferingPortalBackend::Parcel::Parcel() = default;
-
-BufferingPortalBackend::Parcel::Parcel(Parcel&& other) = default;
-
-BufferingPortalBackend::Parcel& BufferingPortalBackend::Parcel::operator=(
-    Parcel&& other) = default;
-
-BufferingPortalBackend::Parcel::~Parcel() = default;
 
 }  // namespace core
 }  // namespace ipcz

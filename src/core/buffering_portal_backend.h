@@ -7,9 +7,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <forward_list>
 #include <utility>
 #include <vector>
 
+#include "core/parcel.h"
+#include "core/parcel_queue.h"
 #include "core/portal_backend.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -77,20 +80,10 @@ class BufferingPortalBackend : public PortalBackend {
  private:
   friend class RoutedPortalBackend;
 
-  struct Parcel {
-    Parcel();
-    Parcel(Parcel&& other);
-    Parcel& operator=(Parcel&& other);
-    ~Parcel();
-    std::vector<uint8_t> data;
-    std::vector<mem::Ref<Portal>> portals;
-    std::vector<os::Handle> os_handles;
-  };
-
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
-  std::vector<Parcel> outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+  ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
   size_t num_outgoing_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 

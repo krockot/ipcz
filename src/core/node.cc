@@ -19,7 +19,7 @@ namespace ipcz {
 namespace core {
 
 Node::LockedRouter::LockedRouter(Node& node)
-    : router_(node.router_), lock_(&node.mutex_) {}
+    : router_(node), lock_(&node.mutex_) {}
 
 Node::LockedRouter::~LockedRouter() = default;
 
@@ -116,6 +116,14 @@ bool Node::AcceptInvitation(const PortalAddress& my_address,
   name_ = my_address.node();
   return portal_waiting_for_invitation_->StartRouting(my_address.portal(),
                                                       broker_portal);
+}
+
+void Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
+  mutex_.AssertHeld();
+
+  std::string addr = destination.ToString();
+  printf("Routing parcel with %zu bytes to %s\n", parcel.data_view().size(),
+         addr.c_str());
 }
 
 }  // namespace core
