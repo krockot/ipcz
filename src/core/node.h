@@ -58,8 +58,8 @@ class Node : public mem::RefCounted, private Router {
   IpczResult AcceptRemotePortal(os::Channel channel,
                                 mem::Ref<Portal>& out_portal);
 
-  bool AcceptInvitation(const PortalAddress& my_address,
-                        const PortalAddress& broker_portal);
+  bool AcceptInvitationFromBroker(const PortalAddress& my_address,
+                                  const PortalAddress& broker_portal);
 
  private:
   friend class LockedRouter;
@@ -74,8 +74,8 @@ class Node : public mem::RefCounted, private Router {
   absl::Mutex mutex_;
   NodeName name_;
   mem::Ref<NodeLink> broker_link_;
+  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links_;
   mem::Ref<Portal> portal_waiting_for_invitation_;
-  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> peer_links_;
 };
 
 }  // namespace core

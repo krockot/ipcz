@@ -49,18 +49,22 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   // TODO: don't restrict this to broker nodes (maybe?)
   ABSL_ASSERT(type_ == Type::kBroker);
 
-  mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
-      *this, std::move(channel), std::move(process), Type::kNormal);
-
   const NodeName their_node_name{Name::kRandom};
   const PortalName their_portal_name{Name::kRandom};
   const PortalName our_portal_name{Name::kRandom};
+
+  mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
+      *this, std::move(channel), std::move(process), Type::kNormal);
+  link->SetRemoteNodeName(their_node_name);
+
   msg::InviteNode invitation;
   invitation.params.protocol_version = msg::kProtocolVersion;
   invitation.params.your_portal = {their_node_name, their_portal_name};
   invitation.params.broker_portal = {name_, our_portal_name};
   link->Send(invitation, [link](const msg::InviteNode_Reply* reply) {
     if (!reply->params.accepted) {
+      // Newer versions may tolerate invitation rejection, but it's the only
+      // handshake mechanism we have in v0. Treat this as a validation failure.
       return false;
     }
 
@@ -74,6 +78,7 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
           our_portal_name, PortalAddress(their_node_name, their_portal_name)));
   out_portal = std::move(portal);
 
+  node_links_[their_node_name] = link;
   link->Listen();
   return IPCZ_RESULT_OK;
 }
@@ -99,8 +104,8 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
   return IPCZ_RESULT_OK;
 }
 
-bool Node::AcceptInvitation(const PortalAddress& my_address,
-                            const PortalAddress& broker_portal) {
+bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
+                                      const PortalAddress& broker_portal) {
   if (type_ == Type::kBroker) {
     return false;
   }

@@ -7,6 +7,7 @@
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"
+#include "debug/log.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
@@ -30,6 +31,11 @@ void NodeLink::Listen() {
   });
 }
 
+void NodeLink::SetRemoteNodeName(const NodeName& name) {
+  absl::MutexLock lock(&mutex_);
+  remote_node_name_ = name;
+}
+
 void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
   absl::MutexLock lock(&mutex_);
   remote_protocol_version_ = version;
@@ -39,9 +45,6 @@ void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(channel_.is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  internal::MessageHeader& header =
-      *reinterpret_cast<internal::MessageHeader*>(data.data());
-  header.request_id = 0;
   channel_.Send(os::Channel::Data(data));
 }
 
@@ -111,6 +114,10 @@ bool NodeLink::OnReply(os::Channel::Message message) {
   {
     absl::MutexLock lock(&mutex_);
     auto it = pending_replies_.find(header.request_id);
+    if (it == pending_replies_.end()) {
+      // No reply expected with this ID. Oops! Validation failure.
+      return false;
+    }
     pending_reply = std::move(it->second);
     pending_replies_.erase(it);
   }
@@ -143,7 +150,15 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
     return false;
   }
 
-  return node_->AcceptInvitation(m.params.your_portal, m.params.broker_portal);
+  bool accepted = node_->AcceptInvitationFromBroker(m.params.your_portal,
+                                                    m.params.broker_portal);
+
+  msg::InviteNode_Reply reply;
+  reply.header.request_id = m.header.request_id;
+  reply.params.protocol_version = msg::kProtocolVersion;
+  reply.params.accepted = accepted;
+  Send(reply);
+  return true;
 }
 
 NodeLink::PendingReply::PendingReply() = default;

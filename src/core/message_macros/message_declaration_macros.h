@@ -20,7 +20,6 @@
     id_decl;                                                    \
     version_decl;                                               \
     reply_decl;                                                 \
-    static constexpr bool kIsReply = false;                     \
     name();                                                     \
     ~name();                                                    \
     void Serialize();                                           \
@@ -33,19 +32,25 @@
                                                                 \
    public:
 
-#define IPCZ_MSG_REPLY_DECL(name)             \
+#define IPCZ_MSG_NO_REPLY_DECL()               \
+  static constexpr bool kExpectsReply = false; \
+  static constexpr bool kIsReply = false
+#define IPCZ_MSG_EXPECTS_REPLY_DECL(name)     \
   static constexpr bool kExpectsReply = true; \
+  static constexpr bool kIsReply = false;     \
   using Reply = name##_Reply
-#define IPCZ_MSG_NO_REPLY_DECL() static constexpr bool kExpectsReply = false
+#define IPCZ_MSG_IS_REPLY_DECL()               \
+  static constexpr bool kExpectsReply = false; \
+  static constexpr bool kIsReply = true
 
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
   IPCZ_MSG_BEGIN(name, id_decl, version_decl, IPCZ_MSG_NO_REPLY_DECL())
 #define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
   struct name##_Reply;                                   \
-  IPCZ_MSG_BEGIN(name, id_decl, version_decl, IPCZ_MSG_REPLY_DECL(name))
+  IPCZ_MSG_BEGIN(name, id_decl, version_decl, IPCZ_MSG_EXPECTS_REPLY_DECL(name))
 #define IPCZ_MSG_REPLY(name, version_decl)                               \
   IPCZ_MSG_BEGIN(name##_Reply, static constexpr uint8_t kId = name::kId, \
-                 version_decl, IPCZ_MSG_NO_REPLY_DECL())
+                 version_decl, IPCZ_MSG_IS_REPLY_DECL())
 
 #define IPCZ_MSG_END()                                          \
   static constexpr size_t kNumHandles =                         \

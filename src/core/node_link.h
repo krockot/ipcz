@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 
+#include "core/name.h"
 #include "core/node.h"
 #include "core/node_messages.h"
 #include "mem/ref_counted.h"
@@ -45,9 +46,15 @@ class NodeLink : public mem::RefCounted {
            os::Process remote_process,
            Node::Type remote_node_type);
 
+  absl::optional<NodeName> remote_node_name() {
+    absl::MutexLock lock(&mutex_);
+    return remote_node_name_;
+  }
+
   // Starts listening for incoming messages.
   void Listen();
 
+  void SetRemoteNodeName(const NodeName& name);
   void SetRemoteProtocolVersion(uint32_t version);
 
   // Sends a message which does not expect a reply.
@@ -120,6 +127,7 @@ class NodeLink : public mem::RefCounted {
   std::atomic<uint16_t> next_request_id_{1};
 
   absl::Mutex mutex_;
+  absl::optional<NodeName> remote_node_name_;
   absl::optional<uint32_t> remote_protocol_version_;
   os::Channel channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
