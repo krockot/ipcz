@@ -68,6 +68,8 @@ class Node : public mem::RefCounted, private Router {
                     Parcel& parcel,
                     TrapEventDispatcher& dispatcher);
 
+  bool OnPeerClosed(const PortalName& portal, TrapEventDispatcher& dispatcher);
+
  private:
   friend class LockedRouter;
 
@@ -75,6 +77,7 @@ class Node : public mem::RefCounted, private Router {
 
   // Router:
   bool RouteParcel(const PortalAddress& destination, Parcel& parcel) override;
+  bool NotifyPeerClosed(const PortalAddress& destination) override;
 
   const Type type_;
 

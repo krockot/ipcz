@@ -74,9 +74,10 @@ IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
       (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
     event_flags |= IPCZ_TRAP_CONDITION_PEER_CLOSED;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_EMPTY) &&
+  if ((conditions_.flags & IPCZ_TRAP_CONDITION_DEAD) &&
+      (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
       status.num_local_parcels == 0) {
-    event_flags |= IPCZ_TRAP_CONDITION_EMPTY;
+    event_flags |= IPCZ_TRAP_CONDITION_DEAD;
   }
   if ((conditions_.flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) &&
       status.num_local_parcels >= conditions_.min_local_parcels) {
@@ -95,6 +96,32 @@ IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
     event_flags |= IPCZ_TRAP_CONDITION_REMOTE_BYTES;
   }
   return event_flags;
+}
+
+TrapSet::TrapSet() = default;
+
+TrapSet::~TrapSet() = default;
+
+IpczResult TrapSet::Add(std::unique_ptr<Trap> trap) {
+  traps_.insert(std::move(trap));
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult TrapSet::Remove(Trap& trap) {
+  auto it = traps_.find(&trap);
+  if (it == traps_.end()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  traps_.erase(it);
+  return IPCZ_RESULT_OK;
+}
+
+void TrapSet::MaybeNotify(TrapEventDispatcher& dispatcher,
+                          const IpczPortalStatus& status) {
+  for (const auto& trap : traps_) {
+    trap->MaybeNotify(dispatcher, status);
+  }
 }
 
 }  // namespace core

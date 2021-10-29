@@ -285,16 +285,10 @@ typedef uint32_t IpczTrapConditionFlags;
 // applications are interested in the more specific IPCZ_TRAP_CONDITION_DEAD.
 #define IPCZ_TRAP_CONDITION_PEER_CLOSED IPCZ_FLAG_BIT(1)
 
-// Triggers a trap event whenever there are no local parcels queued for
-// retrieval. Typically applications are interested in the more specific
-// IPCZ_TRAP_CONDITION_DEAD.
-#define IPCZ_TRAP_CONDITION_EMPTY IPCZ_FLAG_BIT(2)
-
 // Triggers a trap event whenever there are no more parcels available to
 // retrieve from this portal AND the opposite portal is closed. This means the
 // portal will never again have parcels to retrieve and is effectively useless.
-#define IPCZ_TRAP_CONDITION_DEAD \
-  (IPCZ_TRAP_CONDITION_PEER_CLOSED | IPCZ_TRAP_CONDITION_EMPTY)
+#define IPCZ_TRAP_CONDITION_DEAD IPCZ_FLAG_BIT(2)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
 // this portal meets or exceeds the threshold given by `min_local_parcels` in

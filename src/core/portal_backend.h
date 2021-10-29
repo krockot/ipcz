@@ -39,6 +39,7 @@ class PortalBackend {
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
   virtual bool AcceptParcel(Parcel& parcel,
                             TrapEventDispatcher& dispatcher) = 0;
+  virtual bool NotifyPeerClosed(TrapEventDispatcher& dispatcher) = 0;
   virtual IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) = 0;

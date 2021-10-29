@@ -180,6 +180,17 @@ bool Node::AcceptParcel(const PortalName& destination,
   return it->second->AcceptParcel(parcel, dispatcher);
 }
 
+bool Node::OnPeerClosed(const PortalName& portal,
+                        TrapEventDispatcher& dispatcher) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routed_portals_.find(portal);
+  if (it == routed_portals_.end()) {
+    return true;
+  }
+
+  return it->second->NotifyPeerClosed(dispatcher);
+}
+
 bool Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
   mutex_.AssertHeld();
 
@@ -191,6 +202,19 @@ bool Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
   }
 
   it->second->SendParcel(destination.portal(), parcel);
+  return true;
+}
+
+bool Node::NotifyPeerClosed(const PortalAddress& destination) {
+  mutex_.AssertHeld();
+  auto it = node_links_.find(destination.node());
+  if (it == node_links_.end()) {
+    return false;
+  }
+
+  msg::PeerClosed m;
+  m.params.local_portal = destination.portal();
+  it->second->Send(m);
   return true;
 }
 

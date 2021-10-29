@@ -14,6 +14,7 @@
 #include "core/portal_backend.h"
 #include "core/side.h"
 #include "core/trap.h"
+#include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
@@ -93,6 +94,11 @@ bool DirectPortalBackend::AcceptParcel(Parcel& parcel,
                                        TrapEventDispatcher& dispatcher) {
   // Parcels are only exchanged directly between local DirectPortalBackends, so
   // it's absurd for this method to ever be invoked.
+  ABSL_ASSERT(false);
+  return false;
+}
+
+bool DirectPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
   ABSL_ASSERT(false);
   return false;
 }
@@ -209,10 +215,10 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
       max_queued_bytes = limits->max_queued_bytes;
     }
   }
-
   if (other_state.incoming_parcels.size() >= max_queued_parcels) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   } else if (max_queued_bytes < other_state.num_queued_data_bytes) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   } else if (max_queued_bytes - other_state.num_queued_data_bytes <
              num_data_bytes) {
     if (flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) {
@@ -272,6 +278,7 @@ IpczResult DirectPortalBackend::CommitPut(
   PortalState& receiver = state_->sides[Opposite(side_)];
   receiver.num_queued_data_bytes += num_data_bytes_produced;
   receiver.incoming_parcels.push(std::move(*parcel));
+  this_side().pending_parcel.reset();
   return IPCZ_RESULT_OK;
 }
 

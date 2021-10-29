@@ -224,6 +224,10 @@ IpczResult BeginPut(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
+  uint32_t dummy_num_bytes = 0;
+  if (!num_bytes) {
+    num_bytes = &dummy_num_bytes;
+  }
   return ToRef<core::Portal>(portal).BeginPut(flags, limits, *num_bytes, data);
 }
 

@@ -52,6 +52,8 @@ class Portal : public mem::RefCounted {
   // Accepts a parcel from an external source, e.g. as routed from another node.
   bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher);
 
+  bool NotifyPeerClosed(TrapEventDispatcher& dispatcher);
+
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);
 

@@ -112,7 +112,8 @@ class APITest : public testing::Test {
     os::Event event;
     os::Event::Notifier notifier = event.MakeNotifier();
     IpczTrapConditions conditions = {sizeof(conditions)};
-    conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+    conditions.flags =
+        IPCZ_TRAP_CONDITION_LOCAL_PARCELS | IPCZ_TRAP_CONDITION_DEAD;
     conditions.min_local_parcels = 1;
     const auto handler = [](const IpczTrapEvent* event) {
       reinterpret_cast<os::Event::Notifier*>(event->context)->Notify();

@@ -14,7 +14,10 @@
 namespace ipcz {
 namespace core {
 
-BufferingPortalBackend::BufferingPortalBackend(Side side) : side_(side) {}
+BufferingPortalBackend::BufferingPortalBackend(Side side) : side_(side) {
+  memset(&status_, 0, sizeof(status_));
+  status_.size = sizeof(status_);
+}
 
 BufferingPortalBackend::~BufferingPortalBackend() = default;
 
@@ -34,6 +37,12 @@ bool BufferingPortalBackend::AcceptParcel(Parcel& parcel,
   return false;
 }
 
+bool BufferingPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
+  absl::MutexLock lock(&mutex_);
+  status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  return true;
+}
+
 IpczResult BufferingPortalBackend::Close(
     Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
@@ -45,11 +54,7 @@ IpczResult BufferingPortalBackend::Close(
 IpczResult BufferingPortalBackend::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
-  status.flags = 0;
-  status.num_local_parcels = 0;
-  status.num_local_bytes = 0;
-  status.num_remote_parcels = outgoing_parcels_.size();
-  status.num_remote_bytes = num_outgoing_bytes_;
+  status = status_;
   return IPCZ_RESULT_OK;
 }
 
@@ -70,7 +75,7 @@ IpczResult BufferingPortalBackend::Put(
         outgoing_parcels_.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               num_outgoing_bytes_ >= limits->max_queued_bytes) {
+               status_.num_remote_bytes >= limits->max_queued_bytes) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
   }
@@ -93,6 +98,8 @@ IpczResult BufferingPortalBackend::Put(
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
   outgoing_parcels_.push(std::move(parcel));
+  status_.num_remote_parcels++;
+  status_.num_remote_bytes += data.size();
   return IPCZ_RESULT_OK;
 }
 
@@ -111,11 +118,11 @@ IpczResult BufferingPortalBackend::BeginPut(IpczBeginPutFlags flags,
         outgoing_parcels_.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               num_outgoing_bytes_ + num_data_bytes >
+               status_.num_remote_bytes + num_data_bytes >
                    limits->max_queued_bytes) {
       if ((flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) &&
-          num_outgoing_bytes_ < limits->max_queued_bytes) {
-        num_data_bytes = limits->max_queued_bytes - num_outgoing_bytes_;
+          status_.num_remote_bytes < limits->max_queued_bytes) {
+        num_data_bytes = limits->max_queued_bytes - status_.num_remote_bytes;
       } else {
         return IPCZ_RESULT_RESOURCE_EXHAUSTED;
       }
@@ -165,6 +172,8 @@ IpczResult BufferingPortalBackend::CommitPut(
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
   outgoing_parcels_.push(std::move(parcel));
+  status_.num_remote_bytes += num_data_bytes_produced;
+  status_.num_remote_parcels++;
   return IPCZ_RESULT_OK;
 }
 

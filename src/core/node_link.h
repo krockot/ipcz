@@ -119,6 +119,7 @@ class NodeLink : public mem::RefCounted {
   // validation is done. Methods here must assume that field values can take on
   // any legal value for their underlying POD type.
   bool OnInviteNode(msg::InviteNode& m);
+  bool OnPeerClosed(msg::PeerClosed& m);
 
   bool OnAcceptParcel(os::Channel::Message m);
 

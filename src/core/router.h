@@ -21,6 +21,7 @@ class Router {
  public:
   virtual bool RouteParcel(const PortalAddress& destination,
                            Parcel& parcel) = 0;
+  virtual bool NotifyPeerClosed(const PortalAddress& destination) = 0;
 };
 
 }  // namespace core

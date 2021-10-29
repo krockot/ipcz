@@ -111,6 +111,11 @@ bool Portal::AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) {
   return backend_->AcceptParcel(parcel, dispatcher);
 }
 
+bool Portal::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
+  absl::MutexLock lock(&mutex_);
+  return backend_->NotifyPeerClosed(dispatcher);
+}
+
 IpczResult Portal::Close() {
   std::vector<mem::Ref<Portal>> other_portals_to_close;
   {

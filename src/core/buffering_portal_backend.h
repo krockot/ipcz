@@ -41,6 +41,7 @@ class BufferingPortalBackend : public PortalBackend {
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
   bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) override;
+  bool NotifyPeerClosed(TrapEventDispatcher& dispatcher) override;
   IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
@@ -88,9 +89,9 @@ class BufferingPortalBackend : public PortalBackend {
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
+  IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_);
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
   ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
-  size_t num_outgoing_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace core

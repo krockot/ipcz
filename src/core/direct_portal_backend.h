@@ -34,6 +34,7 @@ class DirectPortalBackend : public PortalBackend {
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
   bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) override;
+  bool NotifyPeerClosed(TrapEventDispatcher& dispatcher) override;
   IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;

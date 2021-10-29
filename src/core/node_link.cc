@@ -244,6 +244,11 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   return true;
 }
 
+bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
+  TrapEventDispatcher dispatcher;
+  return node_->OnPeerClosed(m.params.local_portal, dispatcher);
+}
+
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   if (m.data.size() < sizeof(internal::MessageHeader)) {
     return false;

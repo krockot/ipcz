@@ -6,9 +6,11 @@
 #define IPCZ_SRC_CORE_TRAP_H_
 
 #include <cstdint>
+#include <memory>
 
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -55,6 +57,20 @@ class Trap {
   const IpczTrapEventHandler handler_;
   const uintptr_t context_;
   const mem::Ref<SharedState> state_{mem::MakeRefCounted<SharedState>()};
+};
+
+class TrapSet {
+ public:
+  TrapSet();
+  ~TrapSet();
+
+  IpczResult Add(std::unique_ptr<Trap> trap);
+  IpczResult Remove(Trap& trap);
+  void MaybeNotify(TrapEventDispatcher& dispatcher,
+                   const IpczPortalStatus& status);
+
+ private:
+  absl::flat_hash_set<std::unique_ptr<Trap>> traps_;
 };
 
 }  // namespace core
