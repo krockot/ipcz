@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "core/name.h"
+#include "core/node.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -19,7 +20,7 @@
 namespace ipcz {
 namespace core {
 
-class Node;
+class Parcel;
 class PortalBackend;
 
 class Portal : public mem::RefCounted {
@@ -42,9 +43,13 @@ class Portal : public mem::RefCounted {
   bool CanTravelThroughPortal(Portal& sender);
 
   // Transitions from buffering to routing.
-  bool StartRouting(const PortalName& my_name,
+  bool StartRouting(Node::LockedRouter& router,
+                    const PortalName& my_name,
                     const PortalAddress& peer_address,
                     os::Memory::Mapping control_block_mapping);
+
+  // Accepts a parcel from an external source, e.g. as routed from another node.
+  bool AcceptParcel(Parcel& parcel);
 
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);

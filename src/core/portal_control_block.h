@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "core/side.h"
+#include "mem/seqlocked_data.h"
 
 namespace ipcz {
 namespace core {
@@ -28,16 +29,19 @@ struct PortalControlBlock {
     kMoving,
   };
 
+  struct QueueState {
+    uint64_t num_sent_bytes;
+    uint64_t num_sent_parcels;
+    uint64_t num_read_bytes;
+    uint64_t num_read_parcels;
+  };
+
   struct SideState {
     SideState();
     ~SideState();
 
     std::atomic<Status> status{Status::kReady};
-
-    // Used by the other side to version its incoming queue state. If they
-    // observe a change in this value, they know one or more messages have
-    // arrived or are in flight to them.
-    std::atomic<uint32_t> sent_parcel_count_;
+    mem::SeqlockedData<QueueState> outgoing_queue;
   };
 
   PortalControlBlock();

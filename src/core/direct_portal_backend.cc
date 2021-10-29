@@ -89,6 +89,13 @@ bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return &sender != other_side().portal;
 }
 
+bool DirectPortalBackend::AcceptParcel(Parcel& parcel) {
+  // Parcels are only exchanged directly between local DirectPortalBackends, so
+  // it's absurd for this method to ever be invoked.
+  ABSL_ASSERT(false);
+  return false;
+}
+
 IpczResult DirectPortalBackend::Close(
     Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {

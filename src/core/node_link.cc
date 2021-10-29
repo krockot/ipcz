@@ -7,13 +7,25 @@
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"
+#include "core/parcel.h"
 #include "core/portal_control_block.h"
 #include "debug/log.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 
 namespace ipcz {
 namespace core {
+
+namespace {
+
+// Serialized representation of a Portal sent in a parcel.
+struct SerializedPortal {
+  internal::StructHeader header;
+  // TODO
+};
+
+}  // namespace
 
 NodeLink::NodeLink(Node& node,
                    os::Channel channel,
@@ -43,6 +55,16 @@ void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
   remote_protocol_version_ = version;
 }
 
+void NodeLink::AddRoutedPortal(const PortalName& local_portal_name) {
+  absl::MutexLock lock(&mutex_);
+  routed_local_portals_.insert(local_portal_name);
+}
+
+void NodeLink::RemoveRoutedPortal(const PortalName& local_portal_name) {
+  absl::MutexLock lock(&mutex_);
+  routed_local_portals_.erase(local_portal_name);
+}
+
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(channel_.is_valid());
@@ -70,6 +92,59 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
   channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
+void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
+  // Build small messages on the stack.
+  absl::InlinedVector<uint8_t, 256> serialized_data;
+
+  // big ad hoc mess of custom serialization. balanced by deserialization in
+  // OnAcceptParcel.
+
+  size_t serialized_size =
+      sizeof(internal::MessageHeader) + sizeof(PortalName) +
+      sizeof(uint64_t) * 3 + parcel.data_view().size() +
+      parcel.portals_view().size() * sizeof(SerializedPortal) +
+      parcel.os_handles_view().size() * sizeof(internal::OSHandleData);
+  serialized_data.resize(serialized_size);
+
+  auto& header =
+      *reinterpret_cast<internal::MessageHeader*>(serialized_data.data());
+  header.size = sizeof(header);
+  header.message_id = msg::kAcceptParcelId;
+  auto& msg_destination = *reinterpret_cast<PortalName*>(&header + 1);
+  msg_destination = destination;
+  auto* sizes = reinterpret_cast<uint64_t*>(&msg_destination + 1);
+  sizes[0] = parcel.data_view().size();
+  sizes[1] = parcel.portals_view().size();
+  sizes[2] = parcel.os_handles_view().size();
+  memcpy(sizes + 3, parcel.data_view().data(), parcel.data_view().size());
+  auto* portals = reinterpret_cast<SerializedPortal*>(
+      serialized_data.data() + sizeof(internal::MessageHeader) +
+      sizeof(uint64_t) * 3 + parcel.data_view().size());
+  // TODO: serialize portals for real
+  for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
+    portals[i].header.size = sizeof(internal::StructHeader);
+    portals[i].header.version = 0;
+  }
+
+  auto* handle_data = reinterpret_cast<internal::OSHandleData*>(
+      portals + parcel.portals_view().size());
+  for (size_t i = 0; i < parcel.os_handles_view().size(); ++i) {
+    auto& data = handle_data[i];
+    auto& handle = parcel.os_handles_view()[i];
+    ABSL_ASSERT(handle.is_valid());
+    data.header.size = sizeof(internal::StructHeader);
+    data.header.version = 0;
+#if defined(OS_POSIX)
+    data.type = internal::OSHandleDataType::kFileDescriptor;
+    data.value = i;
+#else
+    data.type = internal::OSHandleDataType::kNone;
+#endif
+  }
+
+  Send(absl::MakeSpan(serialized_data), parcel.os_handles_view());
+}
+
 bool NodeLink::OnMessage(os::Channel::Message message) {
   if (message.data.size() < sizeof(internal::MessageHeader)) {
     return false;
@@ -90,6 +165,9 @@ bool NodeLink::OnMessage(os::Channel::Message message) {
 #include "core/node_message_defs.h"
 
 #include "core/message_macros/undef_message_macros.h"
+
+    case msg::kAcceptParcelId:
+      return OnAcceptParcel(message);
 
     default:
       // Unknown message types may come from clients using a newer ipcz version.
@@ -163,6 +241,36 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   reply.params.accepted = accepted;
   Send(reply);
   return true;
+}
+
+bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
+  if (m.data.size() < sizeof(internal::MessageHeader)) {
+    return false;
+  }
+
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(m.data.data());
+  const auto& destination = *reinterpret_cast<const PortalName*>(&header + 1);
+  auto* sizes = reinterpret_cast<const uint64_t*>(&destination + 1);
+  const uint64_t num_bytes = sizes[0];
+  // const uint64_t num_portals = sizes[1];
+  // const uint64_t num_os_handles = sizes[2];
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
+  // const auto* portals =
+  //     reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
+  // const auto* handle_data =
+  //     reinterpret_cast<const internal::OSHandleData*>(portals + num_portals);
+  // TODO: portals
+  std::vector<os::Handle> os_handles;
+  os_handles.reserve(m.handles.size());
+  for (auto& handle : m.handles) {
+    os_handles.push_back(std::move(handle));
+  }
+  Parcel parcel;
+  parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
+  parcel.SetPortals({});
+  parcel.SetOSHandles(std::move(os_handles));
+  return node_->AcceptParcel(destination, parcel);
 }
 
 NodeLink::PendingReply::PendingReply() = default;

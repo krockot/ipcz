@@ -53,7 +53,13 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
 
   const NodeName their_node_name{Name::kRandom};
   const PortalName their_portal_name{Name::kRandom};
+  NodeName our_node_name;
   const PortalName our_portal_name{Name::kRandom};
+
+  {
+    absl::MutexLock lock(&mutex_);
+    our_node_name = name_;
+  }
 
   os::Memory control_block_memory(sizeof(PortalControlBlock));
   os::Memory::Mapping control_block_mapping = control_block_memory.Map();
@@ -66,6 +72,7 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   // discarded.
   PortalControlBlock& control_block =
       PortalControlBlock::Initialize(control_block_mapping.base());
+  memset(&control_block, 0, sizeof(control_block));
   control_block.sides[Side::kLeft].status = PortalControlBlock::Status::kReady;
   control_block.sides[Side::kRight].status = PortalControlBlock::Status::kReady;
 
@@ -74,7 +81,6 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
       Side::kLeft, std::move(control_block_mapping));
   mem::Ref<Portal> portal =
       mem::MakeRefCounted<Portal>(*this, std::move(backend));
-  out_portal = std::move(portal);
 
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process), Type::kNormal);
@@ -83,7 +89,7 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   msg::InviteNode invitation;
   invitation.params.protocol_version = msg::kProtocolVersion;
   invitation.params.your_portal = {their_node_name, their_portal_name};
-  invitation.params.broker_portal = {name_, our_portal_name};
+  invitation.params.broker_portal = {our_node_name, our_portal_name};
   invitation.handles.control_block_memory = control_block_memory.TakeHandle();
   link->Send(invitation, [link](const msg::InviteNode_Reply* reply) {
     if (!reply || !reply->params.accepted) {
@@ -96,7 +102,11 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
     return true;
   });
 
+  absl::MutexLock lock(&mutex_);
   node_links_[their_node_name] = link;
+  routed_portals_[our_portal_name] = portal;
+  out_portal = std::move(portal);
+  link->AddRoutedPortal(our_portal_name);
   link->Listen();
   return IPCZ_RESULT_OK;
 }
@@ -111,8 +121,6 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
   // By convention, AcceptRemotePortal creates a right-side portal.
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
       *this, std::make_unique<BufferingPortalBackend>(Side::kRight));
-  portal_waiting_for_invitation_ = portal;
-  out_portal = std::move(portal);
 
   absl::MutexLock lock(&mutex_);
   if (broker_link_) {
@@ -120,6 +128,8 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
   }
   link->Listen();
   broker_link_ = link;
+  portal_waiting_for_invitation_ = portal;
+  out_portal = std::move(portal);
   return IPCZ_RESULT_OK;
 }
 
@@ -130,7 +140,9 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
     return false;
   }
 
-  absl::MutexLock lock(&mutex_);
+  Node::LockedRouter router(*this);
+  mutex_.AssertHeld();
+
   if (!portal_waiting_for_invitation_) {
     return true;
   }
@@ -140,15 +152,44 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
   }
 
   name_ = my_address.node();
-  return portal_waiting_for_invitation_->StartRouting(
-      my_address.portal(), broker_portal, control_block_memory.Map());
+  node_links_[broker_portal.node()] = broker_link_;
+
+  if (!portal_waiting_for_invitation_->StartRouting(
+          router, my_address.portal(), broker_portal,
+          control_block_memory.Map())) {
+    return false;
+  }
+
+  broker_link_->AddRoutedPortal(my_address.portal());
+  routed_portals_[my_address.portal()] =
+      std::move(portal_waiting_for_invitation_);
+  return true;
 }
 
-void Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
+bool Node::AcceptParcel(const PortalName& destination, Parcel& parcel) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routed_portals_.find(destination);
+  if (it == routed_portals_.end()) {
+    // Portal may have been closed while this parcel was in flight, so it's not
+    // necessarily an error. Just discard.
+    return true;
+  }
+
+  return it->second->AcceptParcel(parcel);
+}
+
+bool Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
   mutex_.AssertHeld();
 
-  LOG(INFO) << "Routing parcel with " << parcel.data_view().size()
-            << " bytes to " << destination.ToString();
+  auto it = node_links_.find(destination.node());
+  if (it == node_links_.end()) {
+    // We no longer have a link to the destination node. Treat the remote portal
+    // as closed by returning failure.
+    return false;
+  }
+
+  it->second->SendParcel(destination.portal(), parcel);
+  return true;
 }
 
 }  // namespace core

@@ -6,11 +6,11 @@
 #define IPCZ_SRC_CORE_NODE_H_
 
 #include "core/name.h"
-#include "core/portal.h"
 #include "core/router.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
+#include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -19,6 +19,7 @@ namespace ipcz {
 namespace core {
 
 class NodeLink;
+class Portal;
 
 // Node encompasses the state of an isolated ipcz node.
 class Node : public mem::RefCounted, private Router {
@@ -51,7 +52,7 @@ class Node : public mem::RefCounted, private Router {
 
   mem::Ref<NodeLink> GetBrokerLink();
 
-  Portal::Pair OpenPortals();
+  std::pair<mem::Ref<Portal>, mem::Ref<Portal>> OpenPortals();
   IpczResult OpenRemotePortal(os::Channel channel,
                               os::Process process,
                               mem::Ref<Portal>& out_portal);
@@ -62,21 +63,26 @@ class Node : public mem::RefCounted, private Router {
                                   const PortalAddress& broker_portal,
                                   os::Memory control_block_memory);
 
+  bool AcceptParcel(const PortalName& destination, Parcel& parcel);
+
  private:
   friend class LockedRouter;
 
   ~Node() override;
 
   // Router:
-  void RouteParcel(const PortalAddress& destination, Parcel& parcel) override;
+  bool RouteParcel(const PortalAddress& destination, Parcel& parcel) override;
 
   const Type type_;
 
   absl::Mutex mutex_;
-  NodeName name_;
-  mem::Ref<NodeLink> broker_link_;
-  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links_;
-  mem::Ref<Portal> portal_waiting_for_invitation_;
+  NodeName name_ ABSL_GUARDED_BY(mutex_);
+  mem::Ref<NodeLink> broker_link_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links_
+      ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<PortalName, mem::Ref<Portal>> routed_portals_
+      ABSL_GUARDED_BY(mutex_);
+  mem::Ref<Portal> portal_waiting_for_invitation_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

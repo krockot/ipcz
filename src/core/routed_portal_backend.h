@@ -14,6 +14,7 @@
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_backend.h"
+#include "core/portal_control_block.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -26,7 +27,6 @@ namespace core {
 
 class BufferingPortalBackend;
 class Node;
-struct PortalControlBlock;
 
 // PortalBackend implementation for a portal whose peer may live in a different
 // node.
@@ -38,11 +38,13 @@ class RoutedPortalBackend : public PortalBackend {
                       os::Memory::Mapping control_block_mapping);
   ~RoutedPortalBackend() override;
 
-  void AdoptBufferingBackendState(BufferingPortalBackend& backend);
+  void AdoptBufferingBackendState(Node::LockedRouter& router,
+                                  BufferingPortalBackend& backend);
 
   // PortalBackend:
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
+  bool AcceptParcel(Parcel& parcel) override;
   IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
@@ -88,7 +90,11 @@ class RoutedPortalBackend : public PortalBackend {
   const PortalAddress peer_address_;
   const Side side_;
   const os::Memory::Mapping control_block_mapping_;
-  PortalControlBlock& control_block_;
+  PortalControlBlock& control_block_{
+      *control_block_mapping_.As<PortalControlBlock>()};
+  PortalControlBlock::SideState& my_shared_state_{control_block_.sides[side_]};
+  PortalControlBlock::SideState& their_shared_state{
+      control_block_.sides[Opposite(side_)]};
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;

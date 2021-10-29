@@ -40,6 +40,7 @@ class BufferingPortalBackend : public PortalBackend {
   // PortalBackend:
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
+  bool AcceptParcel(Parcel& parcel) override;
   IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "os/channel.h"
 #include "os/process.h"
@@ -38,15 +39,25 @@ TEST_F(RemotePortalTest, BasicConnection) {
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.AcceptRemotePortal(other_node, &remote_transport,
                                     IPCZ_NO_FLAGS, nullptr, &b));
-  Put(b, "hey hey", {}, {});
 
-  Put(a, "hello!", {}, {});
+  const std::string kMessageFromA = "hello!";
+  const std::string kMessageFromB = "hey hey";
+  Put(a, kMessageFromA, {}, {});
+  Put(b, kMessageFromB, {}, {});
 
-  while (true)
+  Parcel a_parcel;
+  while (MaybeGet(a, a_parcel) == IPCZ_RESULT_UNAVAILABLE)
     ;
-  // ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  // ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
-  // ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+  EXPECT_EQ(kMessageFromB, a_parcel.message);
+
+  Parcel b_parcel;
+  while (MaybeGet(b, b_parcel) == IPCZ_RESULT_UNAVAILABLE)
+    ;
+  EXPECT_EQ(kMessageFromA, b_parcel.message);
+
+  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
 }
 
 }  // namespace

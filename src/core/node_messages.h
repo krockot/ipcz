@@ -46,6 +46,9 @@ namespace msg {
 
 #pragma pack(pop)
 
+// hack
+static constexpr uint8_t kAcceptParcelId = 1;
+
 }  // namespace msg
 }  // namespace core
 }  // namespace ipcz

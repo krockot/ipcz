@@ -15,6 +15,7 @@
 #include "os/channel.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -57,6 +58,9 @@ class NodeLink : public mem::RefCounted {
   void SetRemoteNodeName(const NodeName& name);
   void SetRemoteProtocolVersion(uint32_t version);
 
+  void AddRoutedPortal(const PortalName& local_portal_name);
+  void RemoveRoutedPortal(const PortalName& local_portal_name);
+
   // Sends a message which does not expect a reply.
   template <typename T, typename = std::enable_if_t<!T::kExpectsReply>>
   void Send(T& message) {
@@ -85,6 +89,12 @@ class NodeLink : public mem::RefCounted {
                             absl::Span<os::Handle> handles,
                             GenericReplyHandler reply_handler);
 
+  // Sends a routed parcel to the remote node. This is different from the other
+  // Send() operations above because the hacky message macro infrastructure
+  // doesn't support variable-length messages; and in practice, parcel transfer
+  // is one of relatively few use cases for them.
+  void SendParcel(const PortalName& destination, Parcel& parcel);
+
  private:
   ~NodeLink() override;
 
@@ -110,6 +120,8 @@ class NodeLink : public mem::RefCounted {
   // any legal value for their underlying POD type.
   bool OnInviteNode(msg::InviteNode& m);
 
+  bool OnAcceptParcel(os::Channel::Message m);
+
   struct PendingReply {
     PendingReply();
     PendingReply(uint8_t message_id, GenericReplyHandler handler);
@@ -132,6 +144,9 @@ class NodeLink : public mem::RefCounted {
   os::Channel channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<uint16_t, PendingReply> pending_replies_;
+
+  // Local routed portals serviced by this NodeLink.
+  absl::flat_hash_set<PortalName> routed_local_portals_;
 };
 
 }  // namespace core

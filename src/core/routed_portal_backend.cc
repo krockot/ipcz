@@ -12,6 +12,7 @@
 #include "core/parcel_queue.h"
 #include "core/portal_control_block.h"
 #include "core/trap.h"
+#include "debug/log.h"
 #include "util/handle_util.h"
 
 namespace ipcz {
@@ -25,12 +26,12 @@ RoutedPortalBackend::RoutedPortalBackend(
     : name_(name),
       peer_address_(peer_address),
       side_(side),
-      control_block_mapping_(std::move(control_block_mapping)),
-      control_block_(*control_block_mapping_.As<PortalControlBlock>()) {}
+      control_block_mapping_(std::move(control_block_mapping)) {}
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
 void RoutedPortalBackend::AdoptBufferingBackendState(
+    Node::LockedRouter& router,
     BufferingPortalBackend& backend) {
   absl::MutexLock lock(&mutex_);
   absl::MutexLock their_lock(&backend.mutex_);
@@ -39,8 +40,20 @@ void RoutedPortalBackend::AdoptBufferingBackendState(
     pending_parcel_ = std::move(backend.pending_parcel_);
   }
 
-  outgoing_parcels_ = std::move(backend.outgoing_parcels_);
-  num_outgoing_bytes_ = backend.num_outgoing_bytes_;
+  // TODO: the remote portal may not be ready to receive messages; handle that.
+  ABSL_ASSERT(their_shared_state.status == PortalControlBlock::Status::kReady);
+
+  // Atomically update the control block to reflect all the parcels we're about
+  // to send.
+  PortalControlBlock::QueueState queue_state =
+      my_shared_state_.outgoing_queue.Get();
+  queue_state.num_sent_parcels += backend.outgoing_parcels_.size();
+  queue_state.num_sent_bytes += backend.num_outgoing_bytes_;
+  my_shared_state_.outgoing_queue.Set(queue_state);
+
+  for (auto& parcel : backend.outgoing_parcels_.TakeParcels()) {
+    router->RouteParcel(peer_address_, parcel);
+  }
 }
 
 PortalBackend::Type RoutedPortalBackend::GetType() const {
@@ -49,6 +62,13 @@ PortalBackend::Type RoutedPortalBackend::GetType() const {
 
 bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return false;
+}
+
+bool RoutedPortalBackend::AcceptParcel(Parcel& parcel) {
+  absl::MutexLock lock(&mutex_);
+  num_incoming_bytes_ += parcel.data_view().size();
+  incoming_parcels_.push(std::move(parcel));
+  return true;
 }
 
 IpczResult RoutedPortalBackend::Close(
@@ -60,8 +80,8 @@ IpczResult RoutedPortalBackend::Close(
 
   // This is stored with a release operation to ensure that any prior queue
   // state updates are visible by the time the kClosed state is visible.
-  control_block_.sides[side_].status.store(PortalControlBlock::Status::kClosed,
-                                           std::memory_order_release);
+  my_shared_state_.status.store(PortalControlBlock::Status::kClosed,
+                                std::memory_order_release);
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 

@@ -17,6 +17,7 @@
 namespace ipcz {
 namespace core {
 
+class Parcel;
 class Portal;
 class Router;
 class Trap;
@@ -35,6 +36,7 @@ class PortalBackend {
 
   virtual Type GetType() const = 0;
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
+  virtual bool AcceptParcel(Parcel& parcel) = 0;
   virtual IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) = 0;

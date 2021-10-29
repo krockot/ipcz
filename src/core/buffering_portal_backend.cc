@@ -8,6 +8,7 @@
 
 #include "core/node.h"
 #include "core/trap.h"
+#include "debug/log.h"
 #include "util/handle_util.h"
 
 namespace ipcz {
@@ -23,6 +24,13 @@ PortalBackend::Type BufferingPortalBackend::GetType() const {
 
 bool BufferingPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return true;
+}
+
+bool BufferingPortalBackend::AcceptParcel(Parcel& parcel) {
+  // TODO: allow receipt of parcels - a portal may transition to buffering while
+  // parcels are already in flight for it.
+  LOG(ERROR) << "not yet";
+  return false;
 }
 
 IpczResult BufferingPortalBackend::Close(

@@ -19,7 +19,7 @@ class Parcel;
 // held.
 class Router {
  public:
-  virtual void RouteParcel(const PortalAddress& destination,
+  virtual bool RouteParcel(const PortalAddress& destination,
                            Parcel& parcel) = 0;
 };
 

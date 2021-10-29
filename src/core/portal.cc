@@ -89,7 +89,8 @@ bool Portal::CanTravelThroughPortal(Portal& sender) {
   return &sender != this && backend_->CanTravelThroughPortal(sender);
 }
 
-bool Portal::StartRouting(const PortalName& my_name,
+bool Portal::StartRouting(Node::LockedRouter& router,
+                          const PortalName& my_name,
                           const PortalAddress& peer_address,
                           os::Memory::Mapping control_block_mapping) {
   absl::MutexLock lock(&mutex_);
@@ -97,19 +98,17 @@ bool Portal::StartRouting(const PortalName& my_name,
     return false;
   }
 
-  const PortalControlBlock& control_block =
-      *control_block_mapping.As<PortalControlBlock>();
-  LOG(INFO) << "Start routing; other side status = "
-            << static_cast<int>(control_block.sides[Side::kLeft].status)
-            << "; my side status = "
-            << static_cast<int>(control_block.sides[Side::kRight].status);
-
   auto& backend = reinterpret_cast<BufferingPortalBackend&>(*backend_);
   auto new_backend = std::make_unique<RoutedPortalBackend>(
       my_name, peer_address, backend.side(), std::move(control_block_mapping));
-  new_backend->AdoptBufferingBackendState(backend);
+  new_backend->AdoptBufferingBackendState(router, backend);
   backend_ = std::move(new_backend);
   return true;
+}
+
+bool Portal::AcceptParcel(Parcel& parcel) {
+  absl::MutexLock lock(&mutex_);
+  return backend_->AcceptParcel(parcel);
 }
 
 IpczResult Portal::Close() {

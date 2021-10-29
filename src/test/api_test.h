@@ -73,7 +73,7 @@ class APITest : public testing::Test {
                        IPCZ_NO_FLAGS, nullptr));
   }
 
-  Parcel Get(IpczHandle portal) {
+  IpczResult MaybeGet(IpczHandle portal, Parcel& parcel) {
     uint32_t num_bytes = 0;
     uint32_t num_portals = 0;
     uint32_t num_os_handles = 0;
@@ -81,23 +81,34 @@ class APITest : public testing::Test {
         ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes, nullptr,
                  &num_portals, nullptr, &num_os_handles);
     if (result == IPCZ_RESULT_OK) {
-      return {};
+      parcel = {};
+      return IPCZ_RESULT_OK;
     }
 
-    Parcel parcel;
-    std::vector<char> data(num_bytes);
-    std::vector<IpczOSHandle> ipcz_os_handles(num_os_handles);
-    parcel.portals.resize(num_portals);
-    ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
-    ABSL_ASSERT(ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(),
-                         &num_bytes, parcel.portals.data(), &num_portals,
-                         ipcz_os_handles.data(),
-                         &num_os_handles) == IPCZ_RESULT_OK);
-    parcel.message = {data.begin(), data.end()};
-    parcel.os_handles.resize(num_os_handles);
-    for (size_t i = 0; i < num_os_handles; ++i) {
-      parcel.os_handles[i] = os::Handle::FromIpczOSHandle(ipcz_os_handles[i]);
+    if (result == IPCZ_RESULT_RESOURCE_EXHAUSTED) {
+      std::vector<char> data(num_bytes);
+      std::vector<IpczOSHandle> ipcz_os_handles(num_os_handles);
+      parcel.portals.resize(num_portals);
+      ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
+      ABSL_ASSERT(ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(),
+                           &num_bytes, parcel.portals.data(), &num_portals,
+                           ipcz_os_handles.data(),
+                           &num_os_handles) == IPCZ_RESULT_OK);
+      parcel.message = {data.begin(), data.end()};
+      parcel.os_handles.resize(num_os_handles);
+      for (size_t i = 0; i < num_os_handles; ++i) {
+        parcel.os_handles[i] = os::Handle::FromIpczOSHandle(ipcz_os_handles[i]);
+      }
+      return IPCZ_RESULT_OK;
     }
+
+    return result;
+  }
+
+  Parcel Get(IpczHandle portal) {
+    Parcel parcel;
+    IpczResult result = MaybeGet(portal, parcel);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
     return parcel;
   }
 
