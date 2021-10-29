@@ -37,6 +37,7 @@
         absl::MakeSpan(&handle_data.handles[0], kNumHandles));          \
   }                                                                     \
   bool name::Deserialize(os::Channel::Message& message) {               \
+    using HandleData = decltype(handle_data);                           \
     return internal::DeserializeData(                                   \
                message.data, kVersion,                                  \
                absl::MakeSpan(reinterpret_cast<uint8_t*>(&header),      \
@@ -48,6 +49,8 @@
            internal::DeserializeHandles(                                \
                message.handles,                                         \
                absl::MakeSpan(&handle_data.handles[0], kNumHandles),    \
+               absl::MakeSpan(HandleData::kRequiredBits,                \
+                              sizeof(HandleData::kRequiredBits)),       \
                handles_view());                                         \
   }
 

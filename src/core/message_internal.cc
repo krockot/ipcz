@@ -24,6 +24,8 @@ void SerializeHandles(absl::Span<os::Handle> handles,
   uint64_t next_valid_handle_index = 0;
   for (size_t i = 0; i < handles.size(); ++i) {
     OSHandleData& this_data = out_handle_data[i];
+    this_data.header.size = sizeof(this_data);
+    this_data.header.version = 0;
     if (handles[i].is_valid()) {
       this_data.type = OSHandleDataType::kFileDescriptor;
       this_data.value = next_valid_handle_index++;
@@ -129,17 +131,23 @@ bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
 
 bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
                         absl::Span<const OSHandleData> incoming_data,
+                        absl::Span<const bool> handle_required_flags,
                         absl::Span<os::Handle> out_handles) {
-  os::Handle* out_handle = out_handles.data();
-  for (const OSHandleData& data : incoming_data) {
+  for (size_t i = 0; i < incoming_data.size(); ++i) {
+    const OSHandleData& data = incoming_data[i];
     if (data.header.size < sizeof(OSHandleData)) {
       return false;
     }
+
     if (data.type == OSHandleDataType::kNone) {
-      out_handle->reset();
-      ++out_handle;
+      out_handles[i].reset();
+      if (handle_required_flags[i]) {
+        // A required handle was not present.
+        return false;
+      }
       continue;
     }
+
 #if defined(OS_POSIX)
     if (data.type == OSHandleDataType::kFileDescriptor) {
       size_t fd_index = static_cast<size_t>(data.value);
@@ -151,8 +159,8 @@ bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
       if (!handle.is_valid()) {
         return false;
       }
-      *out_handle = std::move(handle);
-      ++out_handle;
+
+      out_handles[i] = std::move(handle);
     }
 #endif
   }

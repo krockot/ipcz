@@ -14,8 +14,8 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)
-
+#define IPCZ_MSG_BEGIN(name, version_decl) \
+  const bool name##_HandleData::kRequiredBits[sizeof(kHandleCounter)] = {
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
   IPCZ_MSG_BEGIN(name, version_decl)
 #define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
@@ -23,8 +23,10 @@
 #define IPCZ_MSG_REPLY(name, version_decl) \
   IPCZ_MSG_BEGIN(name##_Reply, version_decl)
 
-#define IPCZ_MSG_END()
+#define IPCZ_MSG_END() \
+  }                    \
+  ;
 
 #define IPCZ_MSG_PARAM(type, name)
-#define IPCZ_MSG_HANDLE_OPTIONAL(name)
-#define IPCZ_MSG_HANDLE_REQUIRED(name)
+#define IPCZ_MSG_HANDLE_OPTIONAL(name) false,
+#define IPCZ_MSG_HANDLE_REQUIRED(name) true,

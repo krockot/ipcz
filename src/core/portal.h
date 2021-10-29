@@ -9,8 +9,10 @@
 #include <utility>
 
 #include "core/name.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
@@ -36,7 +38,8 @@ class Portal : public mem::RefCounted {
 
   // Transitions from buffering to routing.
   bool StartRouting(const PortalName& my_name,
-                    const PortalAddress& peer_address);
+                    const PortalAddress& peer_address,
+                    os::Memory::Mapping control_block_mapping);
 
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);

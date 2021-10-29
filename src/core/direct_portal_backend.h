@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "core/portal_backend.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 
@@ -76,13 +77,13 @@ class DirectPortalBackend : public PortalBackend {
   struct SharedState;
   struct PortalState;
 
-  DirectPortalBackend(mem::Ref<SharedState> state, size_t side);
+  DirectPortalBackend(mem::Ref<SharedState> state, Side side);
 
   PortalState& this_side();
   PortalState& other_side();
 
   const mem::Ref<SharedState> state_;
-  const size_t side_;
+  const Side side_;
 };
 
 }  // namespace core

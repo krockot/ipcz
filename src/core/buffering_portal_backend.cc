@@ -13,7 +13,7 @@
 namespace ipcz {
 namespace core {
 
-BufferingPortalBackend::BufferingPortalBackend() = default;
+BufferingPortalBackend::BufferingPortalBackend(Side side) : side_(side) {}
 
 BufferingPortalBackend::~BufferingPortalBackend() = default;
 

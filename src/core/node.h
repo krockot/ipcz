@@ -59,7 +59,8 @@ class Node : public mem::RefCounted, private Router {
                                 mem::Ref<Portal>& out_portal);
 
   bool AcceptInvitationFromBroker(const PortalAddress& my_address,
-                                  const PortalAddress& broker_portal);
+                                  const PortalAddress& broker_portal,
+                                  os::Memory control_block_memory);
 
  private:
   friend class LockedRouter;

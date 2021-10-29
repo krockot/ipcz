@@ -14,9 +14,11 @@
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_backend.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
+#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -30,7 +32,9 @@ class Node;
 class RoutedPortalBackend : public PortalBackend {
  public:
   RoutedPortalBackend(const PortalName& name,
-                      const PortalAddress& peer_address);
+                      const PortalAddress& peer_address,
+                      Side side,
+                      os::Memory::Mapping control_block_mapping);
   ~RoutedPortalBackend() override;
 
   void AdoptBufferingBackendState(BufferingPortalBackend& backend);
@@ -80,9 +84,11 @@ class RoutedPortalBackend : public PortalBackend {
 
  private:
   const PortalName name_;
+  const PortalAddress peer_address_;
+  const Side side_;
+  const os::Memory::Mapping control_block_mapping_;
 
   absl::Mutex mutex_;
-  PortalAddress peer_address_ ABSL_GUARDED_BY(mutex_);
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
   bool peer_closed_ ABSL_GUARDED_BY(mutex_) = false;
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);

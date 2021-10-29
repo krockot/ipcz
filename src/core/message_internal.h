@@ -87,7 +87,7 @@ enum OSHandleDataType : uint8_t {
 //
 // TODO: revisit for other platforms, version safety, extensibility.
 struct IPCZ_ALIGN(8) OSHandleData {
-  StructHeader header{24, 0};
+  StructHeader header;
 
   OSHandleDataType type;
   uint64_t value;
@@ -121,6 +121,7 @@ bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
 // is handle data from the same message, already copied out.
 bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
                         absl::Span<const OSHandleData> incoming_handle_data,
+                        absl::Span<const bool> handle_required_flags,
                         absl::Span<os::Handle> out_handle_storage);
 
 }  // namespace internal

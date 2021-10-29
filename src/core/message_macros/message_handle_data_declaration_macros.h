@@ -19,7 +19,7 @@
   struct IPCZ_ALIGN(8) name##_HandleData { \
     version_decl;                          \
     internal::StructHeader header;         \
-    static constexpr uint8_t kRequiredBits[] = {
+    static constexpr uint8_t kHandleCounter[] = {
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
   IPCZ_MSG_BEGIN(name, version_decl)
 #define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
@@ -27,11 +27,12 @@
 #define IPCZ_MSG_REPLY(name, version_decl) \
   IPCZ_MSG_BEGIN(name##_Reply, version_decl)
 
-#define IPCZ_MSG_END()                                        \
-  }                                                           \
-  ;                                                           \
-  internal::OSHandleData handles[sizeof(kRequiredBits)] = {}; \
-  }                                                           \
+#define IPCZ_MSG_END()                                         \
+  }                                                            \
+  ;                                                            \
+  static const bool kRequiredBits[sizeof(kHandleCounter)];     \
+  internal::OSHandleData handles[sizeof(kHandleCounter)] = {}; \
+  }                                                            \
   ;
 
 #define IPCZ_MSG_PARAM(type, name)

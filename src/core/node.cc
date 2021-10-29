@@ -11,9 +11,11 @@
 #include "core/node_link.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
+#include "core/portal_control_block.h"
 #include "core/routed_portal_backend.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
+#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -53,6 +55,16 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   const PortalName their_portal_name{Name::kRandom};
   const PortalName our_portal_name{Name::kRandom};
 
+  os::Memory control_block_memory(sizeof(PortalControlBlock));
+
+  // By convention, OpenRemotePortal creates a left-side portal.
+  auto backend = std::make_unique<RoutedPortalBackend>(
+      our_portal_name, PortalAddress(their_node_name, their_portal_name),
+      Side::kLeft, control_block_memory.Map());
+  mem::Ref<Portal> portal =
+      mem::MakeRefCounted<Portal>(*this, std::move(backend));
+  out_portal = std::move(portal);
+
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process), Type::kNormal);
   link->SetRemoteNodeName(their_node_name);
@@ -61,8 +73,9 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   invitation.params.protocol_version = msg::kProtocolVersion;
   invitation.params.your_portal = {their_node_name, their_portal_name};
   invitation.params.broker_portal = {name_, our_portal_name};
+  invitation.handles.control_block_memory = control_block_memory.TakeHandle();
   link->Send(invitation, [link](const msg::InviteNode_Reply* reply) {
-    if (!reply->params.accepted) {
+    if (!reply || !reply->params.accepted) {
       // Newer versions may tolerate invitation rejection, but it's the only
       // handshake mechanism we have in v0. Treat this as a validation failure.
       return false;
@@ -71,12 +84,6 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
     link->SetRemoteProtocolVersion(reply->params.protocol_version);
     return true;
   });
-
-  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
-      *this,
-      std::make_unique<RoutedPortalBackend>(
-          our_portal_name, PortalAddress(their_node_name, their_portal_name)));
-  out_portal = std::move(portal);
 
   node_links_[their_node_name] = link;
   link->Listen();
@@ -90,8 +97,9 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), os::Process(), Type::kBroker);
 
+  // By convention, AcceptRemotePortal creates a right-side portal.
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
-      *this, std::make_unique<BufferingPortalBackend>());
+      *this, std::make_unique<BufferingPortalBackend>(Side::kRight));
   portal_waiting_for_invitation_ = portal;
   out_portal = std::move(portal);
 
@@ -105,7 +113,8 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
 }
 
 bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
-                                      const PortalAddress& broker_portal) {
+                                      const PortalAddress& broker_portal,
+                                      os::Memory control_block_memory) {
   if (type_ == Type::kBroker) {
     return false;
   }
@@ -120,8 +129,8 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
   }
 
   name_ = my_address.node();
-  return portal_waiting_for_invitation_->StartRouting(my_address.portal(),
-                                                      broker_portal);
+  return portal_waiting_for_invitation_->StartRouting(
+      my_address.portal(), broker_portal, control_block_memory.Map());
 }
 
 void Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {

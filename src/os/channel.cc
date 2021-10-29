@@ -10,6 +10,7 @@
 
 #include "build/build_config.h"
 #include "debug/hex_dump.h"
+#include "debug/log.h"
 
 #if defined(OS_POSIX)
 #include <fcntl.h>
@@ -255,7 +256,12 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
     }
 
     if (msg.msg_controllen == 0) {
-      handler(Data(absl::MakeSpan(&data[0], result)));
+      Data data_view(absl::MakeSpan(&data[0], result));
+      if (!handler(data_view)) {
+        LOG(ERROR) << "disconnecting Channel for bad message: "
+                   << debug::HexDump(data_view);
+        return;
+      }
       continue;
     }
 
@@ -277,10 +283,8 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
 
     auto data_view = absl::MakeSpan(data, result);
     if (!handler(Message(Data(data_view), absl::MakeSpan(handles)))) {
-      std::string dump = debug::HexDump(data_view);
-      printf(
-          "disconnecting Channel for producing a message we didn't like: %s\n",
-          dump.c_str());
+      LOG(ERROR) << "disconnecting Channel for bad message: "
+                 << debug::HexDump(data_view);
       return;
     }
   }

@@ -16,9 +16,17 @@
 namespace ipcz {
 namespace core {
 
-RoutedPortalBackend::RoutedPortalBackend(const PortalName& name,
-                                         const PortalAddress& peer_address)
-    : name_(name), peer_address_(peer_address) {}
+RoutedPortalBackend::RoutedPortalBackend(
+    const PortalName& name,
+    const PortalAddress& peer_address,
+    Side side,
+    os::Memory::Mapping control_block_mapping)
+    : name_(name),
+      peer_address_(peer_address),
+      side_(side),
+      control_block_mapping_(std::move(control_block_mapping)) {
+        (void)side_;
+      }
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 

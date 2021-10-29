@@ -12,6 +12,7 @@
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_backend.h"
+#include "core/side.h"
 #include "core/trap.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -57,14 +58,13 @@ struct DirectPortalBackend::SharedState : public mem::RefCounted {
       : sides{PortalState(portal0), PortalState(portal1)} {}
 
   absl::Mutex mutex;
-  PortalState sides[2] ABSL_GUARDED_BY(mutex);
+  TwoSidedArray<PortalState> sides ABSL_GUARDED_BY(mutex);
 
  private:
   ~SharedState() override = default;
 };
 
-DirectPortalBackend::DirectPortalBackend(mem::Ref<SharedState> state,
-                                         size_t side)
+DirectPortalBackend::DirectPortalBackend(mem::Ref<SharedState> state, Side side)
     : state_(std::move(state)), side_(side) {}
 
 DirectPortalBackend::~DirectPortalBackend() = default;
@@ -74,9 +74,9 @@ DirectPortalBackend::Pair DirectPortalBackend::CreatePair(Portal& portal0,
                                                           Portal& portal1) {
   auto state = mem::MakeRefCounted<SharedState>(portal0, portal1);
   std::unique_ptr<DirectPortalBackend> backend0(
-      new DirectPortalBackend(state, 0));
+      new DirectPortalBackend(state, Side::kLeft));
   std::unique_ptr<DirectPortalBackend> backend1(
-      new DirectPortalBackend(state, 1));
+      new DirectPortalBackend(state, Side::kRight));
   return {std::move(backend0), std::move(backend1)};
 }
 
@@ -170,7 +170,7 @@ IpczResult DirectPortalBackend::Put(Node::LockedRouter& router,
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
 
-  PortalState& receiver = state_->sides[side_ ^ 1];
+  PortalState& receiver = state_->sides[Opposite(side_)];
   receiver.num_queued_data_bytes += data.size();
   receiver.incoming_parcels.push(std::move(parcel));
   return IPCZ_RESULT_OK;
@@ -255,7 +255,7 @@ IpczResult DirectPortalBackend::CommitPut(
   parcel->SetPortals(std::move(parcel_portals));
   parcel->SetOSHandles(std::move(parcel_os_handles));
 
-  PortalState& receiver = state_->sides[side_ ^ 1];
+  PortalState& receiver = state_->sides[Opposite(side_)];
   receiver.num_queued_data_bytes += num_data_bytes_produced;
   receiver.incoming_parcels.push(std::move(*parcel));
   return IPCZ_RESULT_OK;
@@ -433,7 +433,7 @@ DirectPortalBackend::PortalState& DirectPortalBackend::this_side() {
 
 DirectPortalBackend::PortalState& DirectPortalBackend::other_side() {
   state_->mutex.AssertHeld();
-  return state_->sides[side_ ^ 1];
+  return state_->sides[Opposite(side_)];
 }
 
 IpczResult DirectPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {

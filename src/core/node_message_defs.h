@@ -11,6 +11,7 @@ IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, protocol_version)
   IPCZ_MSG_PARAM(PortalAddress, broker_portal)
   IPCZ_MSG_PARAM(PortalAddress, your_portal)
+  IPCZ_MSG_HANDLE_REQUIRED(control_block_memory)
 IPCZ_MSG_END()
 
 IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))

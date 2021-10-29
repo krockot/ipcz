@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/side.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_backend.h"
@@ -31,8 +32,10 @@ class Portal;
 // with a RoutedPortalBackend.
 class BufferingPortalBackend : public PortalBackend {
  public:
-  BufferingPortalBackend();
+  explicit BufferingPortalBackend(Side side);
   ~BufferingPortalBackend() override;
+
+  Side side() const { return side_; }
 
   // PortalBackend:
   Type GetType() const override;
@@ -79,6 +82,8 @@ class BufferingPortalBackend : public PortalBackend {
 
  private:
   friend class RoutedPortalBackend;
+
+  const Side side_;
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;

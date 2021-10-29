@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "core/buffering_portal_backend.h"
 #include "core/direct_portal_backend.h"
 #include "core/name.h"
 #include "core/node.h"
@@ -75,16 +76,17 @@ bool Portal::CanTravelThroughPortal(Portal& sender) {
 }
 
 bool Portal::StartRouting(const PortalName& my_name,
-                          const PortalAddress& peer_address) {
+                          const PortalAddress& peer_address,
+                          os::Memory::Mapping control_block_mapping) {
   absl::MutexLock lock(&mutex_);
   if (!backend_ || backend_->GetType() != PortalBackend::Type::kBuffering) {
     return false;
   }
 
-  auto new_backend =
-      std::make_unique<RoutedPortalBackend>(my_name, peer_address);
-  new_backend->AdoptBufferingBackendState(
-      reinterpret_cast<BufferingPortalBackend&>(*backend_));
+  auto& backend = reinterpret_cast<BufferingPortalBackend&>(*backend_);
+  auto new_backend = std::make_unique<RoutedPortalBackend>(
+      my_name, peer_address, backend.side(), std::move(control_block_mapping));
+  new_backend->AdoptBufferingBackendState(backend);
   backend_ = std::move(new_backend);
   return true;
 }

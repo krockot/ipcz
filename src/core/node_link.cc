@@ -7,7 +7,9 @@
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"
+#include "core/portal_control_block.h"
 #include "debug/log.h"
+#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
@@ -45,7 +47,7 @@ void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(channel_.is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  channel_.Send(os::Channel::Data(data));
+  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
 void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
@@ -65,7 +67,7 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
     header.request_id =
         next_request_id_.fetch_add(1, std::memory_order_relaxed);
   }
-  channel_.Send(os::Channel::Data(data));
+  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
 bool NodeLink::OnMessage(os::Channel::Message message) {
@@ -150,8 +152,11 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
     return false;
   }
 
-  bool accepted = node_->AcceptInvitationFromBroker(m.params.your_portal,
-                                                    m.params.broker_portal);
+  bool accepted = node_->AcceptInvitationFromBroker(
+      m.params.your_portal,
+      m.params.broker_portal,
+      os::Memory(std::move(m.handles.control_block_memory),
+                 sizeof(PortalControlBlock)));
 
   msg::InviteNode_Reply reply;
   reply.header.request_id = m.header.request_id;
