@@ -38,7 +38,7 @@ struct DirectPortalBackend::PortalState {
 
   // Counters exposed by QueryStatus and used to enforce limits during put
   // operations.
-  uint64_t num_queued_data_bytes = 0;
+  uint32_t num_queued_data_bytes = 0;
 
   // Indicates whether a two-phase get is in progress.
   bool in_two_phase_get = false;
@@ -199,20 +199,26 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
+  uint32_t max_queued_parcels = std::numeric_limits<uint32_t>::max();
+  uint32_t max_queued_bytes = std::numeric_limits<uint32_t>::max();
   if (limits) {
-    if (limits->max_queued_parcels > 0 &&
-        other_state.incoming_parcels.size() >= limits->max_queued_parcels) {
+    if (limits->max_queued_parcels > 0) {
+      max_queued_parcels = limits->max_queued_parcels;
+    }
+    if (limits->max_queued_bytes > 0) {
+      max_queued_bytes = limits->max_queued_bytes;
+    }
+  }
+
+  if (other_state.incoming_parcels.size() >= max_queued_parcels) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  } else if (max_queued_bytes < other_state.num_queued_data_bytes) {
+  } else if (max_queued_bytes - other_state.num_queued_data_bytes <
+             num_data_bytes) {
+    if (flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) {
+      num_data_bytes = max_queued_bytes - other_state.num_queued_data_bytes;
+    } else {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
-    } else if (limits->max_queued_bytes > 0 &&
-               other_state.num_queued_data_bytes + num_data_bytes >
-                   limits->max_queued_bytes) {
-      if ((flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) &&
-          other_state.num_queued_data_bytes < limits->max_queued_bytes) {
-        num_data_bytes =
-            limits->max_queued_bytes - other_state.num_queued_data_bytes;
-      } else {
-        return IPCZ_RESULT_RESOURCE_EXHAUSTED;
-      }
     }
   }
 
@@ -452,7 +458,7 @@ IpczResult DirectPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
 
 IpczResult DirectPortalBackend::ArmTrap(
     Trap& trap,
-    IpczTrapConditions* satisfied_conditions,
+    IpczTrapConditionFlags* satisfied_condition_flags,
     IpczPortalStatus* status) {
   absl::MutexLock lock(&state_->mutex);
   if (this_side().traps.find(&trap) == this_side().traps.end()) {

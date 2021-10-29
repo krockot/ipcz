@@ -77,7 +77,7 @@ class BufferingPortalBackend : public PortalBackend {
   IpczResult AbortGet() override;
   IpczResult AddTrap(std::unique_ptr<Trap> trap) override;
   IpczResult ArmTrap(Trap& trap,
-                     IpczTrapConditions* satisfied_conditions,
+                     IpczTrapConditionFlags* satisfied_condition_flags,
                      IpczPortalStatus* status) override;
   IpczResult RemoveTrap(Trap& trap) override;
 

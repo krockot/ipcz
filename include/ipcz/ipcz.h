@@ -256,25 +256,25 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
   IpczPortalStatusFlags flags;
 
   // The number of unretrieved parcels queued on this portal.
-  uint64_t num_local_parcels;
+  uint32_t num_local_parcels;
 
   // The number of unretrieved bytes (across all unretrieved parcels) queued on
   // this portal.
-  uint64_t num_local_bytes;
+  uint32_t num_local_bytes;
 
   // The number of unretrieved parcels queued on the opposite portal.
-  uint64_t num_remote_parcels;
+  uint32_t num_remote_parcels;
 
   // The number of unretrieved bytes (across all unretrieved parcels) queued on
   // the opposite portal.
-  uint64_t num_remote_bytes;
+  uint32_t num_remote_bytes;
 };
 
 // Flags given to IpczTrapConditions to indicate which types of conditions a
 // trap should observe.
 typedef uint32_t IpczTrapConditionFlags;
 
-// Triggers a trap event whenever the trap itself is destroyed, either
+// Triggers a trap event just before the trap itself is destroyed, either
 // explicitly via DestroyTrap() or implicitly by closing its portal. This is the
 // only condition which can cause a trap to fire an event while disarmed, and
 // this flag will always be set on last event fired by any trap which specifies
@@ -285,10 +285,16 @@ typedef uint32_t IpczTrapConditionFlags;
 // applications are interested in the more specific IPCZ_TRAP_CONDITION_DEAD.
 #define IPCZ_TRAP_CONDITION_PEER_CLOSED IPCZ_FLAG_BIT(1)
 
+// Triggers a trap event whenever there are no local parcels queued for
+// retrieval. Typically applications are interested in the more specific
+// IPCZ_TRAP_CONDITION_DEAD.
+#define IPCZ_TRAP_CONDITION_EMPTY IPCZ_FLAG_BIT(2)
+
 // Triggers a trap event whenever there are no more parcels available to
 // retrieve from this portal AND the opposite portal is closed. This means the
-// portal will never again have parcels to retrieve and is effectively useless
-#define IPCZ_TRAP_CONDITION_DEAD IPCZ_FLAG_BIT(2)
+// portal will never again have parcels to retrieve and is effectively useless.
+#define IPCZ_TRAP_CONDITION_DEAD \
+  (IPCZ_TRAP_CONDITION_PEER_CLOSED | IPCZ_TRAP_CONDITION_EMPTY)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
 // this portal meets or exceeds the threshold given by `min_local_parcels` in
@@ -1039,15 +1045,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if one or more of the trap's conditions
   //        are already satisfied, such that the trap would fire an event
-  //        immediately once armed. If `satisfied_conditions` is non-null it
-  //        will be populated to indicate which satisfied condition(s) blocked
-  //        the arming of the trap, and if `status` is not null it will be
-  //        populated with details about the portal's current status.
+  //        immediately once armed. If `satisfied_condition_flags` is non-null
+  //        it will be populated to indicate which satisfied condition(s)
+  //        blocked the arming of the trap, and if `status` is not null it will
+  //        be populated with details about the portal's current status.
   IpczResult (*ArmTrap)(IpczHandle portal,
                         IpczHandle trap,
                         uint32_t flags,
                         const void* options,
-                        struct IpczTrapConditions* satisfied_conditions,
+                        IpczTrapConditionFlags* satisfied_condition_flags,
                         struct IpczPortalStatus* status);
 
   // Destroys a trap on `portal`.

@@ -75,7 +75,7 @@ class PortalBackend {
   virtual IpczResult AbortGet() = 0;
   virtual IpczResult AddTrap(std::unique_ptr<Trap> trap) = 0;
   virtual IpczResult ArmTrap(Trap& trap,
-                             IpczTrapConditions* satisfied_conditions,
+                             IpczTrapConditionFlags* satisfied_condition_flags,
                              IpczPortalStatus* status) = 0;
   virtual IpczResult RemoveTrap(Trap& trap) = 0;
 };

@@ -213,7 +213,7 @@ IpczResult BufferingPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
 
 IpczResult BufferingPortalBackend::ArmTrap(
     Trap& trap,
-    IpczTrapConditions* satisfied_conditions,
+    IpczTrapConditionFlags* satisfied_condition_flags,
     IpczPortalStatus* status) {
   return IPCZ_RESULT_UNIMPLEMENTED;
 }

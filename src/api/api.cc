@@ -343,13 +343,13 @@ IpczResult ArmTrap(IpczHandle portal,
                    IpczHandle trap,
                    uint32_t flags,
                    const void* options,
-                   IpczTrapConditions* satisfied_conditions,
+                   IpczTrapConditionFlags* satisfied_condition_flags,
                    IpczPortalStatus* status) {
   if (portal == IPCZ_INVALID_HANDLE || trap == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).ArmTrap(trap, satisfied_conditions,
+  return ToRef<core::Portal>(portal).ArmTrap(trap, satisfied_condition_flags,
                                              status);
 }
 

@@ -6,6 +6,7 @@
 #define IPCZ_SRC_CORE_TRAP_EVENT_DISPATCHER_H_
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 
 #include "core/trap.h"
@@ -26,9 +27,11 @@ class TrapEventDispatcher {
   TrapEventDispatcher();
   ~TrapEventDispatcher();
 
-  void DeferEvent(const Trap& trap,
+  void DeferEvent(IpczTrapEventHandler handler,
+                  uintptr_t context,
                   const IpczTrapConditionFlags condition_flags,
-                  const IpczPortalStatus& status);
+                  const IpczPortalStatus& status,
+                  Trap::SharedState& trap_state);
 
   void DispatchAll();
 
@@ -41,7 +44,7 @@ class TrapEventDispatcher {
     Event& operator=(Event&&);
     ~Event();
 
-    std::shared_ptr<std::atomic_bool> is_trap_armed;
+    mem::Ref<Trap::SharedState> trap_state;
     IpczTrapEventHandler handler;
     uintptr_t context;
     IpczTrapConditionFlags condition_flags;

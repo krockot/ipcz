@@ -4,6 +4,7 @@
 
 #include "core/routed_portal_backend.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "core/buffering_portal_backend.h"
@@ -27,7 +28,10 @@ RoutedPortalBackend::RoutedPortalBackend(
     : name_(name),
       peer_address_(peer_address),
       side_(side),
-      control_block_mapping_(std::move(control_block_mapping)) {}
+      control_block_mapping_(std::move(control_block_mapping)) {
+  memset(&status_, 0, sizeof(status_));
+  status_.size = sizeof(status_);
+}
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
@@ -47,10 +51,10 @@ void RoutedPortalBackend::AdoptBufferingBackendState(
   // Atomically update the control block to reflect all the parcels we're about
   // to send.
   PortalControlBlock::QueueState queue_state =
-      my_shared_state_.outgoing_queue.Get();
+      my_shared_state_.queue_state.Get();
   queue_state.num_sent_parcels += backend.outgoing_parcels_.size();
   queue_state.num_sent_bytes += backend.num_outgoing_bytes_;
-  my_shared_state_.outgoing_queue.Set(queue_state);
+  my_shared_state_.queue_state.Set(queue_state);
 
   for (auto& parcel : backend.outgoing_parcels_.TakeParcels()) {
     router->RouteParcel(peer_address_, parcel);
@@ -69,15 +73,12 @@ bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
 bool RoutedPortalBackend::AcceptParcel(Parcel& parcel,
                                        TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
-  num_incoming_bytes_ += parcel.data_view().size();
+  status_.num_local_bytes += parcel.data_view().size();
+  ++status_.num_local_parcels;
   incoming_parcels_.push(std::move(parcel));
+
   for (const auto& trap : traps_) {
-    if (trap->is_armed() &&
-        (trap->conditions().flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) &&
-        incoming_parcels_.size() >= trap->conditions().min_local_parcels) {
-      IpczPortalStatus status;
-      dispatcher.DeferEvent(*trap, IPCZ_TRAP_CONDITION_LOCAL_PARCELS, status);
-    }
+    trap->MaybeNotify(dispatcher, status_);
   }
   return true;
 }
@@ -99,11 +100,7 @@ IpczResult RoutedPortalBackend::Close(
 IpczResult RoutedPortalBackend::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
-  status.flags = 0;
-  status.num_local_parcels = 0;
-  status.num_local_bytes = 0;
-  status.num_remote_parcels = outgoing_parcels_.size();
-  status.num_remote_bytes = num_outgoing_bytes_;
+  status = status_;
   return IPCZ_RESULT_OK;
 }
 
@@ -123,7 +120,7 @@ IpczResult RoutedPortalBackend::Put(Node::LockedRouter& router,
         outgoing_parcels_.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               num_outgoing_bytes_ >= limits->max_queued_bytes) {
+               status_.num_remote_bytes >= limits->max_queued_bytes) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
   }
@@ -165,11 +162,11 @@ IpczResult RoutedPortalBackend::BeginPut(IpczBeginPutFlags flags,
         outgoing_parcels_.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               num_outgoing_bytes_ + num_data_bytes >
+               status_.num_remote_bytes + num_data_bytes >
                    limits->max_queued_bytes) {
       if ((flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) &&
-          num_outgoing_bytes_ < limits->max_queued_bytes) {
-        num_data_bytes = limits->max_queued_bytes - num_outgoing_bytes_;
+          status_.num_remote_bytes < limits->max_queued_bytes) {
+        num_data_bytes = limits->max_queued_bytes - status_.num_remote_bytes;
       } else {
         return IPCZ_RESULT_RESOURCE_EXHAUSTED;
       }
@@ -244,7 +241,7 @@ IpczResult RoutedPortalBackend::Get(void* data,
   }
 
   if (incoming_parcels_.empty()) {
-    if (peer_closed_) {
+    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
@@ -278,7 +275,7 @@ IpczResult RoutedPortalBackend::Get(void* data,
 
   Parcel parcel = incoming_parcels_.pop();
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  num_incoming_bytes_ -= parcel.data_view().size();
+  status_.num_local_bytes -= parcel.data_view().size();
   parcel.Consume(portals, os_handles);
   return IPCZ_RESULT_OK;
 }
@@ -293,7 +290,7 @@ IpczResult RoutedPortalBackend::BeginGet(const void** data,
   }
 
   if (incoming_parcels_.empty()) {
-    if (peer_closed_) {
+    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
@@ -361,7 +358,7 @@ IpczResult RoutedPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
     parcel.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
   }
 
-  num_incoming_bytes_ -= num_data_bytes_consumed;
+  status_.num_local_bytes -= num_data_bytes_consumed;
   in_two_phase_get_ = false;
   return IPCZ_RESULT_OK;
 }
@@ -384,36 +381,27 @@ IpczResult RoutedPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
 
 IpczResult RoutedPortalBackend::ArmTrap(
     Trap& trap,
-    IpczTrapConditions* satisfied_conditions,
+    IpczTrapConditionFlags* satisfied_condition_flags,
     IpczPortalStatus* status) {
   absl::MutexLock lock(&mutex_);
-  if (trap.is_armed()) {
-    return IPCZ_RESULT_ALREADY_EXISTS;
+  IpczTrapConditionFlags flags = 0;
+  IpczResult result = trap.Arm(status_, flags);
+  if (result == IPCZ_RESULT_OK) {
+    return IPCZ_RESULT_OK;
   }
 
-  if (satisfied_conditions) {
-    satisfied_conditions->flags = 0;
+  if (satisfied_condition_flags) {
+    *satisfied_condition_flags = flags;
   }
-  bool any_met = false;
-  if (trap.conditions().flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) {
-    bool met = incoming_parcels_.size() >= trap.conditions().min_local_parcels;
-    if (met && satisfied_conditions) {
-      satisfied_conditions->flags |= IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-    }
-    any_met |= met;
-  }
-  // TODO: other conditions
 
   if (status) {
-    // TODO
+    size_t out_size = status->size;
+    size_t copy_size = std::min(out_size, sizeof(status_));
+    memcpy(status, &status_, copy_size);
+    status->size = static_cast<uint32_t>(out_size);
   }
 
-  if (any_met) {
-    return IPCZ_RESULT_FAILED_PRECONDITION;
-  }
-
-  trap.set_is_armed(true);
-  return IPCZ_RESULT_OK;
+  return result;
 }
 
 IpczResult RoutedPortalBackend::RemoveTrap(Trap& trap) {

@@ -30,10 +30,10 @@ struct PortalControlBlock {
   };
 
   struct QueueState {
-    uint64_t num_sent_bytes;
-    uint64_t num_sent_parcels;
-    uint64_t num_read_bytes;
-    uint64_t num_read_parcels;
+    uint32_t num_sent_bytes;
+    uint32_t num_sent_parcels;
+    uint32_t num_read_bytes;
+    uint32_t num_read_parcels;
   };
 
   struct SideState {
@@ -41,7 +41,7 @@ struct PortalControlBlock {
     ~SideState();
 
     std::atomic<Status> status{Status::kReady};
-    mem::SeqlockedData<QueueState> outgoing_queue;
+    mem::SeqlockedData<QueueState> queue_state;
   };
 
   PortalControlBlock();

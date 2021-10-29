@@ -4,8 +4,6 @@
 
 #include "core/trap_event_dispatcher.h"
 
-#include "debug/log.h"
-
 namespace ipcz {
 namespace core {
 
@@ -15,14 +13,17 @@ TrapEventDispatcher::~TrapEventDispatcher() {
   DispatchAll();
 }
 
-void TrapEventDispatcher::DeferEvent(const Trap& trap,
-                                     IpczTrapConditionFlags condition_flags,
-                                     const IpczPortalStatus& status) {
+void TrapEventDispatcher::DeferEvent(
+    IpczTrapEventHandler handler,
+    uintptr_t context,
+    const IpczTrapConditionFlags condition_flags,
+    const IpczPortalStatus& status,
+    Trap::SharedState& trap_state) {
   events_.emplace_back();
   Event& event = events_.back();
-  event.is_trap_armed = trap.is_armed_flag();
-  event.handler = trap.handler();
-  event.context = trap.context();
+  event.trap_state = mem::WrapRefCounted(&trap_state);
+  event.handler = handler;
+  event.context = context;
   event.condition_flags = condition_flags;
   event.status = status;
 }
@@ -31,10 +32,7 @@ void TrapEventDispatcher::DispatchAll() {
   absl::InlinedVector<Event, 8> events;
   std::swap(events, events_);
   for (const Event& event : events) {
-    // TODO: this is not sufficient - it's possible for the trap to be destroyed
-    // after this flag is checked but before the handler is invoked, which is
-    // a violation of the API contract.
-    if (event.is_trap_armed->load(std::memory_order_acquire)) {
+    if (event.trap_state->DisarmIfArmed()) {
       IpczTrapEvent e = {sizeof(e)};
       e.context = event.context;
       e.condition_flags = event.condition_flags;

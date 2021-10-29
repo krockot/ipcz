@@ -90,7 +90,7 @@ class Portal : public mem::RefCounted {
                         uintptr_t context,
                         IpczHandle& trap);
   IpczResult ArmTrap(IpczHandle trap,
-                     IpczTrapConditions* satisfied_conditions,
+                     IpczTrapConditionFlags* satisfied_condition_flags,
                      IpczPortalStatus* status);
   IpczResult DestroyTrap(IpczHandle trap);
 

@@ -102,7 +102,7 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
 
   size_t serialized_size =
       sizeof(internal::MessageHeader) + sizeof(PortalName) +
-      sizeof(uint64_t) * 3 + parcel.data_view().size() +
+      sizeof(uint32_t) * 3 + parcel.data_view().size() +
       parcel.portals_view().size() * sizeof(SerializedPortal) +
       parcel.os_handles_view().size() * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
@@ -113,14 +113,14 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
   header.message_id = msg::kAcceptParcelId;
   auto& msg_destination = *reinterpret_cast<PortalName*>(&header + 1);
   msg_destination = destination;
-  auto* sizes = reinterpret_cast<uint64_t*>(&msg_destination + 1);
+  auto* sizes = reinterpret_cast<uint32_t*>(&msg_destination + 1);
   sizes[0] = parcel.data_view().size();
   sizes[1] = parcel.portals_view().size();
   sizes[2] = parcel.os_handles_view().size();
   memcpy(sizes + 3, parcel.data_view().data(), parcel.data_view().size());
   auto* portals = reinterpret_cast<SerializedPortal*>(
       serialized_data.data() + sizeof(internal::MessageHeader) +
-      sizeof(uint64_t) * 3 + parcel.data_view().size());
+      sizeof(uint32_t) * 3 + parcel.data_view().size());
   // TODO: serialize portals for real
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
     portals[i].header.size = sizeof(internal::StructHeader);
@@ -252,10 +252,10 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   const auto& header =
       *reinterpret_cast<const internal::MessageHeader*>(m.data.data());
   const auto& destination = *reinterpret_cast<const PortalName*>(&header + 1);
-  auto* sizes = reinterpret_cast<const uint64_t*>(&destination + 1);
-  const uint64_t num_bytes = sizes[0];
-  // const uint64_t num_portals = sizes[1];
-  // const uint64_t num_os_handles = sizes[2];
+  auto* sizes = reinterpret_cast<const uint32_t*>(&destination + 1);
+  const uint32_t num_bytes = sizes[0];
+  // const uint32_t num_portals = sizes[1];
+  // const uint32_t num_os_handles = sizes[2];
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
   // const auto* portals =
   //     reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);

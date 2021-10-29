@@ -83,7 +83,7 @@ class RoutedPortalBackend : public PortalBackend {
   IpczResult AbortGet() override;
   IpczResult AddTrap(std::unique_ptr<Trap> trap) override;
   IpczResult ArmTrap(Trap& trap,
-                     IpczTrapConditions* satisfied_conditions,
+                     IpczTrapConditionFlags* satisfied_condition_flags,
                      IpczPortalStatus* status) override;
   IpczResult RemoveTrap(Trap& trap) override;
 
@@ -100,14 +100,12 @@ class RoutedPortalBackend : public PortalBackend {
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
-  bool peer_closed_ ABSL_GUARDED_BY(mutex_) = false;
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
   ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
   ParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
-  size_t num_incoming_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
-  size_t num_outgoing_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
   bool in_two_phase_get_ ABSL_GUARDED_BY(mutex_) = false;
   absl::flat_hash_set<std::unique_ptr<Trap>> traps_ ABSL_GUARDED_BY(mutex_);
+  IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

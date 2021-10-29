@@ -222,10 +222,11 @@ IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
 }
 
 IpczResult Portal::ArmTrap(IpczHandle trap,
-                           IpczTrapConditions* satisfied_conditions,
+                           IpczTrapConditionFlags* satisfied_condition_flags,
                            IpczPortalStatus* status) {
   absl::MutexLock lock(&mutex_);
-  return backend_->ArmTrap(ToRef<Trap>(trap), satisfied_conditions, status);
+  return backend_->ArmTrap(ToRef<Trap>(trap), satisfied_condition_flags,
+                           status);
 }
 
 IpczResult Portal::DestroyTrap(IpczHandle trap) {
