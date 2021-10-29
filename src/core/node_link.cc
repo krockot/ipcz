@@ -9,6 +9,7 @@
 #include "core/node_messages.h"
 #include "core/parcel.h"
 #include "core/portal_control_block.h"
+#include "core/trap_event_dispatcher.h"
 #include "debug/log.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -266,11 +267,13 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   for (auto& handle : m.handles) {
     os_handles.push_back(std::move(handle));
   }
+
+  TrapEventDispatcher dispatcher;
   Parcel parcel;
   parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
   parcel.SetPortals({});
   parcel.SetOSHandles(std::move(os_handles));
-  return node_->AcceptParcel(destination, parcel);
+  return node_->AcceptParcel(destination, parcel, dispatcher);
 }
 
 NodeLink::PendingReply::PendingReply() = default;

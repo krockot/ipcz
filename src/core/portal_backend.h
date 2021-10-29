@@ -21,6 +21,7 @@ class Parcel;
 class Portal;
 class Router;
 class Trap;
+class TrapEventDispatcher;
 
 // Base class for an implementation backing a Portal. A Portal may switch from
 // one backend to another if its peer is moved onto or off of the same node.
@@ -36,7 +37,8 @@ class PortalBackend {
 
   virtual Type GetType() const = 0;
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
-  virtual bool AcceptParcel(Parcel& parcel) = 0;
+  virtual bool AcceptParcel(Parcel& parcel,
+                            TrapEventDispatcher& dispatcher) = 0;
   virtual IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) = 0;

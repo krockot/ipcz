@@ -70,6 +70,8 @@ source_set("ipcz_sources") {
     "core/side.h",
     "core/trap.cc",
     "core/trap.h",
+    "core/trap_event_dispatcher.cc",
+    "core/trap_event_dispatcher.h",
     "debug/hex_dump.cc",
     "debug/hex_dump.h",
     "debug/log.cc",

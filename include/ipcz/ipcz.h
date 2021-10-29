@@ -291,12 +291,12 @@ typedef uint32_t IpczTrapConditionFlags;
 #define IPCZ_TRAP_CONDITION_DEAD IPCZ_FLAG_BIT(2)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
-// this portal exceeds the threshold given by `min_local_parcels` in
+// this portal meets or exceeds the threshold given by `min_local_parcels` in
 // IpczTrapConditions.
 #define IPCZ_TRAP_CONDITION_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval by
-// this portal exceeds the threshold given by `min_local_bytes` in
+// this portal meets or exceeds the threshold given by `min_local_bytes` in
 // IpczTrapConditions.
 #define IPCZ_TRAP_CONDITION_LOCAL_BYTES IPCZ_FLAG_BIT(4)
 
@@ -1033,6 +1033,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_OK if the trap was successfully armed. In this case the
   //        `conditions` and `status` arguments ignored.
+  //
+  //    IPCZ_RESULT_ALREADY_EXISTS if the trap was already armed. In this case
+  //        the `conditions` and `status` arguments ignored.
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if one or more of the trap's conditions
   //        are already satisfied, such that the trap would fire an event

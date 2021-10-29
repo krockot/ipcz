@@ -26,7 +26,8 @@ bool BufferingPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return true;
 }
 
-bool BufferingPortalBackend::AcceptParcel(Parcel& parcel) {
+bool BufferingPortalBackend::AcceptParcel(Parcel& parcel,
+                                          TrapEventDispatcher& dispatcher) {
   // TODO: allow receipt of parcels - a portal may transition to buffering while
   // parcels are already in flight for it.
   LOG(ERROR) << "not yet";

@@ -89,7 +89,8 @@ bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return &sender != other_side().portal;
 }
 
-bool DirectPortalBackend::AcceptParcel(Parcel& parcel) {
+bool DirectPortalBackend::AcceptParcel(Parcel& parcel,
+                                       TrapEventDispatcher& dispatcher) {
   // Parcels are only exchanged directly between local DirectPortalBackends, so
   // it's absurd for this method to ever be invoked.
   ABSL_ASSERT(false);

@@ -22,6 +22,7 @@ namespace core {
 
 class Parcel;
 class PortalBackend;
+class TrapEventDispatcher;
 
 class Portal : public mem::RefCounted {
  public:
@@ -49,7 +50,7 @@ class Portal : public mem::RefCounted {
                     os::Memory::Mapping control_block_mapping);
 
   // Accepts a parcel from an external source, e.g. as routed from another node.
-  bool AcceptParcel(Parcel& parcel);
+  bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher);
 
   IpczResult Close();
   IpczResult QueryStatus(IpczPortalStatus& status);

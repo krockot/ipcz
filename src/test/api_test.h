@@ -6,10 +6,13 @@
 #define IPCZ_SRC_API_API_TEST_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
+#include "os/event.h"
 #include "os/handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -103,6 +106,33 @@ class APITest : public testing::Test {
     }
 
     return result;
+  }
+
+  IpczResult WaitToGet(IpczHandle portal, Parcel& parcel) {
+    os::Event event;
+    os::Event::Notifier notifier = event.MakeNotifier();
+    IpczTrapConditions conditions = {sizeof(conditions)};
+    conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+    conditions.min_local_parcels = 1;
+    const auto handler = [](const IpczTrapEvent* event) {
+      reinterpret_cast<os::Event::Notifier*>(event->context)->Notify();
+    };
+    const auto context = reinterpret_cast<uintptr_t>(&notifier);
+    IpczHandle trap;
+    EXPECT_EQ(IPCZ_RESULT_OK,
+              ipcz.CreateTrap(portal, &conditions, handler, context,
+                              IPCZ_NO_FLAGS, nullptr, &trap));
+    IpczResult result =
+        ipcz.ArmTrap(portal, trap, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr);
+    if (result == IPCZ_RESULT_OK) {
+      event.Wait();
+    } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {
+      return result;
+    }
+    EXPECT_EQ(IPCZ_RESULT_OK,
+              ipcz.DestroyTrap(portal, trap, IPCZ_NO_FLAGS, nullptr));
+
+    return MaybeGet(portal, parcel);
   }
 
   Parcel Get(IpczHandle portal) {

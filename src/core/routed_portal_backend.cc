@@ -12,6 +12,7 @@
 #include "core/parcel_queue.h"
 #include "core/portal_control_block.h"
 #include "core/trap.h"
+#include "core/trap_event_dispatcher.h"
 #include "debug/log.h"
 #include "util/handle_util.h"
 
@@ -61,13 +62,23 @@ PortalBackend::Type RoutedPortalBackend::GetType() const {
 }
 
 bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
+  // TODO
   return false;
 }
 
-bool RoutedPortalBackend::AcceptParcel(Parcel& parcel) {
+bool RoutedPortalBackend::AcceptParcel(Parcel& parcel,
+                                       TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
   num_incoming_bytes_ += parcel.data_view().size();
   incoming_parcels_.push(std::move(parcel));
+  for (const auto& trap : traps_) {
+    if (trap->is_armed() &&
+        (trap->conditions().flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) &&
+        incoming_parcels_.size() >= trap->conditions().min_local_parcels) {
+      IpczPortalStatus status;
+      dispatcher.DeferEvent(*trap, IPCZ_TRAP_CONDITION_LOCAL_PARCELS, status);
+    }
+  }
   return true;
 }
 
@@ -366,18 +377,54 @@ IpczResult RoutedPortalBackend::AbortGet() {
 }
 
 IpczResult RoutedPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  traps_.insert(std::move(trap));
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult RoutedPortalBackend::ArmTrap(
     Trap& trap,
     IpczTrapConditions* satisfied_conditions,
     IpczPortalStatus* status) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  if (trap.is_armed()) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  if (satisfied_conditions) {
+    satisfied_conditions->flags = 0;
+  }
+  bool any_met = false;
+  if (trap.conditions().flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) {
+    bool met = incoming_parcels_.size() >= trap.conditions().min_local_parcels;
+    if (met && satisfied_conditions) {
+      satisfied_conditions->flags |= IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+    }
+    any_met |= met;
+  }
+  // TODO: other conditions
+
+  if (status) {
+    // TODO
+  }
+
+  if (any_met) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  trap.set_is_armed(true);
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult RoutedPortalBackend::RemoveTrap(Trap& trap) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  auto it = traps_.find(&trap);
+  if (it == traps_.end()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  traps_.erase(it);
+  return IPCZ_RESULT_OK;
 }
 
 }  // namespace core

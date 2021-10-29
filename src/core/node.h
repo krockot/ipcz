@@ -20,6 +20,7 @@ namespace core {
 
 class NodeLink;
 class Portal;
+class TrapEventDispatcher;
 
 // Node encompasses the state of an isolated ipcz node.
 class Node : public mem::RefCounted, private Router {
@@ -63,7 +64,9 @@ class Node : public mem::RefCounted, private Router {
                                   const PortalAddress& broker_portal,
                                   os::Memory control_block_memory);
 
-  bool AcceptParcel(const PortalName& destination, Parcel& parcel);
+  bool AcceptParcel(const PortalName& destination,
+                    Parcel& parcel,
+                    TrapEventDispatcher& dispatcher);
 
  private:
   friend class LockedRouter;

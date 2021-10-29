@@ -46,13 +46,11 @@ TEST_F(RemotePortalTest, BasicConnection) {
   Put(b, kMessageFromB, {}, {});
 
   Parcel a_parcel;
-  while (MaybeGet(a, a_parcel) == IPCZ_RESULT_UNAVAILABLE)
-    ;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, a_parcel));
   EXPECT_EQ(kMessageFromB, a_parcel.message);
 
   Parcel b_parcel;
-  while (MaybeGet(b, b_parcel) == IPCZ_RESULT_UNAVAILABLE)
-    ;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, b_parcel));
   EXPECT_EQ(kMessageFromA, b_parcel.message);
 
   ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);

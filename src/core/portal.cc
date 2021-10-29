@@ -106,9 +106,9 @@ bool Portal::StartRouting(Node::LockedRouter& router,
   return true;
 }
 
-bool Portal::AcceptParcel(Parcel& parcel) {
+bool Portal::AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
-  return backend_->AcceptParcel(parcel);
+  return backend_->AcceptParcel(parcel, dispatcher);
 }
 
 IpczResult Portal::Close() {

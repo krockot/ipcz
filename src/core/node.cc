@@ -166,7 +166,9 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
   return true;
 }
 
-bool Node::AcceptParcel(const PortalName& destination, Parcel& parcel) {
+bool Node::AcceptParcel(const PortalName& destination,
+                        Parcel& parcel,
+                        TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
   auto it = routed_portals_.find(destination);
   if (it == routed_portals_.end()) {
@@ -175,7 +177,7 @@ bool Node::AcceptParcel(const PortalName& destination, Parcel& parcel) {
     return true;
   }
 
-  return it->second->AcceptParcel(parcel);
+  return it->second->AcceptParcel(parcel, dispatcher);
 }
 
 bool Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {

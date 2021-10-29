@@ -16,10 +16,12 @@
 #include "core/portal_backend.h"
 #include "core/portal_control_block.h"
 #include "core/side.h"
+#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/memory.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -44,7 +46,7 @@ class RoutedPortalBackend : public PortalBackend {
   // PortalBackend:
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
-  bool AcceptParcel(Parcel& parcel) override;
+  bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) override;
   IpczResult Close(
       Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
@@ -105,6 +107,7 @@ class RoutedPortalBackend : public PortalBackend {
   size_t num_incoming_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
   size_t num_outgoing_bytes_ ABSL_GUARDED_BY(mutex_) = 0;
   bool in_two_phase_get_ ABSL_GUARDED_BY(mutex_) = false;
+  absl::flat_hash_set<std::unique_ptr<Trap>> traps_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core
