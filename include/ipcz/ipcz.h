@@ -493,6 +493,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // compatibility. This operation will always fail on Windows with
   // IPCZ_RESULT_INVALID_ARGUMENT if `target_process` is null.
   //
+  // NOTE: Portals created by this function are NON-TRANSFERRABLE and cannot be
+  // placed into other portals.
+  //
   // `flags` is ignored and must be 0.
   //
   // `options` is ignored and must be null.
@@ -541,6 +544,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // transports may be either side of a UNIX domain socket pair.)
   //
   // See OpenRemotePortal() for additional details.
+  //
+  // NOTE: Portals created by this function are NON-TRANSFERRABLE and cannot be
+  // placed into other portals.
   //
   // `flags` is ignored and must be 0.
   //
@@ -647,8 +653,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
   //        `num_bytes` is non-zero, `portals` is null but `num_portals` is
   //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
-  //        `options` is non-null but invalid, or one of the portals in
-  //        `portals` is equal to `portal` or its local opposite if applicable.
+  //        `options` is non-null but invalid, one of the portals in `portals`
+  //        is equal to `portal` its (local) opposite if applicable, or one of
+  //        the portals in `portals` was established via OpenRemotePortal() or
+  //        AcceptRemotePortal().
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
   //        least one of the specified limits would be violated by the

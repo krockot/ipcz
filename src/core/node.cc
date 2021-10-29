@@ -56,11 +56,22 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   const PortalName our_portal_name{Name::kRandom};
 
   os::Memory control_block_memory(sizeof(PortalControlBlock));
+  os::Memory::Mapping control_block_mapping = control_block_memory.Map();
 
   // By convention, OpenRemotePortal creates a left-side portal.
+  //
+  // Note that while the remote end may not actually be ready yet, we know it
+  // can't be moved elsewhere, so it's safe to begin routing parcels there.
+  // Worst case, it may be closed by the time they arrive and they'll be
+  // discarded.
+  PortalControlBlock& control_block =
+      PortalControlBlock::Initialize(control_block_mapping.base());
+  control_block.sides[Side::kLeft].status = PortalControlBlock::Status::kReady;
+  control_block.sides[Side::kRight].status = PortalControlBlock::Status::kReady;
+
   auto backend = std::make_unique<RoutedPortalBackend>(
       our_portal_name, PortalAddress(their_node_name, their_portal_name),
-      Side::kLeft, control_block_memory.Map());
+      Side::kLeft, std::move(control_block_mapping));
   mem::Ref<Portal> portal =
       mem::MakeRefCounted<Portal>(*this, std::move(backend));
   out_portal = std::move(portal);

@@ -31,13 +31,7 @@ class PortalBackend {
     kRouted,
   };
 
-  PortalBackend();
-  virtual ~PortalBackend();
-
-  // These are managed by the portal itself. May be null if there no current
-  // owner/observer.
-  void set_owner(const Portal* owner) { owner_ = owner; }
-  const Portal* owner() const { return owner_; }
+  virtual ~PortalBackend() {}
 
   virtual Type GetType() const = 0;
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
@@ -80,9 +74,6 @@ class PortalBackend {
                              IpczTrapConditions* satisfied_conditions,
                              IpczPortalStatus* status) = 0;
   virtual IpczResult RemoveTrap(Trap& trap) = 0;
-
- private:
-  const Portal* owner_ = nullptr;
 };
 
 }  // namespace core

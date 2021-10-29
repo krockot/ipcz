@@ -11,5 +11,14 @@ PortalControlBlock::PortalControlBlock() = default;
 
 PortalControlBlock::~PortalControlBlock() = default;
 
+// static
+PortalControlBlock& PortalControlBlock::Initialize(void* where) {
+  return *(new (where) PortalControlBlock());
+}
+
+PortalControlBlock::SideState::SideState() = default;
+
+PortalControlBlock::SideState::~SideState() = default;
+
 }  // namespace core
 }  // namespace ipcz

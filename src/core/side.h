@@ -32,9 +32,9 @@ inline uint8_t SideIndex(Side side) {
 // Helper for a fixed array type that can be indexed by a portal Side. Useful in
 // common shared state structures.
 template <typename T>
-struct TwoSidedArray : public std::array<T, 2> {
-  TwoSidedArray() = default;
-  TwoSidedArray(T&& left, T&& right)
+struct TwoSided : public std::array<T, 2> {
+  TwoSided() = default;
+  TwoSided(T&& left, T&& right)
       : std::array<T, 2>({std::move(left), std::move(right)}) {}
 
   T& operator[](Side side) {

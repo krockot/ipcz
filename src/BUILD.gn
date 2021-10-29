@@ -61,7 +61,6 @@ source_set("ipcz_sources") {
     "core/parcel_queue.h",
     "core/portal.cc",
     "core/portal.h",
-    "core/portal_backend.cc",
     "core/portal_backend.h",
     "core/portal_control_block.cc",
     "core/portal_control_block.h",

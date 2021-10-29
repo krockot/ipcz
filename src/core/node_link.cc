@@ -153,8 +153,7 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   }
 
   bool accepted = node_->AcceptInvitationFromBroker(
-      m.params.your_portal,
-      m.params.broker_portal,
+      m.params.your_portal, m.params.broker_portal,
       os::Memory(std::move(m.handles.control_block_memory),
                  sizeof(PortalControlBlock)));
 

@@ -12,8 +12,10 @@
 #include "core/name.h"
 #include "core/node.h"
 #include "core/portal_backend.h"
+#include "core/portal_control_block.h"
 #include "core/routed_portal_backend.h"
 #include "core/trap.h"
+#include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
@@ -37,12 +39,22 @@ bool ValidatePortalsForTravel(Portal& sender,
 
 }  // namespace
 
-Portal::Portal(Node& node) : node_(mem::WrapRefCounted(&node)) {}
+Portal::Portal(Node& node) : Portal(node, nullptr, /*transferrable=*/true) {}
 
 Portal::Portal(Node& node, std::unique_ptr<PortalBackend> backend)
-    : Portal(node) {
-  SetBackend(std::move(backend));
-}
+    : Portal(node, std::move(backend), /*transferrable=*/true) {}
+
+Portal::Portal(Node& node,
+               std::unique_ptr<PortalBackend> backend,
+               decltype(kNonTransferrable))
+    : Portal(node, std::move(backend), /*transferrable=*/false) {}
+
+Portal::Portal(Node& node,
+               std::unique_ptr<PortalBackend> backend,
+               bool transferrable)
+    : node_(mem::WrapRefCounted(&node)),
+      transferrable_(transferrable),
+      backend_(std::move(backend)) {}
 
 Portal::~Portal() = default;
 
@@ -59,7 +71,6 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
 
 std::unique_ptr<PortalBackend> Portal::TakeBackend() {
   absl::MutexLock lock(&mutex_);
-  backend_->set_owner(nullptr);
   return std::move(backend_);
 }
 
@@ -67,10 +78,13 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!backend_);
   backend_ = std::move(backend);
-  backend_->set_owner(this);
 }
 
 bool Portal::CanTravelThroughPortal(Portal& sender) {
+  if (!transferrable_) {
+    return false;
+  }
+
   absl::MutexLock lock(&mutex_);
   return &sender != this && backend_->CanTravelThroughPortal(sender);
 }
@@ -82,6 +96,13 @@ bool Portal::StartRouting(const PortalName& my_name,
   if (!backend_ || backend_->GetType() != PortalBackend::Type::kBuffering) {
     return false;
   }
+
+  const PortalControlBlock& control_block =
+      *control_block_mapping.As<PortalControlBlock>();
+  LOG(INFO) << "Start routing; other side status = "
+            << static_cast<int>(control_block.sides[Side::kLeft].status)
+            << "; my side status = "
+            << static_cast<int>(control_block.sides[Side::kRight].status);
 
   auto& backend = reinterpret_cast<BufferingPortalBackend&>(*backend_);
   auto new_backend = std::make_unique<RoutedPortalBackend>(

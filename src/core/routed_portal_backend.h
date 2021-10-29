@@ -26,6 +26,7 @@ namespace core {
 
 class BufferingPortalBackend;
 class Node;
+struct PortalControlBlock;
 
 // PortalBackend implementation for a portal whose peer may live in a different
 // node.
@@ -87,6 +88,7 @@ class RoutedPortalBackend : public PortalBackend {
   const PortalAddress peer_address_;
   const Side side_;
   const os::Memory::Mapping control_block_mapping_;
+  PortalControlBlock& control_block_;
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;

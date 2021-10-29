@@ -24,10 +24,15 @@ class PortalBackend;
 
 class Portal : public mem::RefCounted {
  public:
+  enum { kNonTransferrable };
+
   using Pair = std::pair<mem::Ref<Portal>, mem::Ref<Portal>>;
 
   explicit Portal(Node& node);
   Portal(Node& node, std::unique_ptr<PortalBackend> backend);
+  Portal(Node& node,
+         std::unique_ptr<PortalBackend> backend,
+         decltype(kNonTransferrable));
 
   static Pair CreateLocalPair(Node& node);
 
@@ -84,9 +89,14 @@ class Portal : public mem::RefCounted {
   IpczResult DestroyTrap(IpczHandle trap);
 
  private:
+  Portal(Node& node,
+         std::unique_ptr<PortalBackend> backend,
+         bool transferrable);
   ~Portal() override;
 
   const mem::Ref<Node> node_;
+  const bool transferrable_;
+
   absl::Mutex mutex_;
   std::unique_ptr<PortalBackend> backend_ ABSL_GUARDED_BY(mutex_);
 };

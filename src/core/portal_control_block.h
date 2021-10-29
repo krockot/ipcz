@@ -16,7 +16,7 @@ namespace core {
 // entangled portal pair to synchronously query and reflect portal state.
 struct PortalControlBlock {
   // Conveys the basic status of one of the portals.
-  enum PortalStatus : uint8_t {
+  enum Status : uint8_t {
     // The portal is ready to receive messages.
     kReady = 0,
 
@@ -28,11 +28,29 @@ struct PortalControlBlock {
     kMoving,
   };
 
+  struct SideState {
+    SideState();
+    ~SideState();
+
+    std::atomic<Status> status{Status::kReady};
+
+    // Used by the other side to version its incoming queue state. If they
+    // observe a change in this value, they know one or more messages have
+    // arrived or are in flight to them.
+    std::atomic<uint32_t> sent_parcel_count_;
+  };
+
   PortalControlBlock();
   ~PortalControlBlock();
 
-  // Status for each side.
-  TwoSidedArray<PortalStatus> status;
+  // Initializes a new PortalControlBlock at a given memory address and returns
+  // a reference to it.
+  static PortalControlBlock& Initialize(void* where);
+
+  // Aggregate state for each side of the portal pair. The portal for a given
+  // side is the exclusive writer of its SideState and exclusive reader of the
+  // other side's SideState.
+  TwoSided<SideState> sides;
 };
 
 }  // namespace core

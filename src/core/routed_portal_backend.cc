@@ -10,6 +10,7 @@
 #include "core/node.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
+#include "core/portal_control_block.h"
 #include "core/trap.h"
 #include "util/handle_util.h"
 
@@ -24,9 +25,8 @@ RoutedPortalBackend::RoutedPortalBackend(
     : name_(name),
       peer_address_(peer_address),
       side_(side),
-      control_block_mapping_(std::move(control_block_mapping)) {
-        (void)side_;
-      }
+      control_block_mapping_(std::move(control_block_mapping)),
+      control_block_(*control_block_mapping_.As<PortalControlBlock>()) {}
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
@@ -57,6 +57,11 @@ IpczResult RoutedPortalBackend::Close(
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
   closed_ = true;
+
+  // This is stored with a release operation to ensure that any prior queue
+  // state updates are visible by the time the kClosed state is visible.
+  control_block_.sides[side_].status.store(PortalControlBlock::Status::kClosed,
+                                           std::memory_order_release);
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 

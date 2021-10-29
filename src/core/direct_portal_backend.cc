@@ -28,8 +28,8 @@ namespace core {
 struct DirectPortalBackend::PortalState {
   explicit PortalState(Portal& portal) : portal(mem::WrapRefCounted(&portal)) {}
 
-  // A reference back to the Portal who effectively owns this state. Closed if
-  // the portal is null.
+  // A reference back to the Portal who effectively owns this state. Null if the
+  // portal is closed.
   mem::Ref<Portal> portal;
 
   // Incoming parcel queue; messages from the other side are placed here
@@ -58,7 +58,7 @@ struct DirectPortalBackend::SharedState : public mem::RefCounted {
       : sides{PortalState(portal0), PortalState(portal1)} {}
 
   absl::Mutex mutex;
-  TwoSidedArray<PortalState> sides ABSL_GUARDED_BY(mutex);
+  TwoSided<PortalState> sides ABSL_GUARDED_BY(mutex);
 
  private:
   ~SharedState() override = default;
