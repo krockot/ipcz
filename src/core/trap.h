@@ -62,6 +62,8 @@ class Trap {
 class TrapSet {
  public:
   TrapSet();
+  TrapSet(TrapSet&&);
+  TrapSet& operator=(TrapSet&&);
   ~TrapSet();
 
   IpczResult Add(std::unique_ptr<Trap> trap);

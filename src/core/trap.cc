@@ -100,6 +100,10 @@ IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
 
 TrapSet::TrapSet() = default;
 
+TrapSet::TrapSet(TrapSet&&) = default;
+
+TrapSet& TrapSet::operator=(TrapSet&&) = default;
+
 TrapSet::~TrapSet() = default;
 
 IpczResult TrapSet::Add(std::unique_ptr<Trap> trap) {

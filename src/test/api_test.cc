@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "test/api_test.h"
+#include "test/test_client.h"
 
 namespace ipcz {
 namespace test {
@@ -18,7 +19,12 @@ APITest::Parcel::~Parcel() = default;
 APITest::APITest() {
   ipcz.size = sizeof(ipcz);
   IpczGetAPI(&ipcz);
-  ipcz.CreateNode(IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node_);
+
+  IpczCreateNodeFlags flags = 0;
+  if (!TestClient::InClientProcess()) {
+    flags |= IPCZ_CREATE_NODE_AS_BROKER;
+  }
+  ipcz.CreateNode(flags, nullptr, &node_);
   OpenPortals(&q, &p);
 }
 

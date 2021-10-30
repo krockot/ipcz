@@ -12,8 +12,10 @@
 
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
+#include "os/channel.h"
 #include "os/event.h"
 #include "os/handle.h"
+#include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -57,6 +59,30 @@ class APITest : public testing::Test {
       ASSERT_EQ(IPCZ_RESULT_OK,
                 ipcz.ClosePortal(handle, IPCZ_NO_FLAGS, nullptr));
     }
+  }
+
+  IpczHandle OpenRemotePortal(TestClient& client) {
+    os::Channel::OSTransportWithHandle transport;
+    os::Channel::ToOSTransport(std::move(client.channel()), transport);
+
+    IpczOSProcessHandle process = {sizeof(process)};
+    os::Process::ToIpczOSProcessHandle(client.process().Clone(), process);
+
+    IpczHandle portal;
+    EXPECT_EQ(IPCZ_RESULT_OK,
+              ipcz.OpenRemotePortal(node(), &transport, &process, IPCZ_NO_FLAGS,
+                                    nullptr, &portal));
+    return portal;
+  }
+
+  IpczHandle AcceptRemotePortal(os::Channel& channel) {
+    os::Channel::OSTransportWithHandle transport;
+    os::Channel::ToOSTransport(std::move(channel), transport);
+    IpczHandle portal;
+    EXPECT_EQ(IPCZ_RESULT_OK,
+              ipcz.AcceptRemotePortal(node(), &transport, IPCZ_NO_FLAGS,
+                                      nullptr, &portal));
+    return portal;
   }
 
   void Put(IpczHandle portal,

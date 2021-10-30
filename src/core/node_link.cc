@@ -117,10 +117,9 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
   sizes[0] = parcel.data_view().size();
   sizes[1] = parcel.portals_view().size();
   sizes[2] = parcel.os_handles_view().size();
-  memcpy(sizes + 3, parcel.data_view().data(), parcel.data_view().size());
-  auto* portals = reinterpret_cast<SerializedPortal*>(
-      serialized_data.data() + sizeof(internal::MessageHeader) +
-      sizeof(uint32_t) * 3 + parcel.data_view().size());
+  auto* data = reinterpret_cast<uint8_t*>(sizes + 3);
+  memcpy(data, parcel.data_view().data(), parcel.data_view().size());
+  auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
   // TODO: serialize portals for real
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
     portals[i].header.size = sizeof(internal::StructHeader);

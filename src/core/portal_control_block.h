@@ -8,7 +8,6 @@
 #include <atomic>
 
 #include "core/side.h"
-#include "mem/seqlocked_data.h"
 
 namespace ipcz {
 namespace core {
@@ -40,8 +39,21 @@ struct PortalControlBlock {
     SideState();
     ~SideState();
 
-    std::atomic<Status> status{Status::kReady};
-    mem::SeqlockedData<QueueState> queue_state;
+    Status status{Status::kReady};
+    QueueState queue_state;
+  };
+
+  class Locked {
+   public:
+    Locked(PortalControlBlock& block);
+    ~Locked();
+
+    SideState& side(Side side) { return block_.sides_[side]; }
+
+    SideState& opposite(Side side) { return block_.sides_[Opposite(side)]; }
+
+   private:
+    PortalControlBlock& block_;
   };
 
   PortalControlBlock();
@@ -51,10 +63,21 @@ struct PortalControlBlock {
   // a reference to it.
   static PortalControlBlock& Initialize(void* where);
 
+  SideState& unsafe_side(Side side) { return sides_[side]; }
+
+  SideState& unsafe_opposite(Side side) { return sides_[Opposite(side)]; }
+
+ private:
+  void Lock();
+  void Unlock();
+
+  // Guards access to `sides_`.
+  std::atomic<bool> locked_;
+
   // Aggregate state for each side of the portal pair. The portal for a given
   // side is the exclusive writer of its SideState and exclusive reader of the
   // other side's SideState.
-  TwoSided<SideState> sides;
+  TwoSided<SideState> sides_;
 };
 
 }  // namespace core

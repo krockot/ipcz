@@ -101,8 +101,14 @@ bool Portal::StartRouting(Node::LockedRouter& router,
   auto& backend = reinterpret_cast<BufferingPortalBackend&>(*backend_);
   auto new_backend = std::make_unique<RoutedPortalBackend>(
       my_name, peer_address, backend.side(), std::move(control_block_mapping));
-  new_backend->AdoptBufferingBackendState(router, backend);
-  backend_ = std::move(new_backend);
+
+  // If adoption fails, the peer has already moved and we stay in a buffering
+  // state.
+  //
+  // TODO: use the broker to settle portal locations in cases like this.
+  if (new_backend->AdoptBufferingBackendState(router, backend)) {
+    backend_ = std::move(new_backend);
+  }
   return true;
 }
 

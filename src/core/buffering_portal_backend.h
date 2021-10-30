@@ -15,6 +15,7 @@
 #include "core/parcel_queue.h"
 #include "core/portal_backend.h"
 #include "core/side.h"
+#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -92,6 +93,7 @@ class BufferingPortalBackend : public PortalBackend {
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_);
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
   ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+  TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

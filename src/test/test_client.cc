@@ -23,6 +23,7 @@ namespace test {
 namespace {
 
 const char* g_current_program;
+bool g_in_client_process = false;
 
 using EntryPointMap = std::map<std::string, std::function<void(uint64_t)>>;
 
@@ -67,6 +68,16 @@ os::Channel TestClientSupport::RecoverClientChannel(uint64_t channel_handle) {
 }
 
 }  // namespace internal
+
+// static
+void TestClient::SetInClientProcess(bool in_client_process) {
+  g_in_client_process = in_client_process;
+}
+
+// static
+bool TestClient::InClientProcess() {
+  return g_in_client_process;
+}
 
 TestClient::TestClient(const char* entry_point) {
   os::Channel client_channel;

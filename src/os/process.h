@@ -85,6 +85,8 @@ class Process {
 
   void reset();
 
+  Process Clone() const;
+
  private:
 #if defined(OS_FUCHSIA)
   zx::process process_;

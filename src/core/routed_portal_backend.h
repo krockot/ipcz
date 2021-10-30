@@ -40,7 +40,7 @@ class RoutedPortalBackend : public PortalBackend {
                       os::Memory::Mapping control_block_mapping);
   ~RoutedPortalBackend() override;
 
-  void AdoptBufferingBackendState(Node::LockedRouter& router,
+  bool AdoptBufferingBackendState(Node::LockedRouter& router,
                                   BufferingPortalBackend& backend);
 
   // PortalBackend:
@@ -95,9 +95,6 @@ class RoutedPortalBackend : public PortalBackend {
   const os::Memory::Mapping control_block_mapping_;
   PortalControlBlock& control_block_{
       *control_block_mapping_.As<PortalControlBlock>()};
-  PortalControlBlock::SideState& my_shared_state_{control_block_.sides[side_]};
-  PortalControlBlock::SideState& their_shared_state{
-      control_block_.sides[Opposite(side_)]};
 
   absl::Mutex mutex_;
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;

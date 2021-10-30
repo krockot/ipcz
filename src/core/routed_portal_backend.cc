@@ -35,30 +35,53 @@ RoutedPortalBackend::RoutedPortalBackend(
 
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
-void RoutedPortalBackend::AdoptBufferingBackendState(
+bool RoutedPortalBackend::AdoptBufferingBackendState(
     Node::LockedRouter& router,
     BufferingPortalBackend& backend) {
-  absl::MutexLock lock(&mutex_);
-  absl::MutexLock their_lock(&backend.mutex_);
-  closed_ = backend.closed_;
-  if (backend.pending_parcel_) {
+  std::forward_list<Parcel> parcels_to_send;
+  {
+    absl::MutexLock our_lock(&mutex_);
+    absl::MutexLock their_lock(&backend.mutex_);
+    {
+      PortalControlBlock::Locked control(control_block_);
+      switch (control.opposite(side_).status) {
+        case PortalControlBlock::Status::kReady:
+          // Ensure that a ready peer's node will retain necessary state long
+          // enough to forward the parcels we're about to flush to it, even if
+          // the destination portal moves before those parcels arrive.
+          control.side(side_).queue_state.num_sent_parcels +=
+              backend.status_.num_remote_parcels;
+          control.side(side_).queue_state.num_sent_bytes +=
+              backend.status_.num_remote_bytes;
+          break;
+
+        case PortalControlBlock::Status::kClosed:
+          // Don't bother forwarding anything, the peer is closed. The only
+          // relevant state to adopt is whether we were also already closed. If
+          // the peer has messages in flight to us, we can still receive them if
+          // we remain open.
+          closed_ = backend.closed_;
+          status_.num_remote_bytes = 0;
+          status_.num_remote_parcels = 0;
+          return true;
+
+        case PortalControlBlock::Status::kMoving:
+          // Cancel adoption to leave this portal in a buffering state.
+          return false;
+      }
+    }
+
+    closed_ = backend.closed_;
     pending_parcel_ = std::move(backend.pending_parcel_);
+    traps_ = std::move(backend.traps_);
+    parcels_to_send = backend.outgoing_parcels_.TakeParcels();
   }
 
-  // TODO: the remote portal may not be ready to receive messages; handle that.
-  ABSL_ASSERT(their_shared_state.status == PortalControlBlock::Status::kReady);
-
-  // Atomically update the control block to reflect all the parcels we're about
-  // to send.
-  PortalControlBlock::QueueState queue_state =
-      my_shared_state_.queue_state.Get();
-  queue_state.num_sent_parcels += backend.status_.num_remote_parcels;
-  queue_state.num_sent_bytes += backend.status_.num_remote_bytes;
-  my_shared_state_.queue_state.Set(queue_state);
-
-  for (auto& parcel : backend.outgoing_parcels_.TakeParcels()) {
+  for (auto& parcel : parcels_to_send) {
     router->RouteParcel(peer_address_, parcel);
   }
+
+  return true;
 }
 
 PortalBackend::Type RoutedPortalBackend::GetType() const {
@@ -98,11 +121,22 @@ IpczResult RoutedPortalBackend::Close(
   ABSL_ASSERT(!closed_);
   closed_ = true;
 
-  // This is stored with a release operation to ensure that any prior queue
-  // state updates are visible by the time the kClosed state is visible.
-  my_shared_state_.status.store(PortalControlBlock::Status::kClosed,
-                                std::memory_order_release);
+  {
+    PortalControlBlock::Locked control(control_block_);
+    switch (control.opposite(side_).status) {
+      case PortalControlBlock::Status::kReady:
+        control.side(side_).status = PortalControlBlock::Status::kClosed;
+        break;
+      case PortalControlBlock::Status::kClosed:
+        // Nothing to do if the peer is already closed too.
+        return IPCZ_RESULT_OK;
+      case PortalControlBlock::Status::kMoving:
+        // TODO: switch to a buffering state in this case
+        break;
+    }
+  }
 
+  // TODO: this can be replaced with a coalescable event signal to the peer node
   router->NotifyPeerClosed(peer_address_);
   return IPCZ_RESULT_OK;
 }

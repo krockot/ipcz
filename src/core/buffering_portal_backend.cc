@@ -217,18 +217,38 @@ IpczResult BufferingPortalBackend::AbortGet() {
 }
 
 IpczResult BufferingPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  return traps_.Add(std::move(trap));
 }
 
 IpczResult BufferingPortalBackend::ArmTrap(
     Trap& trap,
     IpczTrapConditionFlags* satisfied_condition_flags,
     IpczPortalStatus* status) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  IpczTrapConditionFlags flags = 0;
+  IpczResult result = trap.Arm(status_, flags);
+  if (result == IPCZ_RESULT_OK) {
+    return IPCZ_RESULT_OK;
+  }
+
+  if (satisfied_condition_flags) {
+    *satisfied_condition_flags = flags;
+  }
+
+  if (status) {
+    size_t out_size = status->size;
+    size_t copy_size = std::min(out_size, sizeof(status_));
+    memcpy(status, &status_, copy_size);
+    status->size = static_cast<uint32_t>(out_size);
+  }
+
+  return result;
 }
 
 IpczResult BufferingPortalBackend::RemoveTrap(Trap& trap) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  return traps_.Remove(trap);
 }
 
 }  // namespace core

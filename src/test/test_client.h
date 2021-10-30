@@ -43,6 +43,10 @@ class TestClient {
   explicit TestClient(const char* entry_point);
   ~TestClient();
 
+  static void SetInClientProcess(bool in_client_process);
+  static bool InClientProcess();
+
+  const os::Process& process() const { return process_; }
   os::Channel& channel() { return channel_; }
 
   // Waits for the child process to terminate and returns its exit code.
@@ -67,11 +71,13 @@ class TestClient {
     IpczTestClient_##name() = default;                                        \
     ~IpczTestClient_##name() = default;                                       \
     static void Run(uint64_t channel_handle);                                 \
+    void TestBody() override {}                                               \
                                                                               \
    private:                                                                   \
     void DoRun(::ipcz::os::Channel channel);                                  \
   };                                                                          \
   void IpczTestClient_##name::Run(uint64_t channel_handle) {                  \
+    ::ipcz::test::TestClient::SetInClientProcess(true);                       \
     IpczTestClient_##name client;                                             \
     client.DoRun(                                                             \
         ::ipcz::test::internal::TestClientSupport::RecoverClientChannel(      \
@@ -82,12 +88,9 @@ class TestClient {
   void IpczTestClient_##name::DoRun(::ipcz::os::Channel channel)
 
 // Like TEST_CLIENT_F() but does not specify a custom fixture for the client.
-#define TEST_CLIENT(name, channel) \
-  TEST_CLIENT_F(::ipcz::test::internal::TestClientBase, name, channel)
+#define TEST_CLIENT(name, channel) TEST_CLIENT_F(::testing::Test, name, channel)
 
 namespace internal {
-
-class TestClientBase {};
 
 class TestClientSupport {
  public:

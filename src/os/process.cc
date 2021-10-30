@@ -109,5 +109,37 @@ void Process::reset() {
 #endif
 }
 
+Process Process::Clone() const {
+  Process clone;
+#if defined(OS_WIN)
+  if (is_current_process_) {
+    clone.is_current_process_ = true;
+  }
+  if (handle_ != INVALID_HANDLE_VALUE) {
+    BOOL result = ::DuplicateHandle(::GetCurrentProcess(), &handle_,
+                                    ::GetCurrentProcess(), &clone.handle_, 0,
+                                    FALSE, DUPLICATE_SAME_ACCESS);
+    if (!result) {
+      return {};
+    }
+  }
+#elif defined(OS_FUCHSIA)
+  if (is_current_process_) {
+    clone.is_current_process_ = true;
+  }
+
+  if (process_.is_valid()) {
+    zx_status_t result =
+        process_.duplicate(ZX_RIGHT_SAME_RIGHTS, &clone.process_);
+    if (result != ZX_OK) {
+      return {};
+    }
+  }
+#elif defined(OS_POSIX)
+  clone.handle_ = handle_;
+#endif
+  return clone;
+}
+
 }  // namespace os
 }  // namespace ipcz

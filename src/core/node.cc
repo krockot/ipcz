@@ -73,8 +73,6 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   PortalControlBlock& control_block =
       PortalControlBlock::Initialize(control_block_mapping.base());
   memset(&control_block, 0, sizeof(control_block));
-  control_block.sides[Side::kLeft].status = PortalControlBlock::Status::kReady;
-  control_block.sides[Side::kRight].status = PortalControlBlock::Status::kReady;
 
   auto backend = std::make_unique<RoutedPortalBackend>(
       our_portal_name, PortalAddress(their_node_name, their_portal_name),
