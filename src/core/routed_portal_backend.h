@@ -28,42 +28,41 @@ namespace ipcz {
 namespace core {
 
 class BufferingPortalBackend;
-class Node;
+class NodeLink;
 
 // PortalBackend implementation for a portal whose peer may live in a different
 // node.
 class RoutedPortalBackend : public PortalBackend {
  public:
   RoutedPortalBackend(const PortalName& name,
-                      const PortalAddress& peer_address,
+                      mem::Ref<NodeLink> link,
+                      const PortalName& remote_portal,
                       Side side,
                       os::Memory::Mapping control_block_mapping);
   ~RoutedPortalBackend() override;
 
-  bool AdoptBufferingBackendState(Node::LockedRouter& router,
-                                  BufferingPortalBackend& backend);
+  bool AdoptBufferingBackendState(BufferingPortalBackend& backend);
+  std::unique_ptr<BufferingPortalBackend> StartBuffering();
 
   // PortalBackend:
   Type GetType() const override;
   bool CanTravelThroughPortal(Portal& sender) override;
+  void PrepareForTravel(PortalInTransit& portal_in_transit) override;
   bool AcceptParcel(Parcel& parcel, TrapEventDispatcher& dispatcher) override;
   bool NotifyPeerClosed(TrapEventDispatcher& dispatcher) override;
   IpczResult Close(
-      Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) override;
   IpczResult QueryStatus(IpczPortalStatus& status) override;
-  IpczResult Put(Node::LockedRouter& router,
-                 absl::Span<const uint8_t> data,
-                 absl::Span<const IpczHandle> portals,
+  IpczResult Put(absl::Span<const uint8_t> data,
+                 absl::Span<PortalInTransit> portals,
                  absl::Span<const IpczOSHandle> os_handles,
                  const IpczPutLimits* limits) override;
   IpczResult BeginPut(IpczBeginPutFlags flags,
                       const IpczPutLimits* limits,
                       uint32_t& num_data_bytes,
                       void** data) override;
-  IpczResult CommitPut(Node::LockedRouter& router,
-                       uint32_t num_data_bytes_produced,
-                       absl::Span<const IpczHandle> portals,
+  IpczResult CommitPut(uint32_t num_data_bytes_produced,
+                       absl::Span<PortalInTransit> portals,
                        absl::Span<const IpczOSHandle> os_handles) override;
   IpczResult AbortPut() override;
   IpczResult Get(void* data,
@@ -90,7 +89,8 @@ class RoutedPortalBackend : public PortalBackend {
 
  private:
   const PortalName name_;
-  const PortalAddress peer_address_;
+  const mem::Ref<NodeLink> link_;
+  const PortalName remote_portal_;
   const Side side_;
   const os::Memory::Mapping control_block_mapping_;
   PortalControlBlock& control_block_{

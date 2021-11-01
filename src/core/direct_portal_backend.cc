@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/buffering_portal_backend.h"
 #include "core/node.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
@@ -81,6 +82,30 @@ DirectPortalBackend::Pair DirectPortalBackend::CreatePair(Portal& portal0,
   return {std::move(backend0), std::move(backend1)};
 }
 
+mem::Ref<Portal> DirectPortalBackend::GetLocalPeer() {
+  absl::MutexLock lock(&state_->mutex);
+  return other_side().portal;
+}
+
+// static
+std::pair<std::unique_ptr<BufferingPortalBackend>,
+          std::unique_ptr<BufferingPortalBackend>>
+DirectPortalBackend::Split(DirectPortalBackend& backend,
+                           DirectPortalBackend* peer_backend) {
+  // They must indeed be peers.
+  ABSL_ASSERT(!peer_backend || peer_backend->state_ == backend.state_);
+
+  // TODO: actually properly configure the buffering backends with lifted state
+  absl::MutexLock lock(&backend.state_->mutex);
+  auto new_backend = std::make_unique<BufferingPortalBackend>(backend.side_);
+  std::unique_ptr<BufferingPortalBackend> new_peer_backend;
+  if (peer_backend) {
+    new_peer_backend =
+        std::make_unique<BufferingPortalBackend>(peer_backend->side_);
+  }
+  return {std::move(new_backend), std::move(new_peer_backend)};
+}
+
 PortalBackend::Type DirectPortalBackend::GetType() const {
   return Type::kDirect;
 }
@@ -88,6 +113,9 @@ PortalBackend::Type DirectPortalBackend::GetType() const {
 bool DirectPortalBackend::CanTravelThroughPortal(Portal& sender) {
   absl::MutexLock lock(&state_->mutex);
   return &sender != other_side().portal;
+}
+
+void DirectPortalBackend::PrepareForTravel(PortalInTransit& portal_in_transit) {
 }
 
 bool DirectPortalBackend::AcceptParcel(Parcel& parcel,
@@ -104,7 +132,6 @@ bool DirectPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
 }
 
 IpczResult DirectPortalBackend::Close(
-    Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&state_->mutex);
   PortalState& state = this_side();
@@ -112,8 +139,9 @@ IpczResult DirectPortalBackend::Close(
   state.num_queued_data_bytes = 0;
 
   for (Parcel& parcel : state.incoming_parcels.TakeParcels()) {
-    for (mem::Ref<Portal>& portal : parcel.TakePortals()) {
-      other_portals_to_close.emplace_back(std::move(portal));
+    for (PortalInTransit& portal : parcel.TakePortals()) {
+      ABSL_ASSERT(portal.portal);
+      other_portals_to_close.emplace_back(std::move(portal.portal));
     }
   }
 
@@ -132,9 +160,8 @@ IpczResult DirectPortalBackend::QueryStatus(IpczPortalStatus& status) {
   return IPCZ_RESULT_OK;
 }
 
-IpczResult DirectPortalBackend::Put(Node::LockedRouter& router,
-                                    absl::Span<const uint8_t> data,
-                                    absl::Span<const IpczHandle> portals,
+IpczResult DirectPortalBackend::Put(absl::Span<const uint8_t> data,
+                                    absl::Span<PortalInTransit> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
   absl::MutexLock lock(&state_->mutex);
@@ -164,13 +191,10 @@ IpczResult DirectPortalBackend::Put(Node::LockedRouter& router,
   // already taken ownership of their backends and their handles must no longer
   // be in use.
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    // Assume ownership of the IpczHandle's implicit ref since the handle is no
-    // longer in use.
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
 
   std::vector<os::Handle> parcel_os_handles;
@@ -237,9 +261,8 @@ IpczResult DirectPortalBackend::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult DirectPortalBackend::CommitPut(
-    Node::LockedRouter& router,
     uint32_t num_data_bytes_produced,
-    absl::Span<const IpczHandle> portals,
+    absl::Span<PortalInTransit> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   absl::MutexLock lock(&state_->mutex);
 
@@ -256,13 +279,10 @@ IpczResult DirectPortalBackend::CommitPut(
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    // Assume ownership of the IpczHandle's implicit ref since the handle is no
-    // longer in use.
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
 
   std::vector<os::Handle> parcel_os_handles;

@@ -61,27 +61,33 @@ class APITest : public testing::Test {
     }
   }
 
-  IpczHandle OpenRemotePortal(TestClient& client) {
-    os::Channel::OSTransportWithHandle transport;
-    os::Channel::ToOSTransport(std::move(client.channel()), transport);
+  IpczHandle OpenRemotePortal(IpczHandle node, TestClient& client) {
+    return OpenRemotePortal(node, client.channel(), client.process());
+  }
 
-    IpczOSProcessHandle process = {sizeof(process)};
-    os::Process::ToIpczOSProcessHandle(client.process().Clone(), process);
+  IpczHandle OpenRemotePortal(IpczHandle node,
+                              os::Channel& channel,
+                              const os::Process& process) {
+    os::Channel::OSTransportWithHandle transport;
+    os::Channel::ToOSTransport(std::move(channel), transport);
+
+    IpczOSProcessHandle ipcz_process = {sizeof(ipcz_process)};
+    os::Process::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
 
     IpczHandle portal;
     EXPECT_EQ(IPCZ_RESULT_OK,
-              ipcz.OpenRemotePortal(node(), &transport, &process, IPCZ_NO_FLAGS,
-                                    nullptr, &portal));
+              ipcz.OpenRemotePortal(node, &transport, &ipcz_process,
+                                    IPCZ_NO_FLAGS, nullptr, &portal));
     return portal;
   }
 
-  IpczHandle AcceptRemotePortal(os::Channel& channel) {
+  IpczHandle AcceptRemotePortal(IpczHandle node, os::Channel& channel) {
     os::Channel::OSTransportWithHandle transport;
     os::Channel::ToOSTransport(std::move(channel), transport);
     IpczHandle portal;
     EXPECT_EQ(IPCZ_RESULT_OK,
-              ipcz.AcceptRemotePortal(node(), &transport, IPCZ_NO_FLAGS,
-                                      nullptr, &portal));
+              ipcz.AcceptRemotePortal(node, &transport, IPCZ_NO_FLAGS, nullptr,
+                                      &portal));
     return portal;
   }
 

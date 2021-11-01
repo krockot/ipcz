@@ -95,6 +95,9 @@ class NodeLink : public mem::RefCounted {
   // is one of relatively few use cases for them.
   void SendParcel(const PortalName& destination, Parcel& parcel);
 
+  // Notifies the remote node that the named portal's peer has been closed.
+  void SendPeerClosed(const PortalName& remote_portal);
+
  private:
   ~NodeLink() override;
 

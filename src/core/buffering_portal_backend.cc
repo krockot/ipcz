@@ -29,6 +29,9 @@ bool BufferingPortalBackend::CanTravelThroughPortal(Portal& sender) {
   return true;
 }
 
+void BufferingPortalBackend::PrepareForTravel(
+    PortalInTransit& portal_in_transit) {}
+
 bool BufferingPortalBackend::AcceptParcel(Parcel& parcel,
                                           TrapEventDispatcher& dispatcher) {
   // TODO: allow receipt of parcels - a portal may transition to buffering while
@@ -44,7 +47,6 @@ bool BufferingPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
 }
 
 IpczResult BufferingPortalBackend::Close(
-    Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&mutex_);
   closed_ = true;
@@ -59,9 +61,8 @@ IpczResult BufferingPortalBackend::QueryStatus(IpczPortalStatus& status) {
 }
 
 IpczResult BufferingPortalBackend::Put(
-    Node::LockedRouter& router,
     absl::Span<const uint8_t> data,
-    absl::Span<const IpczHandle> portals,
+    absl::Span<PortalInTransit> portals,
     absl::Span<const IpczOSHandle> os_handles,
     const IpczPutLimits* limits) {
   absl::MutexLock lock(&mutex_);
@@ -80,11 +81,10 @@ IpczResult BufferingPortalBackend::Put(
     }
   }
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
 
   std::vector<os::Handle> parcel_os_handles;
@@ -138,9 +138,8 @@ IpczResult BufferingPortalBackend::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult BufferingPortalBackend::CommitPut(
-    Node::LockedRouter& router,
     uint32_t num_data_bytes_produced,
-    absl::Span<const IpczHandle> portals,
+    absl::Span<PortalInTransit> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
@@ -152,11 +151,10 @@ IpczResult BufferingPortalBackend::CommitPut(
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
 
   std::vector<os::Handle> parcel_os_handles;

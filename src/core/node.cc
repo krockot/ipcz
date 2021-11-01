@@ -21,11 +21,6 @@
 namespace ipcz {
 namespace core {
 
-Node::LockedRouter::LockedRouter(Node& node)
-    : router_(node), lock_(&node.mutex_) {}
-
-Node::LockedRouter::~LockedRouter() = default;
-
 Node::Node(Type type) : type_(type) {
   if (type_ == Type::kBroker) {
     name_ = NodeName(Name::kRandom);
@@ -74,15 +69,15 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
       PortalControlBlock::Initialize(control_block_mapping.base());
   memset(&control_block, 0, sizeof(control_block));
 
-  auto backend = std::make_unique<RoutedPortalBackend>(
-      our_portal_name, PortalAddress(their_node_name, their_portal_name),
-      Side::kLeft, std::move(control_block_mapping));
-  mem::Ref<Portal> portal =
-      mem::MakeRefCounted<Portal>(*this, std::move(backend));
-
   mem::Ref<NodeLink> link = mem::MakeRefCounted<NodeLink>(
       *this, std::move(channel), std::move(process), Type::kNormal);
   link->SetRemoteNodeName(their_node_name);
+
+  auto backend = std::make_unique<RoutedPortalBackend>(
+      our_portal_name, link, their_portal_name, Side::kLeft,
+      std::move(control_block_mapping));
+  mem::Ref<Portal> portal =
+      mem::MakeRefCounted<Portal>(*this, std::move(backend));
 
   msg::InviteNode invitation;
   invitation.params.protocol_version = msg::kProtocolVersion;
@@ -138,9 +133,7 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
     return false;
   }
 
-  Node::LockedRouter router(*this);
-  mutex_.AssertHeld();
-
+  absl::MutexLock lock(&mutex_);
   if (!portal_waiting_for_invitation_) {
     return true;
   }
@@ -151,14 +144,14 @@ bool Node::AcceptInvitationFromBroker(const PortalAddress& my_address,
 
   name_ = my_address.node();
   node_links_[broker_portal.node()] = broker_link_;
+  broker_link_->SetRemoteNodeName(broker_portal.node());
 
   if (!portal_waiting_for_invitation_->StartRouting(
-          router, my_address.portal(), broker_portal,
+          my_address.portal(), broker_link_, broker_portal.portal(),
           control_block_memory.Map())) {
     return false;
   }
 
-  broker_link_->AddRoutedPortal(my_address.portal());
   routed_portals_[my_address.portal()] =
       std::move(portal_waiting_for_invitation_);
   return true;
@@ -187,33 +180,6 @@ bool Node::OnPeerClosed(const PortalName& portal,
   }
 
   return it->second->NotifyPeerClosed(dispatcher);
-}
-
-bool Node::RouteParcel(const PortalAddress& destination, Parcel& parcel) {
-  mutex_.AssertHeld();
-
-  auto it = node_links_.find(destination.node());
-  if (it == node_links_.end()) {
-    // We no longer have a link to the destination node. Treat the remote portal
-    // as closed by returning failure.
-    return false;
-  }
-
-  it->second->SendParcel(destination.portal(), parcel);
-  return true;
-}
-
-bool Node::NotifyPeerClosed(const PortalAddress& destination) {
-  mutex_.AssertHeld();
-  auto it = node_links_.find(destination.node());
-  if (it == node_links_.end()) {
-    return false;
-  }
-
-  msg::PeerClosed m;
-  m.params.local_portal = destination.portal();
-  it->second->Send(m);
-  return true;
 }
 
 }  // namespace core

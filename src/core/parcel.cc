@@ -25,7 +25,7 @@ void Parcel::SetData(std::vector<uint8_t> data) {
   data_view_ = absl::MakeSpan(data_);
 }
 
-void Parcel::SetPortals(std::vector<mem::Ref<Portal>> portals) {
+void Parcel::SetPortals(std::vector<PortalInTransit> portals) {
   portals_ = std::move(portals);
 }
 
@@ -53,7 +53,8 @@ void Parcel::ConsumePartial(size_t num_bytes_consumed,
 void Parcel::ConsumePortalsAndHandles(IpczHandle* portals,
                                       IpczOSHandle* os_handles) {
   for (size_t i = 0; i < portals_.size(); ++i) {
-    portals[i] = ToHandle(portals_[i].release());
+    // TODO: need to deserialize more details from the PortalInTransit state
+    portals[i] = ToHandle(portals_[i].portal.release());
   }
   for (size_t i = 0; i < os_handles_.size(); ++i) {
     os::Handle::ToIpczOSHandle(std::move(os_handles_[i]), &os_handles[i]);
@@ -62,7 +63,7 @@ void Parcel::ConsumePortalsAndHandles(IpczHandle* portals,
   os_handles_.clear();
 }
 
-std::vector<mem::Ref<Portal>> Parcel::TakePortals() {
+std::vector<PortalInTransit> Parcel::TakePortals() {
   return std::move(portals_);
 }
 

@@ -23,23 +23,8 @@ TEST_F(RemotePortalTest, BasicConnection) {
   os::Channel local, remote;
   std::tie(local, remote) = os::Channel::CreateChannelPair();
 
-  os::Channel::OSTransportWithHandle local_transport;
-  os::Channel::ToOSTransport(std::move(local), local_transport);
-
-  IpczOSProcessHandle process = {sizeof(process)};
-  os::Process::ToIpczOSProcessHandle(os::Process::GetCurrent(), process);
-
-  IpczHandle a, b;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenRemotePortal(node(), &local_transport, &process,
-                                  IPCZ_NO_FLAGS, nullptr, &a));
-
-  os::Channel::OSTransportWithHandle remote_transport;
-  os::Channel::ToOSTransport(std::move(remote), remote_transport);
-
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.AcceptRemotePortal(other_node, &remote_transport,
-                                    IPCZ_NO_FLAGS, nullptr, &b));
+  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
+  IpczHandle b = AcceptRemotePortal(other_node, remote);
 
   const std::string kMessageFromA = "hello!";
   const std::string kMessageFromB = "hey hey";
@@ -68,27 +53,11 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
 
   os::Channel local, remote;
   std::tie(local, remote) = os::Channel::CreateChannelPair();
-
-  os::Channel::OSTransportWithHandle local_transport;
-  os::Channel::ToOSTransport(std::move(local), local_transport);
-
-  IpczOSProcessHandle process = {sizeof(process)};
-  os::Process::ToIpczOSProcessHandle(os::Process::GetCurrent(), process);
-
-  IpczHandle a, b;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenRemotePortal(node(), &local_transport, &process,
-                                  IPCZ_NO_FLAGS, nullptr, &a));
+  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
+  IpczHandle b = AcceptRemotePortal(other_node, remote);
 
   IpczHandle c, d;
   OpenPortals(&c, &d);
-
-  os::Channel::OSTransportWithHandle remote_transport;
-  os::Channel::ToOSTransport(std::move(remote), remote_transport);
-
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.AcceptRemotePortal(other_node, &remote_transport,
-                                    IPCZ_NO_FLAGS, nullptr, &b));
 
   const std::string kMessageFromA = "hello!";
   const std::string kMessageFromB = "hey hey";
@@ -124,7 +93,7 @@ const std::string kMultiprocessMessageFromB = "hey hey";
 
 TEST_F(RemotePortalTest, BasicMultiprocess) {
   test::TestClient client("BasicMultiprocessClient");
-  IpczHandle a = OpenRemotePortal(client);
+  IpczHandle a = OpenRemotePortal(node(), client.channel(), client.process());
 
   Put(a, kMultiprocessMessageFromA, {}, {});
 
@@ -136,7 +105,7 @@ TEST_F(RemotePortalTest, BasicMultiprocess) {
 }
 
 TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
-  IpczHandle b = AcceptRemotePortal(c);
+  IpczHandle b = AcceptRemotePortal(node(), c);
   Put(b, kMultiprocessMessageFromB, {}, {});
 
   Parcel p;

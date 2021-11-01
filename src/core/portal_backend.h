@@ -19,7 +19,7 @@ namespace core {
 
 class Parcel;
 class Portal;
-class Router;
+struct PortalInTransit;
 class Trap;
 class TrapEventDispatcher;
 
@@ -37,25 +37,23 @@ class PortalBackend {
 
   virtual Type GetType() const = 0;
   virtual bool CanTravelThroughPortal(Portal& sender) = 0;
+  virtual void PrepareForTravel(PortalInTransit& portal_in_transit) = 0;
   virtual bool AcceptParcel(Parcel& parcel,
                             TrapEventDispatcher& dispatcher) = 0;
   virtual bool NotifyPeerClosed(TrapEventDispatcher& dispatcher) = 0;
   virtual IpczResult Close(
-      Node::LockedRouter& router,
       std::vector<mem::Ref<Portal>>& other_portals_to_close) = 0;
   virtual IpczResult QueryStatus(IpczPortalStatus& status) = 0;
-  virtual IpczResult Put(Node::LockedRouter& router,
-                         absl::Span<const uint8_t> data,
-                         absl::Span<const IpczHandle> portals,
+  virtual IpczResult Put(absl::Span<const uint8_t> data,
+                         absl::Span<PortalInTransit> portals,
                          absl::Span<const IpczOSHandle> os_handles,
                          const IpczPutLimits* limits) = 0;
   virtual IpczResult BeginPut(IpczBeginPutFlags flags,
                               const IpczPutLimits* limits,
                               uint32_t& num_data_bytes,
                               void** data) = 0;
-  virtual IpczResult CommitPut(Node::LockedRouter& router,
-                               uint32_t num_data_bytes_produced,
-                               absl::Span<const IpczHandle> portals,
+  virtual IpczResult CommitPut(uint32_t num_data_bytes_produced,
+                               absl::Span<PortalInTransit> portals,
                                absl::Span<const IpczOSHandle> os_handles) = 0;
   virtual IpczResult AbortPut() = 0;
   virtual IpczResult Get(void* data,

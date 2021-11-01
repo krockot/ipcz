@@ -20,10 +20,12 @@ namespace core {
 
 namespace {
 
-// Serialized representation of a Portal sent in a parcel.
-struct SerializedPortal {
+// Serialized representation of a Portal sent in a parcel. Implicitly the portal
+// in question is moving from the sending node to the receiving node.
+struct IPCZ_ALIGN(16) SerializedPortal {
   internal::StructHeader header;
-  // TODO
+  PortalName moved_from;
+  PortalName moved_to;
 };
 
 }  // namespace
@@ -120,7 +122,7 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
   auto* data = reinterpret_cast<uint8_t*>(sizes + 3);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
-  // TODO: serialize portals for real
+
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
     portals[i].header.size = sizeof(internal::StructHeader);
     portals[i].header.version = 0;
@@ -143,6 +145,12 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
   }
 
   Send(absl::MakeSpan(serialized_data), parcel.os_handles_view());
+}
+
+void NodeLink::SendPeerClosed(const PortalName& remote_portal) {
+  msg::PeerClosed m;
+  m.params.portal = remote_portal;
+  Send(m);
 }
 
 bool NodeLink::OnMessage(os::Channel::Message message) {
@@ -245,7 +253,7 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
 
 bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
   TrapEventDispatcher dispatcher;
-  return node_->OnPeerClosed(m.params.local_portal, dispatcher);
+  return node_->OnPeerClosed(m.params.portal, dispatcher);
 }
 
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {

@@ -6,40 +6,26 @@
 #define IPCZ_SRC_CORE_NODE_H_
 
 #include "core/name.h"
-#include "core/router.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
 namespace core {
 
 class NodeLink;
+class Parcel;
 class Portal;
 class TrapEventDispatcher;
 
 // Node encompasses the state of an isolated ipcz node.
-class Node : public mem::RefCounted, private Router {
+class Node : public mem::RefCounted {
  public:
-  // Scoped accessor to the Node's internal Router, ensuring the Router's mutex
-  // is held during access.
-  class LockedRouter {
-   public:
-    explicit LockedRouter(Node& node);
-    ~LockedRouter();
-
-    Router* operator->() const { return &router_; }
-    Router& operator*() const { return router_; }
-
-   private:
-    Router& router_;
-    absl::MutexLock lock_;
-  };
-
   enum class Type {
     kNormal,
     kBroker,
@@ -71,13 +57,7 @@ class Node : public mem::RefCounted, private Router {
   bool OnPeerClosed(const PortalName& portal, TrapEventDispatcher& dispatcher);
 
  private:
-  friend class LockedRouter;
-
   ~Node() override;
-
-  // Router:
-  bool RouteParcel(const PortalAddress& destination, Parcel& parcel) override;
-  bool NotifyPeerClosed(const PortalAddress& destination) override;
 
   const Type type_;
 

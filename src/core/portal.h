@@ -15,14 +15,57 @@
 #include "mem/ref_counted.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
 
+class NodeLink;
 class Parcel;
 class PortalBackend;
 class TrapEventDispatcher;
+
+class Portal;
+
+// Helper for acquiring a Portal reference with the Portals' internal lock held,
+// along with a reference to its local peer Portal if applicable, also with its
+// internal lock held. This is useful when preparing a local portal for travel
+// through a buffering or routed portal, since local portal pairs need to be
+// split atomically in such cases.
+class LockedPortal {
+ public:
+  explicit LockedPortal(Portal& portal);
+  ~LockedPortal();
+
+  Portal& portal() { return *portal_; }
+  Portal* peer() { return peer_.get(); }
+
+ private:
+  const mem::Ref<Portal> portal_;
+  mem::Ref<Portal> peer_;
+};
+
+// Shared memory state passed to wherever a portal is moving, used to
+// synchronize information between the original portal location and its new
+// location.
+struct PortalInTransitState {
+  // TODO: fill this in with stuff
+  uint32_t unused = 0;
+};
+
+struct PortalInTransit {
+  PortalInTransit();
+  PortalInTransit(PortalInTransit&&);
+  PortalInTransit& operator=(PortalInTransit&&);
+  ~PortalInTransit();
+
+  std::unique_ptr<PortalBackend> backend_before_transit;
+  absl::optional<PortalName> local_routed_name;
+  mem::Ref<Portal> portal;
+  os::Memory in_transit_state_memory;
+  os::Memory::Mapping in_transit_state_mapping;
+};
 
 class Portal : public mem::RefCounted {
  public:
@@ -41,12 +84,10 @@ class Portal : public mem::RefCounted {
   std::unique_ptr<PortalBackend> TakeBackend();
   void SetBackend(std::unique_ptr<PortalBackend> backend);
 
-  bool CanTravelThroughPortal(Portal& sender);
-
   // Transitions from buffering to routing.
-  bool StartRouting(Node::LockedRouter& router,
-                    const PortalName& my_name,
-                    const PortalAddress& peer_address,
+  bool StartRouting(const PortalName& my_name,
+                    mem::Ref<NodeLink> link,
+                    const PortalName& remote_portal,
                     os::Memory::Mapping control_block_mapping);
 
   // Accepts a parcel from an external source, e.g. as routed from another node.
@@ -97,10 +138,22 @@ class Portal : public mem::RefCounted {
   IpczResult DestroyTrap(IpczHandle trap);
 
  private:
+  friend class LockedPortal;
+
   Portal(Node& node,
          std::unique_ptr<PortalBackend> backend,
          bool transferrable);
   ~Portal() override;
+
+  bool ValidatePortalsForTravelFromHere(
+      absl::Span<PortalInTransit> portals_in_transit);
+  static void PreparePortalsForTravel(
+      absl::Span<PortalInTransit> portals_in_transit);
+  static void RestorePortalsFromCancelledTravel(
+      absl::Span<PortalInTransit> portals_in_transit);
+
+  void PrepareForTravel(PortalInTransit& portal_in_transit);
+  void RestoreFromCancelledTravel(PortalInTransit& portal_in_transit);
 
   const mem::Ref<Node> node_;
   const bool transferrable_;

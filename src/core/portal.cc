@@ -11,6 +11,7 @@
 #include "core/direct_portal_backend.h"
 #include "core/name.h"
 #include "core/node.h"
+#include "core/parcel.h"
 #include "core/portal_backend.h"
 #include "core/portal_control_block.h"
 #include "core/routed_portal_backend.h"
@@ -27,17 +28,91 @@ namespace core {
 
 namespace {
 
-bool ValidatePortalsForTravel(Portal& sender,
-                              absl::Span<const IpczHandle> handles) {
-  for (IpczHandle handle : handles) {
-    if (!ToRef<Portal>(handle).CanTravelThroughPortal(sender)) {
-      return false;
-    }
+absl::InlinedVector<PortalInTransit, 4> AcquirePortalsForTravel(
+    absl::Span<const IpczHandle> handles) {
+  absl::InlinedVector<PortalInTransit, 4> portals(handles.size());
+  for (size_t i = 0; i < handles.size(); ++i) {
+    portals[i].portal = {mem::RefCounted::kAdoptExistingRef,
+                         ToPtr<Portal>(handles[i])};
   }
-  return true;
+  return portals;
+}
+
+void ReleasePortalsFromCancelledTravel(absl::Span<PortalInTransit> portals) {
+  for (PortalInTransit& portal : portals) {
+    // Release ref ownership implicitly back to the IpczHandle which the
+    // application still controls.
+    (void)portal.portal.release();
+  }
 }
 
 }  // namespace
+
+LockedPortal::LockedPortal(Portal& portal) : portal_(&portal) {
+  portal.mutex_.Lock();
+  if (portal.backend_->GetType() != PortalBackend::Type::kDirect) {
+    // Definitely no local peer, so we're done locking what we need.
+    return;
+  }
+
+  auto* backend = static_cast<DirectPortalBackend*>(portal.backend_.get());
+  mem::Ref<Portal> original_peer = backend->GetLocalPeer();
+  if (!original_peer) {
+    // There is no peer. Must have been closed.
+    return;
+  }
+
+  if (original_peer.get() < &portal) {
+    // We need to unlock `portal` first, then re-lock after acquiring `peer`.
+    // Consistently ordering mutliple portal lock acquisitions (in this case,
+    // ordered by increasing Portal memory address) avoids lock-order inversion.
+    portal.mutex_.Unlock();
+    original_peer->mutex_.Lock();
+    portal.mutex_.Lock();
+  } else {
+    original_peer->mutex_.Lock();
+  }
+
+  // Now both portals are locked in the correct order. Since we may have had
+  // to unlock temporarily, state may have changed. First verify that we are
+  // still a local pair and we still have a peer.
+  if (portal.backend_->GetType() != PortalBackend::Type::kDirect) {
+    // We're no longer a local pair, so nothing else to do.
+    original_peer->mutex_.Unlock();
+    return;
+  }
+  backend = static_cast<DirectPortalBackend*>(portal.backend_.get());
+  mem::Ref<Portal> current_peer = backend->GetLocalPeer();
+  if (!current_peer) {
+    // Peer was closed since we started this process. Let it go.
+    original_peer->mutex_.Unlock();
+    return;
+  }
+
+  // Local portal pairs do not ever change their peer while keeping the same
+  // backend. If the peer changed, either it was closed and became null, or the
+  // portal already switched to a different backend type and we wouldn't end up
+  // here.
+  ABSL_ASSERT(current_peer == original_peer);
+  peer_ = std::move(current_peer);
+}
+
+LockedPortal::~LockedPortal() {
+  if (peer_) {
+    peer_->mutex_.AssertHeld();
+    peer_->mutex_.Unlock();
+  }
+  portal_->mutex_.AssertHeld();
+  portal_->mutex_.Unlock();
+}
+
+PortalInTransit::PortalInTransit() = default;
+
+PortalInTransit::PortalInTransit(PortalInTransit&&) = default;
+
+PortalInTransit& PortalInTransit::operator=(PortalInTransit&&) = default;
+
+PortalInTransit::~PortalInTransit() = default;
 
 Portal::Portal(Node& node) : Portal(node, nullptr, /*transferrable=*/true) {}
 
@@ -80,18 +155,9 @@ void Portal::SetBackend(std::unique_ptr<PortalBackend> backend) {
   backend_ = std::move(backend);
 }
 
-bool Portal::CanTravelThroughPortal(Portal& sender) {
-  if (!transferrable_) {
-    return false;
-  }
-
-  absl::MutexLock lock(&mutex_);
-  return &sender != this && backend_->CanTravelThroughPortal(sender);
-}
-
-bool Portal::StartRouting(Node::LockedRouter& router,
-                          const PortalName& my_name,
-                          const PortalAddress& peer_address,
+bool Portal::StartRouting(const PortalName& my_name,
+                          mem::Ref<NodeLink> link,
+                          const PortalName& remote_portal,
                           os::Memory::Mapping control_block_mapping) {
   absl::MutexLock lock(&mutex_);
   if (!backend_ || backend_->GetType() != PortalBackend::Type::kBuffering) {
@@ -100,13 +166,14 @@ bool Portal::StartRouting(Node::LockedRouter& router,
 
   auto& backend = reinterpret_cast<BufferingPortalBackend&>(*backend_);
   auto new_backend = std::make_unique<RoutedPortalBackend>(
-      my_name, peer_address, backend.side(), std::move(control_block_mapping));
+      my_name, link, remote_portal, backend.side(),
+      std::move(control_block_mapping));
 
   // If adoption fails, the peer has already moved and we stay in a buffering
   // state.
   //
   // TODO: use the broker to settle portal locations in cases like this.
-  if (new_backend->AdoptBufferingBackendState(router, backend)) {
+  if (new_backend->AdoptBufferingBackendState(backend)) {
     backend_ = std::move(new_backend);
   }
   return true;
@@ -125,9 +192,8 @@ bool Portal::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
 IpczResult Portal::Close() {
   std::vector<mem::Ref<Portal>> other_portals_to_close;
   {
-    Node::LockedRouter router(*node_);
     absl::MutexLock lock(&mutex_);
-    IpczResult result = backend_->Close(router, other_portals_to_close);
+    IpczResult result = backend_->Close(other_portals_to_close);
     if (result != IPCZ_RESULT_OK) {
       return result;
     }
@@ -148,15 +214,38 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> portals,
                        absl::Span<const IpczOSHandle> os_handles,
                        const IpczPutLimits* limits) {
-  if (!ValidatePortalsForTravel(*this, portals)) {
-    // At least one of the portals given was either `this` or its peer, which is
-    // not allowed.
+  auto portals_in_transit = AcquirePortalsForTravel(portals);
+  auto portals_view = absl::MakeSpan(portals_in_transit);
+
+  if (!ValidatePortalsForTravelFromHere(portals_view)) {
+    ReleasePortalsFromCancelledTravel(portals_view);
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Node::LockedRouter router(*node_);
-  absl::MutexLock lock(&mutex_);
-  return backend_->Put(router, data, portals, os_handles, limits);
+  IpczResult result;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (backend_->GetType() == PortalBackend::Type::kDirect) {
+      // Fast path: direct portals don't need to do any preparation for the
+      // portals they transfer.
+      result = backend_->Put(data, portals_view, os_handles, limits);
+      if (result != IPCZ_RESULT_OK) {
+        ReleasePortalsFromCancelledTravel(portals_view);
+      }
+      return result;
+    }
+  }
+
+  PreparePortalsForTravel(portals_view);
+  {
+    absl::MutexLock lock(&mutex_);
+    result = backend_->Put(data, portals_view, os_handles, limits);
+    if (result == IPCZ_RESULT_OK) {
+      return IPCZ_RESULT_OK;
+    }
+  }
+  RestorePortalsFromCancelledTravel(portals_view);
+  return result;
 }
 
 IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
@@ -170,16 +259,40 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
                              absl::Span<const IpczHandle> portals,
                              absl::Span<const IpczOSHandle> os_handles) {
-  if (!ValidatePortalsForTravel(*this, portals)) {
-    // At least one of the portals given was either `this` or its peer, which is
-    // not allowed.
+  auto portals_in_transit = AcquirePortalsForTravel(portals);
+  auto portals_view = absl::MakeSpan(portals_in_transit);
+
+  if (!ValidatePortalsForTravelFromHere(portals_view)) {
+    ReleasePortalsFromCancelledTravel(portals_view);
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Node::LockedRouter router(*node_);
-  absl::MutexLock lock(&mutex_);
-  return backend_->CommitPut(router, num_data_bytes_produced, portals,
-                             os_handles);
+  IpczResult result;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (backend_->GetType() == PortalBackend::Type::kDirect) {
+      // Fast path: direct portals don't need to do any preparation for the
+      // portals they transfer.
+      result = backend_->CommitPut(num_data_bytes_produced, portals_view,
+                                   os_handles);
+      if (result != IPCZ_RESULT_OK) {
+        ReleasePortalsFromCancelledTravel(portals_view);
+      }
+      return result;
+    }
+  }
+
+  PreparePortalsForTravel(portals_view);
+  {
+    absl::MutexLock lock(&mutex_);
+    result =
+        backend_->CommitPut(num_data_bytes_produced, portals_view, os_handles);
+    if (result == IPCZ_RESULT_OK) {
+      return IPCZ_RESULT_OK;
+    }
+  }
+  RestorePortalsFromCancelledTravel(portals_view);
+  return result;
 }
 
 IpczResult Portal::AbortPut() {
@@ -244,6 +357,99 @@ IpczResult Portal::DestroyTrap(IpczHandle trap) {
   absl::MutexLock lock(&mutex_);
   return backend_->RemoveTrap(ToRef<Trap>(trap));
 }
+
+bool Portal::ValidatePortalsForTravelFromHere(
+    absl::Span<PortalInTransit> portals_in_transit) {
+  for (PortalInTransit& portal_in_transit : portals_in_transit) {
+    Portal& portal = *portal_in_transit.portal;
+    if (!portal.transferrable_ || &portal == this) {
+      return false;
+    }
+
+    absl::MutexLock lock(&portal.mutex_);
+    if (!portal.backend_->CanTravelThroughPortal(*this)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// static
+void Portal::PreparePortalsForTravel(
+    absl::Span<PortalInTransit> portals_in_transit) {
+  for (PortalInTransit& portal : portals_in_transit) {
+    ABSL_ASSERT(portal.portal);
+    portal.portal->PrepareForTravel(portal);
+  }
+}
+
+// static
+void Portal::RestorePortalsFromCancelledTravel(
+    absl::Span<PortalInTransit> portals_in_transit) {
+  for (PortalInTransit& portal : portals_in_transit) {
+    if (portal.portal) {
+      portal.portal->RestoreFromCancelledTravel(portal);
+
+      // Release the ref implicitly back to the IpczHandle, which the caller
+      // retains after a failed Put()/CommitPut().
+      (void)portal.portal.release();
+    }
+  }
+}
+
+void Portal::PrepareForTravel(PortalInTransit& portal_in_transit) {
+  LockedPortal locked(*this);
+  mutex_.AssertHeld();
+  if (backend_->GetType() == PortalBackend::Type::kBuffering) {
+    // Already buffering, so there's nothing else to prepare.
+    backend_->PrepareForTravel(portal_in_transit);
+    return;
+  }
+
+  if (backend_->GetType() == PortalBackend::Type::kDirect) {
+    // We are part of a local portal pair that now must be split across two
+    // buffering backends, at least one of which will imminently be moved to
+    // another node.
+    //
+    // Note that the peer may have already been closed, so it may be null here.
+    // We still move the portal in that case since it may have unread parcels
+    // to be made available at its new location.
+
+    Portal* peer = locked.peer();
+    PortalBackend* peer_backend = nullptr;
+    if (peer) {
+      peer->mutex_.AssertHeld();
+      peer_backend = peer->backend_.get();
+      ABSL_ASSERT(peer_backend->GetType() == PortalBackend::Type::kDirect);
+    }
+
+    ABSL_ASSERT(peer_backend->GetType() == PortalBackend::Type::kDirect);
+
+    std::unique_ptr<BufferingPortalBackend> new_backend;
+    std::unique_ptr<BufferingPortalBackend> new_peer_backend;
+    std::tie(new_backend, new_peer_backend) = DirectPortalBackend::Split(
+        static_cast<DirectPortalBackend&>(*backend_),
+        static_cast<DirectPortalBackend*>(peer_backend));
+    backend_ = std::move(new_backend);
+    if (peer) {
+      peer->mutex_.AssertHeld();
+      ABSL_ASSERT(new_peer_backend);
+      peer->backend_ = std::move(new_peer_backend);
+    }
+    backend_->PrepareForTravel(portal_in_transit);
+    return;
+  }
+
+  // We're currently routed, but about to move. Switch to a buffering state
+  // where we may still collect latent inbound parcels for forwarding.
+  ABSL_ASSERT(backend_->GetType() == PortalBackend::Type::kRouted);
+  auto* routed_backend = static_cast<RoutedPortalBackend*>(backend_.get());
+  backend_ = routed_backend->StartBuffering();
+  backend_->PrepareForTravel(portal_in_transit);
+}
+
+void Portal::RestoreFromCancelledTravel(PortalInTransit& portal_in_transit) {}
 
 }  // namespace core
 }  // namespace ipcz

@@ -29,14 +29,14 @@ class Parcel {
   ~Parcel();
 
   void SetData(std::vector<uint8_t> data);
-  void SetPortals(std::vector<mem::Ref<Portal>> portals);
+  void SetPortals(std::vector<PortalInTransit> portals);
   void SetOSHandles(std::vector<os::Handle> os_handles);
 
   void ResizeData(size_t size);
 
   const absl::Span<uint8_t>& data_view() const { return data_view_; }
 
-  absl::Span<mem::Ref<Portal>> portals_view() {
+  absl::Span<PortalInTransit> portals_view() {
     return absl::MakeSpan(portals_);
   }
 
@@ -49,13 +49,13 @@ class Parcel {
                       IpczHandle* portals,
                       IpczOSHandle* os_handles);
 
-  std::vector<mem::Ref<Portal>> TakePortals();
+  std::vector<PortalInTransit> TakePortals();
 
  private:
   void ConsumePortalsAndHandles(IpczHandle* portals, IpczOSHandle* os_handles);
 
   std::vector<uint8_t> data_;
-  std::vector<mem::Ref<Portal>> portals_;
+  std::vector<PortalInTransit> portals_;
   std::vector<os::Handle> os_handles_;
 
   // A subspan of `data_` tracking the unconsumed bytes in a Parcel which has

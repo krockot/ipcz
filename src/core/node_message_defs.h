@@ -20,5 +20,5 @@ IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 IPCZ_MSG_NO_REPLY(PeerClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(PortalName, local_portal)
+  IPCZ_MSG_PARAM(PortalName, portal)
 IPCZ_MSG_END()

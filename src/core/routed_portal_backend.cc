@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "core/buffering_portal_backend.h"
-#include "core/node.h"
+#include "core/node_link.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_control_block.h"
@@ -22,11 +22,13 @@ namespace core {
 
 RoutedPortalBackend::RoutedPortalBackend(
     const PortalName& name,
-    const PortalAddress& peer_address,
+    mem::Ref<NodeLink> link,
+    const PortalName& remote_portal,
     Side side,
     os::Memory::Mapping control_block_mapping)
     : name_(name),
-      peer_address_(peer_address),
+      link_(std::move(link)),
+      remote_portal_(remote_portal),
       side_(side),
       control_block_mapping_(std::move(control_block_mapping)) {
   memset(&status_, 0, sizeof(status_));
@@ -36,52 +38,51 @@ RoutedPortalBackend::RoutedPortalBackend(
 RoutedPortalBackend::~RoutedPortalBackend() = default;
 
 bool RoutedPortalBackend::AdoptBufferingBackendState(
-    Node::LockedRouter& router,
     BufferingPortalBackend& backend) {
-  std::forward_list<Parcel> parcels_to_send;
+  absl::MutexLock our_lock(&mutex_);
+  absl::MutexLock their_lock(&backend.mutex_);
   {
-    absl::MutexLock our_lock(&mutex_);
-    absl::MutexLock their_lock(&backend.mutex_);
-    {
-      PortalControlBlock::Locked control(control_block_);
-      switch (control.opposite(side_).status) {
-        case PortalControlBlock::Status::kReady:
-          // Ensure that a ready peer's node will retain necessary state long
-          // enough to forward the parcels we're about to flush to it, even if
-          // the destination portal moves before those parcels arrive.
-          control.side(side_).queue_state.num_sent_parcels +=
-              backend.status_.num_remote_parcels;
-          control.side(side_).queue_state.num_sent_bytes +=
-              backend.status_.num_remote_bytes;
-          break;
+    PortalControlBlock::Locked control(control_block_);
+    switch (control.opposite(side_).status) {
+      case PortalControlBlock::Status::kReady:
+        // Ensure that a ready peer's node will retain necessary state long
+        // enough to forward the parcels we're about to flush to it, even if
+        // the destination portal moves before those parcels arrive.
+        control.side(side_).queue_state.num_sent_parcels +=
+            backend.status_.num_remote_parcels;
+        control.side(side_).queue_state.num_sent_bytes +=
+            backend.status_.num_remote_bytes;
+        break;
 
-        case PortalControlBlock::Status::kClosed:
-          // Don't bother forwarding anything, the peer is closed. The only
-          // relevant state to adopt is whether we were also already closed. If
-          // the peer has messages in flight to us, we can still receive them if
-          // we remain open.
-          closed_ = backend.closed_;
-          status_.num_remote_bytes = 0;
-          status_.num_remote_parcels = 0;
-          return true;
+      case PortalControlBlock::Status::kClosed:
+        // Don't bother forwarding anything, the peer is closed. The only
+        // relevant state to adopt is whether we were also already closed. If
+        // the peer has messages in flight to us, we can still receive them if
+        // we remain open.
+        closed_ = backend.closed_;
+        status_.num_remote_bytes = 0;
+        status_.num_remote_parcels = 0;
+        return true;
 
-        case PortalControlBlock::Status::kMoving:
-          // Cancel adoption to leave this portal in a buffering state.
-          return false;
-      }
+      case PortalControlBlock::Status::kMoving:
+        // Cancel adoption to leave this portal in a buffering state.
+        return false;
     }
-
-    closed_ = backend.closed_;
-    pending_parcel_ = std::move(backend.pending_parcel_);
-    traps_ = std::move(backend.traps_);
-    parcels_to_send = backend.outgoing_parcels_.TakeParcels();
   }
 
-  for (auto& parcel : parcels_to_send) {
-    router->RouteParcel(peer_address_, parcel);
+  closed_ = backend.closed_;
+  pending_parcel_ = std::move(backend.pending_parcel_);
+  traps_ = std::move(backend.traps_);
+  for (Parcel& parcel : backend.outgoing_parcels_.TakeParcels()) {
+    link_->SendParcel(remote_portal_, parcel);
   }
-
   return true;
+}
+
+std::unique_ptr<BufferingPortalBackend> RoutedPortalBackend::StartBuffering() {
+  auto new_backend = std::make_unique<BufferingPortalBackend>(side_);
+  // TODO
+  return new_backend;
 }
 
 PortalBackend::Type RoutedPortalBackend::GetType() const {
@@ -89,8 +90,10 @@ PortalBackend::Type RoutedPortalBackend::GetType() const {
 }
 
 bool RoutedPortalBackend::CanTravelThroughPortal(Portal& sender) {
-  // TODO
-  return false;
+  return true;
+}
+
+void RoutedPortalBackend::PrepareForTravel(PortalInTransit& portal_in_transit) {
 }
 
 bool RoutedPortalBackend::AcceptParcel(Parcel& parcel,
@@ -115,7 +118,6 @@ bool RoutedPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
 }
 
 IpczResult RoutedPortalBackend::Close(
-    Node::LockedRouter& router,
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
@@ -137,7 +139,8 @@ IpczResult RoutedPortalBackend::Close(
   }
 
   // TODO: this can be replaced with a coalescable event signal to the peer node
-  router->NotifyPeerClosed(peer_address_);
+  // since we've updated the control block to reflect our closed state.
+  link_->SendPeerClosed(remote_portal_);
   return IPCZ_RESULT_OK;
 }
 
@@ -148,9 +151,8 @@ IpczResult RoutedPortalBackend::QueryStatus(IpczPortalStatus& status) {
   return IPCZ_RESULT_OK;
 }
 
-IpczResult RoutedPortalBackend::Put(Node::LockedRouter& router,
-                                    absl::Span<const uint8_t> data,
-                                    absl::Span<const IpczHandle> portals,
+IpczResult RoutedPortalBackend::Put(absl::Span<const uint8_t> data,
+                                    absl::Span<PortalInTransit> portals,
                                     absl::Span<const IpczOSHandle> os_handles,
                                     const IpczPutLimits* limits) {
   absl::MutexLock lock(&mutex_);
@@ -169,11 +171,10 @@ IpczResult RoutedPortalBackend::Put(Node::LockedRouter& router,
     }
   }
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
 
   std::vector<os::Handle> parcel_os_handles;
@@ -186,8 +187,7 @@ IpczResult RoutedPortalBackend::Put(Node::LockedRouter& router,
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
-  router->RouteParcel(peer_address_, parcel);
-  // outgoing_parcels_.push(std::move(parcel));
+  link_->SendParcel(remote_portal_, parcel);
   return IPCZ_RESULT_OK;
 }
 
@@ -226,9 +226,8 @@ IpczResult RoutedPortalBackend::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult RoutedPortalBackend::CommitPut(
-    Node::LockedRouter& router,
     uint32_t num_data_bytes_produced,
-    absl::Span<const IpczHandle> portals,
+    absl::Span<PortalInTransit> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(!closed_);
@@ -240,11 +239,10 @@ IpczResult RoutedPortalBackend::CommitPut(
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  std::vector<mem::Ref<Portal>> parcel_portals;
+  std::vector<PortalInTransit> parcel_portals;
   parcel_portals.reserve(portals.size());
-  for (IpczHandle portal : portals) {
-    parcel_portals.emplace_back(mem::RefCounted::kAdoptExistingRef,
-                                ToPtr<Portal>(portal));
+  for (PortalInTransit& portal : portals) {
+    parcel_portals.push_back(std::move(portal));
   }
   std::vector<os::Handle> parcel_os_handles;
   parcel_os_handles.reserve(os_handles.size());
