@@ -50,8 +50,7 @@ class LockedPortal {
 // synchronize information between the original portal location and its new
 // location.
 struct PortalInTransitState {
-  // TODO: fill this in with stuff
-  uint32_t unused = 0;
+  PortalName new_name;
 };
 
 struct PortalInTransit {
@@ -60,9 +59,26 @@ struct PortalInTransit {
   PortalInTransit& operator=(PortalInTransit&&);
   ~PortalInTransit();
 
-  std::unique_ptr<PortalBackend> backend_before_transit;
-  absl::optional<PortalName> local_routed_name;
   mem::Ref<Portal> portal;
+
+  // The portal's new routed name on the destination node.
+  PortalName new_name;
+
+  // The backend in use prior to preparation for transit. Saved in case we
+  // cancel and want to restore the portal to its original state.
+  std::unique_ptr<PortalBackend> backend_before_transit;
+
+  // Same as above but for the portal's peer. This is in case the portal was
+  // part of a local pair which we may want to restore upon travel cancellation.
+  mem::Ref<Portal> peer_before_transit;
+  std::unique_ptr<PortalBackend> peer_backend_before_transit;
+
+  // The name of the portal before it was moved. May be null if the portal was
+  // never routed to.
+  absl::optional<PortalName> local_routed_name;
+
+  // Shared memory and corresponding mapping for PortalInTransitState to be
+  // shared between the original Portal and its move destination.
   os::Memory in_transit_state_memory;
   os::Memory::Mapping in_transit_state_mapping;
 };
@@ -151,9 +167,11 @@ class Portal : public mem::RefCounted {
       absl::Span<PortalInTransit> portals_in_transit);
   static void RestorePortalsFromCancelledTravel(
       absl::Span<PortalInTransit> portals_in_transit);
+  static void FinalizePortalsAfterTravel(absl::Span<const IpczHandle> portals);
 
   void PrepareForTravel(PortalInTransit& portal_in_transit);
   void RestoreFromCancelledTravel(PortalInTransit& portal_in_transit);
+  void FinalizeAfterTravel();
 
   const mem::Ref<Node> node_;
   const bool transferrable_;

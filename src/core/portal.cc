@@ -32,18 +32,9 @@ absl::InlinedVector<PortalInTransit, 4> AcquirePortalsForTravel(
     absl::Span<const IpczHandle> handles) {
   absl::InlinedVector<PortalInTransit, 4> portals(handles.size());
   for (size_t i = 0; i < handles.size(); ++i) {
-    portals[i].portal = {mem::RefCounted::kAdoptExistingRef,
-                         ToPtr<Portal>(handles[i])};
+    portals[i].portal = mem::WrapRefCounted(ToPtr<Portal>(handles[i]));
   }
   return portals;
-}
-
-void ReleasePortalsFromCancelledTravel(absl::Span<PortalInTransit> portals) {
-  for (PortalInTransit& portal : portals) {
-    // Release ref ownership implicitly back to the IpczHandle which the
-    // application still controls.
-    (void)portal.portal.release();
-  }
 }
 
 }  // namespace
@@ -218,7 +209,6 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   auto portals_view = absl::MakeSpan(portals_in_transit);
 
   if (!ValidatePortalsForTravelFromHere(portals_view)) {
-    ReleasePortalsFromCancelledTravel(portals_view);
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -228,11 +218,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     if (backend_->GetType() == PortalBackend::Type::kDirect) {
       // Fast path: direct portals don't need to do any preparation for the
       // portals they transfer.
-      result = backend_->Put(data, portals_view, os_handles, limits);
-      if (result != IPCZ_RESULT_OK) {
-        ReleasePortalsFromCancelledTravel(portals_view);
-      }
-      return result;
+      return backend_->Put(data, portals_view, os_handles, limits);
     }
   }
 
@@ -240,10 +226,6 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   {
     absl::MutexLock lock(&mutex_);
     result = backend_->Put(data, portals_view, os_handles, limits);
-    if (result == IPCZ_RESULT_OK) {
-      return IPCZ_RESULT_OK;
-    }
-
     if (result == IPCZ_RESULT_UNAVAILABLE) {
       // The parcel is queued for transmission but the destination portal has
       // already moved. Switch this portal to buffering until we can figure out
@@ -251,6 +233,10 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
       ABSL_ASSERT(backend_->GetType() == PortalBackend::Type::kRouted);
       backend_ = static_cast<RoutedPortalBackend&>(*backend_).StartBuffering();
     }
+  }
+  if (result == IPCZ_RESULT_OK || result == IPCZ_RESULT_UNAVAILABLE) {
+    FinalizePortalsAfterTravel(portals);
+    return IPCZ_RESULT_OK;
   }
   RestorePortalsFromCancelledTravel(portals_view);
   return result;
@@ -271,7 +257,6 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
   auto portals_view = absl::MakeSpan(portals_in_transit);
 
   if (!ValidatePortalsForTravelFromHere(portals_view)) {
-    ReleasePortalsFromCancelledTravel(portals_view);
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -281,12 +266,8 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     if (backend_->GetType() == PortalBackend::Type::kDirect) {
       // Fast path: direct portals don't need to do any preparation for the
       // portals they transfer.
-      result = backend_->CommitPut(num_data_bytes_produced, portals_view,
-                                   os_handles);
-      if (result != IPCZ_RESULT_OK) {
-        ReleasePortalsFromCancelledTravel(portals_view);
-      }
-      return result;
+      return backend_->CommitPut(num_data_bytes_produced, portals_view,
+                                 os_handles);
     }
   }
 
@@ -295,9 +276,17 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     absl::MutexLock lock(&mutex_);
     result =
         backend_->CommitPut(num_data_bytes_produced, portals_view, os_handles);
-    if (result == IPCZ_RESULT_OK) {
-      return IPCZ_RESULT_OK;
+    if (result == IPCZ_RESULT_UNAVAILABLE) {
+      // The parcel is queued for transmission but the destination portal has
+      // already moved. Switch this portal to buffering until we can figure out
+      // where to send its outgoing parcels.
+      ABSL_ASSERT(backend_->GetType() == PortalBackend::Type::kRouted);
+      backend_ = static_cast<RoutedPortalBackend&>(*backend_).StartBuffering();
     }
+  }
+  if (result == IPCZ_RESULT_OK || result == IPCZ_RESULT_UNAVAILABLE) {
+    FinalizePortalsAfterTravel(portals);
+    return IPCZ_RESULT_OK;
   }
   RestorePortalsFromCancelledTravel(portals_view);
   return result;
@@ -396,13 +385,19 @@ void Portal::PreparePortalsForTravel(
 void Portal::RestorePortalsFromCancelledTravel(
     absl::Span<PortalInTransit> portals_in_transit) {
   for (PortalInTransit& portal : portals_in_transit) {
-    if (portal.portal) {
-      portal.portal->RestoreFromCancelledTravel(portal);
+    ABSL_ASSERT(portal.portal);
+    portal.portal->RestoreFromCancelledTravel(portal);
+  }
+}
 
-      // Release the ref implicitly back to the IpczHandle, which the caller
-      // retains after a failed Put()/CommitPut().
-      (void)portal.portal.release();
-    }
+// static
+void Portal::FinalizePortalsAfterTravel(absl::Span<const IpczHandle> portals) {
+  for (IpczHandle handle : portals) {
+    // Steal the handle's ref to the portal since the handle must no longer be
+    // in use by the application.
+    mem::Ref<Portal> portal = {mem::RefCounted::kAdoptExistingRef,
+                               ToPtr<Portal>(handle)};
+    portal->FinalizeAfterTravel();
   }
 }
 
@@ -439,25 +434,53 @@ void Portal::PrepareForTravel(PortalInTransit& portal_in_transit) {
     std::tie(new_backend, new_peer_backend) = DirectPortalBackend::Split(
         static_cast<DirectPortalBackend&>(*backend_),
         static_cast<DirectPortalBackend*>(peer_backend));
+    portal_in_transit.backend_before_transit = std::move(backend_);
     backend_ = std::move(new_backend);
     if (peer) {
       peer->mutex_.AssertHeld();
       ABSL_ASSERT(new_peer_backend);
+      portal_in_transit.peer_before_transit = mem::WrapRefCounted(peer);
+      portal_in_transit.peer_backend_before_transit = std::move(peer->backend_);
       peer->backend_ = std::move(new_peer_backend);
     }
     backend_->PrepareForTravel(portal_in_transit);
     return;
   }
 
-  // We're currently routed, but about to move. Switch to a buffering state
-  // where we may still collect latent inbound parcels for forwarding.
+  // We're currently routed. Switch to a buffering state where we may still
+  // collect latent inbound parcels for forwarding. Once we have confirmation
+  // that no outstanding parcels are in flight to this location, the buffering
+  // portal will be destroyed.
   ABSL_ASSERT(backend_->GetType() == PortalBackend::Type::kRouted);
   auto* routed_backend = static_cast<RoutedPortalBackend*>(backend_.get());
+  portal_in_transit.backend_before_transit = std::move(backend_);
   backend_ = routed_backend->StartBuffering();
   backend_->PrepareForTravel(portal_in_transit);
 }
 
-void Portal::RestoreFromCancelledTravel(PortalInTransit& portal_in_transit) {}
+void Portal::RestoreFromCancelledTravel(PortalInTransit& portal_in_transit) {
+  // TODO - not terribly important for now. mojo always discards resources that
+  // were attached to messages which couldn't be sent. so in practice any
+  // cancelled travel will immediately be followed by closure of all portal
+  // attachments and it doesn't matter what state we leave them in. this needs
+  // to be fixed eventually to meet specified ipcz API behvior though. for
+  // example if a direct portal pair was spit for travel and then travel failed,
+  // we should restore the direct portal pair to its original state here.
+}
+
+void Portal::FinalizeAfterTravel() {
+  // TODO - plug any follow-up tracking into our Node. perhaps Node should
+  // immediately track:
+  //  - a link between the portal's new full PortalAddress and this Portal
+  //    object
+  //  - a link between this Portal object its original portal name if it was a
+  //    routed portal before transmission.
+  //  - information about how many parcels are expected from the pre-travel peer
+  //    before it will stop sending messages to this portal altogether.
+  // messages are forwarded as they're received
+  // broker negotiates finalization of transfers it didn't initiate,
+  // provides information about new peer location.
+}
 
 }  // namespace core
 }  // namespace ipcz

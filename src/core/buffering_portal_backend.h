@@ -5,11 +5,13 @@
 #ifndef IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
 #define IPCZ_SRC_CORE_BUFFERING_PORTAL_BACKEND_H_
 
+#include "core/name.h"
 #include "core/portal_backend.h"
 #include "core/portal_backend_state.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -70,11 +72,14 @@ class BufferingPortalBackend : public PortalBackend {
   IpczResult RemoveTrap(Trap& trap) override;
 
  private:
+  friend class DirectPortalBackend;
   friend class RoutedPortalBackend;
 
   const Side side_;
 
   absl::Mutex mutex_;
+  absl::optional<PortalName> routed_name_;
+  absl::optional<PortalAddress> peer_address_;
   PortalBackendState state_;
 };
 

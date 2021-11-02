@@ -73,13 +73,14 @@ DirectPortalBackend::Split(DirectPortalBackend& backend,
 
   absl::MutexLock lock(&backend.state_->mutex);
   auto new_backend = std::make_unique<BufferingPortalBackend>(backend.side_);
+  new_backend->state_ = std::move(backend.state_->state[backend.side_]);
   std::unique_ptr<BufferingPortalBackend> new_peer_backend;
   if (peer_backend) {
     new_peer_backend =
         std::make_unique<BufferingPortalBackend>(peer_backend->side_);
+    new_peer_backend->state_ =
+        std::move(backend.state_->state[peer_backend->side_]);
   }
-
-  // TODO: move state into new backends
 
   return {std::move(new_backend), std::move(new_peer_backend)};
 }

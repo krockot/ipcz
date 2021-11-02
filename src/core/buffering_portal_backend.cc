@@ -191,14 +191,90 @@ IpczResult BufferingPortalBackend::Get(void* data,
                                        uint32_t* num_portals,
                                        IpczOSHandle* os_handles,
                                        uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNAVAILABLE;
+  absl::MutexLock lock(&mutex_);
+  if (state_.in_two_phase_get) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  if (state_.incoming_parcels.empty()) {
+    if (state_.status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
+    return IPCZ_RESULT_UNAVAILABLE;
+  }
+
+  Parcel& next_parcel = state_.incoming_parcels.front();
+  IpczResult result = IPCZ_RESULT_OK;
+  uint32_t available_data_storage = num_data_bytes ? *num_data_bytes : 0;
+  uint32_t available_portal_storage = num_portals ? *num_portals : 0;
+  uint32_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
+  if (next_parcel.data_view().size() > available_data_storage ||
+      next_parcel.portals_view().size() > available_portal_storage ||
+      next_parcel.os_handles_view().size() > available_os_handle_storage) {
+    result = IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  if (num_data_bytes) {
+    *num_data_bytes = static_cast<uint32_t>(next_parcel.data_view().size());
+  }
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(next_parcel.portals_view().size());
+  }
+  if (num_os_handles) {
+    *num_os_handles =
+        static_cast<uint32_t>(next_parcel.os_handles_view().size());
+  }
+
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  Parcel parcel = state_.incoming_parcels.pop();
+  memcpy(data, parcel.data_view().data(), parcel.data_view().size());
+  state_.status.num_local_bytes -= parcel.data_view().size();
+  --state_.status.num_local_parcels;
+  parcel.Consume(portals, os_handles);
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::BeginGet(const void** data,
                                             uint32_t* num_data_bytes,
                                             uint32_t* num_portals,
                                             uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNAVAILABLE;
+  absl::MutexLock lock(&mutex_);
+  if (state_.in_two_phase_get) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  if (state_.incoming_parcels.empty()) {
+    if (state_.status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
+    return IPCZ_RESULT_UNAVAILABLE;
+  }
+
+  Parcel& next_parcel = state_.incoming_parcels.front();
+  const size_t data_size = next_parcel.data_view().size();
+  if (num_data_bytes) {
+    *num_data_bytes = static_cast<uint32_t>(data_size);
+  }
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(next_parcel.portals_view().size());
+  }
+  if (num_os_handles) {
+    *num_os_handles =
+        static_cast<uint32_t>(next_parcel.os_handles_view().size());
+  }
+
+  if (data_size > 0) {
+    if (!data || !num_data_bytes) {
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+    }
+    *data = next_parcel.data_view().data();
+  }
+
+  state_.in_two_phase_get = true;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
@@ -206,11 +282,55 @@ IpczResult BufferingPortalBackend::CommitGet(uint32_t num_data_bytes_consumed,
                                              uint32_t* num_portals,
                                              IpczOSHandle* os_handles,
                                              uint32_t* num_os_handles) {
-  return IPCZ_RESULT_FAILED_PRECONDITION;
+  absl::MutexLock lock(&mutex_);
+  if (!state_.in_two_phase_get) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  Parcel& next_parcel = state_.incoming_parcels.front();
+  const size_t data_size = next_parcel.data_view().size();
+  if (num_data_bytes_consumed > data_size) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  uint32_t available_portal_storage = num_portals ? *num_portals : 0;
+  uint32_t available_os_handle_storage = num_os_handles ? *num_os_handles : 0;
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(next_parcel.portals_view().size());
+  }
+  if (num_os_handles) {
+    *num_os_handles =
+        static_cast<uint32_t>(next_parcel.os_handles_view().size());
+  }
+  if (available_portal_storage < next_parcel.portals_view().size() ||
+      available_os_handle_storage < next_parcel.os_handles_view().size()) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  uint32_t num_parcels_consumed = 0;
+  if (num_data_bytes_consumed == data_size) {
+    Parcel parcel = state_.incoming_parcels.pop();
+    parcel.Consume(portals, os_handles);
+    --state_.status.num_local_parcels;
+    num_parcels_consumed = 1;
+  } else {
+    Parcel& parcel = state_.incoming_parcels.front();
+    parcel.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
+  }
+
+  state_.status.num_local_bytes -= num_data_bytes_consumed;
+  state_.in_two_phase_get = false;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::AbortGet() {
-  return IPCZ_RESULT_FAILED_PRECONDITION;
+  absl::MutexLock lock(&mutex_);
+  if (!state_.in_two_phase_get) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  state_.in_two_phase_get = false;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {

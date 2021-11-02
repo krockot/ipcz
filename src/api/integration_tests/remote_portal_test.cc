@@ -77,8 +77,6 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
   d = b_parcel.portals[0];
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(b, b_parcel));
-
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
 
   Parcel d_parcel;
