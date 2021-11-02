@@ -4,6 +4,7 @@
 
 #include "core/buffering_portal_backend.h"
 
+#include <cstring>
 #include <utility>
 
 #include "core/node.h"
@@ -14,10 +15,7 @@
 namespace ipcz {
 namespace core {
 
-BufferingPortalBackend::BufferingPortalBackend(Side side) : side_(side) {
-  memset(&status_, 0, sizeof(status_));
-  status_.size = sizeof(status_);
-}
+BufferingPortalBackend::BufferingPortalBackend(Side side) : side_(side) {}
 
 BufferingPortalBackend::~BufferingPortalBackend() = default;
 
@@ -42,21 +40,21 @@ bool BufferingPortalBackend::AcceptParcel(Parcel& parcel,
 
 bool BufferingPortalBackend::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
-  status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  state_.status.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
   return true;
 }
 
 IpczResult BufferingPortalBackend::Close(
     std::vector<mem::Ref<Portal>>& other_portals_to_close) {
   absl::MutexLock lock(&mutex_);
-  closed_ = true;
+  state_.closed = true;
   return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::QueryStatus(IpczPortalStatus& status) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!closed_);
-  status = status_;
+  ABSL_ASSERT(!state_.closed);
+  status = state_.status;
   return IPCZ_RESULT_OK;
 }
 
@@ -66,17 +64,17 @@ IpczResult BufferingPortalBackend::Put(
     absl::Span<const IpczOSHandle> os_handles,
     const IpczPutLimits* limits) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!closed_);
-  if (pending_parcel_) {
+  ABSL_ASSERT(!state_.closed);
+  if (state_.pending_parcel) {
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
   if (limits) {
     if (limits->max_queued_parcels > 0 &&
-        outgoing_parcels_.size() >= limits->max_queued_parcels) {
+        state_.outgoing_parcels.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               status_.num_remote_bytes >= limits->max_queued_bytes) {
+               state_.status.num_remote_bytes >= limits->max_queued_bytes) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
   }
@@ -97,9 +95,9 @@ IpczResult BufferingPortalBackend::Put(
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
-  outgoing_parcels_.push(std::move(parcel));
-  status_.num_remote_parcels++;
-  status_.num_remote_bytes += data.size();
+  state_.outgoing_parcels.push(std::move(parcel));
+  state_.status.num_remote_parcels++;
+  state_.status.num_remote_bytes += data.size();
   return IPCZ_RESULT_OK;
 }
 
@@ -108,31 +106,32 @@ IpczResult BufferingPortalBackend::BeginPut(IpczBeginPutFlags flags,
                                             uint32_t& num_data_bytes,
                                             void** data) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!closed_);
-  if (pending_parcel_) {
+  ABSL_ASSERT(!state_.closed);
+  if (state_.pending_parcel) {
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
   if (limits) {
     if (limits->max_queued_parcels > 0 &&
-        outgoing_parcels_.size() >= limits->max_queued_parcels) {
+        state_.outgoing_parcels.size() >= limits->max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     } else if (limits->max_queued_bytes > 0 &&
-               status_.num_remote_bytes + num_data_bytes >
+               state_.status.num_remote_bytes + num_data_bytes >
                    limits->max_queued_bytes) {
       if ((flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) &&
-          status_.num_remote_bytes < limits->max_queued_bytes) {
-        num_data_bytes = limits->max_queued_bytes - status_.num_remote_bytes;
+          state_.status.num_remote_bytes < limits->max_queued_bytes) {
+        num_data_bytes =
+            limits->max_queued_bytes - state_.status.num_remote_bytes;
       } else {
         return IPCZ_RESULT_RESOURCE_EXHAUSTED;
       }
     }
   }
 
-  pending_parcel_.emplace();
+  state_.pending_parcel.emplace();
   if (data) {
-    pending_parcel_->ResizeData(num_data_bytes);
-    *data = pending_parcel_->data_view().data();
+    state_.pending_parcel->ResizeData(num_data_bytes);
+    *data = state_.pending_parcel->data_view().data();
   }
   return IPCZ_RESULT_OK;
 }
@@ -142,12 +141,12 @@ IpczResult BufferingPortalBackend::CommitPut(
     absl::Span<PortalInTransit> portals,
     absl::Span<const IpczOSHandle> os_handles) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!closed_);
-  if (!pending_parcel_) {
+  ABSL_ASSERT(!state_.closed);
+  if (!state_.pending_parcel) {
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  if (pending_parcel_->data_view().size() < num_data_bytes_produced) {
+  if (state_.pending_parcel->data_view().size() < num_data_bytes_produced) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -163,26 +162,26 @@ IpczResult BufferingPortalBackend::CommitPut(
     parcel_os_handles.push_back(os::Handle::FromIpczOSHandle(handle));
   }
 
-  Parcel parcel = std::move(*pending_parcel_);
-  pending_parcel_.reset();
+  Parcel parcel = std::move(*state_.pending_parcel);
+  state_.pending_parcel.reset();
 
   parcel.ResizeData(num_data_bytes_produced);
   parcel.SetPortals(std::move(parcel_portals));
   parcel.SetOSHandles(std::move(parcel_os_handles));
-  outgoing_parcels_.push(std::move(parcel));
-  status_.num_remote_bytes += num_data_bytes_produced;
-  status_.num_remote_parcels++;
+  state_.outgoing_parcels.push(std::move(parcel));
+  state_.status.num_remote_bytes += num_data_bytes_produced;
+  state_.status.num_remote_parcels++;
   return IPCZ_RESULT_OK;
 }
 
 IpczResult BufferingPortalBackend::AbortPut() {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!closed_);
-  if (!pending_parcel_) {
+  ABSL_ASSERT(!state_.closed);
+  if (!state_.pending_parcel) {
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  pending_parcel_.reset();
+  state_.pending_parcel.reset();
   return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
@@ -216,7 +215,7 @@ IpczResult BufferingPortalBackend::AbortGet() {
 
 IpczResult BufferingPortalBackend::AddTrap(std::unique_ptr<Trap> trap) {
   absl::MutexLock lock(&mutex_);
-  return traps_.Add(std::move(trap));
+  return state_.traps.Add(std::move(trap));
 }
 
 IpczResult BufferingPortalBackend::ArmTrap(
@@ -225,7 +224,7 @@ IpczResult BufferingPortalBackend::ArmTrap(
     IpczPortalStatus* status) {
   absl::MutexLock lock(&mutex_);
   IpczTrapConditionFlags flags = 0;
-  IpczResult result = trap.Arm(status_, flags);
+  IpczResult result = trap.Arm(state_.status, flags);
   if (result == IPCZ_RESULT_OK) {
     return IPCZ_RESULT_OK;
   }
@@ -236,8 +235,8 @@ IpczResult BufferingPortalBackend::ArmTrap(
 
   if (status) {
     size_t out_size = status->size;
-    size_t copy_size = std::min(out_size, sizeof(status_));
-    memcpy(status, &status_, copy_size);
+    size_t copy_size = std::min(out_size, sizeof(state_.status));
+    memcpy(status, &state_.status, copy_size);
     status->size = static_cast<uint32_t>(out_size);
   }
 
@@ -246,7 +245,7 @@ IpczResult BufferingPortalBackend::ArmTrap(
 
 IpczResult BufferingPortalBackend::RemoveTrap(Trap& trap) {
   absl::MutexLock lock(&mutex_);
-  return traps_.Remove(trap);
+  return state_.traps.Remove(trap);
 }
 
 }  // namespace core

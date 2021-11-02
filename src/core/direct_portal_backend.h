@@ -18,6 +18,7 @@ namespace core {
 
 class BufferingPortalBackend;
 class Portal;
+struct PortalBackendState;
 
 // PortalBackend implementation for a portal whose peer lives in the same node.
 // This backend grants portals direct access to each others' state for more
@@ -88,12 +89,14 @@ class DirectPortalBackend : public PortalBackend {
 
  private:
   struct SharedState;
-  struct PortalState;
 
   DirectPortalBackend(mem::Ref<SharedState> state, Side side);
 
-  PortalState& this_side();
-  PortalState& other_side();
+  PortalBackendState& this_side();
+  PortalBackendState& other_side();
+
+  mem::Ref<Portal>& this_portal();
+  mem::Ref<Portal>& other_portal();
 
   const mem::Ref<SharedState> state_;
   const Side side_;

@@ -62,6 +62,8 @@ source_set("ipcz_sources") {
     "core/portal.cc",
     "core/portal.h",
     "core/portal_backend.h",
+    "core/portal_backend_state.cc",
+    "core/portal_backend_state.h",
     "core/portal_control_block.cc",
     "core/portal_control_block.h",
     "core/routed_portal_backend.cc",

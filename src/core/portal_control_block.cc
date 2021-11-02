@@ -41,6 +41,9 @@ void PortalControlBlock::Lock() {
         return;
       }
     }
+
+    // TODO: instrument this path
+
     std::this_thread::yield();
   }
 }

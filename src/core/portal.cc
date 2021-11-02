@@ -243,6 +243,14 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     if (result == IPCZ_RESULT_OK) {
       return IPCZ_RESULT_OK;
     }
+
+    if (result == IPCZ_RESULT_UNAVAILABLE) {
+      // The parcel is queued for transmission but the destination portal has
+      // already moved. Switch this portal to buffering until we can figure out
+      // where to send its outgoing parcels.
+      ABSL_ASSERT(backend_->GetType() == PortalBackend::Type::kRouted);
+      backend_ = static_cast<RoutedPortalBackend&>(*backend_).StartBuffering();
+    }
   }
   RestorePortalsFromCancelledTravel(portals_view);
   return result;

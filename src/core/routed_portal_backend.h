@@ -11,17 +11,14 @@
 #include <vector>
 
 #include "core/name.h"
-#include "core/parcel.h"
-#include "core/parcel_queue.h"
 #include "core/portal_backend.h"
+#include "core/portal_backend_state.h"
 #include "core/portal_control_block.h"
 #include "core/side.h"
-#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/memory.h"
-#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
@@ -97,13 +94,7 @@ class RoutedPortalBackend : public PortalBackend {
       *control_block_mapping_.As<PortalControlBlock>()};
 
   absl::Mutex mutex_;
-  bool closed_ ABSL_GUARDED_BY(mutex_) = false;
-  absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
-  ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
-  ParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
-  bool in_two_phase_get_ ABSL_GUARDED_BY(mutex_) = false;
-  IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_);
-  TrapSet traps_ ABSL_GUARDED_BY(mutex_);
+  PortalBackendState state_;
 };
 
 }  // namespace core
