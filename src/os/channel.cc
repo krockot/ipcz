@@ -136,6 +136,11 @@ Handle Channel::TakeHandle() {
 void Channel::Listen(MessageHandler handler) {
   StopListening();
 
+  if (read_buffer_.empty()) {
+    read_buffer_.resize(kMaxDataSize);
+    unread_data_ = absl::Span<uint8_t>(read_buffer_.data(), 0);
+  }
+
   Event shutdown_event;
   shutdown_notifier_ = shutdown_event.MakeNotifier();
   io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this, handler,
@@ -166,18 +171,20 @@ bool Channel::Send(Message message) {
       ++num_valid_handles;
     }
   }
-  if (num_valid_handles == 0) {
-    return send(handle_.fd(), message.data.data(), message.data.size(),
-                MSG_NOSIGNAL) == static_cast<ssize_t>(message.data.size());
-  }
 
-  iovec iov = {const_cast<uint8_t*>(message.data.data()), message.data.size()};
+  uint32_t header[2];
+  header[0] = static_cast<uint32_t>(message.data.size() + 8);
+  header[1] = static_cast<uint32_t>(message.handles.size());
+  iovec iovs[] = {
+      {reinterpret_cast<uint8_t*>(&header[0]), 8},
+      {const_cast<uint8_t*>(message.data.data()), message.data.size()},
+  };
 
   ABSL_ASSERT(num_valid_handles <= kMaxHandlesPerMessage);
   char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
   struct msghdr msg = {};
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
+  msg.msg_iov = &iovs[0];
+  msg.msg_iovlen = 2;
   msg.msg_control = cmsg_buf;
   msg.msg_controllen = CMSG_LEN(num_valid_handles * sizeof(int));
   struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
@@ -239,8 +246,17 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
 
     ABSL_ASSERT(poll_fds[0].revents & POLLIN);
 
-    uint8_t data[kMaxDataSize];
-    struct iovec iov = {data, kMaxDataSize};
+    size_t capacity = read_buffer_.size() - unread_data_.size();
+    if (capacity < kMaxDataSize) {
+      size_t new_size = read_buffer_.size() * 2;
+      size_t unread_offset = unread_data_.data() - read_buffer_.data();
+      read_buffer_.resize(new_size);
+      unread_data_ = absl::Span<uint8_t>(read_buffer_.data() + unread_offset,
+                                         unread_data_.size());
+      capacity = read_buffer_.size() - unread_data_.size();
+    }
+    uint8_t* data = unread_data_.end();
+    struct iovec iov = {data, capacity};
     char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
     struct msghdr msg = {};
     msg.msg_iov = &iov;
@@ -255,37 +271,56 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       return;
     }
 
-    if (msg.msg_controllen == 0) {
-      Data data_view(absl::MakeSpan(&data[0], result));
-      if (!handler(data_view)) {
+    unread_data_ =
+        absl::Span<uint8_t>(unread_data_.data(), unread_data_.size() + result);
+
+    if (msg.msg_controllen > 0) {
+      for (cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg;
+           cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
+          size_t payload_length = cmsg->cmsg_len - CMSG_LEN(0);
+          ABSL_ASSERT(payload_length % sizeof(int) == 0);
+          size_t num_fds = payload_length / sizeof(int);
+          const int* fds = reinterpret_cast<int*>(CMSG_DATA(cmsg));
+          size_t unread_handle_offset =
+              (unread_handles_.data() - handle_buffer_.data()) /
+              sizeof(os::Handle);
+          for (size_t i = 0; i < num_fds; ++i) {
+            handle_buffer_.emplace_back(fds[i]);
+          }
+          unread_handles_ = absl::Span<os::Handle>(
+              handle_buffer_.data() + unread_handle_offset,
+              unread_handles_.size() + num_fds);
+        }
+      }
+      ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
+    }
+
+    // TODO: this is a mega hack - decide if we want to frame here or in
+    // NodeLink, will determine message structure layering
+    if (unread_data_.size() < 8) {
+      continue;
+    }
+    uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
+    if (unread_data_.size() >= header_data[0] &&
+        unread_handles_.size() >= header_data[1]) {
+      auto data_view =
+          absl::MakeSpan(unread_data_.data() + 8, header_data[0] - 8);
+      auto handle_view = absl::MakeSpan(unread_handles_.data(), header_data[1]);
+      unread_data_ = unread_data_.subspan(header_data[0]);
+      unread_handles_ = unread_handles_.subspan(header_data[1]);
+      if (!handler(Message(Data(data_view), handle_view))) {
         LOG(ERROR) << "disconnecting Channel for bad message: "
                    << debug::HexDump(data_view);
         return;
       }
-      continue;
-    }
 
-    ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
-
-    std::vector<Handle> handles;
-    for (cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg;
-         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-      if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
-        size_t payload_length = cmsg->cmsg_len - CMSG_LEN(0);
-        ABSL_ASSERT(payload_length % sizeof(int) == 0);
-        size_t num_fds = payload_length / sizeof(int);
-        const int* fds = reinterpret_cast<int*>(CMSG_DATA(cmsg));
-        for (size_t i = 0; i < num_fds; ++i) {
-          handles.emplace_back(fds[i]);
-        }
+      if (unread_data_.empty()) {
+        unread_data_ = absl::MakeSpan(read_buffer_.data(), 0);
       }
-    }
-
-    auto data_view = absl::MakeSpan(data, result);
-    if (!handler(Message(Data(data_view), absl::MakeSpan(handles)))) {
-      LOG(ERROR) << "disconnecting Channel for bad message: "
-                 << debug::HexDump(data_view);
-      return;
+      if (unread_handles_.empty()) {
+        unread_handles_ = absl::MakeSpan(handle_buffer_.data(), 0);
+      }
     }
   }
 #endif

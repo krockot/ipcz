@@ -73,13 +73,13 @@ class BufferingPortalBackend : public PortalBackend {
 
  private:
   friend class DirectPortalBackend;
+  friend class NodeLink;
   friend class RoutedPortalBackend;
 
   const Side side_;
 
   absl::Mutex mutex_;
   absl::optional<PortalName> routed_name_;
-  absl::optional<PortalAddress> peer_address_;
   PortalBackendState state_;
 };
 

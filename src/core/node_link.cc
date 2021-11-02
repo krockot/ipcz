@@ -4,6 +4,7 @@
 
 #include "core/node_link.h"
 
+#include "core/buffering_portal_backend.h"
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"
@@ -26,6 +27,7 @@ struct IPCZ_ALIGN(16) SerializedPortal {
   internal::StructHeader header;
   PortalName moved_from;
   PortalName moved_to;
+  Side side;
 };
 
 }  // namespace
@@ -124,8 +126,12 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
   auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
 
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
+    PortalInTransit& portal = parcel.portals_view()[i];
     portals[i].header.size = sizeof(internal::StructHeader);
     portals[i].header.version = 0;
+    portals[i].moved_from = portal.local_name;
+    portals[i].moved_to = portal.new_name;
+    portals[i].side = portal.side;
   }
 
   auto* handle_data = reinterpret_cast<internal::OSHandleData*>(
@@ -266,14 +272,23 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   const auto& destination = *reinterpret_cast<const PortalName*>(&header + 1);
   auto* sizes = reinterpret_cast<const uint32_t*>(&destination + 1);
   const uint32_t num_bytes = sizes[0];
-  // const uint32_t num_portals = sizes[1];
+  const uint32_t num_portals = sizes[1];
   // const uint32_t num_os_handles = sizes[2];
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
-  // const auto* portals =
-  //     reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
+  const auto* portals =
+      reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
   // const auto* handle_data =
   //     reinterpret_cast<const internal::OSHandleData*>(portals + num_portals);
-  // TODO: portals
+  std::vector<PortalInTransit> portals_in_transit(num_portals);
+  for (size_t i = 0; i < num_portals; ++i) {
+    // PortalName old_name = portals[i].local_name;
+    PortalName new_name = portals[i].moved_to;
+    auto backend = std::make_unique<BufferingPortalBackend>(portals[i].side);
+    absl::MutexLock lock(&backend->mutex_);
+    backend->routed_name_ = new_name;
+    portals_in_transit[i].portal =
+        mem::MakeRefCounted<Portal>(*node_, std::move(backend));
+  }
   std::vector<os::Handle> os_handles;
   os_handles.reserve(m.handles.size());
   for (auto& handle : m.handles) {
@@ -283,7 +298,7 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   TrapEventDispatcher dispatcher;
   Parcel parcel;
   parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
-  parcel.SetPortals({});
+  parcel.SetPortals(std::move(portals_in_transit));
   parcel.SetOSHandles(std::move(os_handles));
   return node_->AcceptParcel(destination, parcel, dispatcher);
 }

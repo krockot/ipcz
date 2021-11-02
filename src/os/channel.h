@@ -9,6 +9,7 @@
 #include <memory>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "ipcz/ipcz.h"
 #include "os/event.h"
@@ -100,6 +101,10 @@ class Channel {
   Handle handle_;
   Event::Notifier shutdown_notifier_;
   absl::optional<std::thread> io_thread_;
+  std::vector<uint8_t> read_buffer_;
+  absl::Span<uint8_t> unread_data_;
+  std::vector<os::Handle> handle_buffer_;
+  absl::Span<os::Handle> unread_handles_;
 };
 
 }  // namespace os

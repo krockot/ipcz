@@ -60,6 +60,11 @@ struct PortalInTransit {
   ~PortalInTransit();
 
   mem::Ref<Portal> portal;
+  Side side;
+
+  // The portal's routed name on the sender's node. If the portal was never a
+  // routed portal, a new random name will be assigned.
+  PortalName local_name;
 
   // The portal's new routed name on the destination node.
   PortalName new_name;

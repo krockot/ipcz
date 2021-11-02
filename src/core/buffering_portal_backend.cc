@@ -28,7 +28,15 @@ bool BufferingPortalBackend::CanTravelThroughPortal(Portal& sender) {
 }
 
 void BufferingPortalBackend::PrepareForTravel(
-    PortalInTransit& portal_in_transit) {}
+    PortalInTransit& portal_in_transit) {
+  absl::MutexLock lock(&mutex_);
+  if (!routed_name_) {
+    routed_name_.emplace(PortalName::kRandom);
+  }
+  portal_in_transit.side = side_;
+  portal_in_transit.local_name = *routed_name_;
+  portal_in_transit.new_name = {PortalName::kRandom};
+}
 
 bool BufferingPortalBackend::AcceptParcel(Parcel& parcel,
                                           TrapEventDispatcher& dispatcher) {
