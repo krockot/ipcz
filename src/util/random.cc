@@ -2,15 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/name.h"
+#include "util/random.h"
 
-#include <algorithm>
-#include <cinttypes>
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <limits>
-#include <string>
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -37,11 +31,9 @@
 #endif
 
 namespace ipcz {
-namespace core {
 
-namespace {
-
-void RandomUint128(absl::uint128& value) {
+absl::uint128 RandomUint128() {
+  absl::uint128 value;
 #if defined(OS_WIN)
   char* output = reinterpret_cast<char*>(words.data());
   const bool ok = RtlGenRandom(&value, sizeof(value));
@@ -68,28 +60,9 @@ void RandomUint128(absl::uint128& value) {
 #else
 #error "Unsupported platform"
 #endif
+  return value;
 }
 
-}  // namespace
-
-Name::Name(decltype(kRandom)) {
-  RandomUint128(value_);
-}
-
-Name::~Name() = default;
-
-std::string Name::ToString() const {
-  char chars[33];
-  int length =
-      snprintf(chars, 33, "%016" PRIx64 "%016" PRIx64,
-               absl::Uint128High64(value_), absl::Uint128Low64(value_));
-  ABSL_ASSERT(length == 32);
-  return std::string(chars, 32);
-}
-
-std::string PortalAddress::ToString() const {
-  return node_.ToString() + ":" + portal_.ToString();
-}
-
-}  // namespace core
 }  // namespace ipcz
+
+#endif  // IPCZ_SRC_UTIL_RANDOM_H_

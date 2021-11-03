@@ -29,10 +29,6 @@ source_set("ipcz_sources") {
   public = [ "include/ipcz/ipcz.h" ]
 
   sources = [
-    "core/buffering_portal_backend.cc",
-    "core/buffering_portal_backend.h",
-    "core/direct_portal_backend.cc",
-    "core/direct_portal_backend.h",
     "core/message_internal.cc",
     "core/message_internal.h",
     "core/message_macros/message_declaration_macros.h",
@@ -46,8 +42,6 @@ source_set("ipcz_sources") {
     "core/message_macros/message_params_definition_macros.h",
     "core/message_macros/message_reply_dispatch_macros.h",
     "core/message_macros/undef_message_macros.h",
-    "core/name.cc",
-    "core/name.h",
     "core/node.cc",
     "core/node.h",
     "core/node_link.cc",
@@ -55,19 +49,16 @@ source_set("ipcz_sources") {
     "core/node_message_defs.h",
     "core/node_messages.cc",
     "core/node_messages.h",
+    "core/node_name.cc",
+    "core/node_name.h",
     "core/parcel.cc",
     "core/parcel.h",
     "core/parcel_queue.cc",
     "core/parcel_queue.h",
     "core/portal.cc",
     "core/portal.h",
-    "core/portal_backend.h",
-    "core/portal_backend_state.cc",
-    "core/portal_backend_state.h",
     "core/portal_control_block.cc",
     "core/portal_control_block.h",
-    "core/routed_portal_backend.cc",
-    "core/routed_portal_backend.h",
     "core/side.h",
     "core/trap.cc",
     "core/trap.h",
@@ -98,7 +89,9 @@ source_set("ipcz_sources") {
     "os/memory.h",
     "os/process.cc",
     "os/process.h",
-    "safe/math.h",
+    "util/handle_util.h",
+    "util/random.cc",
+    "util/random.h",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]

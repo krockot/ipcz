@@ -8,7 +8,6 @@
 #include <cstdint>
 
 #include "core/message_internal.h"
-#include "core/name.h"
 #include "ipcz/ipcz.h"
 #include "os/channel.h"
 #include "os/handle.h"

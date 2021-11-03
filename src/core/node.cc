@@ -6,13 +6,11 @@
 
 #include <utility>
 
-#include "core/buffering_portal_backend.h"
-#include "core/name.h"
 #include "core/node_link.h"
 #include "core/node_messages.h"
+#include "core/node_name.h"
 #include "core/portal.h"
 #include "core/portal_control_block.h"
-#include "core/routed_portal_backend.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
@@ -23,7 +21,7 @@ namespace core {
 
 Node::Node(Type type) : type_(type) {
   if (type_ == Type::kBroker) {
-    name_ = NodeName(Name::kRandom);
+    name_ = NodeName(NodeName::kRandom);
   }
 }
 
@@ -46,7 +44,7 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   // TODO: don't restrict this to broker nodes (maybe?)
   ABSL_ASSERT(type_ == Type::kBroker);
 
-  const NodeName their_node_name{Name::kRandom};
+  const NodeName their_node_name{NodeName::kRandom};
   const PortalName their_portal_name{Name::kRandom};
   NodeName our_node_name;
   const PortalName our_portal_name{Name::kRandom};

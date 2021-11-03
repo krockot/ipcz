@@ -4,7 +4,6 @@
 
 #include "core/node_link.h"
 
-#include "core/buffering_portal_backend.h"
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"

@@ -8,7 +8,6 @@
 #include <tuple>
 
 #include "build/build_config.h"
-#include "core/name.h"
 #include "core/node.h"
 #include "core/portal.h"
 #include "ipcz/ipcz.h"

@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <utility>
 
-#include "core/name.h"
 #include "core/node.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
@@ -23,7 +22,6 @@ namespace core {
 
 class NodeLink;
 class Parcel;
-class PortalBackend;
 class TrapEventDispatcher;
 
 class Portal;
@@ -69,14 +67,9 @@ struct PortalInTransit {
   // The portal's new routed name on the destination node.
   PortalName new_name;
 
-  // The backend in use prior to preparation for transit. Saved in case we
-  // cancel and want to restore the portal to its original state.
-  std::unique_ptr<PortalBackend> backend_before_transit;
-
   // Same as above but for the portal's peer. This is in case the portal was
   // part of a local pair which we may want to restore upon travel cancellation.
   mem::Ref<Portal> peer_before_transit;
-  std::unique_ptr<PortalBackend> peer_backend_before_transit;
 
   // The name of the portal before it was moved. May be null if the portal was
   // never routed to.

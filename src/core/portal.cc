@@ -7,14 +7,9 @@
 #include <memory>
 #include <utility>
 
-#include "core/buffering_portal_backend.h"
-#include "core/direct_portal_backend.h"
-#include "core/name.h"
 #include "core/node.h"
 #include "core/parcel.h"
-#include "core/portal_backend.h"
 #include "core/portal_control_block.h"
-#include "core/routed_portal_backend.h"
 #include "core/trap.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"

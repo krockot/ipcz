@@ -5,7 +5,7 @@
 #ifndef IPCZ_SRC_CORE_NODE_H_
 #define IPCZ_SRC_CORE_NODE_H_
 
-#include "core/name.h"
+#include "core/node_name.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"

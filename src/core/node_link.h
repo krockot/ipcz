@@ -8,9 +8,9 @@
 #include <atomic>
 #include <functional>
 
-#include "core/name.h"
 #include "core/node.h"
 #include "core/node_messages.h"
+#include "core/node_name.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
