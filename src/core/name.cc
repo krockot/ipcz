@@ -5,6 +5,7 @@
 #include "core/name.h"
 
 #include <algorithm>
+#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -79,8 +80,9 @@ Name::~Name() = default;
 
 std::string Name::ToString() const {
   char chars[33];
-  int length = snprintf(chars, 33, "%016lx%016lx", absl::Uint128High64(value_),
-                        absl::Uint128Low64(value_));
+  int length =
+      snprintf(chars, 33, "%016" PRIx64 "%016" PRIx64,
+               absl::Uint128High64(value_), absl::Uint128Low64(value_));
   ABSL_ASSERT(length == 32);
   return std::string(chars, 32);
 }

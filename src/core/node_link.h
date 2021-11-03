@@ -59,6 +59,7 @@ class NodeLink : public mem::RefCounted {
   void SetRemoteProtocolVersion(uint32_t version);
 
   void AddRoutedPortal(const PortalName& local_portal_name);
+  void ReplaceRoutedPortal(const PortalName& local_portal_name);
   void RemoveRoutedPortal(const PortalName& local_portal_name);
 
   // Sends a message which does not expect a reply.

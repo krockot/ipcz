@@ -94,7 +94,7 @@ class RoutedPortalBackend : public PortalBackend {
       *control_block_mapping_.As<PortalControlBlock>()};
 
   absl::Mutex mutex_;
-  PortalBackendState state_;
+  PortalBackendState state_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

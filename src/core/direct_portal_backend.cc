@@ -71,15 +71,27 @@ DirectPortalBackend::Split(DirectPortalBackend& backend,
   // They must indeed be peers.
   ABSL_ASSERT(!peer_backend || peer_backend->state_ == backend.state_);
 
-  absl::MutexLock lock(&backend.state_->mutex);
+  PortalBackendState state;
+  PortalBackendState peer_state;
+  {
+    absl::MutexLock lock(&backend.state_->mutex);
+    state = std::move(backend.state_->state[backend.side_]);
+    peer_state = std::move(backend.state_->state[Opposite(backend.side_)]);
+  }
+
   auto new_backend = std::make_unique<BufferingPortalBackend>(backend.side_);
-  new_backend->state_ = std::move(backend.state_->state[backend.side_]);
+  {
+    absl::MutexLock lock(&new_backend->mutex_);
+    new_backend->state_ = std::move(state);
+    new_backend->routed_name_ = PortalName(PortalName::kRandom);
+  }
   std::unique_ptr<BufferingPortalBackend> new_peer_backend;
   if (peer_backend) {
     new_peer_backend =
         std::make_unique<BufferingPortalBackend>(peer_backend->side_);
-    new_peer_backend->state_ =
-        std::move(backend.state_->state[peer_backend->side_]);
+    absl::MutexLock lock(&new_peer_backend->mutex_);
+    new_peer_backend->state_ = std::move(peer_state);
+    new_peer_backend->routed_name_ = PortalName(PortalName::kRandom);
   }
 
   return {std::move(new_backend), std::move(new_peer_backend)};

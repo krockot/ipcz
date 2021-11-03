@@ -97,6 +97,8 @@ std::unique_ptr<BufferingPortalBackend> RoutedPortalBackend::StartBuffering() {
   // already routed our way but haven't arrived yet. it must stick around to
   // forward them to our destination once that's known.
 
+  new_backend->routed_name_ = name_;
+
   return new_backend;
 }
 

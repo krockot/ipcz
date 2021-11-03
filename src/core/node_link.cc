@@ -24,7 +24,6 @@ namespace {
 // Serialized representation of a Portal sent in a parcel. Implicitly the portal
 // in question is moving from the sending node to the receiving node.
 struct IPCZ_ALIGN(16) SerializedPortal {
-  internal::StructHeader header;
   PortalName moved_from;
   PortalName moved_to;
   Side side;
@@ -127,8 +126,6 @@ void NodeLink::SendParcel(const PortalName& destination, Parcel& parcel) {
 
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
     PortalInTransit& portal = parcel.portals_view()[i];
-    portals[i].header.size = sizeof(internal::StructHeader);
-    portals[i].header.version = 0;
     portals[i].moved_from = portal.local_name;
     portals[i].moved_to = portal.new_name;
     portals[i].side = portal.side;

@@ -59,12 +59,10 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   os::Memory control_block_memory(sizeof(PortalControlBlock));
   os::Memory::Mapping control_block_mapping = control_block_memory.Map();
 
-  // By convention, OpenRemotePortal creates a left-side portal.
-  //
   // Note that while the remote end may not actually be ready yet, we know it
-  // can't be moved elsewhere, so it's safe to begin routing parcels there.
-  // Worst case, it may be closed by the time they arrive and they'll be
-  // discarded.
+  // can't be moved elsewhere and it will be ready by the time any parcels
+  // arrive, so it's safe to begin routing parcels there. Worst case, it may be
+  // closed by the time they arrive and they'll be discarded.
   PortalControlBlock& control_block =
       PortalControlBlock::Initialize(control_block_mapping.base());
   memset(&control_block, 0, sizeof(control_block));
@@ -76,8 +74,8 @@ IpczResult Node::OpenRemotePortal(os::Channel channel,
   auto backend = std::make_unique<RoutedPortalBackend>(
       our_portal_name, link, their_portal_name, Side::kLeft,
       std::move(control_block_mapping));
-  mem::Ref<Portal> portal =
-      mem::MakeRefCounted<Portal>(*this, std::move(backend));
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
+      *this, std::move(backend), Portal::kNonTransferrable);
 
   msg::InviteNode invitation;
   invitation.params.protocol_version = msg::kProtocolVersion;
@@ -113,7 +111,8 @@ IpczResult Node::AcceptRemotePortal(os::Channel channel,
 
   // By convention, AcceptRemotePortal creates a right-side portal.
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(
-      *this, std::make_unique<BufferingPortalBackend>(Side::kRight));
+      *this, std::make_unique<BufferingPortalBackend>(Side::kRight),
+      Portal::kNonTransferrable);
 
   absl::MutexLock lock(&mutex_);
   if (broker_link_) {

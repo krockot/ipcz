@@ -79,8 +79,8 @@ class BufferingPortalBackend : public PortalBackend {
   const Side side_;
 
   absl::Mutex mutex_;
-  absl::optional<PortalName> routed_name_;
-  PortalBackendState state_;
+  absl::optional<PortalName> routed_name_ ABSL_GUARDED_BY(mutex_);
+  PortalBackendState state_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core
