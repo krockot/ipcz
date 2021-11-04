@@ -140,7 +140,9 @@ void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
   PortalLock lock(*this);
   ABSL_ASSERT(!forwarding_link_);
   forwarding_link_ = std::move(link);
-  for (Parcel& parcel : incoming_parcels_.TakeParcels()) {
+
+  Parcel parcel;
+  while (incoming_parcels_.Pop(parcel)) {
     SendParcelOnLink(*forwarding_link_, parcel);
   }
 }
@@ -148,9 +150,11 @@ void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
   PortalLock lock(*this);
+  if (!incoming_parcels_.Push(parcel)) {
+    return false;
+  }
   status_.num_local_bytes += parcel.data_view().size();
   status_.num_local_parcels += 1;
-  incoming_parcels_.push(std::move(parcel));
   traps_.MaybeNotify(dispatcher, status_);
   return true;
 }
@@ -358,14 +362,14 @@ IpczResult Portal::Get(void* data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  if (incoming_parcels_.empty()) {
+  if (!incoming_parcels_.HasNextParcel()) {
     if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& next_parcel = incoming_parcels_.front();
+  Parcel& next_parcel = incoming_parcels_.NextParcel();
   IpczResult result = IPCZ_RESULT_OK;
   uint32_t available_data_storage = num_data_bytes ? *num_data_bytes : 0;
   uint32_t available_portal_storage = num_portals ? *num_portals : 0;
@@ -389,7 +393,8 @@ IpczResult Portal::Get(void* data,
     return result;
   }
 
-  Parcel parcel = incoming_parcels_.pop();
+  Parcel parcel;
+  incoming_parcels_.Pop(parcel);
   status_.num_local_parcels -= 1;
   status_.num_local_bytes -= parcel.data_view().size();
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
@@ -409,14 +414,14 @@ IpczResult Portal::BeginGet(const void** data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
-  if (incoming_parcels_.empty()) {
+  if (!incoming_parcels_.HasNextParcel()) {
     if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& next_parcel = incoming_parcels_.front();
+  Parcel& next_parcel = incoming_parcels_.NextParcel();
   const size_t data_size = next_parcel.data_view().size();
   if (num_data_bytes) {
     *num_data_bytes = static_cast<uint32_t>(data_size);
@@ -450,7 +455,7 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  Parcel& next_parcel = incoming_parcels_.front();
+  Parcel& next_parcel = incoming_parcels_.NextParcel();
   const size_t data_size = next_parcel.data_view().size();
   if (num_data_bytes_consumed > data_size) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -471,12 +476,13 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
   }
 
   if (num_data_bytes_consumed == data_size) {
-    Parcel parcel = incoming_parcels_.pop();
+    Parcel parcel;
+    incoming_parcels_.Pop(parcel);
     status_.num_local_parcels -= 1;
     status_.num_local_bytes -= parcel.data_view().size();
     parcel.Consume(portals, os_handles);
   } else {
-    Parcel& parcel = incoming_parcels_.front();
+    Parcel& parcel = incoming_parcels_.NextParcel();
     status_.num_local_bytes -= num_data_bytes_consumed;
     parcel.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
   }
@@ -537,6 +543,10 @@ IpczResult Portal::DestroyTrap(IpczHandle trap) {
   return traps_.Remove(ToRef<Trap>(trap));
 }
 
+SequenceNumber Portal::GenerateOutgoingSequenceNumber() {
+  return next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool Portal::ValidatePortalsForTransitFromHere(
     absl::Span<PortalInTransit> portals_in_transit) {
   for (PortalInTransit& portal_in_transit : portals_in_transit) {
@@ -595,7 +605,12 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
     // we will essentially drop. We replace the PortalInTransit with our peer
     // after passing it any incoming state of ours.
     portal_in_transit.local_peer_before_transit = local_peer_;
-    local_peer_->outgoing_parcels_ = std::move(incoming_parcels_);
+
+    Parcel parcel;
+    while (incoming_parcels_.Pop(parcel)) {
+      local_peer_->outgoing_parcels_.push(std::move(parcel));
+    }
+
     local_peer_->status_.num_remote_parcels = status_.num_local_parcels;
     local_peer_->status_.num_remote_bytes = status_.num_remote_bytes;
     local_peer_->local_peer_.reset();
@@ -641,7 +656,7 @@ IpczResult Portal::ValidatePutLimits(size_t data_size,
 
   if (local_peer_) {
     local_peer_->mutex_.AssertHeld();
-    if (local_peer_->incoming_parcels_.size() >= max_queued_parcels) {
+    if (local_peer_->incoming_parcels_.GetSize() >= max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
     uint32_t queued_bytes = local_peer_->status_.num_local_bytes;
@@ -694,11 +709,11 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
         return IPCZ_RESULT_NOT_FOUND;
       }
 
-      Parcel parcel;
+      Parcel parcel(GenerateOutgoingSequenceNumber());
       parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
       parcel.SetPortals(std::move(portals));
       parcel.SetOSHandles(std::move(os_handles));
-      local_peer_->incoming_parcels_.push(std::move(parcel));
+      local_peer_->incoming_parcels_.Push(parcel);
       local_peer_->status_.num_local_parcels += 1;
       local_peer_->status_.num_local_bytes += data.size();
 
@@ -730,7 +745,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     }
   }
 
-  Parcel parcel;
+  Parcel parcel(GenerateOutgoingSequenceNumber());
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));

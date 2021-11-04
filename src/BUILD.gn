@@ -29,6 +29,8 @@ source_set("ipcz_sources") {
   public = [ "include/ipcz/ipcz.h" ]
 
   sources = [
+    "core/incoming_parcel_queue.cc",
+    "core/incoming_parcel_queue.h",
     "core/message_internal.cc",
     "core/message_internal.h",
     "core/message_macros/message_declaration_macros.h",
@@ -53,10 +55,10 @@ source_set("ipcz_sources") {
     "core/node_messages.h",
     "core/node_name.cc",
     "core/node_name.h",
+    "core/outgoing_parcel_queue.cc",
+    "core/outgoing_parcel_queue.h",
     "core/parcel.cc",
     "core/parcel.h",
-    "core/parcel_queue.cc",
-    "core/parcel_queue.h",
     "core/portal.cc",
     "core/portal.h",
     "core/portal_control_block.cc",
@@ -66,6 +68,7 @@ source_set("ipcz_sources") {
     "core/portal_link.cc",
     "core/portal_link.h",
     "core/route_id.h",
+    "core/sequence_number.h",
     "core/side.h",
     "core/trap.cc",
     "core/trap.h",
@@ -136,6 +139,7 @@ test("ipcz_tests") {
     "api/integration_tests/node_test.cc",
     "api/integration_tests/portal_transfer_test.cc",
     "api/integration_tests/remote_portal_test.cc",
+    "core/incoming_parcel_queue_test.cc",
     "mem/mpmc_queue_test.cc",
     "mem/mpsc_queue_test.cc",
     "mem/ref_counted_test.cc",

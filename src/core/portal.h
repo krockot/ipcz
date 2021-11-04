@@ -5,15 +5,18 @@
 #ifndef IPCZ_SRC_CORE_PORTAL_H_
 #define IPCZ_SRC_CORE_PORTAL_H_
 
+#include <atomic>
 #include <cstdint>
 #include <utility>
 
+#include "core/incoming_parcel_queue.h"
 #include "core/node.h"
+#include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
-#include "core/parcel_queue.h"
 #include "core/portal_in_transit.h"
 #include "core/portal_link.h"
 #include "core/route_id.h"
+#include "core/sequence_number.h"
 #include "core/side.h"
 #include "core/trap.h"
 #include "ipcz/ipcz.h"
@@ -129,6 +132,7 @@ class Portal : public mem::RefCounted {
   Portal(Side side, bool transferrable);
   ~Portal() override;
 
+  SequenceNumber GenerateOutgoingSequenceNumber();
   bool ValidatePortalsForTransitFromHere(
       absl::Span<PortalInTransit> portals_in_transit);
   static void PreparePortalsForTransit(
@@ -151,6 +155,9 @@ class Portal : public mem::RefCounted {
 
   const Side side_;
   const bool transferrable_;
+
+  // The next SequenceNumber to use for any outgoing parcel.
+  std::atomic<SequenceNumber> next_outgoing_sequence_number_{0};
 
   absl::Mutex mutex_;
 
@@ -203,13 +210,13 @@ class Portal : public mem::RefCounted {
   // Queue of incoming parcels that have yet to be read by the application. If
   // this portal has moved and receives parcels to be forwarded, those parcels
   // may also be queued here until we have an active link to forward them to.
-  ParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
+  IncomingParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
 
   // Queue of outgoing parcels to be sent out if and when the portal is given an
   // active link. Note that this queue is *always* empty if the portal's peer is
   // local, because in such cases, Put() operations directly manipulate the peer
   // portal's `incoming_parcels_` queue.
-  ParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+  OutgoingParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
 
   // The set of traps attached to this portal.
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);

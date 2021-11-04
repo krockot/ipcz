@@ -85,6 +85,57 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
   ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
 }
 
+TEST_F(RemotePortalTest, TransferManyLocalPortal) {
+  IpczHandle other_node;
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
+
+  os::Channel local, remote;
+  std::tie(local, remote) = os::Channel::CreateChannelPair();
+  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
+  IpczHandle b = AcceptRemotePortal(other_node, remote);
+
+  constexpr uint32_t kNumIterations = 1000;
+  for (uint32_t i = 0; i < kNumIterations; ++i) {
+    IpczHandle c, d;
+    ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &c, &d);
+    Put(a, "", {&d, 1}, {});
+
+    IpczHandle e, f;
+    ipcz.OpenPortals(other_node, IPCZ_NO_FLAGS, nullptr, &e, &f);
+    Put(b, "", {&f, 1}, {});
+
+    Put(c, "ya", {}, {});
+    Put(e, "na", {}, {});
+    ipcz.ClosePortal(c, IPCZ_NO_FLAGS, nullptr);
+    ipcz.ClosePortal(e, IPCZ_NO_FLAGS, nullptr);
+  }
+
+  for (uint32_t i = 0; i < kNumIterations; ++i) {
+    Parcel p;
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+    ASSERT_EQ(1u, p.portals.size());
+    IpczHandle f = p.portals[0];
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(f, p));
+    EXPECT_EQ("na", p.message);
+
+    Parcel q;
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, q));
+    ASSERT_EQ(1u, q.portals.size());
+    IpczHandle d = p.portals[0];
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, q));
+    EXPECT_EQ("ya", q.message);
+
+    ipcz.ClosePortal(d, IPCZ_NO_FLAGS, nullptr);
+    ipcz.ClosePortal(f, IPCZ_NO_FLAGS, nullptr);
+  }
+
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+
+  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+}
+
 const std::string kMultiprocessMessageFromA = "hello!";
 const std::string kMultiprocessMessageFromB = "hey hey";
 

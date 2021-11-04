@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/portal_in_transit.h"
+#include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -33,9 +34,13 @@ class Parcel {
   using PortalVector = absl::InlinedVector<PortalInTransit, 4>;
 
   Parcel();
+  explicit Parcel(SequenceNumber sequence_number);
   Parcel(Parcel&& other);
   Parcel& operator=(Parcel&& other);
   ~Parcel();
+
+  void set_sequence_number(SequenceNumber n) { sequence_number_ = n; }
+  SequenceNumber sequence_number() const { return sequence_number_; }
 
   void SetData(std::vector<uint8_t> data);
   void SetPortals(PortalVector portals);
@@ -63,6 +68,7 @@ class Parcel {
  private:
   void ConsumePortalsAndHandles(IpczHandle* portals, IpczOSHandle* os_handles);
 
+  SequenceNumber sequence_number_ = 0;
   std::vector<uint8_t> data_;
   PortalVector portals_;
   std::vector<os::Handle> os_handles_;

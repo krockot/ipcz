@@ -14,6 +14,9 @@ namespace core {
 
 Parcel::Parcel() = default;
 
+Parcel::Parcel(SequenceNumber sequence_number)
+    : sequence_number_(sequence_number) {}
+
 Parcel::Parcel(Parcel&& other) = default;
 
 Parcel& Parcel::operator=(Parcel&& other) = default;

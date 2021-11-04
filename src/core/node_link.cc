@@ -23,12 +23,21 @@ namespace {
 
 // Serialized representation of a Portal sent in a parcel. Implicitly the portal
 // in question is moving from the sending node to the receiving node.
-struct IPCZ_ALIGN(16) SerializedPortal {
+struct IPCZ_ALIGN(8) SerializedPortal {
   Side side;
   RouteId route;
 
   // TODO: provide an index into some NodeLink shared state where we can host a
   // corrpesonding PortalControlBlock.
+};
+
+struct IPCZ_ALIGN(8) AcceptParcelHeader {
+  internal::MessageHeader message_header;
+  RouteId route;
+  SequenceNumber sequence_number;
+  uint32_t num_bytes;
+  uint32_t num_portals;
+  uint32_t num_os_handles;
 };
 
 }  // namespace
@@ -149,24 +158,22 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   const size_t num_portals = parcel.portals_view().size();
   const size_t num_os_handles = parcel.os_handles_view().size();
   const size_t serialized_size =
-      sizeof(internal::MessageHeader) + sizeof(RouteId) + sizeof(uint32_t) * 3 +
-      parcel.data_view().size() + num_portals * sizeof(SerializedPortal) +
+      sizeof(AcceptParcelHeader) + parcel.data_view().size() +
+      num_portals * sizeof(SerializedPortal) +
       (num_os_handles + num_portals) * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
 
-  auto& header =
-      *reinterpret_cast<internal::MessageHeader*>(serialized_data.data());
-  header.size = sizeof(header);
-  header.message_id = msg::kAcceptParcelId;
-  auto& msg_route = *reinterpret_cast<RouteId*>(&header + 1);
-  msg_route = route;
-  auto* sizes = reinterpret_cast<uint32_t*>(&msg_route + 1);
-  sizes[0] = parcel.data_view().size();
-  sizes[1] = num_portals;
-  sizes[2] = num_os_handles + num_portals;
-  auto* data = reinterpret_cast<uint8_t*>(sizes + 3);
+  auto& header = *reinterpret_cast<AcceptParcelHeader*>(serialized_data.data());
+  header.message_header.size = sizeof(header.message_header);
+  header.message_header.message_id = msg::kAcceptParcelId;
+  header.route = route;
+  header.sequence_number = parcel.sequence_number();
+  header.num_bytes = parcel.data_view().size();
+  header.num_portals = num_portals;
+  header.num_os_handles = num_portals + num_os_handles;
+  auto* data = reinterpret_cast<uint8_t*>(&header + 1);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
+  auto* portals = reinterpret_cast<SerializedPortal*>(data + header.num_bytes);
 
   RouteId first_new_route;
   {
@@ -388,18 +395,16 @@ bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
 }
 
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
-  if (m.data.size() < sizeof(internal::MessageHeader)) {
+  if (m.data.size() < sizeof(AcceptParcelHeader)) {
     return false;
   }
 
   const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(m.data.data());
-  const auto& route = *reinterpret_cast<const RouteId*>(&header + 1);
-  auto* sizes = reinterpret_cast<const uint32_t*>(&route + 1);
-  const uint32_t num_bytes = sizes[0];
-  const uint32_t num_portals = sizes[1];
-  const uint32_t num_os_handles = sizes[2];
-  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
+      *reinterpret_cast<const AcceptParcelHeader*>(m.data.data());
+  const uint32_t num_bytes = header.num_bytes;
+  const uint32_t num_portals = header.num_portals;
+  const uint32_t num_os_handles = header.num_os_handles;
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&header + 1);
   const auto* portals =
       reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
 
@@ -444,12 +449,12 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   }
 
   TrapEventDispatcher dispatcher;
-  Parcel parcel;
+  Parcel parcel(header.sequence_number);
   parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
   parcel.SetPortals(std::move(portals_in_transit));
   parcel.SetOSHandles(std::move(os_handles));
 
-  mem::Ref<Portal> receiver = GetPortalForRoute(route);
+  mem::Ref<Portal> receiver = GetPortalForRoute(header.route);
   if (!receiver) {
     return true;
   }
