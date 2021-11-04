@@ -182,9 +182,9 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     portals[i].route = first_new_route + i;
 
     os::Memory control_block_memory(sizeof(PortalControlBlock));
-    os::Memory::Mapping control_block_mapping = control_block_memory.Map();
-    PortalControlBlock::Initialize(control_block_mapping.base());
-    portal.control_block_mapping = std::move(control_block_mapping);
+    os::Memory::Mapping control_block = control_block_memory.Map();
+    PortalControlBlock::Initialize(control_block.base());
+    portal.control_block = std::move(control_block);
     os_handles.push_back(control_block_memory.TakeHandle());
 
     // TODO: populate OSHandleData too
@@ -387,6 +387,7 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
   const auto* portals =
       reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
+
   // const auto* handle_data =
   //     reinterpret_cast<const internal::OSHandleData*>(portals + num_portals);
   if (num_os_handles < num_portals) {
@@ -411,13 +412,13 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
       portals_in_transit[i].route = route;
-      portals_in_transit[i].control_block_mapping = control_block_memory.Map();
+      portals_in_transit[i].control_block = control_block_memory.Map();
     }
   }
 
   for (PortalInTransit& portal : portals_in_transit) {
     portal.portal->SetPeerLink(mem::WrapRefCounted(this), *portal.route,
-                               std::move(portal.control_block_mapping));
+                               std::move(portal.control_block));
   }
 
   std::vector<os::Handle> os_handles;

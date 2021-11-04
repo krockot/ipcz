@@ -45,10 +45,10 @@ class Portal : public mem::RefCounted {
 
   void SetPeerLink(mem::Ref<NodeLink> link,
                    RouteId route,
-                   os::Memory::Mapping control_block_mapping);
+                   os::Memory::Mapping control_block);
   void SetForwardingLink(mem::Ref<NodeLink> link,
                          RouteId route,
-                         os::Memory::Mapping control_block_mapping);
+                         os::Memory::Mapping control_block);
 
   // Accepts a parcel that was routed here by a NodeLink. If this parcel receipt
   // triggers any trap events, they'll be added to `dispatcher` for imminent

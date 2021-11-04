@@ -79,14 +79,14 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
 
 void Portal::SetPeerLink(mem::Ref<NodeLink> link,
                          RouteId route,
-                         os::Memory::Mapping control_block_mapping) {
+                         os::Memory::Mapping control_block) {
   PortalLock lock(*this);
   ABSL_ASSERT(!local_peer_);
   ABSL_ASSERT(!peer_link_);
 
   bool remote_portal_closed = false;
   {
-    PortalControlBlock::Locked control(control_block_mapping, side_);
+    PortalControlBlock::Locked control(control_block, side_);
     PortalControlBlock::QueueState& our_queue_state =
         control.this_side().queue_state;
     if (closed_) {
@@ -134,7 +134,7 @@ void Portal::SetPeerLink(mem::Ref<NodeLink> link,
   // attachments locally.
   peer_link_ = std::move(link);
   peer_route_ = route;
-  peer_control_block_ = std::move(control_block_mapping);
+  peer_control_block_ = std::move(control_block);
   for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
     peer_link_->SendParcel(peer_route_, parcel);
   }
@@ -142,12 +142,12 @@ void Portal::SetPeerLink(mem::Ref<NodeLink> link,
 
 void Portal::SetForwardingLink(mem::Ref<NodeLink> link,
                                RouteId route,
-                               os::Memory::Mapping control_block_mapping) {
+                               os::Memory::Mapping control_block) {
   // TODO: actually do the right things here
   PortalLock lock(*this);
   forwarding_link_ = std::move(link);
   forwarding_route_ = route;
-  forwarding_control_block_ = std::move(control_block_mapping);
+  forwarding_control_block_ = std::move(control_block);
 }
 
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
@@ -628,8 +628,6 @@ void Portal::FinalizeAfterTransit(PortalInTransit& portal_in_transit) {
   // `portal_in_transit` specifies the `route` for the new portal, if it was
   // transmitted over a NodeLink.
   if (portal_in_transit.route) {
-    // TODO: set up `peer_link_`.
-    LOG(ERROR) << "need to set up peer_link_!";
   }
 }
 
