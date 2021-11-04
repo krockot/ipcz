@@ -46,7 +46,7 @@ struct PortalControlBlock {
 
   class Locked {
    public:
-    Locked(os::Memory::Mapping& block_mapping, Side side);
+    Locked(const os::Memory::Mapping& block_mapping, Side side);
     Locked(PortalControlBlock& block, Side side);
     ~Locked();
 

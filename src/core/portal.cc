@@ -77,16 +77,14 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
   return {std::move(left), std::move(right)};
 }
 
-void Portal::SetPeerLink(mem::Ref<NodeLink> link,
-                         RouteId route,
-                         os::Memory::Mapping control_block) {
+void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
   PortalLock lock(*this);
   ABSL_ASSERT(!local_peer_);
   ABSL_ASSERT(!peer_link_);
 
   bool remote_portal_closed = false;
   {
-    PortalControlBlock::Locked control(control_block, side_);
+    PortalControlBlock::Locked control(link->control_block(), side_);
     PortalControlBlock::QueueState& our_queue_state =
         control.this_side().queue_state;
     if (closed_) {
@@ -133,21 +131,18 @@ void Portal::SetPeerLink(mem::Ref<NodeLink> link,
   // in case something goes wrong and we end up discarding (and closing) portal
   // attachments locally.
   peer_link_ = std::move(link);
-  peer_route_ = route;
-  peer_control_block_ = std::move(control_block);
   for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
-    peer_link_->SendParcel(peer_route_, parcel);
+    SendParcelOnLink(*peer_link_, parcel);
   }
 }
 
-void Portal::SetForwardingLink(mem::Ref<NodeLink> link,
-                               RouteId route,
-                               os::Memory::Mapping control_block) {
-  // TODO: actually do the right things here
+void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
   PortalLock lock(*this);
+  ABSL_ASSERT(!forwarding_link_);
   forwarding_link_ = std::move(link);
-  forwarding_route_ = route;
-  forwarding_control_block_ = std::move(control_block);
+  for (Parcel& parcel : incoming_parcels_.TakeParcels()) {
+    SendParcelOnLink(*forwarding_link_, parcel);
+  }
 }
 
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
@@ -200,10 +195,10 @@ IpczResult Portal::Close() {
     // redundant work on the peer's end.
     if (peer_link_) {
       {
-        PortalControlBlock::Locked control(peer_control_block_, side_);
+        PortalControlBlock::Locked control(peer_link_->control_block(), side_);
         control.this_side().status = PortalControlBlock::Status::kClosed;
       }
-      peer_link_->SendPeerClosed(peer_route_);
+      peer_link_->NotifyClosed();
     }
 
     for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
@@ -271,7 +266,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
   }
 
   if (peer_link_) {
-    PortalControlBlock::Locked control(peer_control_block_, side_);
+    PortalControlBlock::Locked control(peer_link_->control_block(), side_);
     if (control.other_side().status == PortalControlBlock::Status::kClosed) {
       return IPCZ_RESULT_NOT_FOUND;
     }
@@ -597,15 +592,17 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
   if (local_peer_) {
     // We are part of a local portal pair that now must be split up and left to
     // buffer until transit is complete.
-
-    local_peer_->local_peer_.reset();
+    local_peer_->outgoing_parcels_ = std::move(incoming_parcels_);
+    local_peer_->status_.num_remote_bytes = status_.num_local_bytes;
+    local_peer_->status_.num_remote_parcels = status_.num_local_parcels;
+    local_peer_->local_peer_ = nullptr;
     portal_in_transit.local_peer_before_transit = std::move(local_peer_);
     return;
   }
 
   if (peer_link_) {
     // TODO: more shared state mgmt
-    PortalControlBlock::Locked control(peer_control_block_, side_);
+    PortalControlBlock::Locked control(peer_link_->control_block(), side_);
     control.this_side().status = PortalControlBlock::Status::kMoved;
   }
 }
@@ -622,13 +619,12 @@ void Portal::RestoreFromCancelledTransit(PortalInTransit& portal_in_transit) {
 }
 
 void Portal::FinalizeAfterTransit(PortalInTransit& portal_in_transit) {
-  // TODO: set up forwarding link to destination node, lock in shared state for
-  // peer to stop sending us messages and find the new destination.
-  //
-  // `portal_in_transit` specifies the `route` for the new portal, if it was
-  // transmitted over a NodeLink.
-  if (portal_in_transit.route) {
+  if (!portal_in_transit.link) {
+    // Must have been a local transfer, so nothing to change on the portal.
+    return;
   }
+
+  // TODO: set up forwarding link and forward any incoming messages
 }
 
 IpczResult Portal::ValidatePutLimits(size_t data_size,
@@ -681,8 +677,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
                            std::vector<os::Handle>& os_handles,
                            const IpczPutLimits* limits,
                            bool is_two_phase_commit) {
-  mem::Ref<NodeLink> peer_link;
-  RouteId peer_route;
+  mem::Ref<PortalLink> peer_link;
   {
     PortalLock lock(*this);
     if (pending_parcel_ && !is_two_phase_commit) {
@@ -718,7 +713,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       bool peer_moved = false;
       PortalControlBlock::Status peer_status;
       {
-        PortalControlBlock::Locked control(peer_control_block_, side_);
+        PortalControlBlock::Locked control(peer_link_->control_block(), side_);
         PortalControlBlock::QueueState& queue_state =
             control.this_side().queue_state;
         peer_status = control.other_side().status;
@@ -733,7 +728,6 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
 
       if (!peer_moved) {
         peer_link = peer_link_;
-        peer_route = peer_route_;
       }
     }
   }
@@ -745,7 +739,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
 
   if (peer_link) {
     PreparePortalsForTransit(parcel.portals_view());
-    peer_link->SendParcel(peer_route, parcel);
+    peer_link->SendParcel(parcel);
     return IPCZ_RESULT_OK;
   }
 
@@ -754,8 +748,13 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     PortalLock lock(*this);
     outgoing_parcels_.push(std::move(parcel));
   }
-
   return IPCZ_RESULT_OK;
+}
+
+void Portal::SendParcelOnLink(PortalLink& link, Parcel& parcel) {
+  PreparePortalsForTransit(parcel.portals_view());
+  link.SendParcel(parcel);
+  FinalizePortalsAfterTransit(parcel.portals_view());
 }
 
 Portal::PortalLock::PortalLock(Portal& portal) : portal_(portal) {

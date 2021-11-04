@@ -14,7 +14,7 @@ PortalControlBlock::SideState::SideState() = default;
 
 PortalControlBlock::SideState::~SideState() = default;
 
-PortalControlBlock::Locked::Locked(os::Memory::Mapping& block_mapping,
+PortalControlBlock::Locked::Locked(const os::Memory::Mapping& block_mapping,
                                    Side side)
     : side_(side), block_(*block_mapping.As<PortalControlBlock>()) {}
 

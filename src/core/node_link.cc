@@ -12,7 +12,6 @@
 #include "core/portal.h"
 #include "core/portal_control_block.h"
 #include "core/trap_event_dispatcher.h"
-#include "debug/log.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
@@ -95,7 +94,8 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
          return true;
        });
 
-  portal->SetPeerLink(mem::WrapRefCounted(this), route, std::move(control));
+  portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
+      mem::WrapRefCounted(this), route, std::move(control)));
   return portal;
 }
 
@@ -177,17 +177,20 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   std::vector<os::Handle> os_handles;
   os_handles.reserve(num_os_handles + num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
+    const RouteId route = first_new_route + i;
     PortalInTransit& portal = parcel.portals_view()[i];
     portals[i].side = portal.side;
-    portals[i].route = first_new_route + i;
+    portals[i].route = route;
 
     os::Memory control_block_memory(sizeof(PortalControlBlock));
     os::Memory::Mapping control_block = control_block_memory.Map();
     PortalControlBlock::Initialize(control_block.base());
-    portal.control_block = std::move(control_block);
     os_handles.push_back(control_block_memory.TakeHandle());
-
     // TODO: populate OSHandleData too
+
+    // Set up a forwarding link to be adopted in Portal::FinalizeAfterTransit().
+    portal.link = mem::MakeRefCounted<PortalLink>(
+        mem::WrapRefCounted(this), route, std::move(control_block));
   }
 
   auto* handle_data =
@@ -355,8 +358,8 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
     // outgoing parcels.
     os::Memory control_block(std::move(m.handles.control_block_memory),
                              sizeof(PortalControlBlock));
-    portal->SetPeerLink(mem::WrapRefCounted(this), m.params.route,
-                        control_block.Map());
+    portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
+        mem::WrapRefCounted(this), m.params.route, control_block.Map()));
   }
   return true;
 }
@@ -411,14 +414,15 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
                                       sizeof(PortalControlBlock));
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
-      portals_in_transit[i].route = route;
-      portals_in_transit[i].control_block = control_block_memory.Map();
+
+      // Set up a new peer link to be adopted by this portal below.
+      portals_in_transit[i].link = mem::MakeRefCounted<PortalLink>(
+          mem::WrapRefCounted(this), route, control_block_memory.Map());
     }
   }
 
   for (PortalInTransit& portal : portals_in_transit) {
-    portal.portal->SetPeerLink(mem::WrapRefCounted(this), *portal.route,
-                               std::move(portal.control_block));
+    portal.portal->SetPeerLink(std::move(portal.link));
   }
 
   std::vector<os::Handle> os_handles;

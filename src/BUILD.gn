@@ -63,6 +63,8 @@ source_set("ipcz_sources") {
     "core/portal_control_block.h",
     "core/portal_in_transit.cc",
     "core/portal_in_transit.h",
+    "core/portal_link.cc",
+    "core/portal_link.h",
     "core/route_id.h",
     "core/side.h",
     "core/trap.cc",

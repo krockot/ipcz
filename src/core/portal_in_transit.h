@@ -14,8 +14,8 @@
 namespace ipcz {
 namespace core {
 
-class NodeLink;
 class Portal;
+class PortalLink;
 
 struct PortalInTransit {
   PortalInTransit();
@@ -28,12 +28,12 @@ struct PortalInTransit {
 
   // The route assigned to this portal along the transmitting NodeLink, if the
   // parcel carring this portal was actually transmitted. On the receiving side
-  // of portal transit, this is the peer link and route. On the sending side
-  // (after NodeLink::SendParcel completes) this is the forwarding link, route,
-  // and control block.
-  mem::Ref<NodeLink> link;
-  absl::optional<RouteId> route;
-  os::Memory::Mapping control_block;
+  // of portal transit this is deserialized as the peer link.
+  //
+  // On the sending side (after serialization and parcel transmission) this is
+  // the forwarding link. See Portal::FinishAfterTransit() for how it's used in
+  // that case.
+  mem::Ref<PortalLink> link;
 
   // The portal's local peer prior to initiating transit. Transit may be
   // cancelled before the containing parcel is shipped off, and if this portal

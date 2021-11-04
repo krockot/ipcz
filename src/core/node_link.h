@@ -163,7 +163,7 @@ class NodeLink : public mem::RefCounted {
   absl::flat_hash_map<RouteId, mem::Ref<Portal>> routes_
       ABSL_GUARDED_BY(mutex_);
   mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
-  os::Memory::Mapping link_state_mapping_;
+  os::Memory::Mapping link_state_mapping_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

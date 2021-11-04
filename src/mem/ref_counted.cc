@@ -18,10 +18,9 @@ void RefCounted::AcquireRef() {
 }
 
 void RefCounted::ReleaseRef() {
-  uint64_t last_count = ref_count_.fetch_sub(1, std::memory_order_release);
+  uint64_t last_count = ref_count_.fetch_sub(1, std::memory_order_acq_rel);
   ABSL_ASSERT(last_count > 0);
   if (last_count == 1) {
-    std::atomic_thread_fence(std::memory_order_acquire);
     delete this;
   }
 }

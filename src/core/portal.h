@@ -12,6 +12,7 @@
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/portal_in_transit.h"
+#include "core/portal_link.h"
 #include "core/route_id.h"
 #include "core/side.h"
 #include "core/trap.h"
@@ -43,12 +44,8 @@ class Portal : public mem::RefCounted {
 
   Side side() const { return side_; }
 
-  void SetPeerLink(mem::Ref<NodeLink> link,
-                   RouteId route,
-                   os::Memory::Mapping control_block);
-  void SetForwardingLink(mem::Ref<NodeLink> link,
-                         RouteId route,
-                         os::Memory::Mapping control_block);
+  void SetPeerLink(mem::Ref<PortalLink> link);
+  void SetForwardingLink(mem::Ref<PortalLink> link);
 
   // Accepts a parcel that was routed here by a NodeLink. If this parcel receipt
   // triggers any trap events, they'll be added to `dispatcher` for imminent
@@ -138,6 +135,7 @@ class Portal : public mem::RefCounted {
                      std::vector<os::Handle>& os_handles,
                      const IpczPutLimits* limits,
                      bool is_two_phase_commit);
+  void SendParcelOnLink(PortalLink& link, Parcel& parcel);
 
   const Side side_;
   const bool transferrable_;
@@ -151,26 +149,15 @@ class Portal : public mem::RefCounted {
   mem::Ref<Portal> local_peer_ ABSL_GUARDED_BY(mutex_);
 
   // `peer_link_` is non-null if and only if this Portal may actively transmit
-  // its outgoing parcels to that NodeLink on the given `route_`. In this case,
-  // the corresponding PortalControlBlock is also mapped by
-  // `peer_control_block_`. When `peer_link_` is null, both `peer_route_` and
-  // `peer_control_block_` are unused.
-  mem::Ref<NodeLink> peer_link_ ABSL_GUARDED_BY(mutex_);
-  RouteId peer_route_ ABSL_GUARDED_BY(mutex_);
-  os::Memory::Mapping peer_control_block_ ABSL_GUARDED_BY(mutex_);
+  // its outgoing parcels to a known peer on another node.
+  mem::Ref<PortalLink> peer_link_ ABSL_GUARDED_BY(mutex_);
 
   // `forwarding_link_` is non-null if and only iff this Portal has been moved
   // and is still hanging around to forward one or more expected incoming
-  // parcels. Such parcels when received are forwarded to `forwarding_link_` on
-  // `forwarding_route_`, and the corresponding PortalControlBlock is mapped by
-  // `forwarding_control_block_`. When `forwarding_link_` is null, both
-  // `forwarding_route_` and `forwarding_control_block_` are unused.
-  //
-  // TODO: This collection of state is suspiciously like the peer state above.
-  // Probably there's a common abstraction to cut out of this. (a PortalLink?)
-  mem::Ref<NodeLink> forwarding_link_ ABSL_GUARDED_BY(mutex_);
-  RouteId forwarding_route_ ABSL_GUARDED_BY(mutex_);
-  os::Memory::Mapping forwarding_control_block_ ABSL_GUARDED_BY(mutex_);
+  // parcels. Such parcels when received are forwarded via `forwarding_link_`
+  // the node which accepted this moved portal. Once all expected incoming
+  // messages have been received and forwarded, this portal can be destroyed.
+  mem::Ref<PortalLink> forwarding_link_ ABSL_GUARDED_BY(mutex_);
 
   // Tracks whether this portal has been explicitly closed. Closed portals are
   // not meant to be used further by any APIs.

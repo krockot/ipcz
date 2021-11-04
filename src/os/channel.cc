@@ -139,6 +139,8 @@ void Channel::Listen(MessageHandler handler) {
   if (read_buffer_.empty()) {
     read_buffer_.resize(kMaxDataSize);
     unread_data_ = absl::Span<uint8_t>(read_buffer_.data(), 0);
+    handle_buffer_.resize(4);
+    unread_handles_ = absl::Span<os::Handle>(handle_buffer_.data(), 0);
   }
 
   Event shutdown_event;
@@ -282,22 +284,25 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
           ABSL_ASSERT(payload_length % sizeof(int) == 0);
           size_t num_fds = payload_length / sizeof(int);
           const int* fds = reinterpret_cast<int*>(CMSG_DATA(cmsg));
-          size_t unread_handle_offset =
-              (unread_handles_.data() - handle_buffer_.data()) /
-              sizeof(os::Handle);
-          for (size_t i = 0; i < num_fds; ++i) {
-            handle_buffer_.emplace_back(fds[i]);
+          const size_t unread_handles_offset =
+              unread_handles_.data() - handle_buffer_.data();
+          if (unread_handles_offset + unread_handles_.size() + num_fds >
+              handle_buffer_.size()) {
+            handle_buffer_.resize(std::max(handle_buffer_.size() * 2,
+                                           handle_buffer_.size() + num_fds));
           }
-          unread_handles_ = absl::Span<os::Handle>(
-              handle_buffer_.data() + unread_handle_offset,
-              unread_handles_.size() + num_fds);
+          absl::Span<os::Handle> new_handles(
+              handle_buffer_.data() + unread_handles_.size(), num_fds);
+          unread_handles_ = {handle_buffer_.data() + unread_handles_offset,
+                             unread_handles_.size() + num_fds};
+          for (size_t i = 0; i < num_fds; ++i) {
+            new_handles[i] = os::Handle(fds[i]);
+          }
         }
       }
       ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
     }
 
-    // TODO: this is a mega hack - decide if we want to frame here or in
-    // NodeLink, will determine message structure layering
     while (unread_data_.size() >= 8) {
       uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
       if (unread_data_.size() < header_data[0] ||
