@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_PORTAL_CONTROL_BLOCK_H_
-#define IPCZ_SRC_CORE_PORTAL_CONTROL_BLOCK_H_
+#ifndef IPCZ_SRC_CORE_PORTAL_LINK_STATE_
+#define IPCZ_SRC_CORE_PORTAL_LINK_STATE_
 
 #include <atomic>
 
@@ -14,8 +14,10 @@ namespace ipcz {
 namespace core {
 
 // Structure which lives in shared memory and is used by both ends of an
-// entangled portal pair to synchronously query and reflect portal state.
-struct PortalControlBlock {
+// entangled portal pair to synchronously query and reflect portal state. Note
+// that each instance of this structure is only shared between at most two
+// non-broker nodes. It may also be shared with the broker (TODO: maybe?)
+struct PortalLinkState {
   // Conveys the basic status of one of the portals.
   enum Status : uint8_t {
     // The portal is ready to receive messages.
@@ -26,6 +28,9 @@ struct PortalControlBlock {
 
     // The portal has been shipped off to another node somewhere and cannot
     // accept new messages at the moment.
+    //
+    // TODO: in this state we need to also expose a key that can be used by our
+    // peer to unlock the new portal
     kMoved,
   };
 
@@ -44,30 +49,28 @@ struct PortalControlBlock {
     QueueState queue_state;
   };
 
+  // Provides guarded access to this PortalLinkState's data. Note that access is
+  // guarded only by a spinlock, so keep accesses   brief.
   class Locked {
    public:
-    Locked(const os::Memory::Mapping& block_mapping, Side side);
-    Locked(PortalControlBlock& block, Side side);
+    Locked(const os::Memory::Mapping& link_state_mapping, Side side);
+    Locked(PortalLinkState& link_state, Side side);
     ~Locked();
 
-    SideState& this_side() { return block_.sides_[side_]; }
-    SideState& other_side() { return block_.sides_[Opposite(side_)]; }
+    SideState& this_side() { return link_state_.sides_[side_]; }
+    SideState& other_side() { return link_state_.sides_[Opposite(side_)]; }
 
    private:
     const Side side_;
-    PortalControlBlock& block_;
+    PortalLinkState& link_state_;
   };
 
-  PortalControlBlock();
-  ~PortalControlBlock();
+  PortalLinkState();
+  ~PortalLinkState();
 
-  // Initializes a new PortalControlBlock at a given memory address and returns
-  // a reference to it.
-  static PortalControlBlock& Initialize(void* where);
-
-  SideState& unsafe_side(Side side) { return sides_[side]; }
-
-  SideState& unsafe_opposite(Side side) { return sides_[Opposite(side)]; }
+  // Initializes a new PortalLinkState at a given memory address and returns a
+  // reference to it.
+  static PortalLinkState& Initialize(void* where);
 
  private:
   void Lock();
@@ -85,4 +88,4 @@ struct PortalControlBlock {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_PORTAL_CONTROL_BLOCK_H_
+#endif  // IPCZ_SRC_CORE_PORTAL_LINK_STATE_

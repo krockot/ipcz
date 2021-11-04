@@ -6,7 +6,7 @@
 #define IPCZ_SRC_CORE_PORTAL_LINK_H_
 
 #include "core/node_link.h"
-#include "core/portal_control_block.h"
+#include "core/portal_link_state.h"
 #include "core/route_id.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
@@ -24,11 +24,11 @@ class PortalLink : public mem::RefCounted {
  public:
   PortalLink(mem::Ref<NodeLink> node,
              RouteId route,
-             os::Memory::Mapping control_block);
+             os::Memory::Mapping link_state);
 
   NodeLink& node() const { return *node_; }
   RouteId route() const { return route_; }
-  const os::Memory::Mapping& control_block() const { return control_block_; }
+  const os::Memory::Mapping& link_state() const { return link_state_; }
 
   void SendParcel(Parcel& parcel);
   void NotifyClosed();
@@ -38,7 +38,7 @@ class PortalLink : public mem::RefCounted {
 
   const mem::Ref<NodeLink> node_;
   const RouteId route_;
-  const os::Memory::Mapping control_block_;
+  const os::Memory::Mapping link_state_;
 };
 
 }  // namespace core

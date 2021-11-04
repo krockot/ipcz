@@ -11,7 +11,7 @@
 #include "core/node.h"
 #include "core/node_link.h"
 #include "core/parcel.h"
-#include "core/portal_control_block.h"
+#include "core/portal_link_state.h"
 #include "core/trap.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
@@ -84,17 +84,17 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
 
   bool remote_portal_closed = false;
   {
-    PortalControlBlock::Locked control(link->control_block(), side_);
-    PortalControlBlock::QueueState& our_queue_state =
-        control.this_side().queue_state;
+    PortalLinkState::Locked link_state(link->link_state(), side_);
+    PortalLinkState::QueueState& our_queue_state =
+        link_state.this_side().queue_state;
     if (closed_) {
       // Inform the other side ASAP that we're closed.
-      control.this_side().status = PortalControlBlock::Status::kClosed;
+      link_state.this_side().status = PortalLinkState::Status::kClosed;
     }
-    // TODO: extract incoming parcel expectations from control block? if the
+    // TODO: extract incoming parcel expectations from the link state? if the
     // remote end has outgoing messages in flight for us,
-    switch (control.other_side().status) {
-      case PortalControlBlock::Status::kReady:
+    switch (link_state.other_side().status) {
+      case PortalLinkState::Status::kReady:
         // Ensure that a ready peer's node will retain necessary state long
         // enough to forward the parcels we're about to flush to it, even if
         // the destination portal moves before those parcels arrive.
@@ -102,11 +102,11 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
         our_queue_state.num_sent_bytes += status_.num_remote_bytes;
         break;
 
-      case PortalControlBlock::Status::kClosed:
+      case PortalLinkState::Status::kClosed:
         remote_portal_closed = true;
         break;
 
-      case PortalControlBlock::Status::kMoved:
+      case PortalLinkState::Status::kMoved:
         // Don't set the peer link since the peer has already moved.
         // TODO: extract a NodeName and route key from shared state so we can
         // get ourselves hooked up to the new peer location.
@@ -199,8 +199,8 @@ IpczResult Portal::Close() {
     // redundant work on the peer's end.
     if (peer_link_) {
       {
-        PortalControlBlock::Locked control(peer_link_->control_block(), side_);
-        control.this_side().status = PortalControlBlock::Status::kClosed;
+        PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
+        link_state.this_side().status = PortalLinkState::Status::kClosed;
       }
       peer_link_->NotifyClosed();
     }
@@ -270,8 +270,8 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
   }
 
   if (peer_link_) {
-    PortalControlBlock::Locked control(peer_link_->control_block(), side_);
-    if (control.other_side().status == PortalControlBlock::Status::kClosed) {
+    PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
+    if (link_state.other_side().status == PortalLinkState::Status::kClosed) {
       return IPCZ_RESULT_NOT_FOUND;
     }
 
@@ -620,8 +620,8 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
 
   if (peer_link_) {
     // TODO: more shared state mgmt
-    PortalControlBlock::Locked control(peer_link_->control_block(), side_);
-    control.this_side().status = PortalControlBlock::Status::kMoved;
+    PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
+    link_state.this_side().status = PortalLinkState::Status::kMoved;
   }
 }
 
@@ -724,17 +724,17 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
 
     if (peer_link_) {
       bool peer_moved = false;
-      PortalControlBlock::Status peer_status;
+      PortalLinkState::Status peer_status;
       {
-        PortalControlBlock::Locked control(peer_link_->control_block(), side_);
-        PortalControlBlock::QueueState& queue_state =
-            control.this_side().queue_state;
-        peer_status = control.other_side().status;
-        if (peer_status == PortalControlBlock::Status::kReady) {
+        PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
+        PortalLinkState::QueueState& queue_state =
+            link_state.this_side().queue_state;
+        peer_status = link_state.other_side().status;
+        if (peer_status == PortalLinkState::Status::kReady) {
           queue_state.num_sent_parcels += 1;
-        } else if (peer_status == PortalControlBlock::Status::kClosed) {
+        } else if (peer_status == PortalLinkState::Status::kClosed) {
           return IPCZ_RESULT_NOT_FOUND;
-        } else if (peer_status == PortalControlBlock::Status::kMoved) {
+        } else if (peer_status == PortalLinkState::Status::kMoved) {
           peer_moved = true;
         }
       }

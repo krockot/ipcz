@@ -10,7 +10,7 @@
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/portal.h"
-#include "core/portal_control_block.h"
+#include "core/portal_link_state.h"
 #include "core/trap_event_dispatcher.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -28,7 +28,8 @@ struct IPCZ_ALIGN(8) SerializedPortal {
   RouteId route;
 
   // TODO: provide an index into some NodeLink shared state where we can host a
-  // corrpesonding PortalControlBlock.
+  // corrpesonding PortalLinkState. for now we allocate a separate shared region
+  // for every PortalLinkState, which is not a good idea.
 };
 
 struct IPCZ_ALIGN(8) AcceptParcelHeader {
@@ -62,14 +63,15 @@ void NodeLink::Listen() {
 
 mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
                                   const NodeName& remote_name) {
-  os::Memory control_block(sizeof(PortalControlBlock));
-  os::Memory::Mapping control = control_block.Map();
-  PortalControlBlock::Initialize(control.base());
+  os::Memory portal_link_state_memory(sizeof(PortalLinkState));
+  os::Memory::Mapping portal_link_state_mapping =
+      portal_link_state_memory.Map();
+  PortalLinkState::Initialize(portal_link_state_mapping.base());
 
-  os::Memory link_state_memory(sizeof(NodeLinkState));
-  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
-  NodeLinkState& link_state =
-      NodeLinkState::Initialize(link_state_mapping.base());
+  os::Memory node_link_state_memory(sizeof(NodeLinkState));
+  os::Memory::Mapping node_link_state_mapping = node_link_state_memory.Map();
+  NodeLinkState& node_link_state =
+      NodeLinkState::Initialize(node_link_state_mapping.base());
 
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kLeft);
   RouteId route;
@@ -77,17 +79,19 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
   {
     absl::MutexLock lock(&mutex_);
     do {
-      route = link_state.AllocateRoutes(1);
+      route = node_link_state.AllocateRoutes(1);
     } while (!AssignRoute(route, portal));
     local_name_ = local_name;
     remote_name_ = remote_name;
-    link_state_mapping_ = std::move(link_state_mapping);
+    link_state_mapping_ = std::move(node_link_state_mapping);
     invitation.params.protocol_version = msg::kProtocolVersion;
     invitation.params.source_name = local_name;
     invitation.params.target_name = remote_name;
     invitation.params.route = route;
-    invitation.handles.control_block_memory = control_block.TakeHandle();
-    invitation.handles.link_state_memory = link_state_memory.TakeHandle();
+    invitation.handles.node_link_state_memory =
+        node_link_state_memory.TakeHandle();
+    invitation.handles.portal_link_state_memory =
+        portal_link_state_memory.TakeHandle();
   }
 
   Send(invitation,
@@ -104,7 +108,7 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
        });
 
   portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(this), route, std::move(control)));
+      mem::WrapRefCounted(this), route, std::move(portal_link_state_mapping)));
   return portal;
 }
 
@@ -189,17 +193,17 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     portals[i].side = portal.side;
     portals[i].route = route;
 
-    os::Memory control_block_memory(sizeof(PortalControlBlock));
-    os::Memory::Mapping control_block = control_block_memory.Map();
-    PortalControlBlock::Initialize(control_block.base());
-    os_handles.push_back(control_block_memory.TakeHandle());
+    os::Memory link_state_memory(sizeof(PortalLinkState));
+    os::Memory::Mapping link_state = link_state_memory.Map();
+    PortalLinkState::Initialize(link_state.base());
+    os_handles.push_back(link_state_memory.TakeHandle());
     // TODO: populate OSHandleData too
 
     // If we had a local peer before this transmission, that local peer will
     // adopt this link as its peer link. Otherwise we will adopt it as our own
     // forwarding link.
     mem::Ref<PortalLink> link = mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), route, std::move(control_block));
+        mem::WrapRefCounted(this), route, std::move(link_state));
     if (portal.local_peer_before_transit) {
       {
         absl::MutexLock lock(&mutex_);
@@ -342,7 +346,7 @@ bool NodeLink::OnReply(os::Channel::Message message) {
 }
 
 bool NodeLink::OnInviteNode(msg::InviteNode& m) {
-  os::Memory link_state_memory(std::move(m.handles.link_state_memory),
+  os::Memory link_state_memory(std::move(m.handles.node_link_state_memory),
                                sizeof(NodeLinkState));
   mem::Ref<Portal> portal;
   {
@@ -375,10 +379,10 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
     // to accept the invitation. This is because the portal may immediately
     // initiate communication over the route within SetPeerLink(), e.g. to flush
     // outgoing parcels.
-    os::Memory control_block(std::move(m.handles.control_block_memory),
-                             sizeof(PortalControlBlock));
+    os::Memory link_state(std::move(m.handles.portal_link_state_memory),
+                          sizeof(PortalLinkState));
     portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), m.params.route, control_block.Map()));
+        mem::WrapRefCounted(this), m.params.route, link_state.Map()));
   }
   return true;
 }
@@ -427,14 +431,14 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
         return false;
       }
 
-      os::Memory control_block_memory(std::move(m.handles[i]),
-                                      sizeof(PortalControlBlock));
+      os::Memory link_state_memory(std::move(m.handles[i]),
+                                   sizeof(PortalLinkState));
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
 
       // Set up a new peer link to be adopted by this portal below.
       portals_in_transit[i].link = mem::MakeRefCounted<PortalLink>(
-          mem::WrapRefCounted(this), route, control_block_memory.Map());
+          mem::WrapRefCounted(this), route, link_state_memory.Map());
     }
   }
 

@@ -10,7 +10,6 @@
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/portal.h"
-#include "core/portal_control_block.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
