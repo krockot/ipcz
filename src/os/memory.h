@@ -23,6 +23,8 @@ class Memory {
     Mapping& operator=(const Mapping&) = delete;
     ~Mapping();
 
+    bool is_valid() const { return base_address_ != nullptr; }
+
     size_t size() const { return size_; }
     void* base() const { return base_address_; }
 

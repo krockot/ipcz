@@ -9,6 +9,7 @@
 #include <functional>
 
 #include "core/node.h"
+#include "core/node_link_state.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/route_id.h"
@@ -162,6 +163,7 @@ class NodeLink : public mem::RefCounted {
   absl::flat_hash_map<RouteId, mem::Ref<Portal>> routes_
       ABSL_GUARDED_BY(mutex_);
   mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
+  os::Memory::Mapping link_state_mapping_;
 };
 
 }  // namespace core

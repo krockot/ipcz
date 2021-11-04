@@ -46,6 +46,8 @@ source_set("ipcz_sources") {
     "core/node.h",
     "core/node_link.cc",
     "core/node_link.h",
+    "core/node_link_state.cc",
+    "core/node_link_state.h",
     "core/node_message_defs.h",
     "core/node_messages.cc",
     "core/node_messages.h",

@@ -58,22 +58,28 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
   os::Memory::Mapping control = control_block.Map();
   PortalControlBlock::Initialize(control.base());
 
+  os::Memory link_state_memory(sizeof(NodeLinkState));
+  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
+  NodeLinkState& link_state =
+      NodeLinkState::Initialize(link_state_mapping.base());
+
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kLeft);
   RouteId route;
   msg::InviteNode invitation;
   {
     absl::MutexLock lock(&mutex_);
     do {
-      route = AllocateRoutes(1);
+      route = link_state.AllocateRoutes(1);
     } while (!AssignRoute(route, portal));
     local_name_ = local_name;
     remote_name_ = remote_name;
+    link_state_mapping_ = std::move(link_state_mapping);
     invitation.params.protocol_version = msg::kProtocolVersion;
     invitation.params.source_name = local_name;
     invitation.params.target_name = remote_name;
     invitation.params.route = route;
-    invitation.handles.control_block_memory =
-        std::move(control_block).TakeHandle();
+    invitation.handles.control_block_memory = control_block.TakeHandle();
+    invitation.handles.link_state_memory = link_state_memory.TakeHandle();
   }
 
   Send(invitation,
@@ -161,7 +167,11 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
 
-  RouteId first_new_route = AllocateRoutes(parcel.portals_view().size());
+  RouteId first_new_route;
+  {
+    absl::MutexLock lock(&mutex_);
+    first_new_route = AllocateRoutes(parcel.portals_view().size());
+  }
   for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
     PortalInTransit& portal = parcel.portals_view()[i];
     portals[i].side = portal.side;
@@ -194,9 +204,11 @@ void NodeLink::SendPeerClosed(RouteId route) {
 }
 
 RouteId NodeLink::AllocateRoutes(size_t count) {
-  // TODO: this needs to be generated from a shared atomic
-  RouteId id = 0;
-  return id;
+  mutex_.AssertHeld();
+
+  // Routes must only be allocated once we're a fully functioning link.
+  ABSL_ASSERT(link_state_mapping_.is_valid());
+  return link_state_mapping_.As<NodeLinkState>()->AllocateRoutes(count);
 }
 
 bool NodeLink::AssignRoute(RouteId id, const mem::Ref<Portal>& portal) {
@@ -295,6 +307,8 @@ bool NodeLink::OnReply(os::Channel::Message message) {
 }
 
 bool NodeLink::OnInviteNode(msg::InviteNode& m) {
+  os::Memory link_state_memory(std::move(m.handles.link_state_memory),
+                               sizeof(NodeLinkState));
   mem::Ref<Portal> portal;
   {
     absl::MutexLock lock(&mutex_);
@@ -303,6 +317,7 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
         !local_name_.is_valid()) {
       remote_name_ = m.params.source_name;
       local_name_ = m.params.target_name;
+      link_state_mapping_ = link_state_memory.Map();
       if (AssignRoute(m.params.route, portal_awaiting_invitation_)) {
         if (node_->AcceptInvitationFromBroker(m.params.source_name,
                                               m.params.target_name)) {

@@ -4,6 +4,7 @@
 
 #include "core/portal_control_block.h"
 
+#include <new>
 #include <thread>
 
 namespace ipcz {
