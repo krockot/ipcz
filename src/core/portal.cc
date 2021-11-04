@@ -86,7 +86,7 @@ void Portal::SetPeerLink(mem::Ref<NodeLink> link,
 
   bool remote_portal_closed = false;
   {
-    PortalControlBlock::Locked control(peer_control_block_, side_);
+    PortalControlBlock::Locked control(control_block_mapping, side_);
     PortalControlBlock::QueueState& our_queue_state =
         control.this_side().queue_state;
     if (closed_) {
@@ -237,7 +237,8 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   std::vector<os::Handle> acquired_os_handles =
       AcquireOSHandlesForTransit(os_handles);
   IpczResult result =
-      PutImpl(data, portals_in_transit, acquired_os_handles, limits);
+      PutImpl(data, portals_in_transit, acquired_os_handles, limits,
+              /*is_two_phase_commit=*/false);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
     FinalizePortalsAfterTransit(portals_view);
@@ -283,7 +284,9 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 
   pending_parcel_.emplace();
   pending_parcel_->ResizeData(num_data_bytes);
-  *data = pending_parcel_->data_view().data();
+  if (data) {
+    *data = pending_parcel_->data_view().data();
+  }
   return IPCZ_RESULT_OK;
 }
 
@@ -302,13 +305,23 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     // release the mutex without other put operations being interposed before
     // this CommitPut() call completes.
     absl::MutexLock lock(&mutex_);
+    if (!pending_parcel_) {
+      return IPCZ_RESULT_FAILED_PRECONDITION;
+    }
+
+    if (num_data_bytes_produced > pending_parcel_->data_view().size()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     parcel = std::move(*pending_parcel_);
+    parcel.ResizeData(num_data_bytes_produced);
   }
 
   std::vector<os::Handle> acquired_os_handles =
       AcquireOSHandlesForTransit(os_handles);
   IpczResult result = PutImpl(parcel.data_view(), portals_in_transit,
-                              acquired_os_handles, nullptr);
+                              acquired_os_handles, nullptr,
+                              /*is_two_phase_commit=*/true);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
     FinalizePortalsAfterTransit(portals_view);
@@ -666,11 +679,16 @@ IpczResult Portal::ValidatePutLimits(size_t data_size,
 IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
                            Parcel::PortalVector& portals,
                            std::vector<os::Handle>& os_handles,
-                           const IpczPutLimits* limits) {
+                           const IpczPutLimits* limits,
+                           bool is_two_phase_commit) {
   mem::Ref<NodeLink> peer_link;
   RouteId peer_route;
   {
     PortalLock lock(*this);
+    if (pending_parcel_ && !is_two_phase_commit) {
+      return IPCZ_RESULT_ALREADY_EXISTS;
+    }
+
     if (limits) {
       IpczResult result = ValidatePutLimits(data.size(), limits);
       if (result != IPCZ_RESULT_OK) {
@@ -688,6 +706,8 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       parcel.SetPortals(std::move(portals));
       parcel.SetOSHandles(std::move(os_handles));
       local_peer_->incoming_parcels_.push(std::move(parcel));
+      local_peer_->status_.num_local_parcels += 1;
+      local_peer_->status_.num_local_bytes += data.size();
 
       // TODO: poke peer's traps
 
@@ -740,21 +760,32 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
 
 Portal::PortalLock::PortalLock(Portal& portal) : portal_(portal) {
   portal_.mutex_.Lock();
-  mem::Ref<Portal> peer = portal_.local_peer_;
-  if (peer) {
-    if (peer.get() < &portal_) {
+  locked_peer_ = portal_.local_peer_;
+  while (locked_peer_) {
+    if (locked_peer_.get() < &portal_) {
       portal_.mutex_.Unlock();
-      peer->mutex_.Lock();
+      locked_peer_->mutex_.Lock();
       portal_.mutex_.Lock();
+
+      // Small chance the peer changed since we unlocked our lock and acquired
+      // its lock first before reacquiring ours. In that case, unlock their lock
+      // and try again with the new peer.
+      if (portal_.local_peer_ != locked_peer_) {
+        locked_peer_->mutex_.Unlock();
+        locked_peer_ = portal_.local_peer_;
+        continue;
+      }
     } else {
-      peer->mutex_.Lock();
+      locked_peer_->mutex_.Lock();
     }
+
+    return;
   }
 }
 
 Portal::PortalLock::~PortalLock() {
-  if (portal_.local_peer_) {
-    portal_.local_peer_->mutex_.Unlock();
+  if (locked_peer_) {
+    locked_peer_->mutex_.Unlock();
   }
   portal_.mutex_.Unlock();
 }

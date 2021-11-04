@@ -114,6 +114,7 @@ class Portal : public mem::RefCounted {
 
    private:
     Portal& portal_;
+    mem::Ref<Portal> locked_peer_;
   };
 
   Portal(Side side, bool transferrable);
@@ -135,7 +136,8 @@ class Portal : public mem::RefCounted {
   IpczResult PutImpl(absl::Span<const uint8_t> data,
                      Parcel::PortalVector& portals,
                      std::vector<os::Handle>& os_handles,
-                     const IpczPutLimits* limits);
+                     const IpczPutLimits* limits,
+                     bool is_two_phase_commit);
 
   const Side side_;
   const bool transferrable_;
