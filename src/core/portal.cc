@@ -168,6 +168,8 @@ bool Portal::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
   // attached to any outgoing parcels. This in turn will need a
   // TrapEventDispatcher to be plumbed through.
   outgoing_parcels_.clear();
+
+  traps_.MaybeNotify(dispatcher, status_);
   return true;
 }
 

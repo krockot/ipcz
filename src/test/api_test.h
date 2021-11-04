@@ -10,7 +10,6 @@
 #include <string>
 #include <vector>
 
-#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "os/channel.h"
 #include "os/event.h"

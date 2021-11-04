@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 #if defined(OS_WIN)

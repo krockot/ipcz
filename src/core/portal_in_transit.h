@@ -8,6 +8,7 @@
 #include "core/route_id.h"
 #include "core/side.h"
 #include "mem/ref_counted.h"
+#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
@@ -33,6 +34,9 @@ struct PortalInTransit {
   // was part of a local pair prior to the transit attempt, we use this link to
   // restore both portals to a working state.
   mem::Ref<Portal> local_peer_before_transit;
+
+  // Control block mapping assigned when sending this portal out.
+  os::Memory::Mapping control_block_mapping;
 };
 
 }  // namespace core

@@ -298,12 +298,13 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
 
     // TODO: this is a mega hack - decide if we want to frame here or in
     // NodeLink, will determine message structure layering
-    if (unread_data_.size() < 8) {
-      continue;
-    }
-    uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
-    if (unread_data_.size() >= header_data[0] &&
-        unread_handles_.size() >= header_data[1]) {
+    while (unread_data_.size() >= 8) {
+      uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
+      if (unread_data_.size() < header_data[0] ||
+          unread_handles_.size() < header_data[1]) {
+        break;
+      }
+
       auto data_view =
           absl::MakeSpan(unread_data_.data() + 8, header_data[0] - 8);
       auto handle_view = absl::MakeSpan(unread_handles_.data(), header_data[1]);

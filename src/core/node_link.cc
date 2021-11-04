@@ -146,11 +146,12 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   // big ad hoc mess of custom serialization. balanced by deserialization in
   // OnAcceptParcel.
 
-  size_t serialized_size =
+  const size_t num_portals = parcel.portals_view().size();
+  const size_t num_os_handles = parcel.os_handles_view().size();
+  const size_t serialized_size =
       sizeof(internal::MessageHeader) + sizeof(RouteId) + sizeof(uint32_t) * 3 +
-      parcel.data_view().size() +
-      parcel.portals_view().size() * sizeof(SerializedPortal) +
-      parcel.os_handles_view().size() * sizeof(internal::OSHandleData);
+      parcel.data_view().size() + num_portals * sizeof(SerializedPortal) +
+      (num_os_handles + num_portals) * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
 
   auto& header =
@@ -161,8 +162,8 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   msg_route = route;
   auto* sizes = reinterpret_cast<uint32_t*>(&msg_route + 1);
   sizes[0] = parcel.data_view().size();
-  sizes[1] = parcel.portals_view().size();
-  sizes[2] = parcel.os_handles_view().size();
+  sizes[1] = num_portals;
+  sizes[2] = num_os_handles + num_portals;
   auto* data = reinterpret_cast<uint8_t*>(sizes + 3);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   auto* portals = reinterpret_cast<SerializedPortal*>(data + sizes[0]);
@@ -170,31 +171,43 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   RouteId first_new_route;
   {
     absl::MutexLock lock(&mutex_);
-    first_new_route = AllocateRoutes(parcel.portals_view().size());
+    first_new_route = AllocateRoutes(num_portals);
   }
-  for (size_t i = 0; i < parcel.portals_view().size(); ++i) {
+
+  std::vector<os::Handle> os_handles;
+  os_handles.reserve(num_os_handles + num_portals);
+  for (size_t i = 0; i < num_portals; ++i) {
     PortalInTransit& portal = parcel.portals_view()[i];
     portals[i].side = portal.side;
     portals[i].route = first_new_route + i;
+
+    os::Memory control_block_memory(sizeof(PortalControlBlock));
+    os::Memory::Mapping control_block_mapping = control_block_memory.Map();
+    PortalControlBlock::Initialize(control_block_mapping.base());
+    portal.control_block_mapping = std::move(control_block_mapping);
+    os_handles.push_back(control_block_memory.TakeHandle());
+
+    // TODO: populate OSHandleData too
   }
 
-  auto* handle_data = reinterpret_cast<internal::OSHandleData*>(
-      portals + parcel.portals_view().size());
-  for (size_t i = 0; i < parcel.os_handles_view().size(); ++i) {
-    auto& data = handle_data[i];
+  auto* handle_data =
+      reinterpret_cast<internal::OSHandleData*>(portals + num_portals);
+  for (size_t i = 0; i < num_os_handles; ++i) {
+    auto& data = handle_data[num_portals + i];
     auto& handle = parcel.os_handles_view()[i];
     ABSL_ASSERT(handle.is_valid());
     data.header.size = sizeof(internal::StructHeader);
     data.header.version = 0;
 #if defined(OS_POSIX)
     data.type = internal::OSHandleDataType::kFileDescriptor;
-    data.value = i;
+    data.value = i + 1;
 #else
     data.type = internal::OSHandleDataType::kNone;
 #endif
+    os_handles.push_back(std::move(handle));
   }
 
-  Send(absl::MakeSpan(serialized_data), parcel.os_handles_view());
+  Send(absl::MakeSpan(serialized_data), absl::MakeSpan(os_handles));
 }
 
 void NodeLink::SendPeerClosed(RouteId route) {
@@ -370,12 +383,19 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   auto* sizes = reinterpret_cast<const uint32_t*>(&route + 1);
   const uint32_t num_bytes = sizes[0];
   const uint32_t num_portals = sizes[1];
-  // const uint32_t num_os_handles = sizes[2];
+  const uint32_t num_os_handles = sizes[2];
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(sizes + 3);
   const auto* portals =
       reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
   // const auto* handle_data =
   //     reinterpret_cast<const internal::OSHandleData*>(portals + num_portals);
+  if (num_os_handles < num_portals) {
+    return false;
+  }
+  if (m.handles.size() != num_os_handles) {
+    return false;
+  }
+
   Parcel::PortalVector portals_in_transit(num_portals);
   {
     absl::MutexLock lock(&mutex_);
@@ -386,23 +406,24 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
         return false;
       }
 
+      os::Memory control_block_memory(std::move(m.handles[i]),
+                                      sizeof(PortalControlBlock));
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
       portals_in_transit[i].route = route;
+      portals_in_transit[i].control_block_mapping = control_block_memory.Map();
     }
   }
 
   for (PortalInTransit& portal : portals_in_transit) {
-    // TODO: fix this
-    os::Memory dummy_memory(sizeof(PortalControlBlock));
     portal.portal->SetPeerLink(mem::WrapRefCounted(this), *portal.route,
-                               dummy_memory.Map());
+                               std::move(portal.control_block_mapping));
   }
 
   std::vector<os::Handle> os_handles;
-  os_handles.reserve(m.handles.size());
-  for (auto& handle : m.handles) {
-    os_handles.push_back(std::move(handle));
+  os_handles.reserve(m.handles.size() - num_portals);
+  for (size_t i = num_portals; i < m.handles.size(); ++i) {
+    os_handles.push_back(std::move(m.handles[i]));
   }
 
   TrapEventDispatcher dispatcher;
