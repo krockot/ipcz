@@ -188,9 +188,21 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     os_handles.push_back(control_block_memory.TakeHandle());
     // TODO: populate OSHandleData too
 
-    // Set up a forwarding link to be adopted in Portal::FinalizeAfterTransit().
-    portal.link = mem::MakeRefCounted<PortalLink>(
+    // If we had a local peer before this transmission, that local peer will
+    // adopt this link as its peer link. Otherwise we will adopt it as our own
+    // forwarding link.
+    mem::Ref<PortalLink> link = mem::MakeRefCounted<PortalLink>(
         mem::WrapRefCounted(this), route, std::move(control_block));
+    if (portal.local_peer_before_transit) {
+      {
+        absl::MutexLock lock(&mutex_);
+        AssignRoute(route, portal.local_peer_before_transit);
+      }
+      portal.local_peer_before_transit->SetPeerLink(std::move(link));
+    } else {
+      // TODO- any reason for forwarding target to reply?
+      portal.portal->SetForwardingLink(std::move(link));
+    }
   }
 
   auto* handle_data =

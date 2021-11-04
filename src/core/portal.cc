@@ -591,12 +591,15 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
 
   if (local_peer_) {
     // We are part of a local portal pair that now must be split up and left to
-    // buffer until transit is complete.
+    // buffer until transit is complete. `this` is the portal being moved, which
+    // we will essentially drop. We replace the PortalInTransit with our peer
+    // after passing it any incoming state of ours.
+    portal_in_transit.local_peer_before_transit = local_peer_;
     local_peer_->outgoing_parcels_ = std::move(incoming_parcels_);
-    local_peer_->status_.num_remote_bytes = status_.num_local_bytes;
     local_peer_->status_.num_remote_parcels = status_.num_local_parcels;
-    local_peer_->local_peer_ = nullptr;
-    portal_in_transit.local_peer_before_transit = std::move(local_peer_);
+    local_peer_->status_.num_remote_bytes = status_.num_remote_bytes;
+    local_peer_->local_peer_.reset();
+    local_peer_.reset();
     return;
   }
 
@@ -619,11 +622,6 @@ void Portal::RestoreFromCancelledTransit(PortalInTransit& portal_in_transit) {
 }
 
 void Portal::FinalizeAfterTransit(PortalInTransit& portal_in_transit) {
-  if (!portal_in_transit.link) {
-    // Must have been a local transfer, so nothing to change on the portal.
-    return;
-  }
-
   // TODO: set up forwarding link and forward any incoming messages
 }
 
@@ -787,6 +785,21 @@ Portal::PortalLock::~PortalLock() {
     locked_peer_->mutex_.Unlock();
   }
   portal_.mutex_.Unlock();
+}
+
+Portal::TwoPortalLock::TwoPortalLock(Portal& a, Portal& b) : a_(a), b_(b) {
+  if (&a < &b) {
+    a.mutex_.Lock();
+    b.mutex_.Lock();
+  } else {
+    b.mutex_.Lock();
+    a.mutex_.Lock();
+  }
+}
+
+Portal::TwoPortalLock::~TwoPortalLock() {
+  a_.mutex_.Unlock();
+  b_.mutex_.Unlock();
 }
 
 }  // namespace core

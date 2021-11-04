@@ -114,6 +114,18 @@ class Portal : public mem::RefCounted {
     mem::Ref<Portal> locked_peer_;
   };
 
+  // Locks two portals' Mutexes in a globally consistent order.
+  class ABSL_SCOPED_LOCKABLE TwoPortalLock {
+   public:
+    TwoPortalLock(Portal& a, Portal& b)
+        ABSL_EXCLUSIVE_LOCK_FUNCTION(&a.mutex_, &b.mutex_);
+    ~TwoPortalLock() ABSL_UNLOCK_FUNCTION();
+
+   private:
+    Portal& a_;
+    Portal& b_;
+  };
+
   Portal(Side side, bool transferrable);
   ~Portal() override;
 
