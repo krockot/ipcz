@@ -9,10 +9,11 @@
 #include <cstdint>
 #include <vector>
 
-#include "core/portal.h"
+#include "core/portal_in_transit.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -21,15 +22,23 @@ namespace core {
 // Represents a parcel queued within a portal, either for inbound retrieval or
 // outgoing transfer. Each parcel contains an optional link to the next Parcel
 // in its queue.
+//
+// TODO: These will need sequence numbers assigned by the sender so they can be
+// ordered by the receiver. This is necessary because some parcels will have to
+// be relayed through the broker and some may be sent from different nodes (due
+// to portal relocation), so we can't guarantee that they'll arrive in the same
+// order they were sent.
 class Parcel {
  public:
+  using PortalVector = absl::InlinedVector<PortalInTransit, 4>;
+
   Parcel();
   Parcel(Parcel&& other);
   Parcel& operator=(Parcel&& other);
   ~Parcel();
 
   void SetData(std::vector<uint8_t> data);
-  void SetPortals(std::vector<PortalInTransit> portals);
+  void SetPortals(PortalVector portals);
   void SetOSHandles(std::vector<os::Handle> os_handles);
 
   void ResizeData(size_t size);
@@ -49,13 +58,13 @@ class Parcel {
                       IpczHandle* portals,
                       IpczOSHandle* os_handles);
 
-  std::vector<PortalInTransit> TakePortals();
+  PortalVector TakePortals();
 
  private:
   void ConsumePortalsAndHandles(IpczHandle* portals, IpczOSHandle* os_handles);
 
   std::vector<uint8_t> data_;
-  std::vector<PortalInTransit> portals_;
+  PortalVector portals_;
   std::vector<os::Handle> os_handles_;
 
   // A subspan of `data_` tracking the unconsumed bytes in a Parcel which has

@@ -11,6 +11,7 @@
 #include "core/node.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
+#include "core/route_id.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
@@ -23,6 +24,8 @@ namespace ipcz {
 namespace core {
 
 class Node;
+class Parcel;
+class Portal;
 
 // NodeLink provides both a client and service interface from one Node to
 // another via an os::Channel and potentially other negotiated media like shared
@@ -47,20 +50,19 @@ class NodeLink : public mem::RefCounted {
            os::Process remote_process,
            Node::Type remote_node_type);
 
-  absl::optional<NodeName> remote_node_name() {
+  absl::optional<NodeName> GetRemoteName() {
     absl::MutexLock lock(&mutex_);
-    return remote_node_name_;
+    return remote_name_;
   }
+
+  mem::Ref<Portal> Invite(const NodeName& local_name,
+                          const NodeName& remote_name);
+  mem::Ref<Portal> AwaitInvitation();
 
   // Starts listening for incoming messages.
   void Listen();
 
-  void SetRemoteNodeName(const NodeName& name);
   void SetRemoteProtocolVersion(uint32_t version);
-
-  void AddRoutedPortal(const PortalName& local_portal_name);
-  void ReplaceRoutedPortal(const PortalName& local_portal_name);
-  void RemoveRoutedPortal(const PortalName& local_portal_name);
 
   // Sends a message which does not expect a reply.
   template <typename T, typename = std::enable_if_t<!T::kExpectsReply>>
@@ -94,13 +96,19 @@ class NodeLink : public mem::RefCounted {
   // Send() operations above because the hacky message macro infrastructure
   // doesn't support variable-length messages; and in practice, parcel transfer
   // is one of relatively few use cases for them.
-  void SendParcel(const PortalName& destination, Parcel& parcel);
+  void SendParcel(RouteId route, Parcel& parcel);
 
-  // Notifies the remote node that the named portal's peer has been closed.
-  void SendPeerClosed(const PortalName& remote_portal);
+  // Notifies the remote node that the peer of the portal on `route` has been
+  // closed.
+  void SendPeerClosed(RouteId route);
 
  private:
   ~NodeLink() override;
+
+  RouteId AllocateRoutes(size_t count);
+  bool AssignRoute(RouteId id, const mem::Ref<Portal>& portal);
+
+  mem::Ref<Portal> GetPortalForRoute(RouteId id);
 
   // Generic entry point for all messages. While the memory addressed by
   // `message` is guaranteed to be safely addressable, it may be untrusted
@@ -144,14 +152,16 @@ class NodeLink : public mem::RefCounted {
   std::atomic<uint16_t> next_request_id_{1};
 
   absl::Mutex mutex_;
-  absl::optional<NodeName> remote_node_name_;
-  absl::optional<uint32_t> remote_protocol_version_;
+  NodeName local_name_ ABSL_GUARDED_BY(mutex_);
+  NodeName remote_name_ ABSL_GUARDED_BY(mutex_);
+  absl::optional<uint32_t> remote_protocol_version_ ABSL_GUARDED_BY(mutex_);
   os::Channel channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
-  absl::flat_hash_map<uint16_t, PendingReply> pending_replies_;
-
-  // Local routed portals serviced by this NodeLink.
-  absl::flat_hash_set<PortalName> routed_local_portals_;
+  absl::flat_hash_map<uint16_t, PendingReply> pending_replies_
+      ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<RouteId, mem::Ref<Portal>> routes_
+      ABSL_GUARDED_BY(mutex_);
+  mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

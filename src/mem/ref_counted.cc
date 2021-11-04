@@ -26,8 +26,6 @@ void RefCounted::ReleaseRef() {
   }
 }
 
-GenericRef::GenericRef() = default;
-
 GenericRef::GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr)
     : ptr_(ptr) {}
 

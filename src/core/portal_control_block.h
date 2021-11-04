@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "core/side.h"
+#include "os/memory.h"
 
 namespace ipcz {
 namespace core {
@@ -23,9 +24,9 @@ struct PortalControlBlock {
     // The portal has been closed.
     kClosed,
 
-    // The portal is being shipped off to another node somewhere and cannot
+    // The portal has been shipped off to another node somewhere and cannot
     // accept new messages at the moment.
-    kMoving,
+    kMoved,
   };
 
   struct QueueState {
@@ -45,14 +46,15 @@ struct PortalControlBlock {
 
   class Locked {
    public:
-    Locked(PortalControlBlock& block);
+    Locked(os::Memory::Mapping& block_mapping, Side side);
+    Locked(PortalControlBlock& block, Side side);
     ~Locked();
 
-    SideState& side(Side side) { return block_.sides_[side]; }
-
-    SideState& opposite(Side side) { return block_.sides_[Opposite(side)]; }
+    SideState& this_side() { return block_.sides_[side_]; }
+    SideState& other_side() { return block_.sides_[Opposite(side_)]; }
 
    private:
+    const Side side_;
     PortalControlBlock& block_;
   };
 

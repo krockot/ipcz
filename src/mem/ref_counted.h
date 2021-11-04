@@ -6,6 +6,7 @@
 #define IPCZ_SRC_MEM_REF_COUNTED_H_
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <utility>
 
@@ -28,13 +29,12 @@ class RefCounted {
 
 class GenericRef {
  public:
-  GenericRef();
+  constexpr GenericRef() = default;
 
   // Does not increase the ref count, effectively assuming ownership of a
   // previously acquired ref.
   GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr);
-
-  explicit GenericRef(RefCounted* ptr);
+  GenericRef(RefCounted* ptr);
   GenericRef(GenericRef&& other);
   GenericRef& operator=(GenericRef&& other);
   GenericRef(const GenericRef& other);
@@ -56,15 +56,15 @@ class GenericRef {
 template <typename T>
 class Ref : public GenericRef {
  public:
-  Ref() = default;
-  explicit Ref(T* ptr) : GenericRef(ptr) {}
+  constexpr Ref() = default;
+  constexpr Ref(std::nullptr_t) {}
+  Ref(T* ptr) : GenericRef(ptr) {}
   Ref(decltype(RefCounted::kAdoptExistingRef), T* ptr)
       : GenericRef(RefCounted::kAdoptExistingRef, ptr) {}
 
   T* get() const { return static_cast<T*>(ptr_); }
   T* operator->() const { return get(); }
   T& operator*() const { return *get(); }
-  operator T*() const { return get(); }
 
   T* release() { return static_cast<T*>(ReleaseImpl()); }
 

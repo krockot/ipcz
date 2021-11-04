@@ -64,5 +64,3 @@ absl::uint128 RandomUint128() {
 }
 
 }  // namespace ipcz
-
-#endif  // IPCZ_SRC_UTIL_RANDOM_H_

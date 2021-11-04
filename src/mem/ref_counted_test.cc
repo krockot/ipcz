@@ -34,36 +34,26 @@ class TestObject : public RefCounted {
 
 TEST_F(RefCountedTest, NullRef) {
   Ref<TestObject> ref;
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
+  EXPECT_FALSE(ref);
 
   ref.reset();
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
+  EXPECT_FALSE(ref);
 
   Ref<TestObject> other1 = ref;
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
-  EXPECT_EQ(nullptr, other1);
-  EXPECT_EQ(nullptr, other1.get());
+  EXPECT_FALSE(ref);
+  EXPECT_FALSE(other1);
 
   Ref<TestObject> other2 = std::move(ref);
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
-  EXPECT_EQ(nullptr, other2);
-  EXPECT_EQ(nullptr, other2.get());
+  EXPECT_FALSE(ref);
+  EXPECT_FALSE(other2);
 
   ref = other1;
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
-  EXPECT_EQ(nullptr, other1);
-  EXPECT_EQ(nullptr, other1.get());
+  EXPECT_FALSE(ref);
+  EXPECT_FALSE(other1);
 
   ref = std::move(other2);
-  EXPECT_EQ(nullptr, ref);
-  EXPECT_EQ(nullptr, ref.get());
-  EXPECT_EQ(nullptr, other2);
-  EXPECT_EQ(nullptr, other2.get());
+  EXPECT_FALSE(ref);
+  EXPECT_FALSE(other2);
 }
 
 TEST_F(RefCountedTest, SimpleRef) {
@@ -71,7 +61,7 @@ TEST_F(RefCountedTest, SimpleRef) {
   auto ref = mem::MakeRefCounted<TestObject>(destroyed);
   EXPECT_FALSE(destroyed);
   ref.reset();
-  EXPECT_EQ(nullptr, ref);
+  EXPECT_FALSE(ref);
   EXPECT_TRUE(destroyed);
 }
 
@@ -81,10 +71,10 @@ TEST_F(RefCountedTest, Copy) {
   Ref<TestObject> other1 = ref1;
   EXPECT_FALSE(destroyed1);
   ref1.reset();
-  EXPECT_EQ(nullptr, ref1);
+  EXPECT_FALSE(ref1);
   EXPECT_FALSE(destroyed1);
   other1.reset();
-  EXPECT_EQ(nullptr, other1);
+  EXPECT_FALSE(other1);
   EXPECT_TRUE(destroyed1);
 
   destroyed1 = false;
@@ -94,17 +84,17 @@ TEST_F(RefCountedTest, Copy) {
   EXPECT_FALSE(destroyed1);
   EXPECT_FALSE(destroyed2);
   ref2 = ref1;
-  EXPECT_NE(nullptr, ref1);
-  EXPECT_NE(nullptr, ref2);
+  EXPECT_TRUE(ref1);
+  EXPECT_TRUE(ref2);
   EXPECT_EQ(ref1, ref2);
   EXPECT_FALSE(destroyed1);
   EXPECT_TRUE(destroyed2);
   ref1.reset();
-  EXPECT_EQ(nullptr, ref1);
+  EXPECT_FALSE(ref1);
   EXPECT_FALSE(destroyed1);
   EXPECT_TRUE(destroyed2);
   ref2.reset();
-  EXPECT_EQ(nullptr, ref2);
+  EXPECT_FALSE(ref2);
   EXPECT_TRUE(destroyed1);
 }
 
@@ -112,7 +102,7 @@ TEST_F(RefCountedTest, Move) {
   bool destroyed1 = false;
   auto ref1 = mem::MakeRefCounted<TestObject>(destroyed1);
   Ref<TestObject> other1 = std::move(ref1);
-  EXPECT_EQ(nullptr, ref1);
+  EXPECT_FALSE(ref1);
   EXPECT_FALSE(destroyed1);
   other1.reset();
   EXPECT_TRUE(destroyed1);
@@ -124,8 +114,8 @@ TEST_F(RefCountedTest, Move) {
   EXPECT_FALSE(destroyed1);
   EXPECT_FALSE(destroyed2);
   ref2 = std::move(ref1);
-  EXPECT_EQ(nullptr, ref1);
-  EXPECT_NE(nullptr, ref2);
+  EXPECT_FALSE(ref1);
+  EXPECT_TRUE(ref2);
   EXPECT_FALSE(destroyed1);
   EXPECT_TRUE(destroyed2);
   ref2.reset();

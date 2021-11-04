@@ -25,7 +25,7 @@ void Parcel::SetData(std::vector<uint8_t> data) {
   data_view_ = absl::MakeSpan(data_);
 }
 
-void Parcel::SetPortals(std::vector<PortalInTransit> portals) {
+void Parcel::SetPortals(PortalVector portals) {
   portals_ = std::move(portals);
 }
 
@@ -63,7 +63,7 @@ void Parcel::ConsumePortalsAndHandles(IpczHandle* portals,
   os_handles_.clear();
 }
 
-std::vector<PortalInTransit> Parcel::TakePortals() {
+Parcel::PortalVector Parcel::TakePortals() {
   return std::move(portals_);
 }
 

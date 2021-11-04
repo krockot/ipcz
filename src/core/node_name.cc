@@ -16,7 +16,7 @@
 namespace ipcz {
 namespace core {
 
-NodeName::NodeName(decltype(kRandom)) : value_(util::RandomUint128()) {}
+NodeName::NodeName(decltype(kRandom)) : value_(RandomUint128()) {}
 
 NodeName::~NodeName() = default;
 
