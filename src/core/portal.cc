@@ -756,8 +756,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
   parcel.SetOSHandles(std::move(os_handles));
 
   if (peer_link) {
-    PreparePortalsForTransit(parcel.portals_view());
-    peer_link->SendParcel(parcel);
+    SendParcelOnLink(*peer_link, parcel);
     return IPCZ_RESULT_OK;
   }
 

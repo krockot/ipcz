@@ -85,7 +85,7 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
   ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
 }
 
-TEST_F(RemotePortalTest, TransferManyLocalPortal) {
+TEST_F(RemotePortalTest, TransferManyLocalPortals) {
   IpczHandle other_node;
   ASSERT_EQ(IPCZ_RESULT_OK,
             ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
