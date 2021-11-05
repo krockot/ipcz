@@ -33,6 +33,7 @@ class OutgoingParcelQueue {
 
   void clear();
   Parcel& front();
+  Parcel& back();
   Parcel pop();
   void push(Parcel parcel);
 

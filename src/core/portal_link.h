@@ -17,7 +17,7 @@ namespace core {
 class Parcel;
 
 // PortalLink owns a route between two portals on opposite ends of a NodeLink.
-// A PortalLink may be used as a peer, to both send and receive messages to and
+// A PortalLink may be used as a peer, to both send and receive parcels to and
 // from the remote node, or it may be used as a forwarding link to forward along
 // incoming parcels arriving at a portal that has moved to another node.
 class PortalLink : public mem::RefCounted {

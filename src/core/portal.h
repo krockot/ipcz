@@ -5,7 +5,6 @@
 #ifndef IPCZ_SRC_CORE_PORTAL_H_
 #define IPCZ_SRC_CORE_PORTAL_H_
 
-#include <atomic>
 #include <cstdint>
 #include <utility>
 
@@ -47,6 +46,7 @@ class Portal : public mem::RefCounted {
 
   Side side() const { return side_; }
 
+  void DeserializeFromTransit(PortalInTransit& portal_in_transit);
   void SetPeerLink(mem::Ref<PortalLink> link);
   void SetForwardingLink(mem::Ref<PortalLink> link);
 
@@ -132,7 +132,6 @@ class Portal : public mem::RefCounted {
   Portal(Side side, bool transferrable);
   ~Portal() override;
 
-  SequenceNumber GenerateOutgoingSequenceNumber();
   bool ValidatePortalsForTransitFromHere(
       absl::Span<PortalInTransit> portals_in_transit);
   static void PreparePortalsForTransit(
@@ -156,9 +155,6 @@ class Portal : public mem::RefCounted {
   const Side side_;
   const bool transferrable_;
 
-  // The next SequenceNumber to use for any outgoing parcel.
-  std::atomic<SequenceNumber> next_outgoing_sequence_number_{0};
-
   absl::Mutex mutex_;
 
   // Non-null if and only if this portal's peer is local to the same node. In
@@ -175,7 +171,7 @@ class Portal : public mem::RefCounted {
   // and is still hanging around to forward one or more expected incoming
   // parcels. Such parcels when received are forwarded via `forwarding_link_`
   // the node which accepted this moved portal. Once all expected incoming
-  // messages have been received and forwarded, this portal can be destroyed.
+  // parcels have been received and forwarded, this portal can be destroyed.
   mem::Ref<PortalLink> forwarding_link_ ABSL_GUARDED_BY(mutex_);
 
   // Tracks whether this portal has been explicitly closed. Closed portals are
@@ -183,8 +179,8 @@ class Portal : public mem::RefCounted {
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
 
   // Tracks whether this portal has been moved elsewhere. In this case the
-  // portal may persist with a peer link for forwarding messages to the new
-  // location, and potentially multiple inbound routes receiving messages the
+  // portal may persist with a peer link for forwarding parcels to the new
+  // location, and potentially multiple inbound routes receiving parcels the
   // peer or prior locations. Eventually the portal will be destroyed once it
   // has finished forwarding what it expects to have forwarded through it.
   bool moved_ ABSL_GUARDED_BY(mutex_) = false;
@@ -217,6 +213,9 @@ class Portal : public mem::RefCounted {
   // local, because in such cases, Put() operations directly manipulate the peer
   // portal's `incoming_parcels_` queue.
   OutgoingParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+
+  // The next SequenceNumber to use for any outgoing parcel.
+  SequenceNumber next_outgoing_sequence_number_ ABSL_GUARDED_BY(mutex_) = 0;
 
   // The set of traps attached to this portal.
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);

@@ -11,6 +11,7 @@
 #include "core/parcel.h"
 #include "core/portal.h"
 #include "core/portal_link_state.h"
+#include "core/sequence_number.h"
 #include "core/trap_event_dispatcher.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -26,6 +27,10 @@ namespace {
 struct IPCZ_ALIGN(8) SerializedPortal {
   Side side;
   RouteId route;
+  bool peer_closed : 1;
+  SequenceNumber peer_sequence_length;
+  SequenceNumber next_incoming_sequence_number;
+  SequenceNumber next_outgoing_sequence_number;
 
   // TODO: provide an index into some NodeLink shared state where we can host a
   // corrpesonding PortalLinkState. for now we allocate a separate shared region
@@ -73,8 +78,9 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
   NodeLinkState& node_link_state =
       NodeLinkState::Initialize(node_link_state_mapping.base());
 
-  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kLeft);
   RouteId route;
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kLeft);
+  mem::Ref<PortalLink> portal_link;
   msg::InviteNode invitation;
   {
     absl::MutexLock lock(&mutex_);
@@ -190,8 +196,6 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     const RouteId route = first_new_route + i;
     PortalInTransit& portal = parcel.portals_view()[i];
-    portals[i].side = portal.side;
-    portals[i].route = route;
 
     os::Memory link_state_memory(sizeof(PortalLinkState));
     os::Memory::Mapping link_state = link_state_memory.Map();
@@ -199,20 +203,35 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     os_handles.push_back(link_state_memory.TakeHandle());
     // TODO: populate OSHandleData too
 
-    // If we had a local peer before this transmission, that local peer will
-    // adopt this link as its peer link. Otherwise we will adopt it as our own
-    // forwarding link.
-    mem::Ref<PortalLink> link = mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), route, std::move(link_state));
+    // The link will actually be given to the appropriate portal (either
+    // `portal.portal` or its local peer where applicable) in
+    // Portal::FinalizeAfterTransit().
+    portal.link = mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this),
+                                                  route, std::move(link_state));
+
+    // It's important to assign the route to a Portal before we transmit this
+    // parcel, in case the receiver immediately sends back messages on the new
+    // route.
+    bool assigned;
+    absl::MutexLock lock(&mutex_);
     if (portal.local_peer_before_transit) {
-      {
-        absl::MutexLock lock(&mutex_);
-        AssignRoute(route, portal.local_peer_before_transit);
-      }
-      portal.local_peer_before_transit->SetPeerLink(std::move(link));
+      // When the moved portal's peer is local to this node, the route gets
+      // assigned to them and the moved portal essentially drops out of
+      // existence on this node.
+      assigned = AssignRoute(route, portal.local_peer_before_transit);
     } else {
-      // TODO- any reason for forwarding target to reply?
-      portal.portal->SetForwardingLink(std::move(link));
+      // When the moved portal's peer is somewhere else, the moved portal hangs
+      // around on this node and gets assigned the route to its new location.
+      // This will exist only temporarily until we can help the new location
+      // establish a link to an appropriate peer-side portal.
+      assigned = AssignRoute(route, portal.portal);
+    }
+
+    if (!assigned) {
+      // TODO: A bad peer might steal the already-allocated routes from above,
+      // in which case `assigned` will be false. Need to gracefully sever the
+      // NodeLink in that case instead of asserting.
+      ABSL_ASSERT(false);
     }
   }
 
@@ -346,8 +365,13 @@ bool NodeLink::OnReply(os::Channel::Message message) {
 }
 
 bool NodeLink::OnInviteNode(msg::InviteNode& m) {
-  os::Memory link_state_memory(std::move(m.handles.node_link_state_memory),
-                               sizeof(NodeLinkState));
+  os::Memory node_link_state(std::move(m.handles.node_link_state_memory),
+                             sizeof(NodeLinkState));
+  os::Memory portal_link_state(std::move(m.handles.portal_link_state_memory),
+                               sizeof(PortalLinkState));
+  mem::Ref<PortalLink> portal_link = mem::MakeRefCounted<PortalLink>(
+      mem::WrapRefCounted(this), m.params.route, portal_link_state.Map());
+
   mem::Ref<Portal> portal;
   {
     absl::MutexLock lock(&mutex_);
@@ -356,33 +380,32 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
         !local_name_.is_valid()) {
       remote_name_ = m.params.source_name;
       local_name_ = m.params.target_name;
-      link_state_mapping_ = link_state_memory.Map();
+      link_state_mapping_ = node_link_state.Map();
       if (AssignRoute(m.params.route, portal_awaiting_invitation_)) {
         if (node_->AcceptInvitationFromBroker(m.params.source_name,
                                               m.params.target_name)) {
           portal = std::move(portal_awaiting_invitation_);
-        } else {
-          routes_.erase(m.params.route);
         }
       }
     }
   }
 
+  const bool accepted = portal != nullptr;
   msg::InviteNode_Reply reply;
   reply.header.request_id = m.header.request_id;
   reply.params.protocol_version = msg::kProtocolVersion;
-  reply.params.accepted = portal != nullptr;
+  reply.params.accepted = accepted;
   Send(reply);
 
-  if (portal) {
+  if (accepted) {
     // Note that we don't set the portal's active link until after we've replied
     // to accept the invitation. This is because the portal may immediately
     // initiate communication over the route within SetPeerLink(), e.g. to flush
-    // outgoing parcels.
-    os::Memory link_state(std::move(m.handles.portal_link_state_memory),
-                          sizeof(PortalLinkState));
-    portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), m.params.route, link_state.Map()));
+    // outgoing parcels, and we want the invitation reply to arrive first.
+    portal->SetPeerLink(std::move(portal_link));
+  } else {
+    absl::MutexLock lock(&mutex_);
+    routes_.erase(m.params.route);
   }
   return true;
 }
@@ -425,25 +448,29 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   {
     absl::MutexLock lock(&mutex_);
     for (size_t i = 0; i < num_portals; ++i) {
-      RouteId route = portals[i].route;
       auto portal = mem::MakeRefCounted<Portal>(portals[i].side);
+
+      os::Memory link_state_memory(std::move(m.handles[i]),
+                                   sizeof(PortalLinkState));
+      RouteId route = portals[i].route;
       if (!AssignRoute(route, portal)) {
         return false;
       }
 
-      os::Memory link_state_memory(std::move(m.handles[i]),
-                                   sizeof(PortalLinkState));
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
-
-      // Set up a new peer link to be adopted by this portal below.
+      portals_in_transit[i].peer_closed = portals[i].peer_closed;
+      portals_in_transit[i].next_incoming_sequence_number =
+          portals[i].next_incoming_sequence_number;
+      portals_in_transit[i].next_outgoing_sequence_number =
+          portals[i].next_outgoing_sequence_number;
       portals_in_transit[i].link = mem::MakeRefCounted<PortalLink>(
           mem::WrapRefCounted(this), route, link_state_memory.Map());
     }
   }
 
   for (PortalInTransit& portal : portals_in_transit) {
-    portal.portal->SetPeerLink(std::move(portal.link));
+    portal.portal->DeserializeFromTransit(portal);
   }
 
   std::vector<os::Handle> os_handles;

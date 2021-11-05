@@ -34,29 +34,43 @@ namespace core {
 class IncomingParcelQueue {
  public:
   IncomingParcelQueue();
-  IncomingParcelQueue(SequenceNumber first_sequence_number);
+  IncomingParcelQueue(SequenceNumber current_sequence_number);
   IncomingParcelQueue(IncomingParcelQueue&& other);
   IncomingParcelQueue& operator=(IncomingParcelQueue&& other);
   ~IncomingParcelQueue();
 
-  // Gets the size of the incoming message queue. This is NOT necessarily the
+  // Gets the size of the incoming parcel queue. This is NOT necessarily the
   // number of parcels actually present in the queue, but is instead the
   // difference between the highest known or expected sequence number so far,
   // and the the last consumed sequence number from the same sequence.
   size_t GetSize() const;
 
-  // Sets the sequence number of the last parcel this queue will receive, if
-  // known. May fail and return false if the queue already has parcels with a
-  // sequence number higher than `n` or already had set a highest expected
-  // sequence number. Either case is likely the result of a misbehaving node.
-  bool SetHighestExpectedSequenceNumber(SequenceNumber n);
+  // The next sequence number in queue. This starts at the constructor's
+  // `current_sequence_number` and increments any time a parcel is successfully
+  // popped from the queue.
+  SequenceNumber current_sequence_number() const {
+    return base_sequence_number_;
+  }
+
+  // Sets the known final length of the incoming parcel sequence. This is the
+  // sequence number of the peer side's last outgoing parcel, plus 1; or it's 0
+  // if the peer side was closed without sending any parcels.
+  //
+  // May fail and return false if the queue already has parcels with a sequence
+  // number higher than or equal to `length`, or if it had already set a
+  // peer sequence length before this call. Either case is likely the result of
+  // a misbehaving node and should be treated as a validation failure.
+  bool SetPeerSequenceLength(SequenceNumber length);
 
   // Indicates whether this queue is still waiting for someone to push more
-  // parcels. This is always true if SetHighestExpectedSequenceNumber(n) has not
-  // been called. Once that has been called, this remains true only until ALL
+  // parcels. This is always true if SetPeerSequenceLength(n) has not been
+  // called. Once that has been called, this remains true only until ALL
   // parcels up to and including sequence number `n` have been pushed. From that
   // point onward, this will always return false.
   bool IsExpectingMoreParcels() const;
+
+  // The next sequence number expected by this queue, if any.
+  absl::optional<SequenceNumber> GetNextExpectedSequenceNumber() const;
 
   // Indicates whether the next parcel (in sequence order) is available to pop.
   bool HasNextParcel() const;
@@ -78,7 +92,7 @@ class IncomingParcelQueue {
   using ParcelStorage = absl::InlinedVector<absl::optional<Parcel>, 4>;
   using ParcelSpan = absl::Span<absl::optional<Parcel>>;
 
-  void Reallocate(SequenceNumber max_sequence_number);
+  void Reallocate(SequenceNumber sequence_length);
 
   // This is a sparse vector of incoming parcels indexed by a relative sequence
   // number.
@@ -105,8 +119,9 @@ class IncomingParcelQueue {
   // The number of elements in `parcels_` which are actually occupied.
   size_t num_parcels_ = 0;
 
-  // The last sequence number we expect to see, if set.
-  absl::optional<SequenceNumber> highest_expected_sequence_number_;
+  // The known final length of the sequence of parcels sent to us. Set only if
+  // known, and known only once the peer is closed.
+  absl::optional<SequenceNumber> peer_sequence_length_;
 };
 
 }  // namespace core

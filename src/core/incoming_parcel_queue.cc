@@ -14,14 +14,13 @@ namespace core {
 
 IncomingParcelQueue::IncomingParcelQueue() = default;
 
-IncomingParcelQueue::IncomingParcelQueue(SequenceNumber first_sequence_number)
-    : base_sequence_number_(first_sequence_number) {}
+IncomingParcelQueue::IncomingParcelQueue(SequenceNumber current_sequence_number)
+    : base_sequence_number_(current_sequence_number) {}
 
 IncomingParcelQueue::IncomingParcelQueue(IncomingParcelQueue&& other)
     : base_sequence_number_(other.base_sequence_number_),
       num_parcels_(other.num_parcels_),
-      highest_expected_sequence_number_(
-          other.highest_expected_sequence_number_) {
+      peer_sequence_length_(other.peer_sequence_length_) {
   if (!other.storage_.empty()) {
     size_t parcels_offset = other.parcels_.data() - storage_.data();
     storage_ = std::move(other.storage_);
@@ -34,7 +33,7 @@ IncomingParcelQueue& IncomingParcelQueue::operator=(
     IncomingParcelQueue&& other) {
   base_sequence_number_ = other.base_sequence_number_;
   num_parcels_ = other.num_parcels_;
-  highest_expected_sequence_number_ = other.highest_expected_sequence_number_;
+  peer_sequence_length_ = other.peer_sequence_length_;
   if (!other.storage_.empty()) {
     size_t parcels_offset = other.parcels_.data() - storage_.data();
     storage_ = std::move(other.storage_);
@@ -53,32 +52,40 @@ size_t IncomingParcelQueue::GetSize() const {
   return parcels_.size();
 }
 
-bool IncomingParcelQueue::SetHighestExpectedSequenceNumber(SequenceNumber n) {
-  if (highest_expected_sequence_number_) {
+bool IncomingParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
+  if (peer_sequence_length_) {
     return false;
   }
 
-  if (n < base_sequence_number_ + parcels_.size()) {
+  if (length < base_sequence_number_ + parcels_.size()) {
     return false;
   }
 
-  highest_expected_sequence_number_ = n;
-  Reallocate(n);
+  peer_sequence_length_ = length;
+  Reallocate(length);
   return true;
 }
 
 bool IncomingParcelQueue::IsExpectingMoreParcels() const {
-  if (!highest_expected_sequence_number_) {
+  if (!peer_sequence_length_) {
     return true;
   }
 
-  if (base_sequence_number_ > *highest_expected_sequence_number_) {
+  if (base_sequence_number_ >= *peer_sequence_length_) {
     return false;
   }
 
   const size_t num_parcels_remaining =
-      *highest_expected_sequence_number_ - base_sequence_number_ + 1;
+      *peer_sequence_length_ - base_sequence_number_;
   return num_parcels_ < num_parcels_remaining;
+}
+
+absl::optional<SequenceNumber>
+IncomingParcelQueue::GetNextExpectedSequenceNumber() const {
+  if (!IsExpectingMoreParcels()) {
+    return absl::nullopt;
+  }
+  return base_sequence_number_ + parcels_.size();
 }
 
 bool IncomingParcelQueue::HasNextParcel() const {
@@ -92,7 +99,7 @@ bool IncomingParcelQueue::Push(Parcel& parcel) {
   }
 
   size_t index = n - base_sequence_number_;
-  if (highest_expected_sequence_number_) {
+  if (peer_sequence_length_) {
     if (index >= parcels_.size() || parcels_[index].has_value()) {
       return false;
     }
@@ -110,7 +117,7 @@ bool IncomingParcelQueue::Push(Parcel& parcel) {
     return true;
   }
 
-  Reallocate(n);
+  Reallocate(n + 1);
   ABSL_ASSERT(index < parcels_.size());
   parcels_[index] = std::move(parcel);
   ++num_parcels_;
@@ -145,9 +152,9 @@ Parcel& IncomingParcelQueue::NextParcel() {
   return *parcels_[0];
 }
 
-void IncomingParcelQueue::Reallocate(SequenceNumber max_sequence_number) {
+void IncomingParcelQueue::Reallocate(SequenceNumber sequence_length) {
   size_t parcels_offset = parcels_.data() - storage_.data();
-  size_t new_parcels_size = max_sequence_number - base_sequence_number_ + 1;
+  size_t new_parcels_size = sequence_length - base_sequence_number_;
   if (parcels_offset + new_parcels_size < storage_.size()) {
     // Fast path: just extend the view into storage.
     parcels_ = ParcelSpan(storage_.data() + parcels_offset, new_parcels_size);

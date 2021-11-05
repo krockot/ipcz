@@ -49,6 +49,11 @@ Parcel& OutgoingParcelQueue::front() {
   return parcels_.front();
 }
 
+Parcel& OutgoingParcelQueue::back() {
+  ABSL_ASSERT(!empty());
+  return *last_parcel_;
+}
+
 Parcel OutgoingParcelQueue::pop() {
   ABSL_ASSERT(!empty());
   Parcel parcel = std::move(parcels_.front());

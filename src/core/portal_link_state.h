@@ -7,6 +7,7 @@
 
 #include <atomic>
 
+#include "core/sequence_number.h"
 #include "core/side.h"
 #include "os/memory.h"
 
@@ -15,38 +16,75 @@ namespace core {
 
 // Structure which lives in shared memory and is used by both ends of an
 // entangled portal pair to synchronously query and reflect portal state. Note
-// that each instance of this structure is only shared between at most two
-// non-broker nodes. It may also be shared with the broker (TODO: maybe?)
+// that each instance of this structure is only shared between the two nodes on
+// either side of a single NodeLink, and optionally also with the broker process
+// if it's not one of them.
+//
+// TODO: PortalLinkState data should be rolled into NodeLinkState, and ideally
+// each side would be stored in separate cache lines to avoid collisions: a side
+// only writes to its own state, and only reads from the other side's state.
 struct PortalLinkState {
-  // Conveys the basic status of one of the portals.
-  enum Status : uint8_t {
-    // The portal is ready to receive messages.
-    kReady = 0,
+  // Conveys the basic mode of operation for a portal on one side of the link.
+  enum Mode : uint8_t {
+    // The portal is in active use and ready to send and receive parcels. It is
+    // a terminal portal along the route.
+    kActive = 0,
 
-    // The portal has been closed.
+    // The portal has been closed. It is a terminal portal along the route.
+    // Any parcels targeting the portal can be discarded if not yet sent,
+    // because they will not be received.
     kClosed,
 
-    // The portal has been shipped off to another node somewhere and cannot
-    // accept new messages at the moment.
-    //
-    // TODO: in this state we need to also expose a key that can be used by our
-    // peer to unlock the new portal
+    // The portal has been shipped off to another node and does not want to
+    // receive any more parcels. In this state
     kMoved,
   };
 
-  struct QueueState {
-    uint32_t num_sent_bytes;
-    uint32_t num_sent_parcels;
-    uint32_t num_read_bytes;
-    uint32_t num_read_parcels;
-  };
-
+  // The full shared state of a portal on one side of the link.
   struct SideState {
     SideState();
     ~SideState();
 
-    Status status{Status::kReady};
-    QueueState queue_state;
+    // See the Mode description above.
+    Mode mode;
+
+    // The length of the sequence of parcels which has already been sent or will
+    // imminently be sent from this side.
+    //
+    // Only valid once `mode` is kClosed or kMoved. Peers can use this to deduce
+    // whether to expect additional parcels over the corresponding PortalLink.
+    // This is not necessarily the total number of parcels sent by this portal,
+    // but it is the total number sent by any portal on the same side of the
+    // same route (i.e. any portal in this portal's own chain of relocations.)
+    //
+    // Each side of a PortalLink upholds an important constraint: they will not
+    // increase their own `sequence_length` once the other side is in kMoved
+    // mode. Similarly when a side enters kMoved mode, it agrees to retain
+    // responsibility for forwarding along ALL parcels sent by the other side
+    // with a sequence number up to (but not including) this value.
+    //
+    // So if a link is established at with one side starting at sequence number
+    // and that side sends 5 parcels before the other side moves, the other side
+    // will atomically set its own mode to kMoved while also seeing the first
+    // side's sequence length of 47. As a result, it it implicitly then agrees
+    // agrees to forward parcels 42, 43, 44, 45, and 46 to its new location
+    // before forgetting about this link.
+    SequenceNumber sequence_length;
+
+    // The number of parcels consumed from the portal on this side. This does
+    // not count parcels which are forwarded elsewhere: only parcels which were
+    // read by the application with a Get operation.
+    //
+    // The other side can use this to deduce an accurate upper bound (note: not
+    // an exact amount, but an upper bound) on the number of its sent parcels
+    // which are still unread. This is used to implement certain limits on Put
+    // operations to support backpressure.
+    uint64_t num_parcels_consumed;
+
+    // Similar to above but conveys the number of bytes consumed from the
+    // portal. This is the sum of byte lengths of the data in all consumed
+    // parcels. Also used to implement Put limits.
+    uint64_t num_bytes_consumed;
   };
 
   // Provides guarded access to this PortalLinkState's data. Note that access is

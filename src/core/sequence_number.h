@@ -13,6 +13,9 @@ namespace core {
 // TODO: strong alias?
 using SequenceNumber = uint64_t;
 
+constexpr SequenceNumber kInvalidSequenceNumber =
+    ~static_cast<SequenceNumber>(0);
+
 }  // namespace core
 }  // namespace ipcz
 
