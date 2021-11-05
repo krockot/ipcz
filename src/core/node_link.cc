@@ -227,12 +227,10 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
       assigned = AssignRoute(route, portal.portal);
     }
 
-    if (!assigned) {
-      // TODO: A bad peer might steal the already-allocated routes from above,
-      // in which case `assigned` will be false. Need to gracefully sever the
-      // NodeLink in that case instead of asserting.
-      ABSL_ASSERT(false);
-    }
+    // TODO: A badassigned peer might steal the already-allocated routes from
+    // above, in which case `assigned` will be false. Need to gracefully sever
+    // the NodeLink in that case instead of asserting.
+    ABSL_ASSERT(assigned);
   }
 
   auto* handle_data =

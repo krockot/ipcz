@@ -739,6 +739,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     }
 
     sequence_number = next_outgoing_sequence_number_++;
+    peer_link = peer_link_;
   }
 
   Parcel parcel(sequence_number);
