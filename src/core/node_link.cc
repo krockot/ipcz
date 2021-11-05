@@ -25,8 +25,8 @@ namespace {
 // Serialized representation of a Portal sent in a parcel. Implicitly the portal
 // in question is moving from the sending node to the receiving node.
 struct IPCZ_ALIGN(8) SerializedPortal {
-  Side side;
   RouteId route;
+  Side side;
   bool peer_closed : 1;
   SequenceNumber peer_sequence_length;
   SequenceNumber next_incoming_sequence_number;
@@ -196,6 +196,15 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     const RouteId route = first_new_route + i;
     PortalInTransit& portal = parcel.portals_view()[i];
+
+    portals[i].route = route;
+    portals[i].side = portal.side;
+    portals[i].peer_closed = portal.peer_closed;
+    portals[i].peer_sequence_length = portal.peer_sequence_length;
+    portals[i].next_incoming_sequence_number =
+        portal.next_incoming_sequence_number;
+    portals[i].next_outgoing_sequence_number =
+        portal.next_outgoing_sequence_number;
 
     os::Memory link_state_memory(sizeof(PortalLinkState));
     os::Memory::Mapping link_state = link_state_memory.Map();

@@ -78,31 +78,39 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
 }
 
 void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
-  absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(incoming_parcels_.GetSize() == 0);
-  incoming_parcels_ =
-      IncomingParcelQueue(portal_in_transit.next_incoming_sequence_number);
-  next_outgoing_sequence_number_ =
-      portal_in_transit.next_outgoing_sequence_number;
-  if (portal_in_transit.peer_closed) {
-    status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-    incoming_parcels_.SetPeerSequenceLength(
-        portal_in_transit.peer_sequence_length);
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(incoming_parcels_.GetSize() == 0);
+    incoming_parcels_ =
+        IncomingParcelQueue(portal_in_transit.next_incoming_sequence_number);
+    next_outgoing_sequence_number_ =
+        portal_in_transit.next_outgoing_sequence_number;
+    if (portal_in_transit.peer_closed) {
+      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      incoming_parcels_.SetPeerSequenceLength(
+          portal_in_transit.peer_sequence_length);
+    }
   }
+
   SetPeerLink(std::move(portal_in_transit.link));
 }
 
 void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
-  PortalLock lock(*this);
-  ABSL_ASSERT(!local_peer_);
-  ABSL_ASSERT(!peer_link_);
+  std::forward_list<Parcel> parcels_to_forward;
+  {
+    PortalLock lock(*this);
+    ABSL_ASSERT(!local_peer_);
+    ABSL_ASSERT(!peer_link_);
 
-  // TODO: we may need to plumb a TrapEventDispatcher here and into SendParcel()
-  // in case something goes wrong and we end up discarding (and closing) portal
-  // attachments locally.
-  peer_link_ = std::move(link);
-  for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
-    SendParcelOnLink(*peer_link_, parcel);
+    // TODO: we may need to plumb a TrapEventDispatcher here and into SendParcel()
+    // in case something goes wrong and we end up discarding (and closing) portal
+    // attachments locally.
+    peer_link_ = link;
+    parcels_to_forward = outgoing_parcels_.TakeParcels();
+  }
+
+  for (Parcel& parcel : parcels_to_forward) {
+    SendParcelOnLink(*link, parcel);
   }
 }
 
