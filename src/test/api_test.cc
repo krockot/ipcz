@@ -133,9 +133,8 @@ IpczResult APITest::WaitToGet(IpczHandle portal, Parcel& parcel) {
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.CreateTrap(portal, &conditions, handler, context,
                             IPCZ_NO_FLAGS, nullptr, &trap));
-  IpczTrapConditionFlags flags;
   IpczResult result =
-      ipcz.ArmTrap(portal, trap, IPCZ_NO_FLAGS, nullptr, &flags, nullptr);
+      ipcz.ArmTrap(portal, trap, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr);
   if (result == IPCZ_RESULT_OK) {
     event.Wait();
   } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {

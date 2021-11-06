@@ -123,6 +123,7 @@ TEST(IncomingParcelQueueTest, Accounting) {
   constexpr size_t kParcel1Size = 5;
   constexpr size_t kParcel2Size = 7;
   constexpr size_t kParcel3Size = 101;
+  constexpr size_t kParcel4Size = 10;
 
   // Parcels not at the head of the queue are not considered to be available.
   EXPECT_TRUE(q.Push(ParcelWithData(3, kParcel3Size)));
@@ -162,13 +163,22 @@ TEST(IncomingParcelQueueTest, Accounting) {
   EXPECT_EQ(2u, q.GetNumAvailableParcels());
   EXPECT_EQ(kParcel2Size + kParcel3Size, q.GetNumAvailableBytes());
 
+  // Insert another at the end after popping a few to verify below that pops
+  // also update the tail of the leading span.
+  EXPECT_TRUE(q.Push(ParcelWithData(4, kParcel4Size)));
+
   EXPECT_TRUE(q.Pop(p));
   EXPECT_EQ(2u, p.sequence_number());
-  EXPECT_EQ(1u, q.GetNumAvailableParcels());
-  EXPECT_EQ(kParcel3Size, q.GetNumAvailableBytes());
+  EXPECT_EQ(2u, q.GetNumAvailableParcels());
+  EXPECT_EQ(kParcel3Size + kParcel4Size, q.GetNumAvailableBytes());
 
   EXPECT_TRUE(q.Pop(p));
   EXPECT_EQ(3u, p.sequence_number());
+  EXPECT_EQ(1u, q.GetNumAvailableParcels());
+  EXPECT_EQ(kParcel4Size, q.GetNumAvailableBytes());
+
+  EXPECT_TRUE(q.Pop(p));
+  EXPECT_EQ(4u, p.sequence_number());
   EXPECT_EQ(0u, q.GetNumAvailableParcels());
   EXPECT_EQ(0u, q.GetNumAvailableBytes());
 }

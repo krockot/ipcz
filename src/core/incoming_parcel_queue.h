@@ -188,9 +188,9 @@ class IncomingParcelQueue {
     // combined span with accurate metadata in its head and tail entries.
     //
     // Finally, the only other operation that matters for this accounting is
-    // Pop(). All Pop() needs to do though is update the metadata in the new
-    // head-of-queue (if present) after popping the previous head. This update
-    // is trivially derived from the popped entry's own metadata.
+    // Pop(). All Pop() needs to do though is derive new metadata for the new
+    // head-of-queue's span (if present) after popping. This metadata will
+    // update both the new head-of-queue as well as its span's tail.
     size_t num_parcels_in_span = 0;
     size_t num_bytes_in_span = 0;
     SequenceNumber span_start = 0;

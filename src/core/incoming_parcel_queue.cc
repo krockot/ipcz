@@ -155,12 +155,19 @@ bool IncomingParcelQueue::Pop(Parcel& parcel) {
     next.span_end = head.span_end;
     next.num_parcels_in_span = head.num_parcels_in_span - 1;
     next.num_bytes_in_span = head.num_bytes_in_span - parcel.data_view().size();
+
+    size_t tail_index = next.span_end - parcel.sequence_number();
+    if (tail_index > 1) {
+      Entry& tail = *parcels_[tail_index];
+      tail.num_parcels_in_span = next.num_parcels_in_span;
+      tail.num_bytes_in_span = next.num_bytes_in_span;
+    }
   }
 
   parcels_[0].reset();
   parcels_ = parcels_.subspan(1);
 
-  // If there's definitely no more populated parcel data, take this opporunity
+  // If there's definitely no more populated parcel data, take this opportunity
   // to realign `parcels_` to the front of `storage_` to reduce future
   // allocations.
   if (num_parcels_ == 0) {
