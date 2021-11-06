@@ -209,14 +209,12 @@ IpczResult Portal::Close() {
         link_state.this_side().sequence_length = next_outgoing_sequence_number_;
       }
 
+      // We should never have outgoing parcels buffered while we have a peer
+      // link.
+      ABSL_ASSERT(outgoing_parcels_.empty());
+
       // TODO: Just signal?
       peer_link_->NotifyClosed(next_outgoing_sequence_number_);
-    }
-
-    for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
-      for (PortalInTransit& portal : parcel.TakePortals()) {
-        other_portals_to_close.push_back(std::move(portal.portal));
-      }
     }
   }
 

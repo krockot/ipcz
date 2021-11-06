@@ -389,11 +389,10 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
       remote_name_ = m.params.source_name;
       local_name_ = m.params.target_name;
       link_state_mapping_ = node_link_state.Map();
-      if (AssignRoute(m.params.route, portal_awaiting_invitation_)) {
-        if (node_->AcceptInvitationFromBroker(m.params.source_name,
-                                              m.params.target_name)) {
-          portal = std::move(portal_awaiting_invitation_);
-        }
+      if (node_->AcceptInvitationFromBroker(m.params.source_name,
+                                            m.params.target_name) &&
+          AssignRoute(m.params.route, portal_awaiting_invitation_)) {
+        portal = std::move(portal_awaiting_invitation_);
       }
     }
   }
