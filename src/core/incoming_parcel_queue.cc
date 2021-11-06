@@ -183,7 +183,10 @@ void IncomingParcelQueue::Reallocate(SequenceNumber sequence_length) {
   // We need to reallocate storage. Re-align `parcels_` with the front of the
   // buffer, and leave some extra room when allocating.
   if (parcels_offset > 0) {
-    std::move(parcels_.begin(), parcels_.end(), storage_.begin());
+    for (size_t i = 0; i < parcels_.size(); ++i) {
+      storage_[i] = std::move(parcels_[i]);
+      parcels_[i].reset();
+    }
   }
   storage_.resize(new_parcels_size * 2);
   parcels_ = ParcelView(storage_.data(), new_parcels_size);
