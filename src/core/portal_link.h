@@ -8,6 +8,7 @@
 #include "core/node_link.h"
 #include "core/portal_link_state.h"
 #include "core/route_id.h"
+#include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
 
@@ -31,7 +32,7 @@ class PortalLink : public mem::RefCounted {
   const os::Memory::Mapping& link_state() const { return link_state_; }
 
   void SendParcel(Parcel& parcel);
-  void NotifyClosed();
+  void NotifyClosed(SequenceNumber sequence_length);
 
  private:
   ~PortalLink() override;

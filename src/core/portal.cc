@@ -102,9 +102,9 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
     ABSL_ASSERT(!local_peer_);
     ABSL_ASSERT(!peer_link_);
 
-    // TODO: we may need to plumb a TrapEventDispatcher here and into SendParcel()
-    // in case something goes wrong and we end up discarding (and closing) portal
-    // attachments locally.
+    // TODO: we may need to plumb a TrapEventDispatcher here and into
+    // SendParcel() in case something goes wrong and we end up discarding (and
+    // closing) portal attachments locally.
     peer_link_ = link;
     parcels_to_forward = outgoing_parcels_.TakeParcels();
   }
@@ -137,9 +137,11 @@ bool Portal::AcceptParcelFromLink(Parcel& parcel,
   return true;
 }
 
-bool Portal::NotifyPeerClosed(TrapEventDispatcher& dispatcher) {
+bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
+                              TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
   status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  incoming_parcels_.SetPeerSequenceLength(sequence_length);
 
   // TODO: Need to clear `outgoing_parcels_` here and manually close all Portals
   // attached to any outgoing parcels. This in turn will need a
@@ -162,12 +164,18 @@ IpczResult Portal::Close() {
     closed_ = true;
 
     if (local_peer_) {
+      Portal& peer = *local_peer_;
+      peer.mutex_.AssertHeld();
+
       // Fast path: our peer is local so we can update its status directly.
       //
       // TODO: it's possible that we are still waiting for incoming parcels we
       // know to be in flight. Ensure that our local peer knows this so it
       // doesn't appear dead just because peer closure is flagged.
-      local_peer_->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      peer.status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      if (!peer.incoming_parcels_.HasNextParcel()) {
+        peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
 
       // TODO: poke peer's traps
       return IPCZ_RESULT_OK;
@@ -183,7 +191,7 @@ IpczResult Portal::Close() {
       }
 
       // TODO: Just signal?
-      peer_link_->NotifyClosed();
+      peer_link_->NotifyClosed(next_outgoing_sequence_number_);
     }
 
     for (Parcel& parcel : outgoing_parcels_.TakeParcels()) {
@@ -378,6 +386,11 @@ IpczResult Portal::Get(void* data,
   incoming_parcels_.Pop(parcel);
   status_.num_local_parcels -= 1;
   status_.num_local_bytes -= parcel.data_view().size();
+  if ((status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
+      !incoming_parcels_.HasNextParcel() &&
+      !incoming_parcels_.IsExpectingMoreParcels()) {
+    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+  }
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   parcel.Consume(portals, os_handles);
 
@@ -461,6 +474,11 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
     incoming_parcels_.Pop(parcel);
     status_.num_local_parcels -= 1;
     status_.num_local_bytes -= parcel.data_view().size();
+    if ((status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
+        !incoming_parcels_.HasNextParcel() &&
+        !incoming_parcels_.IsExpectingMoreParcels()) {
+      status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    }
     parcel.Consume(portals, os_handles);
   } else {
     Parcel& parcel = incoming_parcels_.NextParcel();

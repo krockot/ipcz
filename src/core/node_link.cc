@@ -262,9 +262,10 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   Send(absl::MakeSpan(serialized_data), absl::MakeSpan(os_handles));
 }
 
-void NodeLink::SendPeerClosed(RouteId route) {
+void NodeLink::SendPeerClosed(RouteId route, SequenceNumber sequence_length) {
   msg::PeerClosed m;
   m.params.route = route;
+  m.params.sequence_length = sequence_length;
   Send(m);
 }
 
@@ -423,7 +424,7 @@ bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
   // Note that the portal may have already been closed locally, so we can't
   // treat the route's absence here as an error.
   if (portal) {
-    portal->NotifyPeerClosed(dispatcher);
+    portal->NotifyPeerClosed(m.params.sequence_length, dispatcher);
   }
   return true;
 }
@@ -467,6 +468,8 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
       portals_in_transit[i].peer_closed = portals[i].peer_closed;
+      portals_in_transit[i].peer_sequence_length =
+          portals[i].peer_sequence_length;
       portals_in_transit[i].next_incoming_sequence_number =
           portals[i].next_incoming_sequence_number;
       portals_in_transit[i].next_outgoing_sequence_number =

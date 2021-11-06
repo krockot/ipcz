@@ -13,6 +13,7 @@
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/route_id.h"
+#include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/process.h"
@@ -101,7 +102,7 @@ class NodeLink : public mem::RefCounted {
 
   // Notifies the remote node that the peer of the portal on `route` has been
   // closed.
-  void SendPeerClosed(RouteId route);
+  void SendPeerClosed(RouteId route, SequenceNumber sequence_length);
 
  private:
   ~NodeLink() override;

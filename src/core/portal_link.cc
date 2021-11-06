@@ -24,8 +24,8 @@ void PortalLink::SendParcel(Parcel& parcel) {
   node_->SendParcel(route_, parcel);
 }
 
-void PortalLink::NotifyClosed() {
-  node_->SendPeerClosed(route_);
+void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
+  node_->SendPeerClosed(route_, sequence_length);
 }
 
 }  // namespace core

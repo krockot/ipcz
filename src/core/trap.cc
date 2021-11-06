@@ -75,8 +75,7 @@ IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
     event_flags |= IPCZ_TRAP_CONDITION_PEER_CLOSED;
   }
   if ((conditions_.flags & IPCZ_TRAP_CONDITION_DEAD) &&
-      (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
-      status.num_local_parcels == 0) {
+      (status.flags & IPCZ_PORTAL_STATUS_DEAD)) {
     event_flags |= IPCZ_TRAP_CONDITION_DEAD;
   }
   if ((conditions_.flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) &&

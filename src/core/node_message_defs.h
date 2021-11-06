@@ -23,4 +23,5 @@ IPCZ_MSG_END()
 
 IPCZ_MSG_NO_REPLY(PeerClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RouteId, route)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()

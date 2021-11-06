@@ -57,7 +57,8 @@ class Portal : public mem::RefCounted {
 
   // Notifies this portal that its peer has been closed. If this change triggers
   // any trap events, they'll be added to `dispatcher` for imminent dispatch.
-  bool NotifyPeerClosed(TrapEventDispatcher& dispatcher);
+  bool NotifyPeerClosed(SequenceNumber sequence_length,
+                        TrapEventDispatcher& dispatcher);
 
   // ipcz portal API implementation:
   IpczResult Close();

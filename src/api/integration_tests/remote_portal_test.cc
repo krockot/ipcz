@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "os/channel.h"
 #include "os/process.h"
@@ -95,7 +96,7 @@ TEST_F(RemotePortalTest, TransferManyLocalPortals) {
   IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
   IpczHandle b = AcceptRemotePortal(other_node, remote);
 
-  constexpr uint32_t kNumIterations = 1000;
+  constexpr uint32_t kNumIterations = 100;
   for (uint32_t i = 0; i < kNumIterations; ++i) {
     IpczHandle c, d;
     ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &c, &d);
@@ -122,7 +123,7 @@ TEST_F(RemotePortalTest, TransferManyLocalPortals) {
     Parcel q;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, q));
     ASSERT_EQ(1u, q.portals.size());
-    IpczHandle d = p.portals[0];
+    IpczHandle d = q.portals[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, q));
     EXPECT_EQ("ya", q.message);
 
