@@ -247,7 +247,7 @@ typedef uint32_t IpczPortalStatusFlags;
 // Indicates that the opposite portal is closed AND no more parcels can be
 // expected to arrive from it. If this bit is set on a portal's status, the
 // portal is essentially useless.
-#define IPCZ_PORTAL_STATUS_DEAD IPCZ_FLAG_BIT(0)
+#define IPCZ_PORTAL_STATUS_DEAD IPCZ_FLAG_BIT(1)
 
 // Information returned by QueryPortalStatus() or provided to
 // IpczTrapEventHandlers when a trap's conditions on their portal.

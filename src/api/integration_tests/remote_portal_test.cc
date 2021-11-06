@@ -166,7 +166,8 @@ TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
   IpczPortalStatus status = {sizeof(status)};
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.QueryPortalStatus(b, IPCZ_NO_FLAGS, nullptr, &status));
-  EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED, status.flags);
+  EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED | IPCZ_PORTAL_STATUS_DEAD,
+            status.flags);
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
 }
 }  // namespace

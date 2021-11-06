@@ -141,6 +141,10 @@ bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
   absl::MutexLock lock(&mutex_);
   status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
   incoming_parcels_.SetPeerSequenceLength(sequence_length);
+  if (!incoming_parcels_.HasNextParcel() &&
+      !incoming_parcels_.IsExpectingMoreParcels()) {
+    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+  }
 
   // TODO: Need to clear `outgoing_parcels_` here and manually close all Portals
   // attached to any outgoing parcels. This in turn will need a
@@ -175,6 +179,8 @@ IpczResult Portal::Close() {
       if (!peer.incoming_parcels_.HasNextParcel()) {
         peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
+      peer.incoming_parcels_.SetPeerSequenceLength(
+          next_outgoing_sequence_number_);
 
       // TODO: poke peer's traps
       return IPCZ_RESULT_OK;
@@ -351,7 +357,8 @@ IpczResult Portal::Get(void* data,
   }
 
   if (!incoming_parcels_.HasNextParcel()) {
-    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+    if (!incoming_parcels_.IsExpectingMoreParcels() &&
+        (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
@@ -408,7 +415,8 @@ IpczResult Portal::BeginGet(const void** data,
   }
 
   if (!incoming_parcels_.HasNextParcel()) {
-    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+    if (!incoming_parcels_.IsExpectingMoreParcels() &&
+        (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
@@ -724,7 +732,6 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
                            const IpczPutLimits* limits,
                            bool is_two_phase_commit) {
   SequenceNumber sequence_number;
-  mem::Ref<PortalLink> peer_link;
   {
     PortalLock lock(*this);
     if (pending_parcel_ && !is_two_phase_commit) {
@@ -764,24 +771,23 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     }
 
     sequence_number = next_outgoing_sequence_number_++;
-    peer_link = peer_link_;
   }
 
   Parcel parcel(sequence_number);
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-
-  if (peer_link) {
-    SendParcelOnLink(*peer_link, parcel);
-    return IPCZ_RESULT_OK;
-  }
-
-  // No peer link, so queue for later transmission.
+  mem::Ref<PortalLink> peer_link;
   {
     PortalLock lock(*this);
-    outgoing_parcels_.push(std::move(parcel));
+    if (!peer_link_) {
+      outgoing_parcels_.push(std::move(parcel));
+      return IPCZ_RESULT_OK;
+    }
+    peer_link = peer_link_;
   }
+
+  SendParcelOnLink(*peer_link, parcel);
   return IPCZ_RESULT_OK;
 }
 
@@ -793,16 +799,16 @@ void Portal::SendParcelOnLink(PortalLink& link, Parcel& parcel) {
 
 Portal::PortalLock::PortalLock(Portal& portal) : portal_(portal) {
   portal_.mutex_.Lock();
-  locked_peer_ = portal_.local_peer_;
-  while (locked_peer_) {
+  while (portal_.local_peer_) {
+    locked_peer_ = portal_.local_peer_;
     if (locked_peer_.get() < &portal_) {
       portal_.mutex_.Unlock();
       locked_peer_->mutex_.Lock();
       portal_.mutex_.Lock();
 
       // Small chance the peer changed since we unlocked our lock and acquired
-      // its lock first before reacquiring ours. In that case, unlock their lock
-      // and try again with the new peer.
+      // the peer's lock before reacquiring ours. In that case, unlock their
+      // lock and try again with the new peer.
       if (portal_.local_peer_ != locked_peer_) {
         locked_peer_->mutex_.Unlock();
         locked_peer_ = portal_.local_peer_;
