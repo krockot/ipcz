@@ -21,7 +21,7 @@ class StackTrace {
 
   static void EnableStackTraceSymbolization(const char* argv0);
 
-  std::string ToString();
+  std::string ToString() const;
 
  private:
   absl::InlinedVector<void*, kDefaultFrameCount> frames_;

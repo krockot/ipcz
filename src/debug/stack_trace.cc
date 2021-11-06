@@ -30,7 +30,7 @@ void StackTrace::EnableStackTraceSymbolization(const char* argv0) {
   absl::InitializeSymbolizer(argv0);
 }
 
-std::string StackTrace::ToString() {
+std::string StackTrace::ToString() const {
   static constexpr size_t kMaxSymbolizedFrameLength = 256;
   std::string str;
   for (void* frame : frames_) {
