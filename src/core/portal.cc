@@ -80,7 +80,6 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
 void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(incoming_parcels_.GetSize() == 0);
     incoming_parcels_ =
         IncomingParcelQueue(portal_in_transit.next_incoming_sequence_number);
     next_outgoing_sequence_number_ =
@@ -128,11 +127,11 @@ void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
   PortalLock lock(*this);
-  if (!incoming_parcels_.Push(parcel)) {
+  if (!incoming_parcels_.Push(std::move(parcel))) {
     return false;
   }
-  status_.num_local_bytes += parcel.data_view().size();
-  status_.num_local_parcels += 1;
+  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
   traps_.MaybeNotify(dispatcher, status_);
   return true;
 }
@@ -690,7 +689,7 @@ IpczResult Portal::ValidatePutLimits(size_t data_size,
 
   if (local_peer_) {
     local_peer_->mutex_.AssertHeld();
-    if (local_peer_->incoming_parcels_.GetSize() >= max_queued_parcels) {
+    if (local_peer_->status_.num_local_parcels >= max_queued_parcels) {
       return IPCZ_RESULT_RESOURCE_EXHAUSTED;
     }
     uint32_t queued_bytes = local_peer_->status_.num_local_bytes;
@@ -748,7 +747,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
       parcel.SetPortals(std::move(portals));
       parcel.SetOSHandles(std::move(os_handles));
-      local_peer_->incoming_parcels_.Push(parcel);
+      local_peer_->incoming_parcels_.Push(std::move(parcel));
       local_peer_->status_.num_local_parcels += 1;
       local_peer_->status_.num_local_bytes += data.size();
 
