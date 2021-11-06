@@ -88,8 +88,7 @@ void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       incoming_parcels_.SetPeerSequenceLength(
           portal_in_transit.peer_sequence_length);
-      if (!incoming_parcels_.HasNextParcel() &&
-          !incoming_parcels_.IsExpectingMoreParcels()) {
+      if (incoming_parcels_.IsDead()) {
         status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
     }
@@ -99,6 +98,7 @@ void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
 }
 
 void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
+  absl::optional<SequenceNumber> sequence_length;
   std::forward_list<Parcel> parcels_to_forward;
   {
     PortalLock lock(*this);
@@ -110,10 +110,17 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
     // closing) portal attachments locally.
     peer_link_ = link;
     parcels_to_forward = outgoing_parcels_.TakeParcels();
+    if (closed_) {
+      sequence_length = next_outgoing_sequence_number_;
+    }
   }
 
   for (Parcel& parcel : parcels_to_forward) {
     SendParcelOnLink(*link, parcel);
+  }
+
+  if (sequence_length) {
+    link->NotifyClosed(*sequence_length);
   }
 }
 
@@ -126,11 +133,15 @@ void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
   while (incoming_parcels_.Pop(parcel)) {
     SendParcelOnLink(*forwarding_link_, parcel);
   }
+
+  if (incoming_parcels_.IsDead()) {
+    // TODO: nothing else to do, go away?
+  }
 }
 
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
-  PortalLock lock(*this);
+  absl::MutexLock lock(&mutex_);
   if (!incoming_parcels_.Push(std::move(parcel))) {
     return false;
   }
@@ -145,8 +156,7 @@ bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
   absl::MutexLock lock(&mutex_);
   status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
   incoming_parcels_.SetPeerSequenceLength(sequence_length);
-  if (!incoming_parcels_.HasNextParcel() &&
-      !incoming_parcels_.IsExpectingMoreParcels()) {
+  if (incoming_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
   }
 
@@ -182,8 +192,7 @@ IpczResult Portal::Close() {
       peer.status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       peer.incoming_parcels_.SetPeerSequenceLength(
           next_outgoing_sequence_number_);
-      if (!peer.incoming_parcels_.HasNextParcel() &&
-          !peer.incoming_parcels_.IsExpectingMoreParcels()) {
+      if (peer.incoming_parcels_.IsDead()) {
         peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
 
@@ -191,8 +200,8 @@ IpczResult Portal::Close() {
       return IPCZ_RESULT_OK;
     }
 
-    // Signal our closure ASAP via the control block to reduce the potential for
-    // redundant work on the peer's end.
+    // Signal our closure ASAP via the shared link state to reduce the potential
+    // for redundant work on the peer's end.
     if (peer_link_) {
       {
         PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
@@ -400,8 +409,7 @@ IpczResult Portal::Get(void* data,
   status_.num_local_parcels -= 1;
   status_.num_local_bytes -= parcel.data_view().size();
   if ((status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
-      !incoming_parcels_.HasNextParcel() &&
-      !incoming_parcels_.IsExpectingMoreParcels()) {
+      incoming_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
   }
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
@@ -489,8 +497,7 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
     status_.num_local_parcels -= 1;
     status_.num_local_bytes -= parcel.data_view().size();
     if ((status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) &&
-        !incoming_parcels_.HasNextParcel() &&
-        !incoming_parcels_.IsExpectingMoreParcels()) {
+        incoming_parcels_.IsDead()) {
       status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     }
     parcel.Consume(portals, os_handles);
@@ -722,8 +729,8 @@ IpczResult Portal::ValidatePutLimits(size_t data_size,
   }
 
   if (peer_link_) {
-    // TODO: Use the control block to test peer's last read sequence # vs our
-    // our next outgoing sequence # (also a TODO).
+    // TODO: Use the shared link state to test peer's last read sequence # vs
+    // our our next outgoing sequence # (also a TODO).
     // For now ignore limits.
     return IPCZ_RESULT_OK;
   }

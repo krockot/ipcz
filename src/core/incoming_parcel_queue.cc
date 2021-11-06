@@ -104,6 +104,10 @@ bool IncomingParcelQueue::HasNextParcel() const {
   return !parcels_.empty() && parcels_[0].has_value();
 }
 
+bool IncomingParcelQueue::IsDead() const {
+  return !HasNextParcel() && !IsExpectingMoreParcels();
+}
+
 bool IncomingParcelQueue::Push(Parcel parcel) {
   const SequenceNumber n = parcel.sequence_number();
   if (n < base_sequence_number_) {

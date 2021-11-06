@@ -84,6 +84,10 @@ class IncomingParcelQueue {
   // Indicates whether the next parcel (in sequence order) is available to pop.
   bool HasNextParcel() const;
 
+  // Indicates whether this incoming queue is "dead," meaning it will no longer
+  // accept new incoming messages and there will never be another parcel to pop.
+  bool IsDead() const;
+
   // This may fail if `n` falls below the minimum or maximum (when applicable)
   // expected sequence number for parcels in this queue.
   bool Push(Parcel parcel);
