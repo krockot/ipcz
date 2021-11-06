@@ -46,6 +46,12 @@ class IncomingParcelQueue {
     return base_sequence_number_;
   }
 
+  // The final length of the peer's parcel sequence which we're receiving. Null
+  // if the peer isn't closed yet.
+  const absl::optional<SequenceNumber>& peer_sequence_length() const {
+    return peer_sequence_length_;
+  }
+
   // Returns the number of parcels currently ready for popping at the front of
   // the queue. This is the number of *contiguous* sequenced parcels available
   // starting from `current_sequence_number()`.

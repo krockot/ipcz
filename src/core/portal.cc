@@ -88,6 +88,10 @@ void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       incoming_parcels_.SetPeerSequenceLength(
           portal_in_transit.peer_sequence_length);
+      if (!incoming_parcels_.HasNextParcel() &&
+          !incoming_parcels_.IsExpectingMoreParcels()) {
+        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
     }
   }
 
@@ -176,11 +180,12 @@ IpczResult Portal::Close() {
       // know to be in flight. Ensure that our local peer knows this so it
       // doesn't appear dead just because peer closure is flagged.
       peer.status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-      if (!peer.incoming_parcels_.HasNextParcel()) {
-        peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-      }
       peer.incoming_parcels_.SetPeerSequenceLength(
           next_outgoing_sequence_number_);
+      if (!peer.incoming_parcels_.HasNextParcel() &&
+          !peer.incoming_parcels_.IsExpectingMoreParcels()) {
+        peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
 
       // TODO: poke peer's traps
       return IPCZ_RESULT_OK;
@@ -206,6 +211,8 @@ IpczResult Portal::Close() {
     }
   }
 
+  // TODO: do this iteratively rather than recursively since we might nest
+  // arbitrarily deep
   for (mem::Ref<Portal>& portal : other_portals_to_close) {
     portal->Close();
   }
@@ -356,11 +363,11 @@ IpczResult Portal::Get(void* data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
+  if (status_.flags & IPCZ_PORTAL_STATUS_DEAD) {
+    return IPCZ_RESULT_NOT_FOUND;
+  }
+
   if (!incoming_parcels_.HasNextParcel()) {
-    if (!incoming_parcels_.IsExpectingMoreParcels() &&
-        (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
-      return IPCZ_RESULT_NOT_FOUND;
-    }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
@@ -414,11 +421,11 @@ IpczResult Portal::BeginGet(const void** data,
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
+  if (status_.flags & IPCZ_PORTAL_STATUS_DEAD) {
+    return IPCZ_RESULT_NOT_FOUND;
+  }
+
   if (!incoming_parcels_.HasNextParcel()) {
-    if (!incoming_parcels_.IsExpectingMoreParcels() &&
-        (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
-      return IPCZ_RESULT_NOT_FOUND;
-    }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
@@ -618,7 +625,7 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
 
     portal_in_transit.peer_closed = peer.closed_;
     portal_in_transit.peer_sequence_length =
-        incoming_parcels_.GetNextExpectedSequenceNumber().value_or(0);
+        peer.closed_ ? *incoming_parcels_.peer_sequence_length() : 0;
 
     // The application may have retrieved one or more parcels from this portal
     // already, so the base sequence number must be inherited by the new
