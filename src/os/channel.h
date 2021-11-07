@@ -93,10 +93,14 @@ class Channel {
 
   void Reset();
 
-  bool Send(Message message);
+  void Send(Message message);
 
  private:
+  // Attempts to send, without queueing, and if it fails to send any or all of
+  // the message contents, returns a view of what's left.
+  absl::optional<Message> SendInternal(Message message);
   void ReadMessagesOnIOThread(MessageHandler handler, Event shutdown_event);
+  void TryFlushingQueue();
 
   Handle handle_;
   Event::Notifier shutdown_notifier_;
@@ -105,6 +109,25 @@ class Channel {
   absl::Span<uint8_t> unread_data_;
   std::vector<os::Handle> handle_buffer_;
   absl::Span<os::Handle> unread_handles_;
+
+  struct DeferredMessage {
+    DeferredMessage();
+    explicit DeferredMessage(Message& m);
+    DeferredMessage(DeferredMessage&&);
+    DeferredMessage& operator=(DeferredMessage&&);
+    ~DeferredMessage();
+    Message AsMessage();
+    std::vector<uint8_t> data;
+    std::vector<os::Handle> handles;
+  };
+
+  // on POSIX we use sendmsg() from arbitrary threads, which means the system is
+  // free to interleave data from such calls if we aren't careful to prevent it.
+  // that's what this is for.
+  absl::Mutex send_mutex_;
+
+  absl::Mutex queue_mutex_;
+  std::vector<DeferredMessage> outgoing_queue_ ABSL_GUARDED_BY(queue_mutex_);
 };
 
 }  // namespace os

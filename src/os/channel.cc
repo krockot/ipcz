@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "build/build_config.h"
@@ -163,7 +164,23 @@ void Channel::Reset() {
   handle_.reset();
 }
 
-bool Channel::Send(Message message) {
+void Channel::Send(Message message) {
+  {
+    absl::MutexLock lock(&queue_mutex_);
+    if (!outgoing_queue_.empty()) {
+      outgoing_queue_.emplace_back(message);
+      return;
+    }
+  }
+
+  absl::optional<Message> m = SendInternal(message);
+  if (m) {
+    absl::MutexLock lock(&queue_mutex_);
+    outgoing_queue_.emplace_back(*m);
+  }
+}
+
+absl::optional<Channel::Message> Channel::SendInternal(Message message) {
   ABSL_ASSERT(handle_.is_valid());
 
 #if defined(OS_POSIX)
@@ -199,20 +216,29 @@ bool Channel::Send(Message message) {
       reinterpret_cast<int*>(CMSG_DATA(cmsg))[next_handle++] = handle.fd();
     }
   }
+  absl::optional<Message> remainder;
   for (;;) {
-    ssize_t result = sendmsg(handle_.fd(), &msg, MSG_NOSIGNAL);
+    ssize_t result;
+    {
+      absl::MutexLock lock(&send_mutex_);
+      result = sendmsg(handle_.fd(), &msg, MSG_NOSIGNAL);
+    }
     if (result < 0) {
-      if (errno == EINTR) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        remainder = message;
+      } else if (errno == EINTR) {
         continue;
+      } else {
+        // Unrecoverable.
+        LOG(ERROR) << "broken Channel";
+        return absl::nullopt;
       }
-      return false;
+    } else if (result < static_cast<ssize_t>(message.data.size())) {
+      // partial send - handles are fine, but may need to send more data later.
+      remainder = Message(Data(message.data.subspan(result)));
     }
 
-    if (result < static_cast<ssize_t>(message.data.size())) {
-      return false;
-    }
-
-    return true;
+    return remainder;
   }
 
 #endif
@@ -224,11 +250,16 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
     return;
   }
 
-#if defined(OS_POSIX)
   for (;;) {
+    bool have_out_messages = false;
+    {
+      absl::MutexLock lock(&queue_mutex_);
+      have_out_messages = !outgoing_queue_.empty();
+    }
+#if defined(OS_POSIX)
     pollfd poll_fds[2];
     poll_fds[0].fd = handle_.fd();
-    poll_fds[0].events = POLLIN;
+    poll_fds[0].events = POLLIN | (have_out_messages ? POLLOUT : 0);
     poll_fds[1].fd = shutdown_event.handle().fd();
     poll_fds[1].events = POLLIN;
     int poll_result;
@@ -246,7 +277,13 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       return;
     }
 
-    ABSL_ASSERT(poll_fds[0].revents & POLLIN);
+    if (poll_fds[0].revents & POLLOUT) {
+      TryFlushingQueue();
+    }
+
+    if ((poll_fds[0].revents & POLLIN) == 0) {
+      continue;
+    }
 
     size_t capacity = read_buffer_.size() - unread_data_.size();
     if (capacity < kMaxDataSize) {
@@ -328,8 +365,65 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
         unread_handles_ = absl::MakeSpan(handle_buffer_.data(), 0);
       }
     }
-  }
 #endif
+  }
+}
+
+void Channel::TryFlushingQueue() {
+  size_t i = 0;
+  for (;; ++i) {
+    absl::optional<Message> m;
+    {
+      absl::MutexLock lock(&queue_mutex_);
+      if (i >= outgoing_queue_.size()) {
+        break;
+      }
+      m = outgoing_queue_[i].AsMessage();
+    }
+
+    m = SendInternal(*m);
+    if (m) {
+      // still at least partially blocked
+      absl::MutexLock lock(&queue_mutex_);
+      outgoing_queue_[i] = DeferredMessage(*m);
+      break;
+    }
+  }
+
+  absl::MutexLock lock(&queue_mutex_);
+  if (i == 0) {
+    // no real progress
+    return;
+  }
+  if (i == outgoing_queue_.size()) {
+    // finished!
+    outgoing_queue_.clear();
+    return;
+  }
+
+  // partial progress
+  std::move(outgoing_queue_.begin() + i, outgoing_queue_.end(),
+            outgoing_queue_.begin());
+  outgoing_queue_.resize(outgoing_queue_.size() - i);
+}
+
+Channel::DeferredMessage::DeferredMessage() = default;
+
+Channel::DeferredMessage::DeferredMessage(Message& m) {
+  data = std::vector<uint8_t>(m.data.begin(), m.data.end());
+  handles.resize(m.handles.size());
+  std::move(m.handles.begin(), m.handles.end(), handles.begin());
+}
+
+Channel::DeferredMessage::DeferredMessage(DeferredMessage&&) = default;
+
+Channel::DeferredMessage& Channel::DeferredMessage::operator=(
+    DeferredMessage&&) = default;
+
+Channel::DeferredMessage::~DeferredMessage() = default;
+
+Channel::Message Channel::DeferredMessage::AsMessage() {
+  return Message(Data(absl::MakeSpan(data)), absl::MakeSpan(handles));
 }
 
 }  // namespace os
