@@ -16,6 +16,7 @@
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -24,10 +25,12 @@ namespace {
 
 // Serialized representation of a Portal sent in a parcel. Implicitly the portal
 // in question is moving from the sending node to the receiving node.
-struct IPCZ_ALIGN(8) SerializedPortal {
+struct IPCZ_ALIGN(16) SerializedPortal {
   RouteId route;
   Side side;
   bool peer_closed : 1;
+  NodeName peer_name;
+  absl::uint128 peer_key;
   SequenceNumber peer_sequence_length;
   SequenceNumber next_incoming_sequence_number;
   SequenceNumber next_outgoing_sequence_number;
@@ -185,21 +188,15 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   auto* portals = reinterpret_cast<SerializedPortal*>(data + header.num_bytes);
 
-  RouteId first_new_route;
-  {
-    absl::MutexLock lock(&mutex_);
-    first_new_route = AllocateRoutes(num_portals);
-  }
-
   std::vector<os::Handle> os_handles;
   os_handles.reserve(num_os_handles + num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
-    const RouteId route = first_new_route + i;
     PortalInTransit& portal = parcel.portals_view()[i];
-
-    portals[i].route = route;
+    portals[i].route = portal.route;
     portals[i].side = portal.side;
     portals[i].peer_closed = portal.peer_closed;
+    portals[i].peer_name = portal.peer_name;
+    portals[i].peer_key = portal.peer_key;
     portals[i].peer_sequence_length = portal.peer_sequence_length;
     portals[i].next_incoming_sequence_number =
         portal.next_incoming_sequence_number;
@@ -215,8 +212,8 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     // The link will actually be given to the appropriate portal (either
     // `portal.portal` or its local peer where applicable) in
     // Portal::FinalizeAfterTransit().
-    portal.link = mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this),
-                                                  route, std::move(link_state));
+    portal.link = mem::MakeRefCounted<PortalLink>(
+        mem::WrapRefCounted(this), portal.route, std::move(link_state));
 
     // It's important to assign the route to a Portal before we transmit this
     // parcel, in case the receiver immediately sends back messages on the new
@@ -227,13 +224,13 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
       // When the moved portal's peer is local to this node, the route gets
       // assigned to them and the moved portal essentially drops out of
       // existence on this node.
-      assigned = AssignRoute(route, portal.local_peer_before_transit);
+      assigned = AssignRoute(portal.route, portal.local_peer_before_transit);
     } else {
       // When the moved portal's peer is somewhere else, the moved portal hangs
       // around on this node and gets assigned the route to its new location.
       // This will exist only temporarily until we can help the new location
-      // establish a link to an appropriate peer-side portal.
-      assigned = AssignRoute(route, portal.portal);
+      // establish a link to our own peer.
+      assigned = AssignRoute(portal.route, portal.portal);
     }
 
     // TODO: A badassigned peer might steal the already-allocated routes from
@@ -270,7 +267,7 @@ void NodeLink::SendPeerClosed(RouteId route, SequenceNumber sequence_length) {
 }
 
 RouteId NodeLink::AllocateRoutes(size_t count) {
-  mutex_.AssertHeld();
+  absl::MutexLock lock(&mutex_);
 
   // Routes must only be allocated once we're a fully functioning link.
   ABSL_ASSERT(link_state_mapping_.is_valid());
@@ -467,6 +464,8 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
       portals_in_transit[i].portal = portal;
       portals_in_transit[i].side = portals[i].side;
       portals_in_transit[i].peer_closed = portals[i].peer_closed;
+      portals_in_transit[i].peer_name = portals[i].peer_name;
+      portals_in_transit[i].peer_key = portals[i].peer_key;
       portals_in_transit[i].peer_sequence_length =
           portals[i].peer_sequence_length;
       portals_in_transit[i].next_incoming_sequence_number =

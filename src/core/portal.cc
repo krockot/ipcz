@@ -17,8 +17,10 @@
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
+#include "util/random.h"
 
 namespace ipcz {
 namespace core {
@@ -124,14 +126,14 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
   }
 }
 
-void Portal::SetForwardingLink(mem::Ref<PortalLink> link) {
+void Portal::SetSuccessorLink(mem::Ref<PortalLink> link) {
   PortalLock lock(*this);
-  ABSL_ASSERT(!forwarding_link_);
-  forwarding_link_ = std::move(link);
+  ABSL_ASSERT(!successor_link_);
+  successor_link_ = std::move(link);
 
   Parcel parcel;
   while (incoming_parcels_.Pop(parcel)) {
-    SendParcelOnLink(*forwarding_link_, parcel);
+    SendParcelOnLink(*successor_link_, parcel);
   }
 
   if (incoming_parcels_.IsDead()) {
@@ -177,7 +179,9 @@ IpczResult Portal::Close() {
     ABSL_ASSERT(!closed_);
 
     // Forwarding portals must not be closed. They will clean themselves up.
-    ABSL_ASSERT(!forwarding_link_);
+    // TODO: proxying hops should be modeled as a fundamentally different type
+    // from portals.
+    ABSL_ASSERT(!successor_link_);
     closed_ = true;
 
     if (local_peer_) {
@@ -204,9 +208,9 @@ IpczResult Portal::Close() {
     // for redundant work on the peer's end.
     if (peer_link_) {
       {
-        PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
-        link_state.this_side().mode = PortalLinkState::Mode::kClosed;
-        link_state.this_side().sequence_length = next_outgoing_sequence_number_;
+        PortalLinkState::Locked state(peer_link_->state(), side_);
+        state.this_side().mode = PortalLinkState::Mode::kClosed;
+        state.this_side().sequence_length = next_outgoing_sequence_number_;
       }
 
       // We should never have outgoing parcels buffered while we have a peer
@@ -278,7 +282,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
   }
 
   if (peer_link_) {
-    PortalLinkState::Locked link_state(peer_link_->link_state(), side_);
+    PortalLinkState::Locked link_state(peer_link_->state(), side_);
     if (link_state.other_side().mode == PortalLinkState::Mode::kClosed) {
       return IPCZ_RESULT_NOT_FOUND;
     }
@@ -580,10 +584,12 @@ bool Portal::ValidatePortalsForTransitFromHere(
 
 // static
 void Portal::PreparePortalsForTransit(
+    PortalLink& link,
     absl::Span<PortalInTransit> portals_in_transit) {
+  RouteId new_route = link.node().AllocateRoutes(portals_in_transit.size());
   for (PortalInTransit& portal : portals_in_transit) {
     ABSL_ASSERT(portal.portal);
-    portal.portal->PrepareForTransit(portal);
+    portal.portal->PrepareForTransit(link, new_route++, portal);
   }
 }
 
@@ -612,11 +618,13 @@ void Portal::FinalizePortalsAfterTransit(absl::Span<PortalInTransit> portals) {
   }
 }
 
-void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
+void Portal::PrepareForTransit(PortalLink& link,
+                               RouteId new_route,
+                               PortalInTransit& portal_in_transit) {
   portal_in_transit.side = side_;
+  portal_in_transit.route = new_route;
 
   PortalLock lock(*this);
-  moved_ = true;
 
   if (local_peer_) {
     // We are part of a local portal pair that now must be split up and left to
@@ -638,8 +646,6 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
     portal_in_transit.next_incoming_sequence_number =
         incoming_parcels_.current_sequence_number();
 
-    // Since we're being transmitted, we must still be open. If we're still open
-    // our peer must still be able to receive new parcels.
     ABSL_ASSERT(peer.incoming_parcels_.GetNextExpectedSequenceNumber());
     portal_in_transit.next_outgoing_sequence_number =
         *peer.incoming_parcels_.GetNextExpectedSequenceNumber();
@@ -661,7 +667,62 @@ void Portal::PrepareForTransit(PortalInTransit& portal_in_transit) {
   }
 
   if (peer_link_) {
-    // TODO: more shared state mgmt
+    bool peer_closed = false;
+    bool peer_moved = false;
+    const absl::uint128 successor_key = RandomUint128();
+    SequenceNumber sequence_length;
+    {
+      PortalLinkState::Locked state(peer_link_->state(), side_);
+      PortalLinkState::SideState& this_side = state.this_side();
+      PortalLinkState::SideState& other_side = state.other_side();
+      sequence_length = other_side.sequence_length;
+      switch (other_side.mode) {
+        case PortalLinkState::Mode::kActive:
+          // Lock down the link so the peer doesn't send any more parcels our
+          // way.
+          this_side.mode = PortalLinkState::Mode::kMoved;
+          this_side.successor_key = successor_key;
+          break;
+        case PortalLinkState::Mode::kClosed:
+          peer_closed = true;
+          break;
+        case PortalLinkState::Mode::kMoved:
+          peer_moved = true;
+          break;
+      }
+    }
+
+    portal_in_transit.peer_closed = peer_closed;
+    portal_in_transit.peer_sequence_length = sequence_length;
+    portal_in_transit.next_incoming_sequence_number =
+        incoming_parcels_.current_sequence_number();
+    portal_in_transit.next_outgoing_sequence_number =
+        next_outgoing_sequence_number_;
+
+    // If we have a peer link, we should not be queuing outgoing parcels.
+    ABSL_ASSERT(outgoing_parcels_.empty());
+
+    if (peer_moved) {
+      // If the peer has moved, we're going to create our successor in a strict
+      // buffering state. They will neither send nor receive parcels anywhere
+      // until we finish negotiating an active link to the peer's successor.
+      LOG(ERROR) << "moving while our peer is also moving is not handled yet";
+      ABSL_ASSERT(false);
+      return;
+    }
+
+    // We can safely assume the peer won't send more parcels than this, because
+    // we locked in the queue state when setting our mode to kMoved above. From
+    // this point we can use `incoming_parcels_.IsDead()` as a reliable signal
+    // that we have no more parcels to forward to our successor.
+    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+
+    if (peer_closed) {
+      // If the peer is closed, there's not much else to do. We'll eventually
+      // receive any remaining in-flight messages from it and forward them to
+      // our successor.
+      return;
+    }
   }
 }
 
@@ -678,15 +739,14 @@ void Portal::RestoreFromCancelledTransit(PortalInTransit& portal_in_transit) {
 
 void Portal::FinalizeAfterTransit(PortalInTransit& portal_in_transit) {
   if (portal_in_transit.local_peer_before_transit) {
-    // The moved portal was part of a local pair, so we fix up its peer with the
-    // new peer, instead of fixing up `this` for forwarding. In this case `this`
-    // will imminently have its last reference dropped and it will be destroyed.
+    // The moved portal was part of a local pair, so we use the new route as its
+    // peer rather than as our own successor.
     Portal& peer = *portal_in_transit.local_peer_before_transit;
     peer.SetPeerLink(std::move(portal_in_transit.link));
     return;
   }
 
-  SetForwardingLink(std::move(portal_in_transit.link));
+  SetSuccessorLink(std::move(portal_in_transit.link));
 
   // TODO: negotiate with peer so we can establish a direct link between it and
   // our new portal at the forwarding destination, eventually obviating our own
@@ -804,7 +864,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
 }
 
 void Portal::SendParcelOnLink(PortalLink& link, Parcel& parcel) {
-  PreparePortalsForTransit(parcel.portals_view());
+  PreparePortalsForTransit(link, parcel.portals_view());
   link.SendParcel(parcel);
   FinalizePortalsAfterTransit(parcel.portals_view());
 }

@@ -7,9 +7,11 @@
 
 #include <atomic>
 
+#include "core/node_name.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "os/memory.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -25,7 +27,7 @@ namespace core {
 // only writes to its own state, and only reads from the other side's state.
 struct PortalLinkState {
   // Conveys the basic mode of operation for a portal on one side of the link.
-  enum Mode : uint8_t {
+  enum Mode : uint32_t {
     // The portal is in active use and ready to send and receive parcels. It is
     // a terminal portal along the route.
     kActive = 0,
@@ -47,6 +49,21 @@ struct PortalLinkState {
 
     // See the Mode description above.
     Mode mode;
+    uint32_t padding;
+
+    // The name of the node which will host our successor if `mode` is kMoved.
+    // The peer will expect a message from this node with the key below to
+    // unlock a new PortalLink between the two, to eventually replace this link.
+    // If this node happens to disappear (e.g. crash) before that can happen,
+    // the other side of this link will at least be able to observe its
+    // disconnection and deduce that the route is toast.
+    NodeName successor_node;
+
+    // A key - set only if `mode` is kMoved - which will also be shared with
+    // another node to help it establish a successor to this moved portal. The
+    // other node will ssend
+    // negotiate a route with the other side
+    absl::uint128 successor_key;
 
     // The length of the sequence of parcels which has already been sent or will
     // imminently be sent from this side.
@@ -91,16 +108,15 @@ struct PortalLinkState {
   // guarded only by a spinlock, so keep accesses   brief.
   class Locked {
    public:
-    Locked(const os::Memory::Mapping& link_state_mapping, Side side);
-    Locked(PortalLinkState& link_state, Side side);
+    Locked(PortalLinkState& state, Side side);
     ~Locked();
 
-    SideState& this_side() { return link_state_.sides_[side_]; }
-    SideState& other_side() { return link_state_.sides_[Opposite(side_)]; }
+    SideState& this_side() { return state_.sides_[side_]; }
+    SideState& other_side() { return state_.sides_[Opposite(side_)]; }
 
    private:
     const Side side_;
-    PortalLinkState& link_state_;
+    PortalLinkState& state_;
   };
 
   PortalLinkState();

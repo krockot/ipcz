@@ -137,6 +137,50 @@ TEST_F(RemotePortalTest, TransferManyLocalPortals) {
   ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
 }
 
+TEST_F(RemotePortalTest, MultipleHops) {
+  IpczHandle node0, node1, node2;
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node0));
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
+
+  os::Channel link01, link10;
+  std::tie(link01, link10) = os::Channel::CreateChannelPair();
+  IpczHandle a = OpenRemotePortal(node0, link01, os::Process::GetCurrent());
+  IpczHandle b = AcceptRemotePortal(node1, link10);
+
+  os::Channel link02, link20;
+  std::tie(link02, link20) = os::Channel::CreateChannelPair();
+  IpczHandle c = OpenRemotePortal(node0, link02, os::Process::GetCurrent());
+  IpczHandle d = AcceptRemotePortal(node2, link20);
+
+  // Send `f` from node1 to node0 and then from node0 to node2
+  IpczHandle e, f1;
+  ipcz.OpenPortals(node1, IPCZ_NO_FLAGS, nullptr, &e, &f1);
+  Put(b, "here", {&f1, 1}, {});
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  ASSERT_EQ(1u, p.portals.size());
+  IpczHandle f0 = p.portals[0];
+  Put(c, "ok ok", {&f0, 1}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
+  ASSERT_EQ(1u, p.portals.size());
+  IpczHandle f2 = p.portals[0];
+
+  constexpr uint32_t kNumIterations = 100;
+  for (uint32_t i = 0; i < kNumIterations; ++i) {
+    Put(e, "merp", {}, {});
+    Put(f2, "nerp", {}, {});
+  }
+  for (uint32_t i = 0; i < kNumIterations; ++i) {
+    Parcel p;
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(f2, p));
+    EXPECT_EQ("merp", p.message);
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));
+    EXPECT_EQ("nerp", p.message);
+  }
+}
+
 const std::string kMultiprocessMessageFromA = "hello!";
 const std::string kMultiprocessMessageFromB = "hey hey";
 

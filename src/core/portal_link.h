@@ -29,7 +29,9 @@ class PortalLink : public mem::RefCounted {
 
   NodeLink& node() const { return *node_; }
   RouteId route() const { return route_; }
-  const os::Memory::Mapping& link_state() const { return link_state_; }
+  PortalLinkState& state() const {
+    return *state_mapping_.As<PortalLinkState>();
+  }
 
   void SendParcel(Parcel& parcel);
   void NotifyClosed(SequenceNumber sequence_length);
@@ -39,7 +41,7 @@ class PortalLink : public mem::RefCounted {
 
   const mem::Ref<NodeLink> node_;
   const RouteId route_;
-  const os::Memory::Mapping link_state_;
+  const os::Memory::Mapping state_mapping_;
 };
 
 }  // namespace core

@@ -13,10 +13,10 @@ namespace core {
 
 PortalLink::PortalLink(mem::Ref<NodeLink> node,
                        RouteId route,
-                       os::Memory::Mapping link_state)
+                       os::Memory::Mapping state_mapping)
     : node_(std::move(node)),
       route_(route),
-      link_state_(std::move(link_state)) {}
+      state_mapping_(std::move(state_mapping)) {}
 
 PortalLink::~PortalLink() = default;
 

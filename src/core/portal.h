@@ -48,7 +48,7 @@ class Portal : public mem::RefCounted {
 
   void DeserializeFromTransit(PortalInTransit& portal_in_transit);
   void SetPeerLink(mem::Ref<PortalLink> link);
-  void SetForwardingLink(mem::Ref<PortalLink> link);
+  void SetSuccessorLink(mem::Ref<PortalLink> link);
 
   // Accepts a parcel that was routed here by a NodeLink. If this parcel receipt
   // triggers any trap events, they'll be added to `dispatcher` for imminent
@@ -136,12 +136,15 @@ class Portal : public mem::RefCounted {
   bool ValidatePortalsForTransitFromHere(
       absl::Span<PortalInTransit> portals_in_transit);
   static void PreparePortalsForTransit(
+      PortalLink& link,
       absl::Span<PortalInTransit> portals_in_transit);
   static void RestorePortalsFromCancelledTransit(
       absl::Span<PortalInTransit> portals_in_transit);
   static void FinalizePortalsAfterTransit(absl::Span<PortalInTransit> portals);
 
-  void PrepareForTransit(PortalInTransit& portal_in_transit);
+  void PrepareForTransit(PortalLink& link,
+                         RouteId new_route,
+                         PortalInTransit& portal_in_transit);
   void RestoreFromCancelledTransit(PortalInTransit& portal_in_transit);
   void FinalizeAfterTransit(PortalInTransit& portal_in_transit);
 
@@ -168,23 +171,14 @@ class Portal : public mem::RefCounted {
   // its outgoing parcels to a known peer on another node.
   mem::Ref<PortalLink> peer_link_ ABSL_GUARDED_BY(mutex_);
 
-  // `forwarding_link_` is non-null if and only iff this Portal has been moved
+  // `successor_link_` is non-null if and only iff this Portal has been moved
   // and is still hanging around to forward one or more expected incoming
-  // parcels. Such parcels when received are forwarded via `forwarding_link_`
-  // the node which accepted this moved portal. Once all expected incoming
-  // parcels have been received and forwarded, this portal can be destroyed.
-  mem::Ref<PortalLink> forwarding_link_ ABSL_GUARDED_BY(mutex_);
+  // parcels to its successor.
+  mem::Ref<PortalLink> successor_link_ ABSL_GUARDED_BY(mutex_);
 
   // Tracks whether this portal has been explicitly closed. Closed portals are
   // not meant to be used further by any APIs.
   bool closed_ ABSL_GUARDED_BY(mutex_) = false;
-
-  // Tracks whether this portal has been moved elsewhere. In this case the
-  // portal may persist with a peer link for forwarding parcels to the new
-  // location, and potentially multiple inbound routes receiving parcels the
-  // peer or prior locations. Eventually the portal will be destroyed once it
-  // has finished forwarding what it expects to have forwarded through it.
-  bool moved_ ABSL_GUARDED_BY(mutex_) = false;
 
   // The current IpczPortalStatus of this portal. The status is used frequently
   // for status queries and trap events, and in such cases it is copied directly

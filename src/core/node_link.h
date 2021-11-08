@@ -104,10 +104,15 @@ class NodeLink : public mem::RefCounted {
   // closed.
   void SendPeerClosed(RouteId route, SequenceNumber sequence_length);
 
+  // Allocates `count` contiguous RouteIds on the link and returns the smallest
+  // of them. For example if this is called with a `count` of 5, a return value
+  // of 17 indicates that routes 17, 18, 19, 20, and 21 have been allocated by
+  // the caller.
+  RouteId AllocateRoutes(size_t count);
+
  private:
   ~NodeLink() override;
 
-  RouteId AllocateRoutes(size_t count);
   bool AssignRoute(RouteId id, const mem::Ref<Portal>& portal);
 
   mem::Ref<Portal> GetPortalForRoute(RouteId id);

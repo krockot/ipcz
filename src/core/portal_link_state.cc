@@ -4,6 +4,7 @@
 
 #include "core/portal_link_state.h"
 
+#include <cstring>
 #include <new>
 #include <thread>
 
@@ -14,17 +15,13 @@ PortalLinkState::SideState::SideState() = default;
 
 PortalLinkState::SideState::~SideState() = default;
 
-PortalLinkState::Locked::Locked(const os::Memory::Mapping& link_state_mapping,
-                                Side side)
-    : side_(side), link_state_(*link_state_mapping.As<PortalLinkState>()) {}
-
-PortalLinkState::Locked::Locked(PortalLinkState& link_state, Side side)
-    : side_(side), link_state_(link_state) {
-  link_state_.Lock();
+PortalLinkState::Locked::Locked(PortalLinkState& state, Side side)
+    : side_(side), state_(state) {
+  state_.Lock();
 }
 
 PortalLinkState::Locked::~Locked() {
-  link_state_.Unlock();
+  state_.Unlock();
 }
 
 PortalLinkState::PortalLinkState() = default;
@@ -33,6 +30,7 @@ PortalLinkState::~PortalLinkState() = default;
 
 // static
 PortalLinkState& PortalLinkState::Initialize(void* where) {
+  memset(where, 0, sizeof(PortalLinkState));
   return *(new (where) PortalLinkState());
 }
 
