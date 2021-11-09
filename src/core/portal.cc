@@ -30,6 +30,7 @@ namespace {
 Parcel::PortalVector AcquirePortalsForTransit(
     absl::Span<const IpczHandle> handles) {
   Parcel::PortalVector portals(handles.size());
+  memset(portals.data(), 0, portals.size() * sizeof(portals[0]));
   for (size_t i = 0; i < handles.size(); ++i) {
     portals[i].portal = mem::WrapRefCounted(ToPtr<Portal>(handles[i]));
   }
@@ -636,9 +637,11 @@ void Portal::PrepareForTransit(PortalLink& link,
     Portal& peer = *local_peer_;
     peer.mutex_.AssertHeld();
 
+    portal_in_transit.route = new_route;
     portal_in_transit.peer_closed = peer.closed_;
     portal_in_transit.peer_sequence_length =
         peer.closed_ ? *incoming_parcels_.peer_sequence_length() : 0;
+    portal_in_transit.peer_is_sender = true;
 
     // The application may have retrieved one or more parcels from this portal
     // already, so the base sequence number must be inherited by the new
@@ -694,6 +697,7 @@ void Portal::PrepareForTransit(PortalLink& link,
 
     portal_in_transit.peer_closed = peer_closed;
     portal_in_transit.peer_sequence_length = sequence_length;
+    portal_in_transit.peer_is_sender = false;
     portal_in_transit.next_incoming_sequence_number =
         incoming_parcels_.current_sequence_number();
     portal_in_transit.next_outgoing_sequence_number =
@@ -723,6 +727,9 @@ void Portal::PrepareForTransit(PortalLink& link,
       // our successor.
       return;
     }
+
+    portal_in_transit.peer_name =
+        link.node().GetRemoteName().value_or(NodeName());
   }
 }
 

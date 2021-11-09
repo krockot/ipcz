@@ -38,6 +38,11 @@ struct PortalInTransit {
   // Indicates whether the peer is known to be closed already.
   bool peer_closed;
 
+  // Indicates whether the peer is the sender or is described by the fields
+  // below. If this is false and the fields below are also invalid, then the
+  // peer is unknown and the new portal must wait for a peer link.
+  bool peer_is_sender;
+
   // The name of the node on which the peer lives. May be invalid if a peer
   // is not yet available to this newly moved portal; in which case the route
   // established for this portal should expect an eventual EstablishPeerLink
