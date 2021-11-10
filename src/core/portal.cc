@@ -11,6 +11,7 @@
 #include "core/node.h"
 #include "core/node_link.h"
 #include "core/parcel.h"
+#include "core/portal_descriptor.h"
 #include "core/portal_link_state.h"
 #include "core/trap.h"
 #include "debug/log.h"
@@ -30,9 +31,8 @@ namespace {
 Parcel::PortalVector AcquirePortalsForTransit(
     absl::Span<const IpczHandle> handles) {
   Parcel::PortalVector portals(handles.size());
-  memset(portals.data(), 0, portals.size() * sizeof(portals[0]));
   for (size_t i = 0; i < handles.size(); ++i) {
-    portals[i].portal = mem::WrapRefCounted(ToPtr<Portal>(handles[i]));
+    portals[i] = mem::WrapRefCounted(ToPtr<Portal>(handles[i]));
   }
   return portals;
 }
@@ -80,24 +80,93 @@ Portal::Pair Portal::CreateLocalPair(Node& node) {
   return {std::move(left), std::move(right)};
 }
 
-void Portal::DeserializeFromTransit(PortalInTransit& portal_in_transit) {
-  {
-    absl::MutexLock lock(&mutex_);
-    incoming_parcels_ =
-        IncomingParcelQueue(portal_in_transit.next_incoming_sequence_number);
-    next_outgoing_sequence_number_ =
-        portal_in_transit.next_outgoing_sequence_number;
-    if (portal_in_transit.peer_closed) {
-      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-      incoming_parcels_.SetPeerSequenceLength(
-          portal_in_transit.peer_sequence_length);
-      if (incoming_parcels_.IsDead()) {
-        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-      }
+mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
+  // TODO: need to support sending both portals of a local pair in the same
+  // parcel. one idea that could work:
+  //
+  //   leave each local portal with nothing but a successor link to the new
+  //   portal - use this to forward unread incoming parcels. use a one-off
+  //   field in PortalDescriptor to say "peer is this other descriptor X" for
+  //   the receiving end.
+
+  PortalLock lock(*this);
+  if (local_peer_) {
+    // We're part of a local portal pair. Ensure our local peer is split from us
+    // so they don't modify our state further. If transit is cancelled we can
+    // recover a reference to them and fix them back up with us later.
+    Portal& peer = *local_peer_;
+    peer.mutex_.AssertHeld();
+    peer.local_peer_.reset();
+
+    descriptor.route_is_peer = true;
+    descriptor.side = side_;
+    descriptor.peer_closed = peer.closed_;
+    descriptor.peer_sequence_length =
+        peer.closed_ ? *incoming_parcels_.peer_sequence_length() : 0;
+    descriptor.next_incoming_sequence_number =
+        incoming_parcels_.current_sequence_number();
+    descriptor.next_outgoing_sequence_number =
+        *peer.incoming_parcels_.GetNextExpectedSequenceNumber();
+
+    // Take any unread parcels from the moving portal and stick them in the
+    // outgoing queue of its locally retained peer. They will be transmitted
+    // from there to the new portal once it's ready.
+    Parcel parcel;
+    OutgoingParcelQueue& saved_parcels = peer.outgoing_parcels_;
+    while (incoming_parcels_.Pop(parcel)) {
+      saved_parcels.push(std::move(parcel));
     }
+    return local_peer_;
   }
 
-  SetPeerLink(std::move(portal_in_transit.link));
+  if (peer_link_) {
+    bool peer_moved = false;
+    SequenceNumber sequence_length;
+    {
+      PortalLinkState::Locked state(peer_link_->state(), side_);
+      PortalLinkState::SideState& this_side = state.this_side();
+      PortalLinkState::SideState& other_side = state.other_side();
+      sequence_length = other_side.sequence_length;
+      switch (other_side.mode) {
+        case PortalLinkState::Mode::kActive:
+          // Lock down the link so the peer doesn't send any more parcels our
+          // way.
+          this_side.mode = PortalLinkState::Mode::kMoved;
+          break;
+        case PortalLinkState::Mode::kClosed:
+          descriptor.peer_closed = true;
+          break;
+        case PortalLinkState::Mode::kMoved:
+          peer_moved = true;
+          break;
+      }
+    }
+
+    // TODO: Not yet supported.
+    ABSL_ASSERT(!peer_moved);
+
+    descriptor.side = side_;
+    descriptor.peer_sequence_length = sequence_length;
+    descriptor.next_incoming_sequence_number =
+        incoming_parcels_.current_sequence_number();
+    descriptor.next_outgoing_sequence_number = next_outgoing_sequence_number_;
+
+    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+  }
+
+  return mem::WrapRefCounted(this);
+}
+
+// static
+mem::Ref<Portal> Portal::DeserializeNew(NodeLink& from_node,
+                                        os::Memory::Mapping link_state_mapping,
+                                        const PortalDescriptor& descriptor) {
+  auto portal = mem::MakeRefCounted<Portal>(descriptor.side);
+  if (!portal->Deserialize(from_node, std::move(link_state_mapping),
+                           descriptor)) {
+    return nullptr;
+  }
+  return portal;
 }
 
 void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
@@ -119,7 +188,7 @@ void Portal::SetPeerLink(mem::Ref<PortalLink> link) {
   }
 
   for (Parcel& parcel : parcels_to_forward) {
-    SendParcelOnLink(*link, parcel);
+    link->SendParcel(parcel);
   }
 
   if (sequence_length) {
@@ -134,7 +203,7 @@ void Portal::SetSuccessorLink(mem::Ref<PortalLink> link) {
 
   Parcel parcel;
   while (incoming_parcels_.Pop(parcel)) {
-    SendParcelOnLink(*successor_link_, parcel);
+    successor_link_->SendParcel(parcel);
   }
 
   if (incoming_parcels_.IsDead()) {
@@ -242,24 +311,21 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> portals,
                        absl::Span<const IpczOSHandle> os_handles,
                        const IpczPutLimits* limits) {
-  auto portals_in_transit = AcquirePortalsForTransit(portals);
-  auto portals_view = absl::MakeSpan(portals_in_transit);
-  if (!ValidatePortalsForTransitFromHere(portals_view)) {
+  auto portals_to_send = AcquirePortalsForTransit(portals);
+  if (!ValidatePortalsToSendFromHere(absl::MakeSpan(portals_to_send))) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
   std::vector<os::Handle> acquired_os_handles =
       AcquireOSHandlesForTransit(os_handles);
   IpczResult result =
-      PutImpl(data, portals_in_transit, acquired_os_handles, limits,
+      PutImpl(data, portals_to_send, acquired_os_handles, limits,
               /*is_two_phase_commit=*/false);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
-    FinalizePortalsAfterTransit(portals_view);
     return IPCZ_RESULT_OK;
   }
 
-  RestorePortalsFromCancelledTransit(portals_view);
   ReleaseOSHandlesFromCancelledTransit(absl::MakeSpan(acquired_os_handles));
   return result;
 }
@@ -307,9 +373,8 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
                              absl::Span<const IpczHandle> portals,
                              absl::Span<const IpczOSHandle> os_handles) {
-  auto portals_in_transit = AcquirePortalsForTransit(portals);
-  auto portals_view = absl::MakeSpan(portals_in_transit);
-  if (!ValidatePortalsForTransitFromHere(portals_view)) {
+  auto portals_to_send = AcquirePortalsForTransit(portals);
+  if (!ValidatePortalsToSendFromHere(absl::MakeSpan(portals_to_send))) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -333,19 +398,16 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
 
   std::vector<os::Handle> acquired_os_handles =
       AcquireOSHandlesForTransit(os_handles);
-  IpczResult result = PutImpl(parcel.data_view(), portals_in_transit,
-                              acquired_os_handles, nullptr,
-                              /*is_two_phase_commit=*/true);
+  IpczResult result =
+      PutImpl(parcel.data_view(), portals_to_send, acquired_os_handles, nullptr,
+              /*is_two_phase_commit=*/true);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
-    FinalizePortalsAfterTransit(portals_view);
-
     absl::MutexLock lock(&mutex_);
     pending_parcel_.reset();
     return IPCZ_RESULT_OK;
   }
 
-  RestorePortalsFromCancelledTransit(portals_view);
   ReleaseOSHandlesFromCancelledTransit(absl::MakeSpan(acquired_os_handles));
 
   absl::MutexLock lock(&mutex_);
@@ -566,16 +628,15 @@ IpczResult Portal::DestroyTrap(IpczHandle trap) {
   return traps_.Remove(ToRef<Trap>(trap));
 }
 
-bool Portal::ValidatePortalsForTransitFromHere(
-    absl::Span<PortalInTransit> portals_in_transit) {
-  for (PortalInTransit& portal_in_transit : portals_in_transit) {
-    Portal& portal = *portal_in_transit.portal;
-    if (!portal.transferrable_ || &portal == this) {
+bool Portal::ValidatePortalsToSendFromHere(
+    absl::Span<mem::Ref<Portal>> portals) {
+  for (const mem::Ref<Portal>& portal : portals) {
+    if (portal.get() == this) {
       return false;
     }
 
     PortalLock lock(*this);
-    if (local_peer_.get() == &portal) {
+    if (local_peer_ == portal) {
       return false;
     }
   }
@@ -583,181 +644,27 @@ bool Portal::ValidatePortalsForTransitFromHere(
   return true;
 }
 
-// static
-void Portal::PreparePortalsForTransit(
-    PortalLink& link,
-    absl::Span<PortalInTransit> portals_in_transit) {
-  RouteId new_route = link.node().AllocateRoutes(portals_in_transit.size());
-  for (PortalInTransit& portal : portals_in_transit) {
-    ABSL_ASSERT(portal.portal);
-    portal.portal->PrepareForTransit(link, new_route++, portal);
-  }
-}
-
-// static
-void Portal::RestorePortalsFromCancelledTransit(
-    absl::Span<PortalInTransit> portals_in_transit) {
-  for (PortalInTransit& portal : portals_in_transit) {
-    ABSL_ASSERT(portal.portal);
-    portal.portal->RestoreFromCancelledTransit(portal);
-  }
-}
-
-// static
-void Portal::FinalizePortalsAfterTransit(absl::Span<PortalInTransit> portals) {
-  for (PortalInTransit& portal_in_transit : portals) {
-    // Steal the handle's ref to the portal since the handle must no longer be
-    // in use by the application.
-    if (!portal_in_transit.portal) {
-      // Only set if this portal was actually transferred to another node.
-      continue;
-    }
-
-    mem::Ref<Portal> portal = {mem::RefCounted::kAdoptExistingRef,
-                               portal_in_transit.portal.get()};
-    portal->FinalizeAfterTransit(portal_in_transit);
-  }
-}
-
-void Portal::PrepareForTransit(PortalLink& link,
-                               RouteId new_route,
-                               PortalInTransit& portal_in_transit) {
-  portal_in_transit.side = side_;
-  portal_in_transit.route = new_route;
-
-  PortalLock lock(*this);
-
-  if (local_peer_) {
-    // We are part of a local portal pair that now must be split up and left to
-    // buffer until transit is complete. `this` is the portal being moved, which
-    // we will essentially drop. We replace the PortalInTransit with our peer
-    // after passing it any incoming state of ours.
-    portal_in_transit.local_peer_before_transit = local_peer_;
-
-    Portal& peer = *local_peer_;
-    peer.mutex_.AssertHeld();
-
-    portal_in_transit.route = new_route;
-    portal_in_transit.peer_closed = peer.closed_;
-    portal_in_transit.peer_sequence_length =
-        peer.closed_ ? *incoming_parcels_.peer_sequence_length() : 0;
-    portal_in_transit.peer_is_sender = true;
-
-    // The application may have retrieved one or more parcels from this portal
-    // already, so the base sequence number must be inherited by the new
-    // destination portal.
-    portal_in_transit.next_incoming_sequence_number =
-        incoming_parcels_.current_sequence_number();
-
-    ABSL_ASSERT(peer.incoming_parcels_.GetNextExpectedSequenceNumber());
-    portal_in_transit.next_outgoing_sequence_number =
-        *peer.incoming_parcels_.GetNextExpectedSequenceNumber();
-
-    // Take any unread parcels from the moving portal and stick them in the
-    // outgoing queue of its locally retained peer. They will be transmitted
-    // from there to the new portal once it's ready.
-    Parcel parcel;
-    OutgoingParcelQueue& saved_parcels = peer.outgoing_parcels_;
-    while (incoming_parcels_.Pop(parcel)) {
-      saved_parcels.push(std::move(parcel));
-    }
-
-    peer.status_.num_remote_parcels = status_.num_local_parcels;
-    peer.status_.num_remote_bytes = status_.num_remote_bytes;
-    peer.local_peer_.reset();
-    local_peer_.reset();
-    return;
-  }
-
-  if (peer_link_) {
-    bool peer_closed = false;
-    bool peer_moved = false;
-    const absl::uint128 successor_key = RandomUint128();
-    SequenceNumber sequence_length;
-    {
-      PortalLinkState::Locked state(peer_link_->state(), side_);
-      PortalLinkState::SideState& this_side = state.this_side();
-      PortalLinkState::SideState& other_side = state.other_side();
-      sequence_length = other_side.sequence_length;
-      switch (other_side.mode) {
-        case PortalLinkState::Mode::kActive:
-          // Lock down the link so the peer doesn't send any more parcels our
-          // way.
-          this_side.mode = PortalLinkState::Mode::kMoved;
-          this_side.successor_key = successor_key;
-          break;
-        case PortalLinkState::Mode::kClosed:
-          peer_closed = true;
-          break;
-        case PortalLinkState::Mode::kMoved:
-          peer_moved = true;
-          break;
+bool Portal::Deserialize(NodeLink& from_node,
+                         os::Memory::Mapping link_state_mapping,
+                         const PortalDescriptor& descriptor) {
+  {
+    absl::MutexLock lock(&mutex_);
+    incoming_parcels_ =
+        IncomingParcelQueue(descriptor.next_incoming_sequence_number);
+    next_outgoing_sequence_number_ = descriptor.next_outgoing_sequence_number;
+    if (descriptor.peer_closed) {
+      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      incoming_parcels_.SetPeerSequenceLength(descriptor.peer_sequence_length);
+      if (incoming_parcels_.IsDead()) {
+        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
     }
-
-    portal_in_transit.peer_closed = peer_closed;
-    portal_in_transit.peer_sequence_length = sequence_length;
-    portal_in_transit.peer_is_sender = false;
-    portal_in_transit.next_incoming_sequence_number =
-        incoming_parcels_.current_sequence_number();
-    portal_in_transit.next_outgoing_sequence_number =
-        next_outgoing_sequence_number_;
-
-    // If we have a peer link, we should not be queuing outgoing parcels.
-    ABSL_ASSERT(outgoing_parcels_.empty());
-
-    if (peer_moved) {
-      // If the peer has moved, we're going to create our successor in a strict
-      // buffering state. They will neither send nor receive parcels anywhere
-      // until we finish negotiating an active link to the peer's successor.
-      LOG(ERROR) << "moving while our peer is also moving is not handled yet";
-      ABSL_ASSERT(false);
-      return;
-    }
-
-    // We can safely assume the peer won't send more parcels than this, because
-    // we locked in the queue state when setting our mode to kMoved above. From
-    // this point we can use `incoming_parcels_.IsDead()` as a reliable signal
-    // that we have no more parcels to forward to our successor.
-    incoming_parcels_.SetPeerSequenceLength(sequence_length);
-
-    if (peer_closed) {
-      // If the peer is closed, there's not much else to do. We'll eventually
-      // receive any remaining in-flight messages from it and forward them to
-      // our successor.
-      return;
-    }
-
-    portal_in_transit.peer_name =
-        link.node().GetRemoteName().value_or(NodeName());
-  }
-}
-
-void Portal::RestoreFromCancelledTransit(PortalInTransit& portal_in_transit) {
-  // TODO - not terribly important for now. mojo always discards resources that
-  // were attached to parcels which couldn't be sent. so in practice any
-  // cancelled transit will immediately be followed by closure of all portal
-  // attachments and it doesn't matter what state we leave them in. this needs
-  // to be fixed eventually to meet specified ipcz API behvior though. for
-  // example if a direct portal pair was spit for transit and then transit
-  // failed, we should restore the direct portal pair to its original state
-  // here.
-}
-
-void Portal::FinalizeAfterTransit(PortalInTransit& portal_in_transit) {
-  if (portal_in_transit.local_peer_before_transit) {
-    // The moved portal was part of a local pair, so we use the new route as its
-    // peer rather than as our own successor.
-    Portal& peer = *portal_in_transit.local_peer_before_transit;
-    peer.SetPeerLink(std::move(portal_in_transit.link));
-    return;
   }
 
-  SetSuccessorLink(std::move(portal_in_transit.link));
-
-  // TODO: negotiate with peer so we can establish a direct link between it and
-  // our new portal at the forwarding destination, eventually obviating our own
-  // existence.
+  SetPeerLink(mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(&from_node),
+                                              descriptor.route,
+                                              std::move(link_state_mapping)));
+  return true;
 }
 
 IpczResult Portal::ValidatePutLimits(size_t data_size,
@@ -810,6 +717,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
                            std::vector<os::Handle>& os_handles,
                            const IpczPutLimits* limits,
                            bool is_two_phase_commit) {
+  mem::Ref<PortalLink> link;
   SequenceNumber sequence_number;
   {
     PortalLock lock(*this);
@@ -824,12 +732,13 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       }
     }
 
+    sequence_number = next_outgoing_sequence_number_++;
     if (local_peer_) {
       if (local_peer_->closed_) {
         return IPCZ_RESULT_NOT_FOUND;
       }
 
-      Parcel parcel(next_outgoing_sequence_number_++);
+      Parcel parcel(sequence_number);
       parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
       parcel.SetPortals(std::move(portals));
       parcel.SetOSHandles(std::move(os_handles));
@@ -843,37 +752,33 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     }
 
     if (peer_link_) {
+      link = peer_link_;
+    }
+
+    if (!link) {
+      Parcel parcel(sequence_number);
+      parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
+      parcel.SetPortals(std::move(portals));
+      parcel.SetOSHandles(std::move(os_handles));
+      outgoing_parcels_.push(std::move(parcel));
+      return IPCZ_RESULT_OK;
+    }
+
+    if (link) {
       // TODO: Update shared state to either lock in the expectation of this
       // parcel arriving or confirm that no more parcels will be accepted. In
       // the latter case, we'll queue the parcel in `outgoing_parcels_` and wait
       // to hear back from the peer about where to send parcels next.
     }
-
-    sequence_number = next_outgoing_sequence_number_++;
   }
 
+  ABSL_ASSERT(link);
   Parcel parcel(sequence_number);
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  mem::Ref<PortalLink> peer_link;
-  {
-    PortalLock lock(*this);
-    if (!peer_link_) {
-      outgoing_parcels_.push(std::move(parcel));
-      return IPCZ_RESULT_OK;
-    }
-    peer_link = peer_link_;
-  }
-
-  SendParcelOnLink(*peer_link, parcel);
+  link->SendParcel(parcel);
   return IPCZ_RESULT_OK;
-}
-
-void Portal::SendParcelOnLink(PortalLink& link, Parcel& parcel) {
-  PreparePortalsForTransit(link, parcel.portals_view());
-  link.SendParcel(parcel);
-  FinalizePortalsAfterTransit(parcel.portals_view());
 }
 
 Portal::PortalLock::PortalLock(Portal& portal) : portal_(portal) {

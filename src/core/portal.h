@@ -12,7 +12,6 @@
 #include "core/node.h"
 #include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
-#include "core/portal_in_transit.h"
 #include "core/portal_link.h"
 #include "core/route_id.h"
 #include "core/sequence_number.h"
@@ -32,6 +31,7 @@ namespace core {
 
 class NodeLink;
 class TrapEventDispatcher;
+struct PortalDescriptor;
 
 class Portal : public mem::RefCounted {
  public:
@@ -46,7 +46,19 @@ class Portal : public mem::RefCounted {
 
   Side side() const { return side_; }
 
-  void DeserializeFromTransit(PortalInTransit& portal_in_transit);
+  // Serializes this portal for transfer to another node. `descriptor` must be
+  // filled in by the Portal. This returns the local Portal object which should
+  // should immediately begin receiving requests from the destination node once
+  // the transfer happens. Typically `this`, but if this was part of a local
+  // pair it may be `local_peer_` instead.
+  mem::Ref<Portal> Serialize(PortalDescriptor& descriptor);
+
+  // Deserializes a new Portal from a descriptor and link state received from
+  // `from_node`.
+  static mem::Ref<Portal> DeserializeNew(NodeLink& from_node,
+                                         os::Memory::Mapping link_state_mapping,
+                                         const PortalDescriptor& descriptor);
+
   void SetPeerLink(mem::Ref<PortalLink> link);
   void SetSuccessorLink(mem::Ref<PortalLink> link);
 
@@ -133,20 +145,11 @@ class Portal : public mem::RefCounted {
   Portal(Side side, bool transferrable);
   ~Portal() override;
 
-  bool ValidatePortalsForTransitFromHere(
-      absl::Span<PortalInTransit> portals_in_transit);
-  static void PreparePortalsForTransit(
-      PortalLink& link,
-      absl::Span<PortalInTransit> portals_in_transit);
-  static void RestorePortalsFromCancelledTransit(
-      absl::Span<PortalInTransit> portals_in_transit);
-  static void FinalizePortalsAfterTransit(absl::Span<PortalInTransit> portals);
+  bool Deserialize(NodeLink& from_node,
+                   os::Memory::Mapping link_state_mapping,
+                   const PortalDescriptor& descriptor);
 
-  void PrepareForTransit(PortalLink& link,
-                         RouteId new_route,
-                         PortalInTransit& portal_in_transit);
-  void RestoreFromCancelledTransit(PortalInTransit& portal_in_transit);
-  void FinalizeAfterTransit(PortalInTransit& portal_in_transit);
+  bool ValidatePortalsToSendFromHere(absl::Span<mem::Ref<Portal>> portals);
 
   IpczResult ValidatePutLimits(size_t data_size, const IpczPutLimits* limits);
   IpczResult PutImpl(absl::Span<const uint8_t> data,

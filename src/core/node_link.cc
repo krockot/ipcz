@@ -10,6 +10,7 @@
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/portal.h"
+#include "core/portal_descriptor.h"
 #include "core/portal_link_state.h"
 #include "core/sequence_number.h"
 #include "core/trap_event_dispatcher.h"
@@ -22,23 +23,6 @@ namespace ipcz {
 namespace core {
 
 namespace {
-
-// Serialized representation of a Portal sent in a parcel. Implicitly the portal
-// in question is moving from the sending node to the receiving node.
-struct IPCZ_ALIGN(16) SerializedPortal {
-  RouteId route;
-  Side side;
-  bool peer_closed : 1;
-  NodeName peer_name;
-  absl::uint128 peer_key;
-  SequenceNumber peer_sequence_length;
-  SequenceNumber next_incoming_sequence_number;
-  SequenceNumber next_outgoing_sequence_number;
-
-  // TODO: provide an index into some NodeLink shared state where we can host a
-  // corrpesonding PortalLinkState. for now we allocate a separate shared region
-  // for every PortalLinkState, which is not a good idea.
-};
 
 struct IPCZ_ALIGN(8) AcceptParcelHeader {
   internal::MessageHeader message_header;
@@ -172,7 +156,7 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   const size_t num_os_handles = parcel.os_handles_view().size();
   const size_t serialized_size =
       sizeof(AcceptParcelHeader) + parcel.data_view().size() +
-      num_portals * sizeof(SerializedPortal) +
+      num_portals * sizeof(PortalDescriptor) +
       (num_os_handles + num_portals) * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
 
@@ -186,61 +170,37 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   header.num_os_handles = num_portals + num_os_handles;
   auto* data = reinterpret_cast<uint8_t*>(&header + 1);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  auto* portals = reinterpret_cast<SerializedPortal*>(data + header.num_bytes);
+  auto* descriptors =
+      reinterpret_cast<PortalDescriptor*>(data + header.num_bytes);
 
+  const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
+  const size_t first_route_id = AllocateRoutes(num_portals);
   std::vector<os::Handle> os_handles;
+  std::vector<mem::Ref<PortalLink>> new_links(num_portals);
   os_handles.reserve(num_os_handles + num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
-    PortalInTransit& portal = parcel.portals_view()[i];
-    portals[i].route = portal.route;
-    portals[i].side = portal.side;
-    portals[i].peer_closed = portal.peer_closed;
-    portals[i].peer_name = portal.peer_name;
-    portals[i].peer_key = portal.peer_key;
-    portals[i].peer_sequence_length = portal.peer_sequence_length;
-    portals[i].next_incoming_sequence_number =
-        portal.next_incoming_sequence_number;
-    portals[i].next_outgoing_sequence_number =
-        portal.next_outgoing_sequence_number;
-
     os::Memory link_state_memory(sizeof(PortalLinkState));
     os::Memory::Mapping link_state = link_state_memory.Map();
     PortalLinkState::Initialize(link_state.base());
     os_handles.push_back(link_state_memory.TakeHandle());
     // TODO: populate OSHandleData too
 
-    // The link will actually be given to the appropriate portal (either
-    // `portal.portal` or its local peer where applicable) in
-    // Portal::FinalizeAfterTransit().
-    portal.link = mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), portal.route, std::move(link_state));
+    const RouteId route = first_route_id + i;
+    descriptors[i].route = route;
+    portals[i] = portals[i]->Serialize(descriptors[i]);
+    new_links[i] = mem::MakeRefCounted<PortalLink>(
+        mem::WrapRefCounted(this), route, std::move(link_state));
 
     // It's important to assign the route to a Portal before we transmit this
     // parcel, in case the receiver immediately sends back messages on the new
     // route.
-    bool assigned;
     absl::MutexLock lock(&mutex_);
-    if (portal.local_peer_before_transit) {
-      // When the moved portal's peer is local to this node, the route gets
-      // assigned to them and the moved portal essentially drops out of
-      // existence on this node.
-      assigned = AssignRoute(portal.route, portal.local_peer_before_transit);
-    } else {
-      // When the moved portal's peer is somewhere else, the moved portal hangs
-      // around on this node and gets assigned the route to its new location.
-      // This will exist only temporarily until we can help the new location
-      // establish a link to our own peer.
-      assigned = AssignRoute(portal.route, portal.portal);
-    }
-
-    // TODO: A badassigned peer might steal the already-allocated routes from
-    // above, in which case `assigned` will be false. Need to gracefully sever
-    // the NodeLink in that case instead of asserting.
+    bool assigned = AssignRoute(route, portals[i]);
     ABSL_ASSERT(assigned);
   }
 
   auto* handle_data =
-      reinterpret_cast<internal::OSHandleData*>(portals + num_portals);
+      reinterpret_cast<internal::OSHandleData*>(descriptors + num_portals);
   for (size_t i = 0; i < num_os_handles; ++i) {
     auto& data = handle_data[num_portals + i];
     auto& handle = parcel.os_handles_view()[i];
@@ -257,6 +217,18 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   }
 
   Send(absl::MakeSpan(serialized_data), absl::MakeSpan(os_handles));
+
+  // Don't set links on the local portals until we've sent the parcel, since
+  // portals may immediately start sending messages pertaining to their route.
+  // The route isn't establlished on the remote side until the parcel above is
+  // received there.
+  for (size_t i = 0; i < num_portals; ++i) {
+    if (descriptors[i].route_is_peer) {
+      portals[i]->SetPeerLink(new_links[i]);
+    } else {
+      portals[i]->SetSuccessorLink(new_links[i]);
+    }
+  }
 }
 
 void NodeLink::SendPeerClosed(RouteId route, SequenceNumber sequence_length) {
@@ -436,11 +408,12 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   const uint32_t num_portals = header.num_portals;
   const uint32_t num_os_handles = header.num_os_handles;
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&header + 1);
-  const auto* portals =
-      reinterpret_cast<const SerializedPortal*>(bytes + num_bytes);
+  const auto* descriptors =
+      reinterpret_cast<const PortalDescriptor*>(bytes + num_bytes);
 
   // const auto* handle_data =
-  //     reinterpret_cast<const internal::OSHandleData*>(portals + num_portals);
+  //     reinterpret_cast<const internal::OSHandleData*>(
+  //         descriptors + num_portals);
   if (num_os_handles < num_portals) {
     return false;
   }
@@ -448,37 +421,21 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
     return false;
   }
 
-  Parcel::PortalVector portals_in_transit(num_portals);
+  Parcel::PortalVector portals(num_portals);
   {
-    absl::MutexLock lock(&mutex_);
     for (size_t i = 0; i < num_portals; ++i) {
-      auto portal = mem::MakeRefCounted<Portal>(portals[i].side);
-
       os::Memory link_state_memory(std::move(m.handles[i]),
                                    sizeof(PortalLinkState));
-      RouteId route = portals[i].route;
-      if (!AssignRoute(route, portal)) {
+      portals[i] = Portal::DeserializeNew(*this, link_state_memory.Map(),
+                                          descriptors[i]);
+    }
+
+    absl::MutexLock lock(&mutex_);
+    for (size_t i = 0; i < num_portals; ++i) {
+      if (!AssignRoute(descriptors[i].route, portals[i])) {
         return false;
       }
-
-      portals_in_transit[i].portal = portal;
-      portals_in_transit[i].side = portals[i].side;
-      portals_in_transit[i].peer_closed = portals[i].peer_closed;
-      portals_in_transit[i].peer_name = portals[i].peer_name;
-      portals_in_transit[i].peer_key = portals[i].peer_key;
-      portals_in_transit[i].peer_sequence_length =
-          portals[i].peer_sequence_length;
-      portals_in_transit[i].next_incoming_sequence_number =
-          portals[i].next_incoming_sequence_number;
-      portals_in_transit[i].next_outgoing_sequence_number =
-          portals[i].next_outgoing_sequence_number;
-      portals_in_transit[i].link = mem::MakeRefCounted<PortalLink>(
-          mem::WrapRefCounted(this), route, link_state_memory.Map());
     }
-  }
-
-  for (PortalInTransit& portal : portals_in_transit) {
-    portal.portal->DeserializeFromTransit(portal);
   }
 
   std::vector<os::Handle> os_handles;
@@ -490,7 +447,7 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   TrapEventDispatcher dispatcher;
   Parcel parcel(header.sequence_number);
   parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
-  parcel.SetPortals(std::move(portals_in_transit));
+  parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
 
   mem::Ref<Portal> receiver = GetPortalForRoute(header.route);

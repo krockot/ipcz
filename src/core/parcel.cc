@@ -56,8 +56,7 @@ void Parcel::ConsumePartial(size_t num_bytes_consumed,
 void Parcel::ConsumePortalsAndHandles(IpczHandle* portals,
                                       IpczOSHandle* os_handles) {
   for (size_t i = 0; i < portals_.size(); ++i) {
-    // TODO: need to deserialize more details from the PortalInTransit state
-    portals[i] = ToHandle(portals_[i].portal.release());
+    portals[i] = ToHandle(portals_[i].release());
   }
   for (size_t i = 0; i < os_handles_.size(); ++i) {
     os::Handle::ToIpczOSHandle(std::move(os_handles_[i]), &os_handles[i]);

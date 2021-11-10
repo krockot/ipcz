@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "core/portal_in_transit.h"
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -19,6 +18,8 @@
 
 namespace ipcz {
 namespace core {
+
+class Portal;
 
 // Represents a parcel queued within a portal, either for inbound retrieval or
 // outgoing transfer. Each parcel contains an optional link to the next Parcel
@@ -31,7 +32,7 @@ namespace core {
 // order they were sent.
 class Parcel {
  public:
-  using PortalVector = absl::InlinedVector<PortalInTransit, 4>;
+  using PortalVector = absl::InlinedVector<mem::Ref<Portal>, 4>;
 
   Parcel();
   explicit Parcel(SequenceNumber sequence_number);
@@ -50,7 +51,7 @@ class Parcel {
 
   const absl::Span<uint8_t>& data_view() const { return data_view_; }
 
-  absl::Span<PortalInTransit> portals_view() {
+  absl::Span<mem::Ref<Portal>> portals_view() {
     return absl::MakeSpan(portals_);
   }
 
