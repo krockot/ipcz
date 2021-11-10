@@ -13,6 +13,7 @@
 #include "core/parcel.h"
 #include "core/portal_descriptor.h"
 #include "core/portal_link_state.h"
+#include "core/routing_mode.h"
 #include "core/trap.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
@@ -120,30 +121,40 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
   }
 
   if (peer_link_) {
-    bool peer_moved = false;
+    bool is_half_proxying = false;
     SequenceNumber sequence_length;
     {
       PortalLinkState::Locked state(peer_link_->state(), side_);
       PortalLinkState::SideState& this_side = state.this_side();
       PortalLinkState::SideState& other_side = state.other_side();
       sequence_length = other_side.sequence_length;
-      switch (other_side.mode) {
-        case PortalLinkState::Mode::kActive:
-          // Lock down the link so the peer doesn't send any more parcels our
-          // way.
-          this_side.mode = PortalLinkState::Mode::kMoved;
-          break;
-        case PortalLinkState::Mode::kClosed:
+      switch (other_side.routing_mode) {
+        case RoutingMode::kClosed:
+          is_half_proxying = true;
+          this_side.routing_mode = RoutingMode::kHalfProxy;
           descriptor.peer_closed = true;
           break;
-        case PortalLinkState::Mode::kMoved:
-          peer_moved = true;
+        case RoutingMode::kActive:
+        case RoutingMode::kFullProxy:
+          is_half_proxying = true;
+          this_side.routing_mode = RoutingMode::kHalfProxy;
+          break;
+        case RoutingMode::kBuffering:
+        case RoutingMode::kHalfProxy:
+          this_side.routing_mode = RoutingMode::kFullProxy;
           break;
       }
     }
 
-    // TODO: Not yet supported.
-    ABSL_ASSERT(!peer_moved);
+    if (is_half_proxying) {
+      const absl::uint128 key = RandomUint128();
+      descriptor.peer_name = *peer_link_->node().GetRemoteName();
+      descriptor.peer_route = peer_link_->route();
+      descriptor.peer_key = key;
+
+      PortalLinkState::Locked state(peer_link_->state(), side_);
+      state.this_side().successor_key = key;
+    }
 
     descriptor.side = side_;
     descriptor.peer_sequence_length = sequence_length;
@@ -279,7 +290,7 @@ IpczResult Portal::Close() {
     if (peer_link_) {
       {
         PortalLinkState::Locked state(peer_link_->state(), side_);
-        state.this_side().mode = PortalLinkState::Mode::kClosed;
+        state.this_side().routing_mode = RoutingMode::kClosed;
         state.this_side().sequence_length = next_outgoing_sequence_number_;
       }
 
@@ -350,7 +361,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 
   if (peer_link_) {
     PortalLinkState::Locked link_state(peer_link_->state(), side_);
-    if (link_state.other_side().mode == PortalLinkState::Mode::kClosed) {
+    if (link_state.other_side().routing_mode == RoutingMode::kClosed) {
       return IPCZ_RESULT_NOT_FOUND;
     }
 

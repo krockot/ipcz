@@ -68,6 +68,7 @@ source_set("ipcz_sources") {
     "core/portal_link_state.cc",
     "core/portal_link_state.h",
     "core/route_id.h",
+    "core/routing_mode.h",
     "core/sequence_number.h",
     "core/side.h",
     "core/trap.cc",
