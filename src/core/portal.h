@@ -14,6 +14,7 @@
 #include "core/parcel.h"
 #include "core/portal_link.h"
 #include "core/route_id.h"
+#include "core/routing_mode.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "core/trap.h"
@@ -59,8 +60,8 @@ class Portal : public mem::RefCounted {
                                          os::Memory::Mapping link_state_mapping,
                                          const PortalDescriptor& descriptor);
 
-  void SetPeerLink(mem::Ref<PortalLink> link);
-  void SetSuccessorLink(mem::Ref<PortalLink> link);
+  void ActivateFromBuffering(mem::Ref<PortalLink> peer);
+  void BeginForwardProxying(mem::Ref<PortalLink> successor);
 
   // Accepts a parcel that was routed here by a NodeLink. If this parcel receipt
   // triggers any trap events, they'll be added to `dispatcher` for imminent
@@ -164,6 +165,9 @@ class Portal : public mem::RefCounted {
 
   absl::Mutex mutex_;
 
+  // Local cache of our current RoutingMode.
+  RoutingMode routing_mode_ = RoutingMode::kBuffering;
+
   // Non-null if and only if this portal's peer is local to the same node. In
   // this case both portals are always locked together by any PortalLock
   // guarding access to all the state below, and operations on one portal may
@@ -173,6 +177,8 @@ class Portal : public mem::RefCounted {
   // `peer_link_` is non-null if and only if this Portal may actively transmit
   // its outgoing parcels to a known peer on another node.
   mem::Ref<PortalLink> peer_link_ ABSL_GUARDED_BY(mutex_);
+
+  mem::Ref<PortalLink> predecessor_link_ ABSL_GUARDED_BY(mutex_);
 
   // `successor_link_` is non-null if and only iff this Portal has been moved
   // and is still hanging around to forward one or more expected incoming

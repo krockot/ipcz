@@ -100,7 +100,7 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
          return true;
        });
 
-  portal->SetPeerLink(mem::MakeRefCounted<PortalLink>(
+  portal->ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
       mem::WrapRefCounted(this), route, std::move(portal_link_state_mapping)));
   return portal;
 }
@@ -224,9 +224,9 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   // received there.
   for (size_t i = 0; i < num_portals; ++i) {
     if (descriptors[i].route_is_peer) {
-      portals[i]->SetPeerLink(new_links[i]);
+      portals[i]->ActivateFromBuffering(new_links[i]);
     } else {
-      portals[i]->SetSuccessorLink(new_links[i]);
+      portals[i]->BeginForwardProxying(new_links[i]);
     }
   }
 }
@@ -346,9 +346,6 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
                              sizeof(NodeLinkState));
   os::Memory portal_link_state(std::move(m.handles.portal_link_state_memory),
                                sizeof(PortalLinkState));
-  mem::Ref<PortalLink> portal_link = mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(this), m.params.route, portal_link_state.Map());
-
   mem::Ref<Portal> portal;
   {
     absl::MutexLock lock(&mutex_);
@@ -376,9 +373,11 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   if (accepted) {
     // Note that we don't set the portal's active link until after we've replied
     // to accept the invitation. This is because the portal may immediately
-    // initiate communication over the route within SetPeerLink(), e.g. to flush
-    // outgoing parcels, and we want the invitation reply to arrive first.
-    portal->SetPeerLink(std::move(portal_link));
+    // initiate communication over the route within ActivateFromBuffering(),
+    // e.g. to flush outgoing parcels, and we need the invitation reply to
+    // arrive first.
+    portal->ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
+        mem::WrapRefCounted(this), m.params.route, portal_link_state.Map()));
   } else {
     absl::MutexLock lock(&mutex_);
     routes_.erase(m.params.route);
