@@ -320,8 +320,9 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
       return false;
     }
 
-    if (routing_mode_ == RoutingMode::kActive) {
-      ABSL_ASSERT(!flush_forwarding_queues);
+    if (!successor_link_) {
+      ABSL_ASSERT(routing_mode_ == RoutingMode::kActive ||
+                  routing_mode_ == RoutingMode::kBuffering);
       status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
       status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
       traps_.MaybeNotify(dispatcher, status_);
