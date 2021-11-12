@@ -62,6 +62,17 @@ void ReleaseOSHandlesFromCancelledTransit(absl::Span<os::Handle> handles) {
   }
 }
 
+bool MatchPortalLink(const mem::Ref<PortalLink>& portal_link,
+                     NodeLink& node_link,
+                     RoutingId routing_id) {
+  if (!portal_link) {
+    return false;
+  }
+
+  return &portal_link->node() == &node_link &&
+         portal_link->routing_id() == routing_id;
+}
+
 }  // namespace
 
 Portal::Portal(mem::Ref<Node> node, Side side)
@@ -146,9 +157,6 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
       PortalLinkState::SideState& other_side = state.other_side();
       switch (other_side.routing_mode) {
         case RoutingMode::kClosed:
-          will_half_proxy = true;
-          this_side.routing_mode = RoutingMode::kHalfProxy;
-          break;
         case RoutingMode::kActive:
         case RoutingMode::kFullProxy:
           will_half_proxy = true;
@@ -166,9 +174,9 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
 
       routing_mode_ = RoutingMode::kHalfProxy;
 
-      // We're switching to half-proxying mode. Give the new portal information
-      // they can use to authenticate against our peer to replace us along the
-      // route.
+      // We're switching to half-proxying mode. Give the new portal some
+      // information they can use to authenticate against our peer and
+      // ultimately convince it to bypass us along the route.
       const absl::uint128 key = RandomUint128();
       descriptor.peer_name = *peer_link_->node().GetRemoteName();
       descriptor.peer_routing_id = peer_link_->routing_id();
@@ -180,10 +188,6 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
       state.this_side().successor_key = key;
     } else {
       routing_mode_ = RoutingMode::kFullProxy;
-    }
-
-    if (descriptor.peer_closed) {
-      incoming_parcels_.SetPeerSequenceLength(descriptor.peer_sequence_length);
     }
 
     return mem::WrapRefCounted(this);
@@ -203,11 +207,11 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
 }
 
 // static
-mem::Ref<Portal> Portal::DeserializeNew(const mem::Ref<Node>& node,
+mem::Ref<Portal> Portal::DeserializeNew(const mem::Ref<Node>& on_node,
                                         const mem::Ref<NodeLink>& from_node,
                                         os::Memory::Mapping link_state_mapping,
                                         const PortalDescriptor& descriptor) {
-  auto portal = mem::MakeRefCounted<Portal>(node, descriptor.side);
+  auto portal = mem::MakeRefCounted<Portal>(on_node, descriptor.side);
   if (!portal->Deserialize(from_node, std::move(link_state_mapping),
                            descriptor)) {
     return nullptr;
@@ -215,9 +219,12 @@ mem::Ref<Portal> Portal::DeserializeNew(const mem::Ref<Node>& node,
   return portal;
 }
 
-void Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
+SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
+  SequenceNumber first_non_buffered_sequence_number;
   absl::optional<SequenceNumber> sequence_length;
   std::forward_list<Parcel> parcels_to_forward;
+  mem::Ref<PortalLink> successor;
+  absl::uint128 bypass_key;
   {
     PortalLock lock(*this);
     ABSL_ASSERT(!local_peer_);
@@ -227,9 +234,21 @@ void Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
     // TODO: we may need to plumb a TrapEventDispatcher here and into
     // SendParcel() in case something goes wrong and we end up discarding (and
     // closing) portal attachments locally.
-    routing_mode_ = RoutingMode::kActive;
+
+    if (successor_link_) {
+      successor = successor_link_;
+      bypass_key = RandomUint128();
+      routing_mode_ = RoutingMode::kHalfProxy;
+
+      PortalLinkState::Locked state(peer->state(), side_);
+      state.this_side().routing_mode = RoutingMode::kHalfProxy;
+      state.this_side().successor_key = bypass_key;
+    } else {
+      routing_mode_ = RoutingMode::kActive;
+    }
     peer_link_ = peer;
     parcels_to_forward = outgoing_parcels_.TakeParcels();
+    first_non_buffered_sequence_number = next_outgoing_sequence_number_;
     if (closed_) {
       sequence_length = next_outgoing_sequence_number_;
     }
@@ -241,7 +260,12 @@ void Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
 
   if (sequence_length) {
     peer->NotifyClosed(*sequence_length);
+  } else if (successor) {
+    successor->InitiateProxyBypass(*peer->node().GetRemoteName(),
+                                   peer->routing_id(), bypass_key);
   }
+
+  return first_non_buffered_sequence_number;
 }
 
 void Portal::BeginForwardProxying(mem::Ref<PortalLink> successor) {
@@ -252,28 +276,57 @@ void Portal::BeginForwardProxying(mem::Ref<PortalLink> successor) {
     successor_link_ = successor;
   }
 
-  ForwardIncomingParcels();
+  ForwardParcels();
 }
 
-bool Portal::AcceptParcelFromLink(Parcel& parcel,
+bool Portal::AcceptParcelFromLink(NodeLink& link,
+                                  RoutingId routing_id,
+                                  Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
-  bool forward = false;
+  mem::Ref<PortalLink> immediate_forwarding_link;
   {
     absl::MutexLock lock(&mutex_);
-    if (!incoming_parcels_.Push(std::move(parcel))) {
+    if (MatchPortalLink(predecessor_link_, link, routing_id) ||
+        MatchPortalLink(peer_link_, link, routing_id)) {
+      // The parcel is coming from the other side of the route.
+      if (!incoming_parcels_.Push(std::move(parcel))) {
+        return false;
+      }
+    } else if (MatchPortalLink(successor_link_, link, routing_id)) {
+      // The parcel comes from our successor, what we do with it depends on our
+      // state. If we're a half-proxy, we must have decayed from a full proxy,
+      // so we queue (for tracking) and it will be forwarded below. Otherwise we
+      // can forward it straight away.
+      if (routing_mode_ == RoutingMode::kFullProxy) {
+        immediate_forwarding_link = peer_link_ ? peer_link_ : predecessor_link_;
+      } else if (outgoing_parcels_from_successor_) {
+        ABSL_ASSERT(routing_mode_ == RoutingMode::kHalfProxy);
+        if (!outgoing_parcels_from_successor_->Push(std::move(parcel))) {
+          return false;
+        }
+      } else {
+        // Unexpected parcel from successor.
+        return false;
+      }
+    } else {
+      // Should be unreachable, but if there are any edge cases where a stale
+      // route could try to deliver an unexpected message, treat them as a
+      // validation failure.
       return false;
     }
-    status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
-    status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+
     if (routing_mode_ == RoutingMode::kActive) {
+      status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+      status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
       traps_.MaybeNotify(dispatcher, status_);
-    } else if (successor_link_) {
-      forward = true;
+      return true;
     }
   }
 
-  if (forward) {
-    ForwardIncomingParcels();
+  if (immediate_forwarding_link) {
+    immediate_forwarding_link->SendParcel(parcel);
+  } else {
+    ForwardParcels();
   }
   return true;
 }
@@ -309,32 +362,161 @@ bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
 
 bool Portal::ReplacePeerLink(absl::uint128 key,
                              const mem::Ref<PortalLink>& new_peer) {
-  absl::MutexLock lock(&mutex_);
-  bool keys_match = false;
-  if (peer_link_) {
-    PortalLinkState::Locked state(peer_link_->state(), side_);
-    keys_match = state.other_side().successor_key == key;
+  absl::uint128 bypass_key;
+  mem::Ref<PortalLink> successor_to_initiate_proxy_bypass;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (peer_link_) {
+      {
+        PortalLinkState::Locked state(peer_link_->state(), side_);
+        if (state.other_side().successor_key != key) {
+          // Treat key mismatch as a validation failure.
+          return false;
+        }
+      }
+
+      // If we're a full proxy and we have a successor that could bypass us, we
+      // want to decay to a half-proxy.
+      bool should_decay =
+          routing_mode_ == RoutingMode::kFullProxy && successor_link_;
+      if (should_decay) {
+        bypass_key = RandomUint128();
+      }
+
+      {
+        PortalLinkState::Locked state(new_peer->state(), side_);
+        if (should_decay &&
+            state.other_side().routing_mode != RoutingMode::kHalfProxy &&
+            state.other_side().routing_mode != RoutingMode::kBuffering) {
+          // If we are a full proxy and our peer is neither buffering nor
+          // half-proxying, we can lock in our decay to a half-proxy now.
+          state.this_side().routing_mode = RoutingMode::kHalfProxy;
+          state.this_side().successor_key = bypass_key;
+        } else {
+          state.this_side().routing_mode = routing_mode_;
+          should_decay = false;
+        }
+      }
+
+      peer_link_->StopProxyingTowardSide(Opposite(side_),
+                                         next_outgoing_sequence_number_);
+      peer_link_ = new_peer;
+
+      if (should_decay) {
+        routing_mode_ = RoutingMode::kHalfProxy;
+        successor_to_initiate_proxy_bypass = successor_link_;
+      }
+    }
   }
 
-  if (keys_match) {
-    peer_link_->StopProxying(next_outgoing_sequence_number_);
-    peer_link_ = new_peer;
+  if (successor_to_initiate_proxy_bypass) {
+    // Prepare to track the remaining in-flight parcels from our successor so we
+    // can know when we're done forwarding to the peer or predecessor. The
+    // successor will send back a StopProxyingTowardSide() which we'll use to
+    // cap the sequence length of this queue.
+    {
+      absl::MutexLock lock(&mutex_);
+      outgoing_parcels_from_successor_.emplace();
+    }
+    successor_to_initiate_proxy_bypass->InitiateProxyBypass(
+        *new_peer->node().GetRemoteName(), new_peer->routing_id(), bypass_key);
+  }
 
-    PortalLinkState::Locked state(peer_link_->state(), side_);
-    state.this_side().routing_mode = routing_mode_;
+  return true;
+}
+
+bool Portal::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
+  {
+    absl::MutexLock lock(&mutex_);
+    if (side == side_) {
+      incoming_parcels_.SetPeerSequenceLength(sequence_length);
+    } else if (outgoing_parcels_from_successor_) {
+      outgoing_parcels_from_successor_->SetPeerSequenceLength(sequence_length);
+    } else {
+      // Unexpected request.
+      return false;
+    }
+  }
+
+  ForwardParcels();
+  return true;
+}
+
+bool Portal::InitiateProxyBypass(const NodeName& peer_name,
+                                 RoutingId peer_proxy_routing_id,
+                                 absl::uint128 bypass_key,
+                                 bool notify_predecessor) {
+  SequenceNumber sequence_length_to_predecessor;
+  mem::Ref<PortalLink> predecessor;
+  bool is_buffering;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!predecessor_link_) {
+      // Must have lost the predecessor link. We can assume its process has
+      // terminated, and the resulting route closure will propagate by other
+      // means. Nothing to do here.
+      return true;
+    }
+
+    if (peer_link_) {
+      // A well-behaved system will never ask a portal to bypass a proxy when
+      // the portal already has a peer link.
+      return false;
+    }
+
+    predecessor = predecessor_link_;
+    is_buffering = routing_mode_ == RoutingMode::kBuffering;
+  }
+
+  const NodeName proxy_name = *predecessor->node().GetRemoteName();
+  ABSL_ASSERT(peer_name.is_valid());
+  mem::Ref<NodeLink> peer_node = node_->GetLink(peer_name);
+  if (peer_node) {
+    mem::Ref<PortalLink> bypass_link =
+        peer_node->BypassProxyToPortal(proxy_name, peer_proxy_routing_id,
+                                       bypass_key, mem::WrapRefCounted(this));
+
+    if (is_buffering) {
+      sequence_length_to_predecessor =
+          ActivateFromBuffering(std::move(bypass_link));
+    } else {
+      // The portal is already active, so just start using the bypass link as
+      // its peer instead of forwarding parcels to the predecessor.
+      absl::MutexLock lock(&mutex_);
+      sequence_length_to_predecessor = next_outgoing_sequence_number_;
+      peer_link_ = std::move(bypass_link);
+    }
+
+    if (notify_predecessor) {
+      predecessor->StopProxyingTowardSide(Opposite(side_),
+                                          sequence_length_to_predecessor);
+    }
     return true;
   }
 
-  return false;
-}
-
-bool Portal::StopProxying(SequenceNumber sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
-    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+    routing_mode_ = RoutingMode::kBuffering;
   }
 
-  ForwardIncomingParcels();
+  node_->EstablishLink(peer_name, [portal = mem::WrapRefCounted(this),
+                                   peer_routing_id = peer_proxy_routing_id,
+                                   bypass_key, notify_predecessor, predecessor,
+                                   proxy_name](const mem::Ref<NodeLink>& link) {
+    if (!link) {
+      // TODO: handle gracefully
+      LOG(ERROR) << "failed to establish new NodeLink";
+      return;
+    }
+
+    SequenceNumber sequence_length_to_predecessor =
+        portal->ActivateFromBuffering(link->BypassProxyToPortal(
+            proxy_name, peer_routing_id, bypass_key, portal));
+    if (notify_predecessor) {
+      predecessor->StopProxyingTowardSide(Opposite(portal->side()),
+                                          sequence_length_to_predecessor);
+    }
+  });
   return true;
 }
 
@@ -345,7 +527,8 @@ IpczResult Portal::Close() {
     PortalLock lock(*this);
     ABSL_ASSERT(!closed_);
 
-    // Forwarding portals must not be closed. They will clean themselves up.
+    // Proxying portals cannot be closed because they're unreachable to the
+    // application. They will self-destruct when appropriate.
     ABSL_ASSERT(routing_mode_ == RoutingMode::kActive ||
                 routing_mode_ == RoutingMode::kBuffering);
     ABSL_ASSERT(!successor_link_);
@@ -387,6 +570,8 @@ IpczResult Portal::Close() {
       // TODO: Just signal?
       peer_link_->NotifyClosed(next_outgoing_sequence_number_);
     }
+
+    // todo forward closure to predecessor when present without a peer
   }
 
   // TODO: do this iteratively rather than recursively since we might nest
@@ -765,38 +950,27 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
       from_node, descriptor.routing_id, std::move(link_state_mapping));
   if (descriptor.route_is_peer) {
     ActivateFromBuffering(std::move(new_link));
-  } else {
-    absl::MutexLock lock(&mutex_);
-    predecessor_link_ = std::move(new_link);
-
-    const NodeName proxy_name = *predecessor_link_->node().GetRemoteName();
-    if (descriptor.peer_name.is_valid()) {
-      // TODO: Initiate replacement of our half-proxying predecessor.
-      mem::Ref<NodeLink> peer_node = node_->GetLink(descriptor.peer_name);
-      if (!peer_node) {
-        routing_mode_ = RoutingMode::kBuffering;
-        node_->EstablishLink(
-            descriptor.peer_name, [portal = mem::WrapRefCounted(this),
-                                   peer_routing_id = descriptor.peer_routing_id,
-                                   peer_key = descriptor.peer_key,
-                                   proxy_name](const mem::Ref<NodeLink>& link) {
-              if (!link) {
-                // TODO: handle gracefully
-                LOG(ERROR) << "failed to establish new NodeLink";
-                return;
-              }
-
-              portal->ActivateFromBuffering(link->BypassProxyToPortal(
-                  proxy_name, peer_routing_id, peer_key, portal));
-            });
-      } else {
-        ActivateFromBuffering(peer_node->BypassProxyToPortal(
-            proxy_name, descriptor.peer_routing_id, descriptor.peer_key,
-            mem::WrapRefCounted(this)));
-      }
-    }
+    return true;
   }
 
+  {
+    absl::MutexLock lock(&mutex_);
+    predecessor_link_ = std::move(new_link);
+  }
+
+  // If the sent portal was able to immediately enter half-proxying mode, it
+  // will provide us with the information we need to talk to its peer. This
+  // avoids the need for it to send us an extra message just to initiate proxy
+  // bypass.
+  if (descriptor.peer_name.is_valid()) {
+    const NodeName proxy_name = *from_node->GetRemoteName();
+    return InitiateProxyBypass(descriptor.peer_name, descriptor.peer_routing_id,
+                               descriptor.peer_key,
+                               /*notify_predecessor=*/false);
+  }
+
+  // For now we'll forward all parcels to our predecessor.
+  routing_mode_ = RoutingMode::kActive;
   return true;
 }
 
@@ -850,7 +1024,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
                            std::vector<os::Handle>& os_handles,
                            const IpczPutLimits* limits,
                            bool is_two_phase_commit) {
-  mem::Ref<PortalLink> link;
+  mem::Ref<PortalLink> receiving_link;
   SequenceNumber sequence_number;
   {
     PortalLock lock(*this);
@@ -884,16 +1058,10 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       return IPCZ_RESULT_OK;
     }
 
-    Side link_side;
-    if (peer_link_) {
-      link = peer_link_;
-      link_side = side_;
-    } else if (routing_mode_ == RoutingMode::kActive && predecessor_link_) {
-      link = predecessor_link_;
-      link_side = Side::kPredecessor;
-    }
-
-    if (!link) {
+    if (routing_mode_ == RoutingMode::kActive) {
+      receiving_link = peer_link_ ? peer_link_ : predecessor_link_;
+    } else {
+      ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
       Parcel parcel(sequence_number);
       parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
       parcel.SetPortals(std::move(portals));
@@ -903,39 +1071,58 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     }
   }
 
-  ABSL_ASSERT(link);
+  ABSL_ASSERT(receiving_link);
   Parcel parcel(sequence_number);
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  link->SendParcel(parcel);
+  receiving_link->SendParcel(parcel);
   return IPCZ_RESULT_OK;
 }
 
-void Portal::ForwardIncomingParcels() {
+void Portal::ForwardParcels() {
+  mem::Ref<PortalLink> peer_or_predecessor;
   mem::Ref<PortalLink> successor;
-  std::vector<Parcel> parcels;
+  std::vector<Parcel> parcels_to_successor;
+  std::vector<Parcel> parcels_to_peer_or_predecessor;
   bool dead;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(successor_link_);
     successor = successor_link_;
+    peer_or_predecessor = peer_link_ ? peer_link_ : predecessor_link_;
 
     Parcel parcel;
     while (incoming_parcels_.Pop(parcel)) {
-      parcels.push_back(std::move(parcel));
+      parcels_to_successor.push_back(std::move(parcel));
+    }
+    if (outgoing_parcels_from_successor_) {
+      while (outgoing_parcels_from_successor_->Pop(parcel)) {
+        parcels_to_peer_or_predecessor.push_back(std::move(parcel));
+      }
     }
 
-    dead = incoming_parcels_.IsDead();
+    // Will be true iff all of our forwarding responsibilities have been
+    // fulfilled.
+    dead = (!successor || incoming_parcels_.IsDead()) &&
+           (!outgoing_parcels_from_successor_ ||
+            outgoing_parcels_from_successor_->IsDead());
   }
 
-  for (Parcel& parcel : parcels) {
-    successor->SendParcel(parcel);
+  if (successor) {
+    for (Parcel& parcel : parcels_to_successor) {
+      successor->SendParcel(parcel);
+    }
   }
 
-  // Ensure we have no links routing to us. As the stack unwinds that should
-  // then release any last references to us and we should be destroyed.
+  if (peer_or_predecessor) {
+    for (Parcel& parcel : parcels_to_peer_or_predecessor) {
+      peer_or_predecessor->SendParcel(parcel);
+    }
+  }
+
   if (dead) {
+    // Ensure we have no links routing to us. As the stack unwinds, any last
+    // references to this portal should be released and it should be destroyed.
     absl::MutexLock lock(&mutex_);
     if (successor_link_) {
       successor_link_->Disconnect();

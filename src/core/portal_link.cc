@@ -32,8 +32,16 @@ void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
   node_->SendPeerClosed(routing_id_, sequence_length);
 }
 
-void PortalLink::StopProxying(SequenceNumber sequence_length) {
-  node_->StopProxying(routing_id_, sequence_length);
+void PortalLink::StopProxyingTowardSide(Side side,
+                                        SequenceNumber sequence_length) {
+  node_->StopProxyingTowardSide(routing_id_, side, sequence_length);
+}
+
+void PortalLink::InitiateProxyBypass(const NodeName& proxy_peer_name,
+                                     RoutingId proxy_peer_routing_id,
+                                     absl::uint128 bypass_key) {
+  node_->InitiateProxyBypass(routing_id_, proxy_peer_name,
+                             proxy_peer_routing_id, bypass_key);
 }
 
 }  // namespace core

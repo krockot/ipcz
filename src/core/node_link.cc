@@ -190,10 +190,24 @@ mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
       mem::WrapRefCounted(this), new_routing_id, std::move(link_state_mapping));
 }
 
-void NodeLink::StopProxying(RoutingId routing_id,
-                            SequenceNumber sequence_length) {
-  msg::StopProxying m;
+void NodeLink::InitiateProxyBypass(RoutingId routing_id,
+                                   const NodeName& proxy_peer_name,
+                                   RoutingId proxy_peer_routing_id,
+                                   absl::uint128 key) {
+  msg::InitiateProxyBypass m;
   m.params.routing_id = routing_id;
+  m.params.proxy_peer_name = proxy_peer_name;
+  m.params.proxy_peer_routing_id = proxy_peer_routing_id;
+  m.params.key = key;
+  Send(m);
+}
+
+void NodeLink::StopProxyingTowardSide(RoutingId routing_id,
+                                      Side side,
+                                      SequenceNumber sequence_length) {
+  msg::StopProxyingTowardSide m;
+  m.params.routing_id = routing_id;
+  m.params.side = side;
   m.params.sequence_length = sequence_length;
   Send(m);
 }
@@ -606,14 +620,25 @@ bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
   return true;
 }
 
-bool NodeLink::OnStopProxying(msg::StopProxying& m) {
+bool NodeLink::OnStopProxyingTowardSide(msg::StopProxyingTowardSide& m) {
   mem::Ref<Portal> portal = GetPortalForRoutingId(m.params.routing_id);
   if (!portal) {
     return true;
   }
 
-  portal->StopProxying(m.params.sequence_length);
+  portal->StopProxyingTowardSide(m.params.side, m.params.sequence_length);
   return true;
+}
+
+bool NodeLink::OnInitiateProxyBypass(msg::InitiateProxyBypass& m) {
+  mem::Ref<Portal> portal = GetPortalForRoutingId(m.params.routing_id);
+  if (!portal) {
+    return true;
+  }
+
+  return portal->InitiateProxyBypass(
+      m.params.proxy_peer_name, m.params.proxy_peer_routing_id, m.params.key,
+      /*notify_predecessor=*/true);
 }
 
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
@@ -675,7 +700,8 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
     return true;
   }
 
-  return receiver->AcceptParcelFromLink(parcel, dispatcher);
+  return receiver->AcceptParcelFromLink(*this, header.routing_id, parcel,
+                                        dispatcher);
 }
 
 NodeLink::PendingReply::PendingReply() = default;

@@ -36,7 +36,10 @@ class PortalLink : public mem::RefCounted {
   void Disconnect();
   void SendParcel(Parcel& parcel);
   void NotifyClosed(SequenceNumber sequence_length);
-  void StopProxying(SequenceNumber sequence_length);
+  void StopProxyingTowardSide(Side side, SequenceNumber sequence_length);
+  void InitiateProxyBypass(const NodeName& proxy_peer_name,
+                           RoutingId proxy_peer_routing_id,
+                           absl::uint128 bypass_key);
 
  private:
   ~PortalLink() override;

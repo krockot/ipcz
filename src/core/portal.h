@@ -54,18 +54,27 @@ class Portal : public mem::RefCounted {
 
   // Deserializes a new Portal from a descriptor and link state received from
   // `from_node`.
-  static mem::Ref<Portal> DeserializeNew(const mem::Ref<Node>& node,
+  static mem::Ref<Portal> DeserializeNew(const mem::Ref<Node>& on_node,
                                          const mem::Ref<NodeLink>& from_node,
                                          os::Memory::Mapping link_state_mapping,
                                          const PortalDescriptor& descriptor);
 
-  void ActivateFromBuffering(mem::Ref<PortalLink> peer);
+  // Endows a buffering portal with a new PortalLink to use as its peer link.
+  // If the portal has a successor this immediately puts the portal into
+  // half-proxying mode. Returns the SequenceNumber of the first non-buffered
+  // outgoing message.
+  SequenceNumber ActivateFromBuffering(mem::Ref<PortalLink> peer);
+
+  // TODO: document this
   void BeginForwardProxying(mem::Ref<PortalLink> successor);
 
   // Accepts a parcel that was routed here by a NodeLink. If this parcel receipt
   // triggers any trap events, they'll be added to `dispatcher` for imminent
   // dispatch.
-  bool AcceptParcelFromLink(Parcel& parcel, TrapEventDispatcher& dispatcher);
+  bool AcceptParcelFromLink(NodeLink& link,
+                            RoutingId routing_id,
+                            Parcel& parcel,
+                            TrapEventDispatcher& dispatcher);
 
   // Notifies this portal that its peer has been closed. If this change triggers
   // any trap events, they'll be added to `dispatcher` for imminent dispatch.
@@ -74,13 +83,24 @@ class Portal : public mem::RefCounted {
 
   // Attempts to replace the portal's current peer link with a new one. The
   // given `key` must match the `successor_key` stored in the current peer
-  // link's PortalLinkState.
+  // link's PortalLinkState. This operation is valid whether or not the portal
+  // had a peer link already.
   bool ReplacePeerLink(absl::uint128 key, const mem::Ref<PortalLink>& new_peer);
 
   // Iff this portal is in half-proxy mode, it can expect no parcels with a
   // SequenceNumber of `sequence_length` or higher; so if it has already seen
   // and forwarded messages below that number, it can disappear.
-  bool StopProxying(SequenceNumber sequence_length);
+  bool StopProxyingTowardSide(Side side, SequenceNumber sequence_length);
+
+  // Initiates the removal of a proxying predecessor to this portal by
+  // contacting the predecessor's peer with a request to bypass the predecessor
+  // and route directly to this portal instead. `notify_predecessor` is true
+  // only when we have a half-proxying predecessor which was previously a full
+  // proxy. In any other case, the predecessor has no need to be notified.
+  bool InitiateProxyBypass(const NodeName& peer_name,
+                           RoutingId peer_proxy_routing_id,
+                           absl::uint128 bypass_key,
+                           bool notify_predecessor);
 
   // ipcz portal API implementation:
   IpczResult Close();
@@ -167,7 +187,7 @@ class Portal : public mem::RefCounted {
                      const IpczPutLimits* limits,
                      bool is_two_phase_commit);
 
-  void ForwardIncomingParcels();
+  void ForwardParcels();
 
   const mem::Ref<Node> node_;
   const Side side_;
@@ -226,6 +246,12 @@ class Portal : public mem::RefCounted {
   // local, because in such cases, Put() operations directly manipulate the peer
   // portal's `incoming_parcels_` queue.
   OutgoingParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
+
+  // An incoming queue of outgoing parcels to be fowarded to our peer or
+  // predecessor. Present if and only if we're a half-proxy that decayed from a
+  // full proxy.
+  absl::optional<IncomingParcelQueue> outgoing_parcels_from_successor_
+      ABSL_GUARDED_BY(mutex_);
 
   // The next SequenceNumber to use for any outgoing parcel.
   SequenceNumber next_outgoing_sequence_number_ ABSL_GUARDED_BY(mutex_) = 0;

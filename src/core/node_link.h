@@ -79,6 +79,17 @@ class NodeLink : public mem::RefCounted {
   void RequestIntroduction(const NodeName& name,
                            RequestIntroductionCallback callback);
 
+  // Informs the portal associated with `routing_id` on the remote node that its
+  // predecessor is now a half-proxy and that the predecessor's peer could
+  // instead send parcels to the portal directly, rather than proxying through
+  // the predecessor. The portal receiving this information will send the named
+  // peer node an authenticated BypassProxy message to redirect the route around
+  // the proxy and ultimately initiate its demise.
+  void InitiateProxyBypass(RoutingId routing_id,
+                           const NodeName& proxy_peer_name,
+                           RoutingId proxy_peer_routing_id,
+                           absl::uint128 key);
+
   // Requests that the remote node bypass the existing PortalLink identified by
   // `proxy_routing_id` on its link to the node named `proxy_name`, with a new
   // PortalLink directly to our local `portal` (which we know to be the
@@ -93,9 +104,12 @@ class NodeLink : public mem::RefCounted {
                                            mem::Ref<Portal> portal);
 
   // Tells the remote node that it can stop proxying incoming messages on
-  // `routing_id` as soon as it has forwarded any in-flight messages up to (but
-  // not including) sequence number `sequence_length`.
-  void StopProxying(RoutingId routing_id, SequenceNumber sequence_length);
+  // `routing_id` toward the `side` of the route as soon as it has forwarded any
+  // in-flight messages up to (but not including) sequence number
+  // `sequence_length` in that direction.
+  void StopProxyingTowardSide(RoutingId routing_id,
+                              Side side,
+                              SequenceNumber sequence_length);
 
   // Starts listening for incoming messages.
   void Listen();
@@ -179,8 +193,9 @@ class NodeLink : public mem::RefCounted {
   bool OnPeerClosed(msg::PeerClosed& m);
   bool OnRequestIntroduction(msg::RequestIntroduction& m);
   bool OnIntroduceNode(msg::IntroduceNode& m);
+  bool OnInitiateProxyBypass(msg::InitiateProxyBypass& m);
   bool OnBypassProxy(msg::BypassProxy& m);
-  bool OnStopProxying(msg::StopProxying& m);
+  bool OnStopProxyingTowardSide(msg::StopProxyingTowardSide& m);
 
   bool OnAcceptParcel(os::Channel::Message m);
 
