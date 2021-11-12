@@ -876,9 +876,9 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
     if (peer_link_) {
       link = peer_link_;
       link_side = side_;
-    } else if (successor_link_) {
-      link = successor_link_;
-      link_side = Side::kSuccessor;
+    } else if (routing_mode_ == RoutingMode::kActive && predecessor_link_) {
+      link = predecessor_link_;
+      link_side = Side::kPredecessor;
     }
 
     if (!link) {

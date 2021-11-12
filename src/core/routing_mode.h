@@ -11,12 +11,13 @@ namespace ipcz {
 namespace core {
 
 // Indicates how a portal is currently dealing with incoming and outgoing
-// parcels, and what links it has available to other portals.
+// parcels, and how it uses whatever links it has available to other portals.
 enum RoutingMode : uint32_t {
   // The portal has at least a peer link or a predecessor link -- possibly
   // both -- and definitely has no successor link. If a peer link is present,
   // all outgoing parcels are sent on it. Incoming parcels may also be received
-  // from the peer link, as well as from the predecessor link if present.
+  // from the peer link, as well as from the predecessor link if present. If
+  // only a predecessor link is present, all outgoing parcels are sent on it.
   kActive = 0,
 
   // The portal has no peer or predecessor link and therefore no place to route
