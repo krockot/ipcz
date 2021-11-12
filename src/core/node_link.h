@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "core/node.h"
@@ -224,7 +225,7 @@ class NodeLink : public mem::RefCounted {
   NodeName local_name_ ABSL_GUARDED_BY(mutex_);
   NodeName remote_name_ ABSL_GUARDED_BY(mutex_);
   absl::optional<uint32_t> remote_protocol_version_ ABSL_GUARDED_BY(mutex_);
-  os::Channel channel_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<os::Channel> channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<uint16_t, PendingReply> pending_replies_
       ABSL_GUARDED_BY(mutex_);

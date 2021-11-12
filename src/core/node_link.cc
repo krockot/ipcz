@@ -48,7 +48,7 @@ NodeLink::NodeLink(Node& node,
                    Node::Type remote_node_type)
     : node_(mem::WrapRefCounted(&node)),
       remote_node_type_(remote_node_type),
-      channel_(std::move(channel)),
+      channel_(std::make_unique<os::Channel>(std::move(channel))),
       remote_process_(std::move(remote_process)) {}
 
 NodeLink::NodeLink(Node& node,
@@ -61,21 +61,25 @@ NodeLink::NodeLink(Node& node,
       local_name_(local_name),
       remote_name_(remote_name),
       remote_protocol_version_(0),
-      channel_(std::move(channel)),
+      channel_(std::make_unique<os::Channel>(std::move(channel))),
       link_state_mapping_(std::move(link_state_mapping)) {}
 
 NodeLink::~NodeLink() = default;
 
 void NodeLink::Listen() {
   absl::MutexLock lock(&mutex_);
-  channel_.Listen([this](os::Channel::Message message) {
+  channel_->Listen([this](os::Channel::Message message) {
     return this->OnMessage(message);
   });
 }
 
 void NodeLink::StopListening() {
-  absl::MutexLock lock(&mutex_);
-  channel_.StopListening();
+  std::unique_ptr<os::Channel> channel;
+  {
+    absl::MutexLock lock(&mutex_);
+    channel = std::move(channel_);
+  }
+  channel->StopListening();
 }
 
 mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
@@ -320,16 +324,16 @@ void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
 
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(channel_.is_valid());
+  ABSL_ASSERT(channel_->is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
+  channel_->Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
 void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
                                     absl::Span<os::Handle> handles,
                                     GenericReplyHandler reply_handler) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(channel_.is_valid());
+  ABSL_ASSERT(channel_->is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
   internal::MessageHeader& header =
       *reinterpret_cast<internal::MessageHeader*>(data.data());
@@ -342,7 +346,7 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
     header.request_id =
         next_request_id_.fetch_add(1, std::memory_order_relaxed);
   }
-  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
+  channel_->Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
 RoutingId NodeLink::AllocateRoutingIds(size_t count) {
