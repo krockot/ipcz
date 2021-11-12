@@ -18,8 +18,8 @@ NodeLinkState& NodeLinkState::Initialize(void* where) {
   return *(new (where) NodeLinkState());
 }
 
-RouteId NodeLinkState::AllocateRoutes(size_t count) {
-  return next_route_id_.fetch_add(count, std::memory_order_relaxed);
+RoutingId NodeLinkState::AllocateRoutingIds(size_t count) {
+  return next_routing_id_.fetch_add(count, std::memory_order_relaxed);
 }
 
 }  // namespace core

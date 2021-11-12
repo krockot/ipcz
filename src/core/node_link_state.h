@@ -7,7 +7,7 @@
 
 #include <atomic>
 
-#include "core/route_id.h"
+#include "core/routing_id.h"
 
 namespace ipcz {
 namespace core {
@@ -19,10 +19,10 @@ struct NodeLinkState {
 
   static NodeLinkState& Initialize(void* where);
 
-  RouteId AllocateRoutes(size_t count);
+  RoutingId AllocateRoutingIds(size_t count);
 
  private:
-  std::atomic<RouteId> next_route_id_;
+  std::atomic<RoutingId> next_routing_id_;
 };
 
 }  // namespace core

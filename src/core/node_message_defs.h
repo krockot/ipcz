@@ -18,7 +18,7 @@ IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, protocol_version)
   IPCZ_MSG_PARAM(NodeName, source_name)
   IPCZ_MSG_PARAM(NodeName, target_name)
-  IPCZ_MSG_PARAM(RouteId, route)
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
   IPCZ_MSG_HANDLE_REQUIRED(portal_link_state_memory)
 IPCZ_MSG_END()
@@ -29,11 +29,11 @@ IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(bool, accepted : 1)
 IPCZ_MSG_END()
 
-// Notifies a node that the portal corresponding to `route` on this NodeLink has
-// had its peer portal closed. `sequence_length` is the total number of parcels
-// sent by the peer portal before closing.
+// Notifies a node that the portal corresponding to `routing_id` on this
+// NodeLink has had its peer portal closed. `sequence_length` is the total
+// number of parcels sent by the peer portal before closing.
 IPCZ_MSG_NO_REPLY(PeerClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RouteId, route)
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 
@@ -79,7 +79,7 @@ IPCZ_MSG_END()
 //
 // As part of this operation, P generated a random key and stashed it in the
 // shared state of the peer link between R and P. The same key was subsequently
-// shared with S (and only S), along with the identity of R and the route ID
+// shared with S (and only S), along with the identity of R and the routing ID
 // of the peer link between R and P.
 //
 // S sends this BypassProxy message to R using the same shared secret key,
@@ -91,18 +91,18 @@ IPCZ_MSG_END()
 // last parcel P needs to accept and forward to S before it can cease to exist.
 IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(5), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, proxy_name)
-  IPCZ_MSG_PARAM(RouteId, proxy_route)
-  IPCZ_MSG_PARAM(RouteId, new_route)
+  IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
+  IPCZ_MSG_PARAM(RoutingId, new_routing_id)
   IPCZ_MSG_PARAM(Side, sender_side)
   IPCZ_MSG_HANDLE_REQUIRED(new_link_state_memory)
   IPCZ_MSG_PARAM(absl::uint128, key)
 IPCZ_MSG_END()
 
-// Informs the recipient that the portal on route `route` for this NodeLink can
+// Informs the recipient that the portal on `routing_id` for this NodeLink can
 // cease to exist once it has received and forwarded to its successor every
 // in-flight parcel with a SequenceNumber up to but not including
 // `sequence_length`.
 IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RouteId, route)
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()

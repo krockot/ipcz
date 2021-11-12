@@ -6,7 +6,7 @@
 #define IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
 
 #include "core/node_name.h"
-#include "core/route_id.h"
+#include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
@@ -22,10 +22,10 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   PortalDescriptor& operator=(const PortalDescriptor&);
   ~PortalDescriptor();
 
-  // The RouteId assigned to this portal on serialization and deserialization.
+  // The RoutingId assigned to this portal on serialization and deserialization.
   // Note that this field is controlled by the NodeLink that sends or receives
   // the descriptor, rather than by the serializing Portal.
-  RouteId route;
+  RoutingId routing_id;
 
   // Which side of its pair this portal falls on.
   Side side;
@@ -35,11 +35,11 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   bool peer_closed : 1;
 
   // When this is false, the serialized portal is a successor to another portal
-  // along the same side of the route, so the NodeLink's route identified by
-  // `route` corresponds to the new portal's predecessor link. When this field
-  // is true however, that indicates that the sent portal was split from a local
-  // pair and in that case the route identified by `route` corresponds to the
-  // new portal's peer link.
+  // along the same side of the route, so the NodeLink's routing ID identified
+  // by `routing_id` corresponds to the new portal's predecessor link. When this
+  // field is true however, that indicates that the sent portal was split from a
+  // local pair, and in that case the routing ID identified by `routing_id`
+  // corresponds to the new portal's peer link.
   bool route_is_peer : 1;
 
   // The name of the sender's peer node, and the ID of the routing link between
@@ -48,11 +48,12 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   // also be non-zero, and the peer node has a copy of the same key.
   //
   // When the new portal is created, it will send a request to the named peer
-  // node including the name of its predecessor's node, along with `peer_route`
-  // and `peer_key`. The peer uses this to validate the request, and upon
-  // validation the peer accepts the new portal as its own peer.
+  // node including the name of its predecessor's node, along with
+  // `peer_routing_id` and `peer_key`. The peer uses this to validate the
+  // request, and upon validation the peer accepts the new portal as its own
+  // peer.
   NodeName peer_name;
-  RouteId peer_route;
+  RoutingId peer_routing_id;
   absl::uint128 peer_key;
 
   // The final length of the peer's outgoing parcel sequence. If the peer is

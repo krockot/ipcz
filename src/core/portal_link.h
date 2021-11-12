@@ -7,7 +7,7 @@
 
 #include "core/node_link.h"
 #include "core/portal_link_state.h"
-#include "core/route_id.h"
+#include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
@@ -17,18 +17,18 @@ namespace core {
 
 class Parcel;
 
-// PortalLink owns a route between two portals on opposite ends of a NodeLink.
-// A PortalLink may be used as a peer, to both send and receive parcels to and
-// from the remote node, or it may be used as a forwarding link to forward along
-// incoming parcels arriving at a portal that has moved to another node.
+// PortalLink owns a routing ID used to communicate between two portals on
+// opposite ends of a NodeLink. A PortalLink may be used as a peer, to both send
+// and receive parcels to and from the remote node, or it may be used as a
+// successor or predecessor link.
 class PortalLink : public mem::RefCounted {
  public:
   PortalLink(mem::Ref<NodeLink> node,
-             RouteId route,
+             RoutingId routing_id,
              os::Memory::Mapping link_state);
 
   NodeLink& node() const { return *node_; }
-  RouteId route() const { return route_; }
+  RoutingId routing_id() const { return routing_id_; }
   PortalLinkState& state() const {
     return *state_mapping_.As<PortalLinkState>();
   }
@@ -42,7 +42,7 @@ class PortalLink : public mem::RefCounted {
   ~PortalLink() override;
 
   const mem::Ref<NodeLink> node_;
-  const RouteId route_;
+  const RoutingId routing_id_;
   const os::Memory::Mapping state_mapping_;
 };
 

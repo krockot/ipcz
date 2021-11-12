@@ -12,28 +12,28 @@ namespace ipcz {
 namespace core {
 
 PortalLink::PortalLink(mem::Ref<NodeLink> node,
-                       RouteId route,
+                       RoutingId routing_id,
                        os::Memory::Mapping state_mapping)
     : node_(std::move(node)),
-      route_(route),
+      routing_id_(routing_id),
       state_mapping_(std::move(state_mapping)) {}
 
 PortalLink::~PortalLink() = default;
 
 void PortalLink::Disconnect() {
-  node_->DisconnectRoute(route_);
+  node_->DisconnectRoutingId(routing_id_);
 }
 
 void PortalLink::SendParcel(Parcel& parcel) {
-  node_->SendParcel(route_, parcel);
+  node_->SendParcel(routing_id_, parcel);
 }
 
 void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
-  node_->SendPeerClosed(route_, sequence_length);
+  node_->SendPeerClosed(routing_id_, sequence_length);
 }
 
 void PortalLink::StopProxying(SequenceNumber sequence_length) {
-  node_->StopProxying(route_, sequence_length);
+  node_->StopProxying(routing_id_, sequence_length);
 }
 
 }  // namespace core

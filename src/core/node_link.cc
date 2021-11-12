@@ -33,7 +33,7 @@ namespace {
 
 struct IPCZ_ALIGN(8) AcceptParcelHeader {
   internal::MessageHeader message_header;
-  RouteId route;
+  RoutingId routing_id;
   SequenceNumber sequence_number;
   uint32_t num_bytes;
   uint32_t num_portals;
@@ -85,22 +85,22 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
   NodeLinkState& node_link_state =
       NodeLinkState::Initialize(node_link_state_mapping.base());
 
-  RouteId route;
+  RoutingId routing_id;
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(node_, Side::kLeft);
   mem::Ref<PortalLink> portal_link;
   msg::InviteNode invitation;
   {
     absl::MutexLock lock(&mutex_);
     do {
-      route = node_link_state.AllocateRoutes(1);
-    } while (!AssignRoute(route, portal));
+      routing_id = node_link_state.AllocateRoutingIds(1);
+    } while (!AssignRoutingId(routing_id, portal));
     local_name_ = local_name;
     remote_name_ = remote_name;
     link_state_mapping_ = std::move(node_link_state_mapping);
     invitation.params.protocol_version = msg::kProtocolVersion;
     invitation.params.source_name = local_name;
     invitation.params.target_name = remote_name;
-    invitation.params.route = route;
+    invitation.params.routing_id = routing_id;
     invitation.handles.node_link_state_memory =
         node_link_state_memory.TakeHandle();
     invitation.handles.portal_link_state_memory =
@@ -120,8 +120,9 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
          return true;
        });
 
-  portal->ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(this), route, std::move(portal_link_state_mapping)));
+  portal->ActivateFromBuffering(
+      mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this), routing_id,
+                                      std::move(portal_link_state_mapping)));
   return portal;
 }
 
@@ -153,7 +154,7 @@ void NodeLink::RequestIntroduction(const NodeName& name,
 }
 
 mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
-                                                   RouteId proxy_route,
+                                                   RoutingId proxy_routing_id,
                                                    absl::uint128 key,
                                                    mem::Ref<Portal> portal) {
   // TODO: portal link state should be allocated within the NodeLinkState
@@ -171,27 +172,28 @@ mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
     state.other_side().routing_mode = RoutingMode::kBuffering;
   }
 
-  const RouteId new_route = AllocateRoutes(1);
+  const RoutingId new_routing_id = AllocateRoutingIds(1);
   {
     absl::MutexLock lock(&mutex_);
-    AssignRoute(new_route, portal);
+    AssignRoutingId(new_routing_id, portal);
   }
 
   msg::BypassProxy m;
   m.params.proxy_name = proxy_name;
-  m.params.proxy_route = proxy_route;
-  m.params.new_route = new_route;
+  m.params.proxy_routing_id = proxy_routing_id;
+  m.params.new_routing_id = new_routing_id;
   m.params.sender_side = portal->side();
   m.params.key = key;
   m.handles.new_link_state_memory = link_state_memory.TakeHandle();
   Send(m);
-  return mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this), new_route,
-                                         std::move(link_state_mapping));
+  return mem::MakeRefCounted<PortalLink>(
+      mem::WrapRefCounted(this), new_routing_id, std::move(link_state_mapping));
 }
 
-void NodeLink::StopProxying(RouteId route, SequenceNumber sequence_length) {
+void NodeLink::StopProxying(RoutingId routing_id,
+                            SequenceNumber sequence_length) {
   msg::StopProxying m;
-  m.params.route = route;
+  m.params.routing_id = routing_id;
   m.params.sequence_length = sequence_length;
   Send(m);
 }
@@ -228,7 +230,7 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
   channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
-void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
+void NodeLink::SendParcel(RoutingId routing_id, Parcel& parcel) {
   // Build small messages on the stack.
   absl::InlinedVector<uint8_t, 256> serialized_data;
 
@@ -246,7 +248,7 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   auto& header = *reinterpret_cast<AcceptParcelHeader*>(serialized_data.data());
   header.message_header.size = sizeof(header.message_header);
   header.message_header.message_id = msg::kAcceptParcelId;
-  header.route = route;
+  header.routing_id = routing_id;
   header.sequence_number = parcel.sequence_number();
   header.num_bytes = parcel.data_view().size();
   header.num_portals = num_portals;
@@ -257,7 +259,7 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
       reinterpret_cast<PortalDescriptor*>(data + header.num_bytes);
 
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
-  const size_t first_route_id = AllocateRoutes(num_portals);
+  const size_t first_routing_id = AllocateRoutingIds(num_portals);
   std::vector<os::Handle> os_handles;
   std::vector<mem::Ref<PortalLink>> new_links(num_portals);
   os_handles.reserve(num_os_handles + num_portals);
@@ -268,17 +270,17 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
     os_handles.push_back(link_state_memory.TakeHandle());
     // TODO: populate OSHandleData too
 
-    const RouteId route = first_route_id + i;
-    descriptors[i].route = route;
+    const RoutingId routing_id = first_routing_id + i;
+    descriptors[i].routing_id = routing_id;
     portals[i] = portals[i]->Serialize(descriptors[i]);
     new_links[i] = mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), route, std::move(link_state));
+        mem::WrapRefCounted(this), routing_id, std::move(link_state));
 
-    // It's important to assign the route to a Portal before we transmit this
-    // parcel, in case the receiver immediately sends back messages on the new
-    // route.
+    // It's important to assign the routing ID to a Portal before we transmit
+    // this parcel, in case the receiver immediately sends back messages for the
+    // new routing ID.
     absl::MutexLock lock(&mutex_);
-    bool assigned = AssignRoute(route, portals[i]);
+    bool assigned = AssignRoutingId(routing_id, portals[i]);
     ABSL_ASSERT(assigned);
   }
 
@@ -302,9 +304,9 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   Send(absl::MakeSpan(serialized_data), absl::MakeSpan(os_handles));
 
   // Don't set links on the local portals until we've sent the parcel, since
-  // portals may immediately start sending messages pertaining to their route.
-  // The route isn't establlished on the remote side until the parcel above is
-  // received there.
+  // portals may immediately start sending messages pertaining to their routing
+  // ID. The routing IDisn't establlished on the remote side until the parcel
+  // above is received there.
   for (size_t i = 0; i < num_portals; ++i) {
     if (descriptors[i].route_is_peer) {
       portals[i]->ActivateFromBuffering(new_links[i]);
@@ -314,33 +316,34 @@ void NodeLink::SendParcel(RouteId route, Parcel& parcel) {
   }
 }
 
-void NodeLink::SendPeerClosed(RouteId route, SequenceNumber sequence_length) {
+void NodeLink::SendPeerClosed(RoutingId routing_id,
+                              SequenceNumber sequence_length) {
   msg::PeerClosed m;
-  m.params.route = route;
+  m.params.routing_id = routing_id;
   m.params.sequence_length = sequence_length;
   Send(m);
 }
 
-RouteId NodeLink::AllocateRoutes(size_t count) {
+RoutingId NodeLink::AllocateRoutingIds(size_t count) {
   absl::MutexLock lock(&mutex_);
 
-  // Routes must only be allocated once we're a fully functioning link.
+  // Routing IDs must only be allocated once we're a fully functioning link.
   ABSL_ASSERT(link_state_mapping_.is_valid());
-  return link_state_mapping_.As<NodeLinkState>()->AllocateRoutes(count);
+  return link_state_mapping_.As<NodeLinkState>()->AllocateRoutingIds(count);
 }
 
-void NodeLink::DisconnectRoute(RouteId route) {
+void NodeLink::DisconnectRoutingId(RoutingId routing_id) {
   absl::MutexLock lock(&mutex_);
-  routes_.erase(route);
+  routes_.erase(routing_id);
 }
 
-bool NodeLink::AssignRoute(RouteId id, const mem::Ref<Portal>& portal) {
+bool NodeLink::AssignRoutingId(RoutingId id, const mem::Ref<Portal>& portal) {
   mutex_.AssertHeld();
   auto result = routes_.try_emplace(id, portal);
   return result.second;
 }
 
-mem::Ref<Portal> NodeLink::GetPortalForRoute(RouteId id) {
+mem::Ref<Portal> NodeLink::GetPortalForRoutingId(RoutingId id) {
   absl::MutexLock lock(&mutex_);
   auto it = routes_.find(id);
   if (it == routes_.end()) {
@@ -445,7 +448,7 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
       link_state_mapping_ = node_link_state.Map();
       if (node_->AcceptInvitationFromBroker(m.params.source_name,
                                             m.params.target_name) &&
-          AssignRoute(m.params.route, portal_awaiting_invitation_)) {
+          AssignRoutingId(m.params.routing_id, portal_awaiting_invitation_)) {
         portal = std::move(portal_awaiting_invitation_);
       }
     }
@@ -461,23 +464,24 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   if (accepted) {
     // Note that we don't set the portal's active link until after we've replied
     // to accept the invitation. This is because the portal may immediately
-    // initiate communication over the route within ActivateFromBuffering(),
-    // e.g. to flush outgoing parcels, and we need the invitation reply to
-    // arrive first.
+    // initiate communication using the routing ID within
+    // ActivateFromBuffering(), e.g. to flush outgoing parcels, and we need the
+    // invitation reply to arrive first.
     portal->ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), m.params.route, portal_link_state.Map()));
+        mem::WrapRefCounted(this), m.params.routing_id,
+        portal_link_state.Map()));
   } else {
     absl::MutexLock lock(&mutex_);
-    routes_.erase(m.params.route);
+    routes_.erase(m.params.routing_id);
   }
   return true;
 }
 
 bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
   TrapEventDispatcher dispatcher;
-  mem::Ref<Portal> portal = GetPortalForRoute(m.params.route);
+  mem::Ref<Portal> portal = GetPortalForRoutingId(m.params.routing_id);
   // Note that the portal may have already been closed locally, so we can't
-  // treat the route's absence here as an error.
+  // treat the routing ID's absence here as an error.
   if (portal) {
     portal->NotifyPeerClosed(m.params.sequence_length, dispatcher);
   }
@@ -577,7 +581,7 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& m) {
 
 bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
   auto new_peer_link = mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(this), m.params.new_route,
+      mem::WrapRefCounted(this), m.params.new_routing_id,
       os::Memory(std::move(m.handles.new_link_state_memory),
                  sizeof(PortalLinkState))
           .Map());
@@ -585,12 +589,12 @@ bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
   mem::Ref<NodeLink> link_to_proxy = node_->GetLink(m.params.proxy_name);
   mem::Ref<Portal> portal;
   if (link_to_proxy) {
-    portal = link_to_proxy->GetPortalForRoute(m.params.proxy_route);
+    portal = link_to_proxy->GetPortalForRoutingId(m.params.proxy_routing_id);
   }
 
   if (portal && portal->ReplacePeerLink(m.params.key, new_peer_link)) {
     absl::MutexLock lock(&mutex_);
-    AssignRoute(m.params.new_route, portal);
+    AssignRoutingId(m.params.new_routing_id, portal);
     return true;
   }
 
@@ -603,7 +607,7 @@ bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
 }
 
 bool NodeLink::OnStopProxying(msg::StopProxying& m) {
-  mem::Ref<Portal> portal = GetPortalForRoute(m.params.route);
+  mem::Ref<Portal> portal = GetPortalForRoutingId(m.params.routing_id);
   if (!portal) {
     return true;
   }
@@ -648,7 +652,7 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
 
     absl::MutexLock lock(&mutex_);
     for (size_t i = 0; i < num_portals; ++i) {
-      if (!AssignRoute(descriptors[i].route, portals[i])) {
+      if (!AssignRoutingId(descriptors[i].routing_id, portals[i])) {
         return false;
       }
     }
@@ -666,7 +670,7 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
 
-  mem::Ref<Portal> receiver = GetPortalForRoute(header.route);
+  mem::Ref<Portal> receiver = GetPortalForRoutingId(header.routing_id);
   if (!receiver) {
     return true;
   }

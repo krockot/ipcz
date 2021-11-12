@@ -13,7 +13,7 @@
 #include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
 #include "core/portal_link.h"
-#include "core/route_id.h"
+#include "core/routing_id.h"
 #include "core/routing_mode.h"
 #include "core/sequence_number.h"
 #include "core/side.h"

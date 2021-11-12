@@ -88,9 +88,9 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
   // TODO: need to support sending both portals of a local pair in the same
   // parcel. one idea that could work:
   //
-  //   leave each local portal with nothing but a successor link to the new
-  //   portal - use this to forward unread incoming parcels. use a one-off
-  //   field in PortalDescriptor to say "peer is this other descriptor X" for
+  //   leave each local portal with nothing but a successor link to their new
+  //   portals - use these to forward unread incoming parcels. use a one-off
+  //   field in PortalDescriptor to say "peer is this other descriptor X" on
   //   the receiving end.
 
   PortalLock lock(*this);
@@ -171,7 +171,7 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
       // route.
       const absl::uint128 key = RandomUint128();
       descriptor.peer_name = *peer_link_->node().GetRemoteName();
-      descriptor.peer_route = peer_link_->route();
+      descriptor.peer_routing_id = peer_link_->routing_id();
       descriptor.peer_key = key;
 
       // And make sure the peer has access to the same key by the time our
@@ -762,7 +762,7 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
   }
 
   auto new_link = mem::MakeRefCounted<PortalLink>(
-      from_node, descriptor.route, std::move(link_state_mapping));
+      from_node, descriptor.routing_id, std::move(link_state_mapping));
   if (descriptor.route_is_peer) {
     ActivateFromBuffering(std::move(new_link));
   } else {
@@ -776,10 +776,10 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
       if (!peer_node) {
         routing_mode_ = RoutingMode::kBuffering;
         node_->EstablishLink(
-            descriptor.peer_name,
-            [portal = mem::WrapRefCounted(this),
-             peer_route = descriptor.peer_route, peer_key = descriptor.peer_key,
-             proxy_name](const mem::Ref<NodeLink>& link) {
+            descriptor.peer_name, [portal = mem::WrapRefCounted(this),
+                                   peer_routing_id = descriptor.peer_routing_id,
+                                   peer_key = descriptor.peer_key,
+                                   proxy_name](const mem::Ref<NodeLink>& link) {
               if (!link) {
                 // TODO: handle gracefully
                 LOG(ERROR) << "failed to establish new NodeLink";
@@ -787,11 +787,11 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
               }
 
               portal->ActivateFromBuffering(link->BypassProxyToPortal(
-                  proxy_name, peer_route, peer_key, portal));
+                  proxy_name, peer_routing_id, peer_key, portal));
             });
       } else {
         ActivateFromBuffering(peer_node->BypassProxyToPortal(
-            proxy_name, descriptor.peer_route, descriptor.peer_key,
+            proxy_name, descriptor.peer_routing_id, descriptor.peer_key,
             mem::WrapRefCounted(this)));
       }
     }

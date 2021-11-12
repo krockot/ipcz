@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_ROUTE_ID_H_
-#define IPCZ_SRC_CORE_ROUTE_ID_H_
+#ifndef IPCZ_SRC_CORE_ROUTING_ID_H_
+#define IPCZ_SRC_CORE_ROUTING_ID_H_
 
 #include <cstdint>
 
@@ -11,9 +11,9 @@ namespace ipcz {
 namespace core {
 
 // TODO: strong alias?
-using RouteId = uint64_t;
+using RoutingId = uint64_t;
 
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_ROUTE_ID_H_
+#endif  // IPCZ_SRC_CORE_ROUTING_ID_H_

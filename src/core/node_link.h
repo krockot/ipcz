@@ -13,7 +13,7 @@
 #include "core/node_link_state.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
-#include "core/route_id.h"
+#include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/channel.h"
@@ -79,23 +79,23 @@ class NodeLink : public mem::RefCounted {
   void RequestIntroduction(const NodeName& name,
                            RequestIntroductionCallback callback);
 
-  // Requests that the remote node bypass an existing route `proxy_route` on
-  // its link to the node named `proxy_name`, with a new route linking it to
-  // directly to our local `portal` (which we know to be the destination of the
-  // remote proxy link) instead. `key` is used to authenticate the request and
-  // must already have been provided to the remote node by our predecessor (the
-  // proxy in question).
+  // Requests that the remote node bypass the existing PortalLink identified by
+  // `proxy_routing_id` on its link to the node named `proxy_name`, with a new
+  // PortalLink directly to our local `portal` (which we know to be the
+  // destination of the remote proxy link) instead. `key` is used to
+  // authenticate the request and must already have been provided to the remote
+  // node by our predecessor (the proxy in question).
   //
-  // Returns a new PortalLink corresponding to the newly allocated route.
+  // Returns a new PortalLink corresponding to the newly allocated routing ID.
   mem::Ref<PortalLink> BypassProxyToPortal(const NodeName& proxy_name,
-                                           RouteId proxy_route,
+                                           RoutingId proxy_routing_id,
                                            absl::uint128 key,
                                            mem::Ref<Portal> portal);
 
   // Tells the remote node that it can stop proxying incoming messages on
-  // `route` as soon as it has forwarded any in-flight messages up to (but not
-  // including) sequence number `sequence_length`.
-  void StopProxying(RouteId route, SequenceNumber sequence_length);
+  // `routing_id` as soon as it has forwarded any in-flight messages up to (but
+  // not including) sequence number `sequence_length`.
+  void StopProxying(RoutingId routing_id, SequenceNumber sequence_length);
 
   // Starts listening for incoming messages.
   void Listen();
@@ -134,26 +134,26 @@ class NodeLink : public mem::RefCounted {
   // Send() operations above because the hacky message macro infrastructure
   // doesn't support variable-length messages; and in practice, parcel transfer
   // is one of relatively few use cases for them.
-  void SendParcel(RouteId route, Parcel& parcel);
+  void SendParcel(RoutingId routing_id, Parcel& parcel);
 
-  // Notifies the remote node that the peer of the portal on `route` has been
-  // closed.
-  void SendPeerClosed(RouteId route, SequenceNumber sequence_length);
+  // Notifies the remote node that the peer of the portal on `routing_id` has
+  // been closed.
+  void SendPeerClosed(RoutingId routing_id, SequenceNumber sequence_length);
 
-  // Allocates `count` contiguous RouteIds on the link and returns the smallest
-  // of them. For example if this is called with a `count` of 5, a return value
-  // of 17 indicates that routes 17, 18, 19, 20, and 21 have been allocated by
-  // the caller.
-  RouteId AllocateRoutes(size_t count);
+  // Allocates `count` contiguous RoutingIds on the link and returns the
+  // smallest of them. For example if this is called with a `count` of 5, a
+  // return value of 17 indicates that routing IDs 17, 18, 19, 20, and 21 have
+  // been allocated by the caller.
+  RoutingId AllocateRoutingIds(size_t count);
 
-  void DisconnectRoute(RouteId route);
+  void DisconnectRoutingId(RoutingId routing_id);
 
  private:
   ~NodeLink() override;
 
-  bool AssignRoute(RouteId id, const mem::Ref<Portal>& portal);
+  bool AssignRoutingId(RoutingId id, const mem::Ref<Portal>& portal);
 
-  mem::Ref<Portal> GetPortalForRoute(RouteId id);
+  mem::Ref<Portal> GetPortalForRoutingId(RoutingId id);
 
   // Generic entry point for all messages. While the memory addressed by
   // `message` is guaranteed to be safely addressable, it may be untrusted
@@ -208,7 +208,7 @@ class NodeLink : public mem::RefCounted {
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<uint16_t, PendingReply> pending_replies_
       ABSL_GUARDED_BY(mutex_);
-  absl::flat_hash_map<RouteId, mem::Ref<Portal>> routes_
+  absl::flat_hash_map<RoutingId, mem::Ref<Portal>> routes_
       ABSL_GUARDED_BY(mutex_);
   mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<NodeName, std::vector<RequestIntroductionCallback>>
