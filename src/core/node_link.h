@@ -79,6 +79,20 @@ class NodeLink : public mem::RefCounted {
   void RequestIntroduction(const NodeName& name,
                            RequestIntroductionCallback callback);
 
+  // Sends a routed parcel to the remote node. This is different from the other
+  // Send() operations above because the hacky message macro infrastructure
+  // doesn't support variable-length messages; and in practice, parcel transfer
+  // is one of relatively few use cases for them.
+  void AcceptParcel(RoutingId routing_id, Parcel& parcel);
+
+  // Notifies the remote node that the `side` has been closed on whatever route
+  // contains a PortalLink bound to `routing_id` on this NodeLink.
+  // `sequence_length` is the total number of parcels transmitted from that side
+  // of the route before it closed.
+  void SideClosed(RoutingId routing_id,
+                  Side side,
+                  SequenceNumber sequence_length);
+
   // Informs the portal associated with `routing_id` on the remote node that its
   // predecessor is now a half-proxy and that the predecessor's peer could
   // instead send parcels to the portal directly, rather than proxying through
@@ -144,16 +158,6 @@ class NodeLink : public mem::RefCounted {
                             absl::Span<os::Handle> handles,
                             GenericReplyHandler reply_handler);
 
-  // Sends a routed parcel to the remote node. This is different from the other
-  // Send() operations above because the hacky message macro infrastructure
-  // doesn't support variable-length messages; and in practice, parcel transfer
-  // is one of relatively few use cases for them.
-  void SendParcel(RoutingId routing_id, Parcel& parcel);
-
-  // Notifies the remote node that the peer of the portal on `routing_id` has
-  // been closed.
-  void SendPeerClosed(RoutingId routing_id, SequenceNumber sequence_length);
-
   // Allocates `count` contiguous RoutingIds on the link and returns the
   // smallest of them. For example if this is called with a `count` of 5, a
   // return value of 17 indicates that routing IDs 17, 18, 19, 20, and 21 have
@@ -190,7 +194,7 @@ class NodeLink : public mem::RefCounted {
   // validation is done. Methods here must assume that field values can take on
   // any legal value for their underlying POD type.
   bool OnInviteNode(msg::InviteNode& m);
-  bool OnPeerClosed(msg::PeerClosed& m);
+  bool OnSideClosed(msg::SideClosed& m);
   bool OnRequestIntroduction(msg::RequestIntroduction& m);
   bool OnIntroduceNode(msg::IntroduceNode& m);
   bool OnInitiateProxyBypass(msg::InitiateProxyBypass& m);

@@ -76,10 +76,12 @@ class Portal : public mem::RefCounted {
                             Parcel& parcel,
                             TrapEventDispatcher& dispatcher);
 
-  // Notifies this portal that its peer has been closed. If this change triggers
-  // any trap events, they'll be added to `dispatcher` for imminent dispatch.
-  bool NotifyPeerClosed(SequenceNumber sequence_length,
-                        TrapEventDispatcher& dispatcher);
+  // Invoked to notify this portal that one side of its route has been closed.
+  // If this triggers any trap events, they'll be added to `dispatcher` for
+  // imminent dispatch.
+  bool OnSideClosed(Side side,
+                    SequenceNumber sequence_length,
+                    TrapEventDispatcher& dispatcher);
 
   // Attempts to replace the portal's current peer link with a new one. The
   // given `bypass_key` must match the `bypass_key` stored in the current peer

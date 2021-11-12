@@ -29,11 +29,12 @@ IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(bool, accepted : 1)
 IPCZ_MSG_END()
 
-// Notifies a node that the portal corresponding to `routing_id` on this
-// NodeLink has had its peer portal closed. `sequence_length` is the total
-// number of parcels sent by the peer portal before closing.
-IPCZ_MSG_NO_REPLY(PeerClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
+// Notifies a node that the side of the route which contains a link bound to
+// `routing_id` on this NodeLink has been closed. `sequence_length` is the total
+// number of parcels transmitted from that side before closing.
+IPCZ_MSG_NO_REPLY(SideClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(Side, side)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 

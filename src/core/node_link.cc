@@ -153,98 +153,7 @@ void NodeLink::RequestIntroduction(const NodeName& name,
   Send(request);
 }
 
-mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
-                                                   RoutingId proxy_routing_id,
-                                                   absl::uint128 bypass_key,
-                                                   mem::Ref<Portal> portal) {
-  // TODO: portal link state should be allocated within the NodeLinkState
-  // or an auxilliary NodeLink buffer for overflow
-  os::Memory link_state_memory(sizeof(PortalLinkState));
-  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
-  {
-    // The other side may not be buffering, but we assume it us until it can
-    // update its state to reflect reality. The purpose is to avoid this side
-    // becoming a half-proxy before we know it's safe. If this side moves in the
-    // interim it will become a full proxy instead.
-    PortalLinkState::Locked state(
-        PortalLinkState::Initialize(link_state_mapping.base()), portal->side());
-    state.this_side().routing_mode = RoutingMode::kActive;
-    state.other_side().routing_mode = RoutingMode::kBuffering;
-  }
-
-  const RoutingId new_routing_id = AllocateRoutingIds(1);
-  {
-    absl::MutexLock lock(&mutex_);
-    AssignRoutingId(new_routing_id, portal);
-  }
-
-  msg::BypassProxy m;
-  m.params.proxy_name = proxy_name;
-  m.params.proxy_routing_id = proxy_routing_id;
-  m.params.new_routing_id = new_routing_id;
-  m.params.sender_side = portal->side();
-  m.params.bypass_key = bypass_key;
-  m.handles.new_link_state_memory = link_state_memory.TakeHandle();
-  Send(m);
-  return mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(this), new_routing_id, std::move(link_state_mapping));
-}
-
-void NodeLink::InitiateProxyBypass(RoutingId routing_id,
-                                   const NodeName& proxy_peer_name,
-                                   RoutingId proxy_peer_routing_id,
-                                   absl::uint128 bypass_key) {
-  msg::InitiateProxyBypass m;
-  m.params.routing_id = routing_id;
-  m.params.proxy_peer_name = proxy_peer_name;
-  m.params.proxy_peer_routing_id = proxy_peer_routing_id;
-  m.params.bypass_key = bypass_key;
-  Send(m);
-}
-
-void NodeLink::StopProxyingTowardSide(RoutingId routing_id,
-                                      Side side,
-                                      SequenceNumber sequence_length) {
-  msg::StopProxyingTowardSide m;
-  m.params.routing_id = routing_id;
-  m.params.side = side;
-  m.params.sequence_length = sequence_length;
-  Send(m);
-}
-
-void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
-  absl::MutexLock lock(&mutex_);
-  remote_protocol_version_ = version;
-}
-
-void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
-  absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(channel_.is_valid());
-  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
-}
-
-void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
-                                    absl::Span<os::Handle> handles,
-                                    GenericReplyHandler reply_handler) {
-  absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(channel_.is_valid());
-  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  internal::MessageHeader& header =
-      *reinterpret_cast<internal::MessageHeader*>(data.data());
-  header.request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-  PendingReply pending_reply(header.message_id, std::move(reply_handler));
-  while (
-      !header.request_id ||
-      !pending_replies_.try_emplace(header.request_id, std::move(pending_reply))
-           .second) {
-    header.request_id =
-        next_request_id_.fetch_add(1, std::memory_order_relaxed);
-  }
-  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
-}
-
-void NodeLink::SendParcel(RoutingId routing_id, Parcel& parcel) {
+void NodeLink::AcceptParcel(RoutingId routing_id, Parcel& parcel) {
   // Build small messages on the stack.
   absl::InlinedVector<uint8_t, 256> serialized_data;
 
@@ -330,12 +239,105 @@ void NodeLink::SendParcel(RoutingId routing_id, Parcel& parcel) {
   }
 }
 
-void NodeLink::SendPeerClosed(RoutingId routing_id,
-                              SequenceNumber sequence_length) {
-  msg::PeerClosed m;
+void NodeLink::SideClosed(RoutingId routing_id,
+                          Side side,
+                          SequenceNumber sequence_length) {
+  msg::SideClosed m;
   m.params.routing_id = routing_id;
+  m.params.side = side;
   m.params.sequence_length = sequence_length;
   Send(m);
+}
+
+void NodeLink::InitiateProxyBypass(RoutingId routing_id,
+                                   const NodeName& proxy_peer_name,
+                                   RoutingId proxy_peer_routing_id,
+                                   absl::uint128 bypass_key) {
+  msg::InitiateProxyBypass m;
+  m.params.routing_id = routing_id;
+  m.params.proxy_peer_name = proxy_peer_name;
+  m.params.proxy_peer_routing_id = proxy_peer_routing_id;
+  m.params.bypass_key = bypass_key;
+  Send(m);
+}
+
+mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
+                                                   RoutingId proxy_routing_id,
+                                                   absl::uint128 bypass_key,
+                                                   mem::Ref<Portal> portal) {
+  // TODO: portal link state should be allocated within the NodeLinkState
+  // or an auxilliary NodeLink buffer for overflow
+  os::Memory link_state_memory(sizeof(PortalLinkState));
+  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
+  {
+    // The other side may not be buffering, but we assume it us until it can
+    // update its state to reflect reality. The purpose is to avoid this side
+    // becoming a half-proxy before we know it's safe. If this side moves in the
+    // interim it will become a full proxy instead.
+    PortalLinkState::Locked state(
+        PortalLinkState::Initialize(link_state_mapping.base()), portal->side());
+    state.this_side().routing_mode = RoutingMode::kActive;
+    state.other_side().routing_mode = RoutingMode::kBuffering;
+  }
+
+  const RoutingId new_routing_id = AllocateRoutingIds(1);
+  {
+    absl::MutexLock lock(&mutex_);
+    AssignRoutingId(new_routing_id, portal);
+  }
+
+  msg::BypassProxy m;
+  m.params.proxy_name = proxy_name;
+  m.params.proxy_routing_id = proxy_routing_id;
+  m.params.new_routing_id = new_routing_id;
+  m.params.sender_side = portal->side();
+  m.params.bypass_key = bypass_key;
+  m.handles.new_link_state_memory = link_state_memory.TakeHandle();
+  Send(m);
+  return mem::MakeRefCounted<PortalLink>(
+      mem::WrapRefCounted(this), new_routing_id, std::move(link_state_mapping));
+}
+
+void NodeLink::StopProxyingTowardSide(RoutingId routing_id,
+                                      Side side,
+                                      SequenceNumber sequence_length) {
+  msg::StopProxyingTowardSide m;
+  m.params.routing_id = routing_id;
+  m.params.side = side;
+  m.params.sequence_length = sequence_length;
+  Send(m);
+}
+
+void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
+  absl::MutexLock lock(&mutex_);
+  remote_protocol_version_ = version;
+}
+
+void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
+  absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(channel_.is_valid());
+  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
+  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
+}
+
+void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
+                                    absl::Span<os::Handle> handles,
+                                    GenericReplyHandler reply_handler) {
+  absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(channel_.is_valid());
+  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
+  internal::MessageHeader& header =
+      *reinterpret_cast<internal::MessageHeader*>(data.data());
+  header.request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
+  PendingReply pending_reply(header.message_id, std::move(reply_handler));
+  while (
+      !header.request_id ||
+      !pending_replies_.try_emplace(header.request_id, std::move(pending_reply))
+           .second) {
+    header.request_id =
+        next_request_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+  channel_.Send(os::Channel::Message(os::Channel::Data(data), handles));
 }
 
 RoutingId NodeLink::AllocateRoutingIds(size_t count) {
@@ -491,13 +493,13 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
   return true;
 }
 
-bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
+bool NodeLink::OnSideClosed(msg::SideClosed& m) {
   TrapEventDispatcher dispatcher;
   mem::Ref<Portal> portal = GetPortalForRoutingId(m.params.routing_id);
   // Note that the portal may have already been closed locally, so we can't
   // treat the routing ID's absence here as an error.
   if (portal) {
-    portal->NotifyPeerClosed(m.params.sequence_length, dispatcher);
+    portal->OnSideClosed(m.params.side, m.params.sequence_length, dispatcher);
   }
   return true;
 }

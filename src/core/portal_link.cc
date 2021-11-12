@@ -24,12 +24,12 @@ void PortalLink::Disconnect() {
   node_link_->DisconnectRoutingId(routing_id_);
 }
 
-void PortalLink::SendParcel(Parcel& parcel) {
-  node_link_->SendParcel(routing_id_, parcel);
+void PortalLink::AcceptParcel(Parcel& parcel) {
+  node_link_->AcceptParcel(routing_id_, parcel);
 }
 
-void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
-  node_link_->SendPeerClosed(routing_id_, sequence_length);
+void PortalLink::SideClosed(Side side, SequenceNumber sequence_length) {
+  node_link_->SideClosed(routing_id_, side, sequence_length);
 }
 
 void PortalLink::StopProxyingTowardSide(Side side,

@@ -232,7 +232,7 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
     ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
 
     // TODO: we may need to plumb a TrapEventDispatcher here and into
-    // SendParcel() in case something goes wrong and we end up discarding (and
+    // AcceptParcel() in case something goes wrong and we end up discarding (and
     // closing) portal attachments locally.
 
     if (successor_link_) {
@@ -255,11 +255,11 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
   }
 
   for (Parcel& parcel : parcels_to_forward) {
-    peer->SendParcel(parcel);
+    peer->AcceptParcel(parcel);
   }
 
   if (sequence_length) {
-    peer->NotifyClosed(*sequence_length);
+    peer->SideClosed(side_, *sequence_length);
   } else if (successor) {
     successor->InitiateProxyBypass(*peer->node_link().GetRemoteName(),
                                    peer->routing_id(), bypass_key);
@@ -324,37 +324,45 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
   }
 
   if (immediate_forwarding_link) {
-    immediate_forwarding_link->SendParcel(parcel);
+    immediate_forwarding_link->AcceptParcel(parcel);
   } else {
     ForwardParcels();
   }
   return true;
 }
 
-bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
-                              TrapEventDispatcher& dispatcher) {
-  mem::Ref<PortalLink> successor;
+bool Portal::OnSideClosed(Side side,
+                          SequenceNumber sequence_length,
+                          TrapEventDispatcher& dispatcher) {
+  mem::Ref<PortalLink> forwarding_link;
   {
     absl::MutexLock lock(&mutex_);
-    status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-    incoming_parcels_.SetPeerSequenceLength(sequence_length);
-    if (incoming_parcels_.IsDead()) {
-      status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    }
+    if (side != side_) {
+      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      incoming_parcels_.SetPeerSequenceLength(sequence_length);
+      if (incoming_parcels_.IsDead()) {
+        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
 
-    // TODO: Need to clear `outgoing_parcels_` here and manually close all
-    // Portals attached to any outgoing parcels. This in turn will need a
-    // TrapEventDispatcher to be plumbed through.
-    outgoing_parcels_.clear();
+      // TODO: Need to clear `outgoing_parcels_` here and manually close all
+      // Portals attached to any outgoing parcels. This in turn will need a
+      // TrapEventDispatcher to be plumbed through.
+      outgoing_parcels_.clear();
 
-    successor = successor_link_;
-    if (routing_mode_ == RoutingMode::kActive) {
-      traps_.MaybeNotify(dispatcher, status_);
+      forwarding_link = successor_link_;
+      if (routing_mode_ == RoutingMode::kActive) {
+        traps_.MaybeNotify(dispatcher, status_);
+      }
+    } else {
+      // If we're being notified that our own side was closed, this must mean
+      // we've been proxying from our successor; so we forward along to our peer
+      // or predecessor. No local state updates needed.
+      forwarding_link = peer_link_ ? peer_link_ : predecessor_link_;
     }
   }
 
-  if (successor) {
-    successor->NotifyClosed(sequence_length);
+  if (forwarding_link) {
+    forwarding_link->SideClosed(side, sequence_length);
   }
 
   return true;
@@ -594,8 +602,7 @@ IpczResult Portal::Close() {
       // link.
       ABSL_ASSERT(outgoing_parcels_.empty());
 
-      // TODO: Just signal?
-      peer_link_->NotifyClosed(next_outgoing_sequence_number_);
+      peer_link_->SideClosed(side_, next_outgoing_sequence_number_);
     }
 
     // todo forward closure to predecessor when present without a peer
@@ -1104,7 +1111,7 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  receiving_link->SendParcel(parcel);
+  receiving_link->AcceptParcel(parcel);
   return IPCZ_RESULT_OK;
 }
 
@@ -1138,13 +1145,13 @@ void Portal::ForwardParcels() {
 
   if (successor) {
     for (Parcel& parcel : parcels_to_successor) {
-      successor->SendParcel(parcel);
+      successor->AcceptParcel(parcel);
     }
   }
 
   if (peer_or_predecessor) {
     for (Parcel& parcel : parcels_to_peer_or_predecessor) {
-      peer_or_predecessor->SendParcel(parcel);
+      peer_or_predecessor->AcceptParcel(parcel);
     }
   }
 
