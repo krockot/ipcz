@@ -69,7 +69,7 @@ bool MatchPortalLink(const mem::Ref<PortalLink>& portal_link,
     return false;
   }
 
-  return &portal_link->node() == &node_link &&
+  return &portal_link->node_link() == &node_link &&
          portal_link->routing_id() == routing_id;
 }
 
@@ -177,15 +177,15 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
       // We're switching to half-proxying mode. Give the new portal some
       // information they can use to authenticate against our peer and
       // ultimately convince it to bypass us along the route.
-      const absl::uint128 key = RandomUint128();
-      descriptor.peer_name = *peer_link_->node().GetRemoteName();
+      const absl::uint128 bypass_key = RandomUint128();
+      descriptor.peer_name = *peer_link_->node_link().GetRemoteName();
       descriptor.peer_routing_id = peer_link_->routing_id();
-      descriptor.peer_key = key;
+      descriptor.bypass_key = bypass_key;
 
       // And make sure the peer has access to the same key by the time our
       // successor tries to authenticate.
       PortalLinkState::Locked state(peer_link_->state(), side_);
-      state.this_side().successor_key = key;
+      state.this_side().bypass_key = bypass_key;
     } else {
       routing_mode_ = RoutingMode::kFullProxy;
     }
@@ -242,7 +242,7 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
 
       PortalLinkState::Locked state(peer->state(), side_);
       state.this_side().routing_mode = RoutingMode::kHalfProxy;
-      state.this_side().successor_key = bypass_key;
+      state.this_side().bypass_key = bypass_key;
     } else {
       routing_mode_ = RoutingMode::kActive;
     }
@@ -261,7 +261,7 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
   if (sequence_length) {
     peer->NotifyClosed(*sequence_length);
   } else if (successor) {
-    successor->InitiateProxyBypass(*peer->node().GetRemoteName(),
+    successor->InitiateProxyBypass(*peer->node_link().GetRemoteName(),
                                    peer->routing_id(), bypass_key);
   }
 
@@ -360,16 +360,16 @@ bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
   return true;
 }
 
-bool Portal::ReplacePeerLink(absl::uint128 key,
+bool Portal::ReplacePeerLink(absl::uint128 bypass_key,
                              const mem::Ref<PortalLink>& new_peer) {
-  absl::uint128 bypass_key;
+  absl::uint128 new_bypass_key;
   mem::Ref<PortalLink> successor_to_initiate_proxy_bypass;
   {
     absl::MutexLock lock(&mutex_);
     if (peer_link_) {
       {
         PortalLinkState::Locked state(peer_link_->state(), side_);
-        if (state.other_side().successor_key != key) {
+        if (state.other_side().bypass_key != bypass_key) {
           // Treat key mismatch as a validation failure.
           return false;
         }
@@ -380,7 +380,7 @@ bool Portal::ReplacePeerLink(absl::uint128 key,
       bool should_decay =
           routing_mode_ == RoutingMode::kFullProxy && successor_link_;
       if (should_decay) {
-        bypass_key = RandomUint128();
+        new_bypass_key = RandomUint128();
       }
 
       {
@@ -391,7 +391,7 @@ bool Portal::ReplacePeerLink(absl::uint128 key,
           // If we are a full proxy and our peer is neither buffering nor
           // half-proxying, we can lock in our decay to a half-proxy now.
           state.this_side().routing_mode = RoutingMode::kHalfProxy;
-          state.this_side().successor_key = bypass_key;
+          state.this_side().bypass_key = new_bypass_key;
         } else {
           state.this_side().routing_mode = routing_mode_;
           should_decay = false;
@@ -419,7 +419,8 @@ bool Portal::ReplacePeerLink(absl::uint128 key,
       outgoing_parcels_from_successor_.emplace();
     }
     successor_to_initiate_proxy_bypass->InitiateProxyBypass(
-        *new_peer->node().GetRemoteName(), new_peer->routing_id(), bypass_key);
+        *new_peer->node_link().GetRemoteName(), new_peer->routing_id(),
+        new_bypass_key);
   }
 
   return true;
@@ -468,7 +469,7 @@ bool Portal::InitiateProxyBypass(const NodeName& peer_name,
     is_buffering = routing_mode_ == RoutingMode::kBuffering;
   }
 
-  const NodeName proxy_name = *predecessor->node().GetRemoteName();
+  const NodeName proxy_name = *predecessor->node_link().GetRemoteName();
   ABSL_ASSERT(peer_name.is_valid());
   mem::Ref<NodeLink> peer_node = node_->GetLink(peer_name);
   if (peer_node) {
@@ -965,7 +966,7 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
   if (descriptor.peer_name.is_valid()) {
     const NodeName proxy_name = *from_node->GetRemoteName();
     return InitiateProxyBypass(descriptor.peer_name, descriptor.peer_routing_id,
-                               descriptor.peer_key,
+                               descriptor.bypass_key,
                                /*notify_predecessor=*/false);
   }
 

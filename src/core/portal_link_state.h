@@ -35,9 +35,9 @@ struct PortalLinkState {
     RoutingMode routing_mode;
 
     // A key, set only if `routing_mode` is kHalfProxy, which can be used to
-    // validate another node's request to replace this link with a link to
-    // itself.
-    absl::uint128 successor_key;
+    // validate another node's request to replace this link with a link to the
+    // other node.
+    absl::uint128 bypass_key;
   };
 
   // Provides guarded access to this PortalLinkState's data. Note that access is

@@ -44,17 +44,17 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
 
   // The name of the sender's peer node, and the ID of the routing link between
   // that peer and the sender node. Valid if and only if the new portal must
-  // negotiate its peer link with the named node. In this case `peer_key` must
+  // negotiate its peer link with the named node. In this case `bypass_key` must
   // also be non-zero, and the peer node has a copy of the same key.
   //
   // When the new portal is created, it will send a request to the named peer
   // node including the name of its predecessor's node, along with
-  // `peer_routing_id` and `peer_key`. The peer uses this to validate the
+  // `peer_routing_id` and `bypass_key`. The peer uses this to validate the
   // request, and upon validation the peer accepts the new portal as its own
   // peer.
   NodeName peer_name;
   RoutingId peer_routing_id;
-  absl::uint128 peer_key;
+  absl::uint128 bypass_key;
 
   // The final length of the peer's outgoing parcel sequence. If the peer is
   // not yet closed, this value is ignored and must be zero.

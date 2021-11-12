@@ -11,37 +11,37 @@
 namespace ipcz {
 namespace core {
 
-PortalLink::PortalLink(mem::Ref<NodeLink> node,
+PortalLink::PortalLink(mem::Ref<NodeLink> node_link,
                        RoutingId routing_id,
                        os::Memory::Mapping state_mapping)
-    : node_(std::move(node)),
+    : node_link_(std::move(node_link)),
       routing_id_(routing_id),
       state_mapping_(std::move(state_mapping)) {}
 
 PortalLink::~PortalLink() = default;
 
 void PortalLink::Disconnect() {
-  node_->DisconnectRoutingId(routing_id_);
+  node_link_->DisconnectRoutingId(routing_id_);
 }
 
 void PortalLink::SendParcel(Parcel& parcel) {
-  node_->SendParcel(routing_id_, parcel);
+  node_link_->SendParcel(routing_id_, parcel);
 }
 
 void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
-  node_->SendPeerClosed(routing_id_, sequence_length);
+  node_link_->SendPeerClosed(routing_id_, sequence_length);
 }
 
 void PortalLink::StopProxyingTowardSide(Side side,
                                         SequenceNumber sequence_length) {
-  node_->StopProxyingTowardSide(routing_id_, side, sequence_length);
+  node_link_->StopProxyingTowardSide(routing_id_, side, sequence_length);
 }
 
 void PortalLink::InitiateProxyBypass(const NodeName& proxy_peer_name,
                                      RoutingId proxy_peer_routing_id,
                                      absl::uint128 bypass_key) {
-  node_->InitiateProxyBypass(routing_id_, proxy_peer_name,
-                             proxy_peer_routing_id, bypass_key);
+  node_link_->InitiateProxyBypass(routing_id_, proxy_peer_name,
+                                  proxy_peer_routing_id, bypass_key);
 }
 
 }  // namespace core

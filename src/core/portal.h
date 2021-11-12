@@ -82,10 +82,11 @@ class Portal : public mem::RefCounted {
                         TrapEventDispatcher& dispatcher);
 
   // Attempts to replace the portal's current peer link with a new one. The
-  // given `key` must match the `successor_key` stored in the current peer
+  // given `bypass_key` must match the `bypass_key` stored in the current peer
   // link's PortalLinkState. This operation is valid whether or not the portal
   // had a peer link already.
-  bool ReplacePeerLink(absl::uint128 key, const mem::Ref<PortalLink>& new_peer);
+  bool ReplacePeerLink(absl::uint128 bypass_key,
+                       const mem::Ref<PortalLink>& new_peer);
 
   // Iff this portal is in half-proxy mode, it can expect no parcels with a
   // SequenceNumber of `sequence_length` or higher; so if it has already seen

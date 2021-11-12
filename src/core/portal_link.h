@@ -23,11 +23,11 @@ class Parcel;
 // successor or predecessor link.
 class PortalLink : public mem::RefCounted {
  public:
-  PortalLink(mem::Ref<NodeLink> node,
+  PortalLink(mem::Ref<NodeLink> node_link,
              RoutingId routing_id,
              os::Memory::Mapping link_state);
 
-  NodeLink& node() const { return *node_; }
+  NodeLink& node_link() const { return *node_link_; }
   RoutingId routing_id() const { return routing_id_; }
   PortalLinkState& state() const {
     return *state_mapping_.As<PortalLinkState>();
@@ -44,7 +44,7 @@ class PortalLink : public mem::RefCounted {
  private:
   ~PortalLink() override;
 
-  const mem::Ref<NodeLink> node_;
+  const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
   const os::Memory::Mapping state_mapping_;
 };

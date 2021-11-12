@@ -155,7 +155,7 @@ void NodeLink::RequestIntroduction(const NodeName& name,
 
 mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
                                                    RoutingId proxy_routing_id,
-                                                   absl::uint128 key,
+                                                   absl::uint128 bypass_key,
                                                    mem::Ref<Portal> portal) {
   // TODO: portal link state should be allocated within the NodeLinkState
   // or an auxilliary NodeLink buffer for overflow
@@ -183,7 +183,7 @@ mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
   m.params.proxy_routing_id = proxy_routing_id;
   m.params.new_routing_id = new_routing_id;
   m.params.sender_side = portal->side();
-  m.params.key = key;
+  m.params.bypass_key = bypass_key;
   m.handles.new_link_state_memory = link_state_memory.TakeHandle();
   Send(m);
   return mem::MakeRefCounted<PortalLink>(
@@ -193,12 +193,12 @@ mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
 void NodeLink::InitiateProxyBypass(RoutingId routing_id,
                                    const NodeName& proxy_peer_name,
                                    RoutingId proxy_peer_routing_id,
-                                   absl::uint128 key) {
+                                   absl::uint128 bypass_key) {
   msg::InitiateProxyBypass m;
   m.params.routing_id = routing_id;
   m.params.proxy_peer_name = proxy_peer_name;
   m.params.proxy_peer_routing_id = proxy_peer_routing_id;
-  m.params.key = key;
+  m.params.bypass_key = bypass_key;
   Send(m);
 }
 
@@ -606,7 +606,7 @@ bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
     portal = link_to_proxy->GetPortalForRoutingId(m.params.proxy_routing_id);
   }
 
-  if (portal && portal->ReplacePeerLink(m.params.key, new_peer_link)) {
+  if (portal && portal->ReplacePeerLink(m.params.bypass_key, new_peer_link)) {
     absl::MutexLock lock(&mutex_);
     AssignRoutingId(m.params.new_routing_id, portal);
     return true;
@@ -637,8 +637,8 @@ bool NodeLink::OnInitiateProxyBypass(msg::InitiateProxyBypass& m) {
   }
 
   return portal->InitiateProxyBypass(
-      m.params.proxy_peer_name, m.params.proxy_peer_routing_id, m.params.key,
-      /*notify_predecessor=*/true);
+      m.params.proxy_peer_name, m.params.proxy_peer_routing_id,
+      m.params.bypass_key, /*notify_predecessor=*/true);
 }
 
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {

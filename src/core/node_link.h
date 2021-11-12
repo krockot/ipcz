@@ -88,19 +88,19 @@ class NodeLink : public mem::RefCounted {
   void InitiateProxyBypass(RoutingId routing_id,
                            const NodeName& proxy_peer_name,
                            RoutingId proxy_peer_routing_id,
-                           absl::uint128 key);
+                           absl::uint128 bypass_key);
 
   // Requests that the remote node bypass the existing PortalLink identified by
   // `proxy_routing_id` on its link to the node named `proxy_name`, with a new
   // PortalLink directly to our local `portal` (which we know to be the
-  // destination of the remote proxy link) instead. `key` is used to
+  // destination of the remote proxy link) instead. `bypass_key` is used to
   // authenticate the request and must already have been provided to the remote
   // node by our predecessor (the proxy in question).
   //
   // Returns a new PortalLink corresponding to the newly allocated routing ID.
   mem::Ref<PortalLink> BypassProxyToPortal(const NodeName& proxy_name,
                                            RoutingId proxy_routing_id,
-                                           absl::uint128 key,
+                                           absl::uint128 bypass_key,
                                            mem::Ref<Portal> portal);
 
   // Tells the remote node that it can stop proxying incoming messages on
