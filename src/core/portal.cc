@@ -38,6 +38,14 @@ Parcel::PortalVector AcquirePortalsForTransit(
   return portals;
 }
 
+void ReleasePortalsAfterTransit(absl::Span<const IpczHandle> handles) {
+  for (IpczHandle handle : handles) {
+    // Acquire and immediately deref the reference owned by the application's
+    // handle to the portal.
+    mem::Ref<Portal>(mem::RefCounted::kAdoptExistingRef, ToPtr<Portal>(handle));
+  }
+}
+
 std::vector<os::Handle> AcquireOSHandlesForTransit(
     absl::Span<const IpczOSHandle> handles) {
   std::vector<os::Handle> os_handles;
@@ -56,20 +64,15 @@ void ReleaseOSHandlesFromCancelledTransit(absl::Span<os::Handle> handles) {
 
 }  // namespace
 
-Portal::Portal(Side side) : Portal(side, /*transferrable=*/true) {}
-
-Portal::Portal(Side side, decltype(kNonTransferrable))
-    : Portal(side, /*transferrable=*/false) {}
-
-Portal::Portal(Side side, bool transferrable)
-    : side_(side), transferrable_(transferrable) {}
+Portal::Portal(mem::Ref<Node> node, Side side)
+    : node_(std::move(node)), side_(side) {}
 
 Portal::~Portal() = default;
 
 // static
-Portal::Pair Portal::CreateLocalPair(Node& node) {
-  auto left = mem::MakeRefCounted<Portal>(Side::kLeft);
-  auto right = mem::MakeRefCounted<Portal>(Side::kRight);
+Portal::Pair Portal::CreateLocalPair(mem::Ref<Node> node) {
+  auto left = mem::MakeRefCounted<Portal>(node, Side::kLeft);
+  auto right = mem::MakeRefCounted<Portal>(std::move(node), Side::kRight);
   {
     absl::MutexLock lock(&left->mutex_);
     left->local_peer_ = right;
@@ -199,10 +202,11 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
 }
 
 // static
-mem::Ref<Portal> Portal::DeserializeNew(NodeLink& from_node,
+mem::Ref<Portal> Portal::DeserializeNew(const mem::Ref<Node>& node,
+                                        const mem::Ref<NodeLink>& from_node,
                                         os::Memory::Mapping link_state_mapping,
                                         const PortalDescriptor& descriptor) {
-  auto portal = mem::MakeRefCounted<Portal>(descriptor.side);
+  auto portal = mem::MakeRefCounted<Portal>(node, descriptor.side);
   if (!portal->Deserialize(from_node, std::move(link_state_mapping),
                            descriptor)) {
     return nullptr;
@@ -217,7 +221,6 @@ void Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
     PortalLock lock(*this);
     ABSL_ASSERT(!local_peer_);
     ABSL_ASSERT(!peer_link_);
-    ABSL_ASSERT(!predecessor_link_);
     ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
 
     // TODO: we may need to plumb a TrapEventDispatcher here and into
@@ -246,27 +249,31 @@ void Portal::BeginForwardProxying(mem::Ref<PortalLink> successor) {
     PortalLock lock(*this);
     ABSL_ASSERT(!successor_link_);
     successor_link_ = successor;
-
-    Parcel parcel;
-    while (incoming_parcels_.Pop(parcel)) {
-      parcels.push_back(std::move(parcel));
-    }
   }
 
-  for (Parcel& parcel : parcels) {
-    successor->SendParcel(parcel);
-  }
+  ForwardIncomingParcels();
 }
 
 bool Portal::AcceptParcelFromLink(Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
-  absl::MutexLock lock(&mutex_);
-  if (!incoming_parcels_.Push(std::move(parcel))) {
-    return false;
+  bool forward = false;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!incoming_parcels_.Push(std::move(parcel))) {
+      return false;
+    }
+    status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+    status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+    if (routing_mode_ == RoutingMode::kActive) {
+      traps_.MaybeNotify(dispatcher, status_);
+    } else if (successor_link_) {
+      forward = true;
+    }
   }
-  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
-  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
-  traps_.MaybeNotify(dispatcher, status_);
+
+  if (forward) {
+    ForwardIncomingParcels();
+  }
   return true;
 }
 
@@ -285,6 +292,37 @@ bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
   outgoing_parcels_.clear();
 
   traps_.MaybeNotify(dispatcher, status_);
+  return true;
+}
+
+bool Portal::ReplacePeerLink(absl::uint128 key,
+                             const mem::Ref<PortalLink>& new_peer) {
+  absl::MutexLock lock(&mutex_);
+  bool keys_match = false;
+  if (peer_link_) {
+    PortalLinkState::Locked state(peer_link_->state(), side_);
+    keys_match = state.other_side().successor_key == key;
+  }
+
+  if (keys_match) {
+    peer_link_->StopProxying(next_outgoing_sequence_number_);
+    peer_link_ = new_peer;
+
+    PortalLinkState::Locked state(peer_link_->state(), side_);
+    state.this_side().routing_mode = routing_mode_;
+    return true;
+  }
+
+  return false;
+}
+
+bool Portal::StopProxying(SequenceNumber sequence_length) {
+  {
+    absl::MutexLock lock(&mutex_);
+    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+  }
+
+  ForwardIncomingParcels();
   return true;
 }
 
@@ -370,6 +408,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
               /*is_two_phase_commit=*/false);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
+    ReleasePortalsAfterTransit(portals);
     return IPCZ_RESULT_OK;
   }
 
@@ -450,6 +489,8 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
               /*is_two_phase_commit=*/true);
   if (result == IPCZ_RESULT_OK) {
     // Great job!
+    ReleasePortalsAfterTransit(portals);
+
     absl::MutexLock lock(&mutex_);
     pending_parcel_.reset();
     return IPCZ_RESULT_OK;
@@ -691,7 +732,7 @@ bool Portal::ValidatePortalsToSendFromHere(
   return true;
 }
 
-bool Portal::Deserialize(NodeLink& from_node,
+bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
                          os::Memory::Mapping link_state_mapping,
                          const PortalDescriptor& descriptor) {
   {
@@ -709,17 +750,38 @@ bool Portal::Deserialize(NodeLink& from_node,
   }
 
   auto new_link = mem::MakeRefCounted<PortalLink>(
-      mem::WrapRefCounted(&from_node), descriptor.route,
-      std::move(link_state_mapping));
+      from_node, descriptor.route, std::move(link_state_mapping));
   if (descriptor.route_is_peer) {
     ActivateFromBuffering(std::move(new_link));
   } else {
     absl::MutexLock lock(&mutex_);
     predecessor_link_ = std::move(new_link);
 
+    const NodeName predecessor_name =
+        *predecessor_link_->node().GetRemoteName();
     if (descriptor.peer_name.is_valid()) {
       // TODO: Initiate replacement of our half-proxying predecessor.
-      LOG(ERROR) << "half-proxy decay not yet implemented.";
+      mem::Ref<NodeLink> peer_node = node_->GetLink(descriptor.peer_name);
+      if (!peer_node) {
+        routing_mode_ = RoutingMode::kBuffering;
+        node_->EstablishLink(
+            descriptor.peer_name,
+            [portal = mem::WrapRefCounted(this), descriptor,
+             predecessor_name](const mem::Ref<NodeLink>& link) {
+              if (!link) {
+                // TODO: handle gracefully
+                LOG(ERROR) << "failed to establish new NodeLink";
+                return;
+              }
+
+              portal->EstablishNewPeerLink(link, descriptor.peer_key,
+                                           predecessor_name,
+                                           descriptor.peer_route);
+            });
+      } else {
+        EstablishNewPeerLink(peer_node, descriptor.peer_key, predecessor_name,
+                             descriptor.peer_route);
+      }
     }
   }
 
@@ -836,6 +898,51 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
   parcel.SetOSHandles(std::move(os_handles));
   link->SendParcel(parcel);
   return IPCZ_RESULT_OK;
+}
+
+void Portal::EstablishNewPeerLink(const mem::Ref<NodeLink>& to_node,
+                                  absl::uint128 key,
+                                  const NodeName& predecessor_name,
+                                  RouteId predecessor_route) {
+  ActivateFromBuffering(to_node->RedirectRemoteRouteToPortal(
+      predecessor_name, predecessor_route, key, mem::WrapRefCounted(this)));
+}
+
+void Portal::ForwardIncomingParcels() {
+  mem::Ref<PortalLink> successor;
+  std::vector<Parcel> parcels;
+  bool dead;
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(successor_link_);
+    successor = successor_link_;
+
+    Parcel parcel;
+    while (incoming_parcels_.Pop(parcel)) {
+      parcels.push_back(std::move(parcel));
+    }
+
+    dead = incoming_parcels_.IsDead();
+  }
+
+  for (Parcel& parcel : parcels) {
+    successor->SendParcel(parcel);
+  }
+
+  // Ensure we have no links routing to us. As the stack unwinds that should
+  // then release any last references to us and we should be destroyed.
+  if (dead) {
+    absl::MutexLock lock(&mutex_);
+    if (successor_link_) {
+      successor_link_->Disconnect();
+    }
+    if (peer_link_) {
+      peer_link_->Disconnect();
+    }
+    if (predecessor_link_) {
+      predecessor_link_->Disconnect();
+    }
+  }
 }
 
 Portal::PortalLock::PortalLock(Portal& portal) : portal_(portal) {

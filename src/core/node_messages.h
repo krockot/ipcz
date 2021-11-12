@@ -11,9 +11,11 @@
 #include "core/node_name.h"
 #include "core/route_id.h"
 #include "core/sequence_number.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "os/channel.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {

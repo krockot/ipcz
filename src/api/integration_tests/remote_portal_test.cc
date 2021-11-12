@@ -214,5 +214,6 @@ TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
             status.flags);
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
 }
+
 }  // namespace
 }  // namespace ipcz

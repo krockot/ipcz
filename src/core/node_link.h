@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <functional>
+#include <vector>
 
 #include "core/node.h"
 #include "core/node_link_state.h"
@@ -19,6 +20,7 @@
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 
@@ -28,6 +30,7 @@ namespace core {
 class Node;
 class Parcel;
 class Portal;
+class PortalLink;
 
 // NodeLink provides both a client and service interface from one Node to
 // another via an os::Channel and potentially other negotiated media like shared
@@ -52,6 +55,16 @@ class NodeLink : public mem::RefCounted {
            os::Process remote_process,
            Node::Type remote_node_type);
 
+  // Constructor used for introductions, where remote process is not a concern
+  // and link state memory is already provided.
+  NodeLink(Node& node,
+           const NodeName& local_name,
+           const NodeName& remote_name,
+           os::Channel channel,
+           os::Memory::Mapping link_state_mapping);
+
+  const mem::Ref<Node>& node() const { return node_; }
+
   absl::optional<NodeName> GetRemoteName() {
     absl::MutexLock lock(&mutex_);
     return remote_name_;
@@ -60,6 +73,28 @@ class NodeLink : public mem::RefCounted {
   mem::Ref<Portal> Invite(const NodeName& local_name,
                           const NodeName& remote_name);
   mem::Ref<Portal> AwaitInvitation();
+
+  using RequestIntroductionCallback =
+      std::function<void(const mem::Ref<NodeLink>&)>;
+  void RequestIntroduction(const NodeName& name,
+                           RequestIntroductionCallback callback);
+
+  // Requests that the remote node replace an existing route `predecessor_route`
+  // on its link to `predecessor_name`, with a new route linking it to our local
+  // `portal` instead. `key` is used to authenticate the request and must
+  // already have been provided to the remote node by our predecessor.
+  //
+  // Returns a new PortalLink corresponding to the newly allocated route.
+  mem::Ref<PortalLink> RedirectRemoteRouteToPortal(
+      const NodeName& predecessor_name,
+      RouteId predecessor_route,
+      absl::uint128 key,
+      mem::Ref<Portal> portal);
+
+  // Tells the remote node that it can stop proxying incoming messages on
+  // `route` as soon as it has forwarded any in-flight messages up (but not
+  // including) sequence number `sequence_length`.
+  void StopProxying(RouteId route, SequenceNumber sequence_length);
 
   // Starts listening for incoming messages.
   void Listen();
@@ -110,6 +145,8 @@ class NodeLink : public mem::RefCounted {
   // the caller.
   RouteId AllocateRoutes(size_t count);
 
+  void DisconnectRoute(RouteId route);
+
  private:
   ~NodeLink() override;
 
@@ -139,6 +176,10 @@ class NodeLink : public mem::RefCounted {
   // any legal value for their underlying POD type.
   bool OnInviteNode(msg::InviteNode& m);
   bool OnPeerClosed(msg::PeerClosed& m);
+  bool OnRequestIntroduction(msg::RequestIntroduction& m);
+  bool OnIntroduceNode(msg::IntroduceNode& m);
+  bool OnRedirectRoute(msg::RedirectRoute& m);
+  bool OnStopProxying(msg::StopProxying& m);
 
   bool OnAcceptParcel(os::Channel::Message m);
 
@@ -169,6 +210,8 @@ class NodeLink : public mem::RefCounted {
   absl::flat_hash_map<RouteId, mem::Ref<Portal>> routes_
       ABSL_GUARDED_BY(mutex_);
   mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<NodeName, std::vector<RequestIntroductionCallback>>
+      pending_introductions_ ABSL_GUARDED_BY(mutex_);
   os::Memory::Mapping link_state_mapping_ ABSL_GUARDED_BY(mutex_);
 };
 

@@ -33,6 +33,12 @@ class Node : public mem::RefCounted {
   bool is_broker() const { return type_ == Type::kBroker; }
 
   mem::Ref<NodeLink> GetBrokerLink();
+  mem::Ref<NodeLink> GetLink(const NodeName& name);
+  bool AddLink(const NodeName& name, const mem::Ref<NodeLink>& link);
+
+  void EstablishLink(
+      const NodeName& name,
+      std::function<void(const mem::Ref<NodeLink>& link)> callback);
 
   std::pair<mem::Ref<Portal>, mem::Ref<Portal>> OpenPortals();
   IpczResult OpenRemotePortal(os::Channel channel,

@@ -31,8 +31,45 @@ mem::Ref<NodeLink> Node::GetBrokerLink() {
   return broker_link_;
 }
 
+mem::Ref<NodeLink> Node::GetLink(const NodeName& name) {
+  absl::MutexLock lock(&mutex_);
+  auto it = node_links_.find(name);
+  if (it == node_links_.end()) {
+    return nullptr;
+  }
+  return it->second;
+}
+
+bool Node::AddLink(const NodeName& name, const mem::Ref<NodeLink>& link) {
+  absl::MutexLock lock(&mutex_);
+  auto result = node_links_.try_emplace(name, link);
+  return result.second;
+}
+
+void Node::EstablishLink(
+    const NodeName& name,
+    std::function<void(const mem::Ref<NodeLink>& link)> callback) {
+  mem::Ref<NodeLink> link;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = node_links_.find(name);
+    if (it != node_links_.end()) {
+      link = it->second;
+    }
+  }
+
+  if (link) {
+    callback(link);
+  } else if (type_ == Type::kBroker) {
+    LOG(ERROR) << "broker cannot automatically establish link to unknown node";
+    callback(nullptr);
+  } else {
+    GetBrokerLink()->RequestIntroduction(name, callback);
+  }
+}
+
 Portal::Pair Node::OpenPortals() {
-  return Portal::CreateLocalPair(*this);
+  return Portal::CreateLocalPair(mem::WrapRefCounted(this));
 }
 
 IpczResult Node::OpenRemotePortal(os::Channel channel,

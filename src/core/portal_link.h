@@ -33,8 +33,10 @@ class PortalLink : public mem::RefCounted {
     return *state_mapping_.As<PortalLinkState>();
   }
 
+  void Disconnect();
   void SendParcel(Parcel& parcel);
   void NotifyClosed(SequenceNumber sequence_length);
+  void StopProxying(SequenceNumber sequence_length);
 
  private:
   ~PortalLink() override;

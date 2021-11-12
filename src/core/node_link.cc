@@ -4,6 +4,10 @@
 
 #include "core/node_link.h"
 
+#include <tuple>
+#include <utility>
+#include <vector>
+
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_messages.h"
@@ -13,7 +17,10 @@
 #include "core/portal_descriptor.h"
 #include "core/portal_link_state.h"
 #include "core/sequence_number.h"
+#include "core/side.h"
 #include "core/trap_event_dispatcher.h"
+#include "debug/log.h"
+#include "os/channel.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
@@ -44,6 +51,19 @@ NodeLink::NodeLink(Node& node,
       channel_(std::move(channel)),
       remote_process_(std::move(remote_process)) {}
 
+NodeLink::NodeLink(Node& node,
+                   const NodeName& local_name,
+                   const NodeName& remote_name,
+                   os::Channel channel,
+                   os::Memory::Mapping link_state_mapping)
+    : node_(mem::WrapRefCounted(&node)),
+      remote_node_type_(Node::Type::kNormal),
+      local_name_(local_name),
+      remote_name_(remote_name),
+      remote_protocol_version_(0),
+      channel_(std::move(channel)),
+      link_state_mapping_(std::move(link_state_mapping)) {}
+
 NodeLink::~NodeLink() = default;
 
 void NodeLink::Listen() {
@@ -66,7 +86,7 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
       NodeLinkState::Initialize(node_link_state_mapping.base());
 
   RouteId route;
-  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kLeft);
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(node_, Side::kLeft);
   mem::Ref<PortalLink> portal_link;
   msg::InviteNode invitation;
   {
@@ -106,11 +126,71 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
 }
 
 mem::Ref<Portal> NodeLink::AwaitInvitation() {
-  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(Side::kRight);
+  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(node_, Side::kRight);
 
   absl::MutexLock lock(&mutex_);
   portal_awaiting_invitation_ = portal;
   return portal;
+}
+
+void NodeLink::RequestIntroduction(const NodeName& name,
+                                   RequestIntroductionCallback callback) {
+  {
+    absl::MutexLock lock(&mutex_);
+    auto result = pending_introductions_.try_emplace(
+        name, std::vector<RequestIntroductionCallback>());
+    result.first->second.push_back(std::move(callback));
+    if (!result.second) {
+      // There's already a request in-flight for the named node, so no need to
+      // send another.
+      return;
+    }
+  }
+
+  msg::RequestIntroduction request;
+  request.params.name = name;
+  Send(request);
+}
+
+mem::Ref<PortalLink> NodeLink::RedirectRemoteRouteToPortal(
+    const NodeName& predecessor_name,
+    RouteId predecessor_route,
+    absl::uint128 key,
+    mem::Ref<Portal> portal) {
+  // TODO: portal link state should be allocated within the NodeLinkState
+  // or an auxilliary NodeLink buffer for overflow
+  os::Memory link_state_memory(sizeof(PortalLinkState));
+  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
+  {
+    PortalLinkState::Locked state(
+        PortalLinkState::Initialize(link_state_mapping.base()), portal->side());
+    state.this_side().routing_mode = RoutingMode::kActive;
+    state.other_side().routing_mode = RoutingMode::kBuffering;
+  }
+
+  const RouteId new_route = AllocateRoutes(1);
+  {
+    absl::MutexLock lock(&mutex_);
+    AssignRoute(new_route, portal);
+  }
+
+  msg::RedirectRoute m;
+  m.params.predecessor_name = predecessor_name;
+  m.params.predecessor_route = predecessor_route;
+  m.params.new_route = new_route;
+  m.params.sender_side = portal->side();
+  m.params.key = key;
+  m.handles.new_link_state_memory = link_state_memory.TakeHandle();
+  Send(m);
+  return mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this), new_route,
+                                         std::move(link_state_mapping));
+}
+
+void NodeLink::StopProxying(RouteId route, SequenceNumber sequence_length) {
+  msg::StopProxying m;
+  m.params.route = route;
+  m.params.sequence_length = sequence_length;
+  Send(m);
 }
 
 void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
@@ -244,6 +324,11 @@ RouteId NodeLink::AllocateRoutes(size_t count) {
   // Routes must only be allocated once we're a fully functioning link.
   ABSL_ASSERT(link_state_mapping_.is_valid());
   return link_state_mapping_.As<NodeLinkState>()->AllocateRoutes(count);
+}
+
+void NodeLink::DisconnectRoute(RouteId route) {
+  absl::MutexLock lock(&mutex_);
+  routes_.erase(route);
 }
 
 bool NodeLink::AssignRoute(RouteId id, const mem::Ref<Portal>& portal) {
@@ -396,6 +481,131 @@ bool NodeLink::OnPeerClosed(msg::PeerClosed& m) {
   return true;
 }
 
+bool NodeLink::OnRequestIntroduction(msg::RequestIntroduction& m) {
+  NodeName requestor_name;
+  {
+    absl::MutexLock lock(&mutex_);
+    requestor_name = remote_name_;
+  }
+
+  mem::Ref<NodeLink> peer = node_->GetLink(m.params.name);
+  if (!node_->is_broker() || !peer) {
+    // Give a response with no handles, indicating that the introduction failed.
+    msg::IntroduceNode introduction;
+    introduction.params.name = m.params.name;
+    Send(introduction);
+    return true;
+  }
+
+  os::Channel left, right;
+  std::tie(left, right) = os::Channel::CreateChannelPair();
+
+  os::Memory link_state_memory(sizeof(NodeLinkState));
+  os::Memory::Mapping link_state_mapping = link_state_memory.Map();
+  NodeLinkState::Initialize(link_state_mapping.base());
+
+  msg::IntroduceNode requestor_intro;
+  requestor_intro.params.name = m.params.name;
+  requestor_intro.handles.channel = left.TakeHandle();
+  requestor_intro.handles.link_state_memory =
+      link_state_memory.Clone().TakeHandle();
+  Send(requestor_intro);
+
+  msg::IntroduceNode peer_intro;
+  peer_intro.params.name = requestor_name;
+  peer_intro.handles.channel = right.TakeHandle();
+  peer_intro.handles.link_state_memory = link_state_memory.TakeHandle();
+  peer->Send(peer_intro);
+  return true;
+}
+
+bool NodeLink::OnIntroduceNode(msg::IntroduceNode& m) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  if (!m.handles.channel.is_valid() ||
+      !m.handles.link_state_memory.is_valid()) {
+    DLOG(ERROR) << "Could not get introduction to " << m.params.name.ToString();
+    return true;
+  }
+
+  mem::Ref<NodeLink> link;
+  {
+    absl::MutexLock lock(&mutex_);
+    link = mem::MakeRefCounted<NodeLink>(
+        *node_, local_name_, m.params.name,
+        os::Channel(std::move(m.handles.channel)),
+        os::Memory(std::move(m.handles.link_state_memory),
+                   sizeof(NodeLinkState))
+            .Map());
+  }
+
+  if (!node_->AddLink(m.params.name, link)) {
+    // This introduction may have raced with a previous one and we may already
+    // have a link to the node. In that case, discard the link we just created
+    // and use the established link instead.
+    link = node_->GetLink(m.params.name);
+  } else {
+    link->Listen();
+  }
+
+  std::vector<RequestIntroductionCallback> callbacks;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = pending_introductions_.find(m.params.name);
+    if (it == pending_introductions_.end()) {
+      return true;
+    }
+
+    callbacks = std::move(it->second);
+    it->second.clear();
+  }
+  for (auto& callback : callbacks) {
+    callback(link);
+  }
+
+  return true;
+}
+
+bool NodeLink::OnRedirectRoute(msg::RedirectRoute& m) {
+  auto new_peer_link = mem::MakeRefCounted<PortalLink>(
+      mem::WrapRefCounted(this), m.params.new_route,
+      os::Memory(std::move(m.handles.new_link_state_memory),
+                 sizeof(PortalLinkState))
+          .Map());
+
+  mem::Ref<NodeLink> link_to_predecessor =
+      node_->GetLink(m.params.predecessor_name);
+  mem::Ref<Portal> portal;
+  if (link_to_predecessor) {
+    portal = link_to_predecessor->GetPortalForRoute(m.params.predecessor_route);
+  }
+
+  if (portal && portal->ReplacePeerLink(m.params.key, new_peer_link)) {
+    absl::MutexLock lock(&mutex_);
+    AssignRoute(m.params.new_route, portal);
+    return true;
+  }
+
+  // We can't accept the new peer. Don't signal a validation failure, but let
+  // them know we're toast.
+  PortalLinkState::Locked state(new_peer_link->state(),
+                                Opposite(m.params.sender_side));
+  state.this_side().routing_mode = RoutingMode::kClosed;
+  return true;
+}
+
+bool NodeLink::OnStopProxying(msg::StopProxying& m) {
+  mem::Ref<Portal> portal = GetPortalForRoute(m.params.route);
+  if (!portal) {
+    return true;
+  }
+
+  portal->StopProxying(m.params.sequence_length);
+  return true;
+}
+
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
   if (m.data.size() < sizeof(AcceptParcelHeader)) {
     return false;
@@ -425,8 +635,9 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
     for (size_t i = 0; i < num_portals; ++i) {
       os::Memory link_state_memory(std::move(m.handles[i]),
                                    sizeof(PortalLinkState));
-      portals[i] = Portal::DeserializeNew(*this, link_state_memory.Map(),
-                                          descriptors[i]);
+      portals[i] =
+          Portal::DeserializeNew(node_, mem::WrapRefCounted(this),
+                                 link_state_memory.Map(), descriptors[i]);
     }
 
     absl::MutexLock lock(&mutex_);

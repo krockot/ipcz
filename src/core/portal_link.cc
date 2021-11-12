@@ -20,12 +20,20 @@ PortalLink::PortalLink(mem::Ref<NodeLink> node,
 
 PortalLink::~PortalLink() = default;
 
+void PortalLink::Disconnect() {
+  node_->DisconnectRoute(route_);
+}
+
 void PortalLink::SendParcel(Parcel& parcel) {
   node_->SendParcel(route_, parcel);
 }
 
 void PortalLink::NotifyClosed(SequenceNumber sequence_length) {
   node_->SendPeerClosed(route_, sequence_length);
+}
+
+void PortalLink::StopProxying(SequenceNumber sequence_length) {
+  node_->StopProxying(route_, sequence_length);
 }
 
 }  // namespace core

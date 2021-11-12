@@ -23,6 +23,7 @@
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/base/thread_annotations.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -36,14 +37,11 @@ struct PortalDescriptor;
 
 class Portal : public mem::RefCounted {
  public:
-  enum { kNonTransferrable };
-
   using Pair = std::pair<mem::Ref<Portal>, mem::Ref<Portal>>;
 
-  explicit Portal(Side side);
-  Portal(Side side, decltype(kNonTransferrable));
+  Portal(mem::Ref<Node> node, Side side);
 
-  static Pair CreateLocalPair(Node& node);
+  static Pair CreateLocalPair(mem::Ref<Node> node);
 
   Side side() const { return side_; }
 
@@ -56,7 +54,8 @@ class Portal : public mem::RefCounted {
 
   // Deserializes a new Portal from a descriptor and link state received from
   // `from_node`.
-  static mem::Ref<Portal> DeserializeNew(NodeLink& from_node,
+  static mem::Ref<Portal> DeserializeNew(const mem::Ref<Node>& node,
+                                         const mem::Ref<NodeLink>& from_node,
                                          os::Memory::Mapping link_state_mapping,
                                          const PortalDescriptor& descriptor);
 
@@ -72,6 +71,16 @@ class Portal : public mem::RefCounted {
   // any trap events, they'll be added to `dispatcher` for imminent dispatch.
   bool NotifyPeerClosed(SequenceNumber sequence_length,
                         TrapEventDispatcher& dispatcher);
+
+  // Attempts to replace the portal's current peer link with a new one. The
+  // given `key` must match the `successor_key` stored in the current peer
+  // link's PortalLinkState.
+  bool ReplacePeerLink(absl::uint128 key, const mem::Ref<PortalLink>& new_peer);
+
+  // Iff this portal is in half-proxy mode, it can expect no parcels with a
+  // SequenceNumber of `sequence_length` or higher; so if it has already seen
+  // and forwarded messages below that number, it can disappear.
+  bool StopProxying(SequenceNumber sequence_length);
 
   // ipcz portal API implementation:
   IpczResult Close();
@@ -143,10 +152,9 @@ class Portal : public mem::RefCounted {
     Portal& b_;
   };
 
-  Portal(Side side, bool transferrable);
   ~Portal() override;
 
-  bool Deserialize(NodeLink& from_node,
+  bool Deserialize(const mem::Ref<NodeLink>& from_node,
                    os::Memory::Mapping link_state_mapping,
                    const PortalDescriptor& descriptor);
 
@@ -158,10 +166,16 @@ class Portal : public mem::RefCounted {
                      std::vector<os::Handle>& os_handles,
                      const IpczPutLimits* limits,
                      bool is_two_phase_commit);
-  void SendParcelOnLink(PortalLink& link, Parcel& parcel);
 
+  void EstablishNewPeerLink(const mem::Ref<NodeLink>& to_node,
+                            absl::uint128 key,
+                            const NodeName& predecessor_name,
+                            RouteId predecessor_route);
+
+  void ForwardIncomingParcels();
+
+  const mem::Ref<Node> node_;
   const Side side_;
-  const bool transferrable_;
 
   absl::Mutex mutex_;
 
