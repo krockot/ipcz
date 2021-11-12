@@ -366,46 +366,48 @@ bool Portal::ReplacePeerLink(absl::uint128 bypass_key,
   mem::Ref<PortalLink> successor_to_initiate_proxy_bypass;
   {
     absl::MutexLock lock(&mutex_);
-    if (peer_link_) {
-      {
-        PortalLinkState::Locked state(peer_link_->state(), side_);
-        if (state.other_side().bypass_key != bypass_key) {
-          // Treat key mismatch as a validation failure.
-          return false;
-        }
-      }
+    if (!peer_link_) {
+      return false;
+    }
 
-      // If we're a full proxy and we have a successor that could bypass us, we
-      // want to decay to a half-proxy.
-      bool should_decay =
-          routing_mode_ == RoutingMode::kFullProxy && successor_link_;
-      if (should_decay) {
-        new_bypass_key = RandomUint128();
+    {
+      PortalLinkState::Locked state(peer_link_->state(), side_);
+      if (state.other_side().bypass_key != bypass_key) {
+        // Treat key mismatch as a validation failure.
+        return false;
       }
+    }
 
-      {
-        PortalLinkState::Locked state(new_peer->state(), side_);
-        if (should_decay &&
-            state.other_side().routing_mode != RoutingMode::kHalfProxy &&
-            state.other_side().routing_mode != RoutingMode::kBuffering) {
-          // If we are a full proxy and our peer is neither buffering nor
-          // half-proxying, we can lock in our decay to a half-proxy now.
-          state.this_side().routing_mode = RoutingMode::kHalfProxy;
-          state.this_side().bypass_key = new_bypass_key;
-        } else {
-          state.this_side().routing_mode = routing_mode_;
-          should_decay = false;
-        }
+    // If we're a full proxy and we have a successor that could bypass us, we
+    // want to decay to a half-proxy.
+    bool should_decay =
+        routing_mode_ == RoutingMode::kFullProxy && successor_link_;
+    if (should_decay) {
+      new_bypass_key = RandomUint128();
+    }
+
+    {
+      PortalLinkState::Locked state(new_peer->state(), side_);
+      if (should_decay &&
+          state.other_side().routing_mode != RoutingMode::kHalfProxy &&
+          state.other_side().routing_mode != RoutingMode::kBuffering) {
+        // If we are a full proxy and our peer is neither buffering nor
+        // half-proxying, we can lock in our decay to a half-proxy now.
+        state.this_side().routing_mode = RoutingMode::kHalfProxy;
+        state.this_side().bypass_key = new_bypass_key;
+      } else {
+        state.this_side().routing_mode = routing_mode_;
+        should_decay = false;
       }
+    }
 
-      peer_link_->StopProxyingTowardSide(Opposite(side_),
-                                         next_outgoing_sequence_number_);
-      peer_link_ = new_peer;
+    peer_link_->StopProxyingTowardSide(Opposite(side_),
+                                       next_outgoing_sequence_number_);
+    peer_link_ = new_peer;
 
-      if (should_decay) {
-        routing_mode_ = RoutingMode::kHalfProxy;
-        successor_to_initiate_proxy_bypass = successor_link_;
-      }
+    if (should_decay) {
+      routing_mode_ = RoutingMode::kHalfProxy;
+      successor_to_initiate_proxy_bypass = successor_link_;
     }
   }
 
@@ -426,12 +428,27 @@ bool Portal::ReplacePeerLink(absl::uint128 bypass_key,
   return true;
 }
 
-bool Portal::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
+bool Portal::StopProxyingTowardSide(NodeLink& from_node,
+                                    RoutingId from_routing_id,
+                                    Side side,
+                                    SequenceNumber sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
     if (side == side_) {
+      if (!MatchPortalLink(predecessor_link_, from_node, from_routing_id) &&
+          !MatchPortalLink(peer_link_, from_node, from_routing_id)) {
+        // Only our peer or predecessor can tell us to stop proxying toward the
+        // end of our own side.
+        return false;
+      }
+
       incoming_parcels_.SetPeerSequenceLength(sequence_length);
     } else if (outgoing_parcels_from_successor_) {
+      if (!MatchPortalLink(successor_link_, from_node, from_routing_id)) {
+        // Only our successor can tell us to stop proxying toward the other
+        // side.
+        return false;
+      }
       outgoing_parcels_from_successor_->SetPeerSequenceLength(sequence_length);
     } else {
       // Unexpected request.
@@ -443,7 +460,9 @@ bool Portal::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
   return true;
 }
 
-bool Portal::InitiateProxyBypass(const NodeName& peer_name,
+bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
+                                 RoutingId requesting_routing_id,
+                                 const NodeName& peer_name,
                                  RoutingId peer_proxy_routing_id,
                                  absl::uint128 bypass_key,
                                  bool notify_predecessor) {
@@ -457,6 +476,13 @@ bool Portal::InitiateProxyBypass(const NodeName& peer_name,
       // terminated, and the resulting route closure will propagate by other
       // means. Nothing to do here.
       return true;
+    }
+
+    if (!MatchPortalLink(predecessor_link_, requesting_node,
+                         requesting_routing_id)) {
+      // Authenticate that the request to bypass our predecessor is actually
+      // coming from our predecessor.
+      return false;
     }
 
     if (peer_link_) {
@@ -965,7 +991,8 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
   // bypass.
   if (descriptor.peer_name.is_valid()) {
     const NodeName proxy_name = *from_node->GetRemoteName();
-    return InitiateProxyBypass(descriptor.peer_name, descriptor.peer_routing_id,
+    return InitiateProxyBypass(*from_node, descriptor.routing_id,
+                               descriptor.peer_name, descriptor.peer_routing_id,
                                descriptor.bypass_key,
                                /*notify_predecessor=*/false);
   }

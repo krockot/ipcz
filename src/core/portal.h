@@ -91,14 +91,19 @@ class Portal : public mem::RefCounted {
   // Iff this portal is in half-proxy mode, it can expect no parcels with a
   // SequenceNumber of `sequence_length` or higher; so if it has already seen
   // and forwarded messages below that number, it can disappear.
-  bool StopProxyingTowardSide(Side side, SequenceNumber sequence_length);
+  bool StopProxyingTowardSide(NodeLink& from_node,
+                              RoutingId from_routing_id,
+                              Side side,
+                              SequenceNumber sequence_length);
 
   // Initiates the removal of a proxying predecessor to this portal by
   // contacting the predecessor's peer with a request to bypass the predecessor
   // and route directly to this portal instead. `notify_predecessor` is true
   // only when we have a half-proxying predecessor which was previously a full
   // proxy. In any other case, the predecessor has no need to be notified.
-  bool InitiateProxyBypass(const NodeName& peer_name,
+  bool InitiateProxyBypass(NodeLink& requesting_node,
+                           RoutingId requesting_routing_id,
+                           const NodeName& peer_name,
                            RoutingId peer_proxy_routing_id,
                            absl::uint128 bypass_key,
                            bool notify_predecessor);

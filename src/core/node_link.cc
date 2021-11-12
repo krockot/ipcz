@@ -626,7 +626,8 @@ bool NodeLink::OnStopProxyingTowardSide(msg::StopProxyingTowardSide& m) {
     return true;
   }
 
-  portal->StopProxyingTowardSide(m.params.side, m.params.sequence_length);
+  portal->StopProxyingTowardSide(*this, m.params.routing_id, m.params.side,
+                                 m.params.sequence_length);
   return true;
 }
 
@@ -637,8 +638,9 @@ bool NodeLink::OnInitiateProxyBypass(msg::InitiateProxyBypass& m) {
   }
 
   return portal->InitiateProxyBypass(
-      m.params.proxy_peer_name, m.params.proxy_peer_routing_id,
-      m.params.bypass_key, /*notify_predecessor=*/true);
+      *this, m.params.routing_id, m.params.proxy_peer_name,
+      m.params.proxy_peer_routing_id, m.params.bypass_key,
+      /*notify_predecessor=*/true);
 }
 
 bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
