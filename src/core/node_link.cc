@@ -677,6 +677,9 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
       portals[i] =
           Portal::DeserializeNew(node_, mem::WrapRefCounted(this),
                                  link_state_memory.Map(), descriptors[i]);
+      if (!portals[i]) {
+        return false;
+      }
     }
 
     absl::MutexLock lock(&mutex_);
