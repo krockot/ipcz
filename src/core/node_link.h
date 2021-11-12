@@ -125,8 +125,9 @@ class NodeLink : public mem::RefCounted {
                               Side side,
                               SequenceNumber sequence_length);
 
-  // Starts listening for incoming messages.
+  // Starts or stops listening for incoming messages.
   void Listen();
+  void StopListening();
 
   void SetRemoteProtocolVersion(uint32_t version);
 

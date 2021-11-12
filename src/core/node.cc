@@ -131,7 +131,19 @@ bool Node::AcceptInvitationFromBroker(const NodeName& broker_name,
   return true;
 }
 
-void Node::ShutDown() {}
+void Node::ShutDown() {
+  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links;
+  {
+    absl::MutexLock lock(&mutex_);
+    broker_link_.reset();
+    node_links = std::move(node_links_);
+    node_links_.clear();
+  }
+
+  for (const auto& entry : node_links) {
+    entry.second->StopListening();
+  }
+}
 
 }  // namespace core
 }  // namespace ipcz

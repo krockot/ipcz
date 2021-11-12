@@ -179,6 +179,10 @@ TEST_F(RemotePortalTest, MultipleHops) {
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));
     EXPECT_EQ("nerp", p.message);
   }
+
+  ipcz.DestroyNode(node0, IPCZ_NO_FLAGS, nullptr);
+  ipcz.DestroyNode(node1, IPCZ_NO_FLAGS, nullptr);
+  ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
 }
 
 const std::string kMultiprocessMessageFromA = "hello!";

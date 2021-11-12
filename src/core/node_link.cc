@@ -73,6 +73,11 @@ void NodeLink::Listen() {
   });
 }
 
+void NodeLink::StopListening() {
+  absl::MutexLock lock(&mutex_);
+  channel_.StopListening();
+}
+
 mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
                                   const NodeName& remote_name) {
   os::Memory portal_link_state_memory(sizeof(PortalLinkState));
