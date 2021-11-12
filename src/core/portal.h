@@ -167,11 +167,6 @@ class Portal : public mem::RefCounted {
                      const IpczPutLimits* limits,
                      bool is_two_phase_commit);
 
-  void EstablishNewPeerLink(const mem::Ref<NodeLink>& to_node,
-                            absl::uint128 key,
-                            const NodeName& predecessor_name,
-                            RouteId predecessor_route);
-
   void ForwardIncomingParcels();
 
   const mem::Ref<Node> node_;

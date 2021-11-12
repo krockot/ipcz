@@ -152,16 +152,19 @@ void NodeLink::RequestIntroduction(const NodeName& name,
   Send(request);
 }
 
-mem::Ref<PortalLink> NodeLink::RedirectRemoteRouteToPortal(
-    const NodeName& predecessor_name,
-    RouteId predecessor_route,
-    absl::uint128 key,
-    mem::Ref<Portal> portal) {
+mem::Ref<PortalLink> NodeLink::BypassProxyToPortal(const NodeName& proxy_name,
+                                                   RouteId proxy_route,
+                                                   absl::uint128 key,
+                                                   mem::Ref<Portal> portal) {
   // TODO: portal link state should be allocated within the NodeLinkState
   // or an auxilliary NodeLink buffer for overflow
   os::Memory link_state_memory(sizeof(PortalLinkState));
   os::Memory::Mapping link_state_mapping = link_state_memory.Map();
   {
+    // The other side may not be buffering, but we assume it us until it can
+    // update its state to reflect reality. The purpose is to avoid this side
+    // becoming a half-proxy before we know it's safe. If this side moves in the
+    // interim it will become a full proxy instead.
     PortalLinkState::Locked state(
         PortalLinkState::Initialize(link_state_mapping.base()), portal->side());
     state.this_side().routing_mode = RoutingMode::kActive;
@@ -174,9 +177,9 @@ mem::Ref<PortalLink> NodeLink::RedirectRemoteRouteToPortal(
     AssignRoute(new_route, portal);
   }
 
-  msg::RedirectRoute m;
-  m.params.predecessor_name = predecessor_name;
-  m.params.predecessor_route = predecessor_route;
+  msg::BypassProxy m;
+  m.params.proxy_name = proxy_name;
+  m.params.proxy_route = proxy_route;
   m.params.new_route = new_route;
   m.params.sender_side = portal->side();
   m.params.key = key;
@@ -545,6 +548,10 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& m) {
     // This introduction may have raced with a previous one and we may already
     // have a link to the node. In that case, discard the link we just created
     // and use the established link instead.
+    //
+    // It's also possible that in between the above failure and the GetLink()
+    // call here, we lose our connection to the named node. In that case `link`
+    // will be null and we'll behave below as if the introduction failed.
     link = node_->GetLink(m.params.name);
   } else {
     link->Listen();
@@ -568,18 +575,17 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& m) {
   return true;
 }
 
-bool NodeLink::OnRedirectRoute(msg::RedirectRoute& m) {
+bool NodeLink::OnBypassProxy(msg::BypassProxy& m) {
   auto new_peer_link = mem::MakeRefCounted<PortalLink>(
       mem::WrapRefCounted(this), m.params.new_route,
       os::Memory(std::move(m.handles.new_link_state_memory),
                  sizeof(PortalLinkState))
           .Map());
 
-  mem::Ref<NodeLink> link_to_predecessor =
-      node_->GetLink(m.params.predecessor_name);
+  mem::Ref<NodeLink> link_to_proxy = node_->GetLink(m.params.proxy_name);
   mem::Ref<Portal> portal;
-  if (link_to_predecessor) {
-    portal = link_to_predecessor->GetPortalForRoute(m.params.predecessor_route);
+  if (link_to_proxy) {
+    portal = link_to_proxy->GetPortalForRoute(m.params.proxy_route);
   }
 
   if (portal && portal->ReplacePeerLink(m.params.key, new_peer_link)) {

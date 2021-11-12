@@ -79,20 +79,21 @@ class NodeLink : public mem::RefCounted {
   void RequestIntroduction(const NodeName& name,
                            RequestIntroductionCallback callback);
 
-  // Requests that the remote node replace an existing route `predecessor_route`
-  // on its link to `predecessor_name`, with a new route linking it to our local
-  // `portal` instead. `key` is used to authenticate the request and must
-  // already have been provided to the remote node by our predecessor.
+  // Requests that the remote node bypass an existing route `proxy_route` on
+  // its link to the node named `proxy_name`, with a new route linking it to
+  // directly to our local `portal` (which we know to be the destination of the
+  // remote proxy link) instead. `key` is used to authenticate the request and
+  // must already have been provided to the remote node by our predecessor (the
+  // proxy in question).
   //
   // Returns a new PortalLink corresponding to the newly allocated route.
-  mem::Ref<PortalLink> RedirectRemoteRouteToPortal(
-      const NodeName& predecessor_name,
-      RouteId predecessor_route,
-      absl::uint128 key,
-      mem::Ref<Portal> portal);
+  mem::Ref<PortalLink> BypassProxyToPortal(const NodeName& proxy_name,
+                                           RouteId proxy_route,
+                                           absl::uint128 key,
+                                           mem::Ref<Portal> portal);
 
   // Tells the remote node that it can stop proxying incoming messages on
-  // `route` as soon as it has forwarded any in-flight messages up (but not
+  // `route` as soon as it has forwarded any in-flight messages up to (but not
   // including) sequence number `sequence_length`.
   void StopProxying(RouteId route, SequenceNumber sequence_length);
 
@@ -178,7 +179,7 @@ class NodeLink : public mem::RefCounted {
   bool OnPeerClosed(msg::PeerClosed& m);
   bool OnRequestIntroduction(msg::RequestIntroduction& m);
   bool OnIntroduceNode(msg::IntroduceNode& m);
-  bool OnRedirectRoute(msg::RedirectRoute& m);
+  bool OnBypassProxy(msg::BypassProxy& m);
   bool OnStopProxying(msg::StopProxying& m);
 
   bool OnAcceptParcel(os::Channel::Message m);

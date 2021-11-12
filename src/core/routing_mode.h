@@ -52,9 +52,14 @@ enum RoutingMode : uint32_t {
   // as well as EITHER a peer OR predecessor link; and like half-proxying mode,
   // incoming parcels from the peer (or the predecessor here) are forwarded to
   // the successor; but unlike half-proxying mode, outgoing parcels may also be
-  // accepted from the successor and fowarded to the peer or predecessor. A
-  // full-proxying portal decays to a half-proxying portal as soon as it
-  // acquires a peer link to a peer which is NOT buffering or half-proxying.
+  // accepted from the successor and fowarded to the peer or predecessor.
+  //
+  // Full-proxy mode is always a safe mode for a portal to enter when moving it
+  // to extend the route to another node, but it is not ideal since it requires
+  // an extra hop in both directions.
+  //
+  // A full-proxying portal decays into a half-proxying portal as soon as it has
+  // a peer link whose other side is not buffering or half-proxying.
   kFullProxy = 4,
 };
 

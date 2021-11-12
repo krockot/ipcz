@@ -132,6 +132,9 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
   descriptor.next_incoming_sequence_number =
       incoming_parcels_.current_sequence_number();
   descriptor.next_outgoing_sequence_number = next_outgoing_sequence_number_;
+  descriptor.peer_closed = (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED);
+  descriptor.peer_sequence_length =
+      incoming_parcels_.peer_sequence_length().value_or(0);
 
   if (peer_link_) {
     ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
@@ -145,8 +148,6 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
         case RoutingMode::kClosed:
           will_half_proxy = true;
           this_side.routing_mode = RoutingMode::kHalfProxy;
-          descriptor.peer_closed = true;
-          descriptor.peer_sequence_length = other_side.sequence_length;
           break;
         case RoutingMode::kActive:
         case RoutingMode::kFullProxy:
@@ -279,19 +280,30 @@ bool Portal::AcceptParcelFromLink(Parcel& parcel,
 
 bool Portal::NotifyPeerClosed(SequenceNumber sequence_length,
                               TrapEventDispatcher& dispatcher) {
-  absl::MutexLock lock(&mutex_);
-  status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-  incoming_parcels_.SetPeerSequenceLength(sequence_length);
-  if (incoming_parcels_.IsDead()) {
-    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+  mem::Ref<PortalLink> successor;
+  {
+    absl::MutexLock lock(&mutex_);
+    status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+    if (incoming_parcels_.IsDead()) {
+      status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    }
+
+    // TODO: Need to clear `outgoing_parcels_` here and manually close all
+    // Portals attached to any outgoing parcels. This in turn will need a
+    // TrapEventDispatcher to be plumbed through.
+    outgoing_parcels_.clear();
+
+    successor = successor_link_;
+    if (routing_mode_ == RoutingMode::kActive) {
+      traps_.MaybeNotify(dispatcher, status_);
+    }
   }
 
-  // TODO: Need to clear `outgoing_parcels_` here and manually close all Portals
-  // attached to any outgoing parcels. This in turn will need a
-  // TrapEventDispatcher to be plumbed through.
-  outgoing_parcels_.clear();
+  if (successor) {
+    successor->NotifyClosed(sequence_length);
+  }
 
-  traps_.MaybeNotify(dispatcher, status_);
   return true;
 }
 
@@ -362,10 +374,10 @@ IpczResult Portal::Close() {
     // Signal our closure ASAP via the shared link state to reduce the potential
     // for redundant work on the peer's end.
     if (peer_link_) {
+      routing_mode_ = RoutingMode::kClosed;
       {
         PortalLinkState::Locked state(peer_link_->state(), side_);
         state.this_side().routing_mode = RoutingMode::kClosed;
-        state.this_side().sequence_length = next_outgoing_sequence_number_;
       }
 
       // We should never have outgoing parcels buffered while we have a peer
@@ -757,8 +769,7 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
     absl::MutexLock lock(&mutex_);
     predecessor_link_ = std::move(new_link);
 
-    const NodeName predecessor_name =
-        *predecessor_link_->node().GetRemoteName();
+    const NodeName proxy_name = *predecessor_link_->node().GetRemoteName();
     if (descriptor.peer_name.is_valid()) {
       // TODO: Initiate replacement of our half-proxying predecessor.
       mem::Ref<NodeLink> peer_node = node_->GetLink(descriptor.peer_name);
@@ -766,21 +777,22 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
         routing_mode_ = RoutingMode::kBuffering;
         node_->EstablishLink(
             descriptor.peer_name,
-            [portal = mem::WrapRefCounted(this), descriptor,
-             predecessor_name](const mem::Ref<NodeLink>& link) {
+            [portal = mem::WrapRefCounted(this),
+             peer_route = descriptor.peer_route, peer_key = descriptor.peer_key,
+             proxy_name](const mem::Ref<NodeLink>& link) {
               if (!link) {
                 // TODO: handle gracefully
                 LOG(ERROR) << "failed to establish new NodeLink";
                 return;
               }
 
-              portal->EstablishNewPeerLink(link, descriptor.peer_key,
-                                           predecessor_name,
-                                           descriptor.peer_route);
+              portal->ActivateFromBuffering(link->BypassProxyToPortal(
+                  proxy_name, peer_route, peer_key, portal));
             });
       } else {
-        EstablishNewPeerLink(peer_node, descriptor.peer_key, predecessor_name,
-                             descriptor.peer_route);
+        ActivateFromBuffering(peer_node->BypassProxyToPortal(
+            proxy_name, descriptor.peer_route, descriptor.peer_key,
+            mem::WrapRefCounted(this)));
       }
     }
   }
@@ -898,14 +910,6 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
   parcel.SetOSHandles(std::move(os_handles));
   link->SendParcel(parcel);
   return IPCZ_RESULT_OK;
-}
-
-void Portal::EstablishNewPeerLink(const mem::Ref<NodeLink>& to_node,
-                                  absl::uint128 key,
-                                  const NodeName& predecessor_name,
-                                  RouteId predecessor_route) {
-  ActivateFromBuffering(to_node->RedirectRemoteRouteToPortal(
-      predecessor_name, predecessor_route, key, mem::WrapRefCounted(this)));
 }
 
 void Portal::ForwardIncomingParcels() {
