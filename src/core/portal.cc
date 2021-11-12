@@ -284,6 +284,7 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
                                   Parcel& parcel,
                                   TrapEventDispatcher& dispatcher) {
   mem::Ref<PortalLink> immediate_forwarding_link;
+  bool flush_forwarding_queues = false;
   {
     absl::MutexLock lock(&mutex_);
     if (MatchPortalLink(predecessor_link_, link, routing_id) ||
@@ -291,6 +292,9 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
       // The parcel is coming from the other side of the route.
       if (!incoming_parcels_.Push(std::move(parcel))) {
         return false;
+      }
+      if (successor_link_) {
+        flush_forwarding_queues = true;
       }
     } else if (MatchPortalLink(successor_link_, link, routing_id)) {
       // The parcel comes from our successor, what we do with it depends on our
@@ -304,6 +308,7 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
         if (!outgoing_parcels_from_successor_->Push(std::move(parcel))) {
           return false;
         }
+        flush_forwarding_queues = true;
       } else {
         // Unexpected parcel from successor.
         return false;
@@ -316,6 +321,7 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
     }
 
     if (routing_mode_ == RoutingMode::kActive) {
+      ABSL_ASSERT(!flush_forwarding_queues);
       status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
       status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
       traps_.MaybeNotify(dispatcher, status_);
@@ -325,7 +331,7 @@ bool Portal::AcceptParcelFromLink(NodeLink& link,
 
   if (immediate_forwarding_link) {
     immediate_forwarding_link->AcceptParcel(parcel);
-  } else {
+  } else if (flush_forwarding_queues) {
     ForwardParcels();
   }
   return true;
@@ -442,6 +448,11 @@ bool Portal::StopProxyingTowardSide(NodeLink& from_node,
                                     SequenceNumber sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
+    if (routing_mode_ != RoutingMode::kHalfProxy &&
+        routing_mode_ != RoutingMode::kFullProxy) {
+      return false;
+    }
+
     if (side == side_) {
       if (!MatchPortalLink(predecessor_link_, from_node, from_routing_id) &&
           !MatchPortalLink(peer_link_, from_node, from_routing_id)) {
@@ -1123,6 +1134,9 @@ void Portal::ForwardParcels() {
   bool dead;
   {
     absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kHalfProxy ||
+                routing_mode_ == RoutingMode::kFullProxy);
+
     successor = successor_link_;
     peer_or_predecessor = peer_link_ ? peer_link_ : predecessor_link_;
 
