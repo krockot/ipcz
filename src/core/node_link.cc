@@ -324,6 +324,9 @@ void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
 
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
   absl::MutexLock lock(&mutex_);
+  if (!channel_) {
+    return;
+  }
   ABSL_ASSERT(channel_->is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
   channel_->Send(os::Channel::Message(os::Channel::Data(data), handles));
@@ -333,6 +336,9 @@ void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
                                     absl::Span<os::Handle> handles,
                                     GenericReplyHandler reply_handler) {
   absl::MutexLock lock(&mutex_);
+  if (!channel_) {
+    return;
+  }
   ABSL_ASSERT(channel_->is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
   internal::MessageHeader& header =
