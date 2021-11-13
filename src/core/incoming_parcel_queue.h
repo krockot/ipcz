@@ -101,6 +101,10 @@ class IncomingParcelQueue {
   // ANY non-const methods on this object.
   Parcel& NextParcel();
 
+  // Steals all parcels from the queue, effectively invaliding it. The parcels
+  // are stored in `parcels` in order of increasing sequence number.
+  void StealAllParcels(std::vector<Parcel>& parcels) &&;
+
  private:
   void Reallocate(SequenceNumber sequence_length);
   void PlaceNewEntry(size_t index, Parcel& parcel);

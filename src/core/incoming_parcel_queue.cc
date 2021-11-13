@@ -182,6 +182,14 @@ Parcel& IncomingParcelQueue::NextParcel() {
   return parcels_[0]->parcel;
 }
 
+void IncomingParcelQueue::StealAllParcels(std::vector<Parcel>& parcels) && {
+  for (auto& entry : parcels_) {
+    if (entry) {
+      parcels.push_back(std::move(entry->parcel));
+    }
+  }
+}
+
 void IncomingParcelQueue::Reallocate(SequenceNumber sequence_length) {
   size_t parcels_offset = parcels_.data() - storage_.data();
   size_t new_parcels_size = sequence_length - base_sequence_number_;

@@ -78,7 +78,31 @@ bool MatchPortalLink(const mem::Ref<PortalLink>& portal_link,
 Portal::Portal(mem::Ref<Node> node, Side side)
     : node_(std::move(node)), side_(side) {}
 
-Portal::~Portal() = default;
+Portal::~Portal() {
+  std::forward_list<Parcel> outgoing_parcels;
+  std::vector<Parcel> incoming_parcels;
+  {
+    absl::MutexLock lock(&mutex_);
+    outgoing_parcels = outgoing_parcels_.TakeParcels();
+    std::move(incoming_parcels_).StealAllParcels(incoming_parcels);
+    if (outgoing_parcels_from_successor_) {
+      std::move(*outgoing_parcels_from_successor_)
+          .StealAllParcels(incoming_parcels);
+    }
+  }
+
+  for (auto& parcel : outgoing_parcels) {
+    for (mem::Ref<Portal>& portal : parcel.portals_view()) {
+      portal->Close();
+    }
+  }
+
+  for (auto& parcel : incoming_parcels) {
+    for (mem::Ref<Portal>& portal : parcel.portals_view()) {
+      portal->Close();
+    }
+  }
+}
 
 // static
 Portal::Pair Portal::CreateLocalPair(mem::Ref<Node> node) {
@@ -274,14 +298,18 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
 }
 
 void Portal::BeginForwardProxying(mem::Ref<PortalLink> successor) {
+  bool is_ready = false;
   std::vector<Parcel> parcels;
   {
     PortalLock lock(*this);
     ABSL_ASSERT(!successor_link_);
     successor_link_ = successor;
+    is_ready = routing_mode_ != RoutingMode::kBuffering;
   }
 
-  ForwardParcels();
+  if (is_ready) {
+    ForwardParcels();
+  }
 }
 
 bool Portal::AcceptParcelFromLink(NodeLink& link,
@@ -574,7 +602,7 @@ bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
 
 IpczResult Portal::Close() {
   // TODO: Plumb a TrapEventDispatcher to Close() so it can queue events.
-  std::vector<mem::Ref<Portal>> other_portals_to_close;
+  mem::Ref<Portal> peer_keepalive;
   {
     PortalLock lock(*this);
     ABSL_ASSERT(!closed_);
@@ -600,6 +628,14 @@ IpczResult Portal::Close() {
           next_outgoing_sequence_number_);
       if (peer.incoming_parcels_.IsDead()) {
         peer.status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
+
+      // Break the circular reference so the portals can die, but only if both
+      // portals are closed.
+      if (peer.closed_) {
+        peer.local_peer_.reset();
+        peer_keepalive = local_peer_;
+        local_peer_.reset();
       }
 
       // TODO: poke peer's traps
@@ -628,12 +664,6 @@ IpczResult Portal::Close() {
   }
 
   DisconnectAllLinks();
-
-  // TODO: do this iteratively rather than recursively since we might nest
-  // arbitrarily deep
-  for (mem::Ref<Portal>& portal : other_portals_to_close) {
-    portal->Close();
-  }
 
   return IPCZ_RESULT_OK;
 }

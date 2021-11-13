@@ -76,12 +76,13 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
   ASSERT_EQ(1u, b_parcel.portals.size());
   d = b_parcel.portals[0];
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({a, b});
 
   Parcel d_parcel;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, d_parcel));
   EXPECT_EQ(kMessageFromC, d_parcel.message);
+
+  ClosePortals({c, d});
 
   ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
 }
@@ -220,10 +221,8 @@ TEST_F(RemotePortalTest, MultipleHopsThenSendAndClose) {
   // the sent parcel is actually delivered to its destination.
   IpczHandle node1;
   IpczHandle node2;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
 
   os::Channel local1, remote1;
   std::tie(local1, remote1) = os::Channel::CreateChannelPair();
