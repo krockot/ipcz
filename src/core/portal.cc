@@ -260,6 +260,11 @@ SequenceNumber Portal::ActivateFromBuffering(mem::Ref<PortalLink> peer) {
 
   if (sequence_length) {
     peer->SideClosed(side_, *sequence_length);
+
+    // We were already closed, but now we have a peer link again. We've flushed
+    // any outgoing messages so there's no more need to exist. Wipe out any
+    // routing references so we can be destroyed as the stack unwinds.
+    DisconnectAllLinks();
   } else if (successor) {
     successor->InitiateProxyBypass(*peer->node_link().GetRemoteName(),
                                    peer->routing_id(), bypass_key);
