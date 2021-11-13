@@ -180,6 +180,8 @@ TEST_F(RemotePortalTest, MultipleHops) {
     EXPECT_EQ("nerp", p.message);
   }
 
+  ClosePortals({a, b, c, d, e, f2});
+
   ipcz.DestroyNode(node0, IPCZ_NO_FLAGS, nullptr);
   ipcz.DestroyNode(node1, IPCZ_NO_FLAGS, nullptr);
   ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
@@ -210,6 +212,54 @@ TEST_F(RemotePortalTest, AcceptThenSendAndClose) {
   EXPECT_EQ(kMessage, p.message);
 
   ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+}
+
+TEST_F(RemotePortalTest, MultipleHopsThenSendAndClose) {
+  // Covers the case where a new remote portal is accepted and then it
+  // immediately sends a parcel and closes itself. Verifies that in this case
+  // the sent parcel is actually delivered to its destination.
+  IpczHandle node1;
+  IpczHandle node2;
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
+
+  os::Channel local1, remote1;
+  std::tie(local1, remote1) = os::Channel::CreateChannelPair();
+
+  IpczHandle a = OpenRemotePortal(node(), local1, os::Process::GetCurrent());
+  IpczHandle b = AcceptRemotePortal(node1, remote1);
+
+  os::Channel local2, remote2;
+  std::tie(local2, remote2) = os::Channel::CreateChannelPair();
+
+  IpczHandle c = OpenRemotePortal(node(), local2, os::Process::GetCurrent());
+  IpczHandle d = AcceptRemotePortal(node2, remote2);
+
+  IpczHandle e, f1;
+  ipcz.OpenPortals(node1, IPCZ_NO_FLAGS, nullptr, &e, &f1);
+  Put(b, "here", {&f1, 1}, {});
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  ASSERT_EQ(1u, p.portals.size());
+  IpczHandle f0 = p.portals[0];
+  Put(c, "ok ok", {&f0, 1}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
+  ASSERT_EQ(1u, p.portals.size());
+  IpczHandle f2 = p.portals[0];
+
+  const std::string kMessage = "woot";
+  Put(f2, kMessage, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(f2, IPCZ_NO_FLAGS, nullptr));
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));
+  EXPECT_EQ(kMessage, p.message);
+
+  ClosePortals({a, b, c, d, e});
+
+  ipcz.DestroyNode(node1, IPCZ_NO_FLAGS, nullptr);
+  ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
 }
 
 const std::string kMultiprocessMessageFromA = "hello!";
