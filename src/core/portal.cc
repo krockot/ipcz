@@ -617,14 +617,19 @@ IpczResult Portal::Close() {
       peer_link_->SideClosed(side_, next_outgoing_sequence_number_);
     }
 
-    // todo forward closure to predecessor when present without a peer
+    if (predecessor_link_) {
+      predecessor_link_->SideClosed(side_, next_outgoing_sequence_number_);
+    }
   }
+
+  DisconnectAllLinks();
 
   // TODO: do this iteratively rather than recursively since we might nest
   // arbitrarily deep
   for (mem::Ref<Portal>& portal : other_portals_to_close) {
     portal->Close();
   }
+
   return IPCZ_RESULT_OK;
 }
 
@@ -1173,16 +1178,20 @@ void Portal::ForwardParcels() {
   if (dead) {
     // Ensure we have no links routing to us. As the stack unwinds, any last
     // references to this portal should be released and it should be destroyed.
-    absl::MutexLock lock(&mutex_);
-    if (successor_link_) {
-      successor_link_->Disconnect();
-    }
-    if (peer_link_) {
-      peer_link_->Disconnect();
-    }
-    if (predecessor_link_) {
-      predecessor_link_->Disconnect();
-    }
+    DisconnectAllLinks();
+  }
+}
+
+void Portal::DisconnectAllLinks() {
+  absl::MutexLock lock(&mutex_);
+  if (successor_link_) {
+    successor_link_->Disconnect();
+  }
+  if (peer_link_) {
+    peer_link_->Disconnect();
+  }
+  if (predecessor_link_) {
+    predecessor_link_->Disconnect();
   }
 }
 

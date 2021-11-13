@@ -196,6 +196,7 @@ class Portal : public mem::RefCounted {
                      bool is_two_phase_commit);
 
   void ForwardParcels();
+  void DisconnectAllLinks();
 
   const mem::Ref<Node> node_;
   const Side side_;

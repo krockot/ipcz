@@ -185,6 +185,33 @@ TEST_F(RemotePortalTest, MultipleHops) {
   ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
 }
 
+TEST_F(RemotePortalTest, AcceptThenSendAndClose) {
+  // Covers the case where a new remote portal is accepted and then it
+  // immediately sends a parcel and closes itself. Verifies that in this case
+  // the sent parcel is actually delivered to its destination.
+  IpczHandle other_node;
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
+
+  os::Channel local, remote;
+  std::tie(local, remote) = os::Channel::CreateChannelPair();
+
+  IpczHandle b = AcceptRemotePortal(other_node, remote);
+
+  const std::string kMessage = "woot";
+  Put(b, kMessage, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+
+  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(kMessage, p.message);
+
+  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+}
+
 const std::string kMultiprocessMessageFromA = "hello!";
 const std::string kMultiprocessMessageFromB = "hey hey";
 
