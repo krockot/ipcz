@@ -226,6 +226,98 @@ TEST_P(RemotePortalTest, MultipleHopsThenSendAndClose) {
   DestroyNodes({node0, node1, node2});
 }
 
+TEST_P(RemotePortalTest, TransferBackAndForth) {
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+
+  IpczHandle a, b;
+  Connect(node, other_node, &a, &b);
+
+  IpczHandle c, d;
+  OpenPortals(node, &c, &d);
+
+  Parcel p;
+  constexpr size_t kNumIterations = 8;
+  for (size_t i = 0; i < kNumIterations; ++i) {
+    Put(a, "", {&d, 1}, {});
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+    ASSERT_EQ(1u, p.portals.size());
+    d = p.portals[0];
+    Put(b, "", {&d, 1}, {});
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+    ASSERT_EQ(1u, p.portals.size());
+    d = p.portals[0];
+  }
+
+  Put(c, "hello", {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
+  EXPECT_EQ("hello", p.message);
+
+  ClosePortals({a, b, c, d});
+  DestroyNodes({node, other_node});
+}
+
+TEST_P(RemotePortalTest, ExpansionInBothDirections) {
+  constexpr size_t kNumHops = 4;
+  IpczHandle left_nodes[kNumHops];
+  IpczHandle right_nodes[kNumHops];
+
+  IpczHandle to_left[kNumHops];
+  IpczHandle from_left[kNumHops];
+  IpczHandle to_right[kNumHops];
+  IpczHandle from_right[kNumHops];
+
+  IpczHandle broker = CreateBrokerNode();
+  for (size_t i = 0; i < kNumHops; ++i) {
+    left_nodes[i] = CreateNonBrokerNode();
+    Connect(broker, left_nodes[i], &to_left[i], &from_left[i]);
+    right_nodes[i] = CreateNonBrokerNode();
+    Connect(broker, right_nodes[i], &to_right[i], &from_right[i]);
+  }
+
+  IpczHandle a, b;
+  OpenPortals(broker, &a, &b);
+  for (size_t i = 0; i < kNumHops; ++i) {
+    Put(to_left[i], "", {&a, 1}, {});
+    Put(to_right[i], "", {&b, 1}, {});
+
+    Parcel p;
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(from_left[i], p));
+    ASSERT_EQ(1u, p.portals.size());
+    a = p.portals[0];
+
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(from_right[i], p));
+    ASSERT_EQ(1u, p.portals.size());
+    b = p.portals[0];
+
+    Put(from_left[i], "", {&a, 1}, {});
+    Put(from_right[i], "", {&b, 1}, {});
+
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(to_left[i], p));
+    ASSERT_EQ(1u, p.portals.size());
+    a = p.portals[0];
+
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(to_right[i], p));
+    ASSERT_EQ(1u, p.portals.size());
+    b = p.portals[0];
+  }
+
+  Parcel p;
+  const std::string kMessage = "shhh";
+  Put(a, kMessage, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ(kMessage, p.message);
+
+  ClosePortals({a, b});
+  for (size_t i = 0; i < kNumHops; ++i) {
+    ClosePortals({to_left[i], from_left[i], to_right[i], from_right[i]});
+  }
+  for (size_t i = 0; i < kNumHops; ++i) {
+    DestroyNodes({left_nodes[i], right_nodes[i]});
+  }
+  DestroyNodes({broker});
+}
+
 using MultiprocessRemotePortalTest = test::MultiprocessTest;
 
 const std::string kMultiprocessMessageFromA = "hello!";

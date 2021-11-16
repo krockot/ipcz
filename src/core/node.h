@@ -31,6 +31,11 @@ class Node : public mem::RefCounted {
 
   Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node);
 
+  NodeName GetName() {
+    absl::MutexLock lock(&mutex_);
+    return name_;
+  }
+
   const IpczDriver& driver() const { return driver_; }
   bool is_broker() const { return type_ == Type::kBroker; }
 

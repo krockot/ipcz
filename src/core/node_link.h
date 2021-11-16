@@ -182,12 +182,12 @@ class NodeLink : public mem::RefCounted {
 
   void DisconnectRoutingId(RoutingId routing_id);
 
+  mem::Ref<Portal> GetPortalForRoutingId(RoutingId id);
+
  private:
   ~NodeLink() override;
 
   bool AssignRoutingId(RoutingId id, const mem::Ref<Portal>& portal);
-
-  mem::Ref<Portal> GetPortalForRoutingId(RoutingId id);
 
   // Generic entry point for message replies. Always dispatched to a
   // corresponding callback after some validation.

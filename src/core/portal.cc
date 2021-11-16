@@ -194,8 +194,6 @@ mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
     }
 
     if (will_half_proxy) {
-      ABSL_ASSERT(!predecessor_link_);
-
       routing_mode_ = RoutingMode::kHalfProxy;
 
       // We're switching to half-proxying mode. Give the new portal some
@@ -538,7 +536,7 @@ bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
       return false;
     }
 
-    if (peer_link_) {
+    if (local_peer_ || peer_link_) {
       // A well-behaved system will never ask a portal to bypass a proxy when
       // the portal already has a peer link.
       return false;
@@ -550,6 +548,38 @@ bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
 
   const NodeName proxy_name = *predecessor->node_link().GetRemoteName();
   ABSL_ASSERT(peer_name.is_valid());
+  if (peer_name == node_->GetName()) {
+    // Special case, the peer is local to this node, so we shortcut the
+    // BypassProxy message.
+
+    mem::Ref<Portal> local_peer =
+        predecessor->node_link().GetPortalForRoutingId(peer_proxy_routing_id);
+    if (!local_peer) {
+      // TODO: peer closed on `this`?
+      return true;
+    }
+
+    mem::Ref<PortalLink> peer_proxy_link;
+    SequenceNumber sequence_length_before_peer_change;
+    {
+      TwoPortalLock lock(*this, *local_peer);
+      if (local_peer_ || local_peer->local_peer_) {
+        return false;
+      }
+
+      local_peer_ = local_peer;
+      local_peer->local_peer_ = mem::WrapRefCounted(this);
+      local_peer->routing_mode_ = RoutingMode::kBuffering;
+      sequence_length_before_peer_change =
+          local_peer->next_outgoing_sequence_number_;
+      peer_proxy_link = std::move(local_peer->peer_link_);
+    }
+
+    peer_proxy_link->StopProxyingTowardSide(side_,
+                                            sequence_length_before_peer_change);
+    return true;
+  }
+
   mem::Ref<NodeLink> peer_node = node_->GetLink(peer_name);
   if (peer_node) {
     mem::Ref<PortalLink> bypass_link =
