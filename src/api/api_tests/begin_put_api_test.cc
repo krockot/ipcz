@@ -21,7 +21,7 @@ TEST_F(BeginPutAPITest, InvalidArgs) {
                           &num_bytes, &data));
 
   IpczHandle a, b;
-  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+  ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b);
 
   // Null data with non-zero data size.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
@@ -46,7 +46,7 @@ TEST_F(BeginPutAPITest, InvalidArgs) {
 TEST_F(BeginPutAPITest, NoOverlap) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   void* data;
   uint32_t num_bytes = 4;
@@ -65,7 +65,7 @@ TEST_F(BeginPutAPITest, NoOverlap) {
 TEST_F(BeginPutAPITest, ParcelLimit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPutLimits limits = {sizeof(limits)};
   limits.max_queued_parcels = 2;
@@ -100,7 +100,7 @@ TEST_F(BeginPutAPITest, ParcelLimit) {
 TEST_F(BeginPutAPITest, DataLimit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPutLimits limits = {sizeof(limits)};
   limits.max_queued_bytes = 8;

@@ -4,19 +4,21 @@
 
 #include "ipcz/ipcz.h"
 #include "os/process.h"
-#include "test/api_test.h"
+#include "test/multinode_test.h"
+#include "test/multiprocess_test.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ipcz {
 namespace {
 
-using RemotePortalTest = test::APITest;
+using RemotePortalTest = test::MultinodeTestWithDriver;
 
-TEST_F(RemotePortalTest, BasicConnection) {
+TEST_P(RemotePortalTest, BasicConnection) {
   IpczHandle a, b;
-  IpczHandle other_node = CreateSingleProcessNode();
-  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+  Connect(node, other_node, &a, &b);
 
   const std::string kMessageFromA = "hello!";
   const std::string kMessageFromB = "hey hey";
@@ -35,16 +37,17 @@ TEST_F(RemotePortalTest, BasicConnection) {
   EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(b, b_parcel));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+  DestroyNodes({node, other_node});
 }
 
-TEST_F(RemotePortalTest, TransferLocalPortal) {
+TEST_P(RemotePortalTest, TransferLocalPortal) {
   IpczHandle a, b;
-  IpczHandle other_node = CreateSingleProcessNode();
-  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+  Connect(node, other_node, &a, &b);
 
   IpczHandle c, d;
-  OpenPortals(&c, &d);
+  OpenPortals(node, &c, &d);
 
   const std::string kMessageFromA = "hello!";
   const std::string kMessageFromB = "hey hey";
@@ -70,29 +73,28 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
   EXPECT_EQ(kMessageFromC, d_parcel.message);
 
   ClosePortals({c, d});
-
-  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+  DestroyNodes({node, other_node});
 }
 
-TEST_F(RemotePortalTest, TransferManyLocalPortals) {
+TEST_P(RemotePortalTest, TransferManyLocalPortals) {
   IpczHandle a, b;
-  IpczHandle other_node = CreateSingleProcessNode();
-  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+  Connect(node, other_node, &a, &b);
 
   constexpr uint32_t kNumIterations = 100;
   for (uint32_t i = 0; i < kNumIterations; ++i) {
     IpczHandle c, d;
-    ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &c, &d);
+    OpenPortals(node, &c, &d);
     Put(a, "", {&d, 1}, {});
 
     IpczHandle e, f;
-    ipcz.OpenPortals(other_node, IPCZ_NO_FLAGS, nullptr, &e, &f);
+    OpenPortals(other_node, &e, &f);
     Put(b, "", {&f, 1}, {});
 
     Put(c, "ya", {}, {});
     Put(e, "na", {}, {});
-    ipcz.ClosePortal(c, IPCZ_NO_FLAGS, nullptr);
-    ipcz.ClosePortal(e, IPCZ_NO_FLAGS, nullptr);
+    ClosePortals({c, e});
   }
 
   for (uint32_t i = 0; i < kNumIterations; ++i) {
@@ -110,30 +112,27 @@ TEST_F(RemotePortalTest, TransferManyLocalPortals) {
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, q));
     EXPECT_EQ("ya", q.message);
 
-    ipcz.ClosePortal(d, IPCZ_NO_FLAGS, nullptr);
-    ipcz.ClosePortal(f, IPCZ_NO_FLAGS, nullptr);
+    ClosePortals({d, f});
   }
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-
-  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+  ClosePortals({a, b});
+  DestroyNodes({node, other_node});
 }
 
-TEST_F(RemotePortalTest, MultipleHops) {
-  IpczHandle node0 = CreateSingleProcessNode(IPCZ_CREATE_NODE_AS_BROKER);
-  IpczHandle node1 = CreateSingleProcessNode();
-  IpczHandle node2 = CreateSingleProcessNode();
+TEST_P(RemotePortalTest, MultipleHops) {
+  IpczHandle node0 = CreateBrokerNode();
+  IpczHandle node1 = CreateNonBrokerNode();
+  IpczHandle node2 = CreateNonBrokerNode();
 
   IpczHandle a, b;
-  ConnectSingleProcessBrokerToNonBroker(node0, node1, &a, &b);
+  Connect(node0, node1, &a, &b);
 
   IpczHandle c, d;
-  ConnectSingleProcessBrokerToNonBroker(node0, node2, &c, &d);
+  Connect(node0, node2, &c, &d);
 
   // Send `f` from node1 to node0 and then from node0 to node2
   IpczHandle e, f1;
-  ipcz.OpenPortals(node1, IPCZ_NO_FLAGS, nullptr, &e, &f1);
+  OpenPortals(node1, &e, &f1);
   Put(b, "here", {&f1, 1}, {});
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
@@ -158,54 +157,54 @@ TEST_F(RemotePortalTest, MultipleHops) {
   }
 
   ClosePortals({a, b, c, d, e, f2});
-
-  ipcz.DestroyNode(node0, IPCZ_NO_FLAGS, nullptr);
-  ipcz.DestroyNode(node1, IPCZ_NO_FLAGS, nullptr);
-  ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
+  DestroyNodes({node0, node1, node2});
 }
 
-TEST_F(RemotePortalTest, SendAndCloseFromBufferingNonBroker) {
+TEST_P(RemotePortalTest, SendAndCloseFromBufferingNonBroker) {
   // Covers the case where a newly connected non-broker node sends a parcel on
   // one of the initial portals and then closes the portal immediately. The test
   // verifies that the parcel is eventually delivered once the peer node
   // completes the connection process.
-  IpczHandle other_node = CreateSingleProcessNode();
+
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
 
   IpczDriverHandle transport0, transport1;
-  CreateSingleProcessTransports(&transport0, &transport1);
+  CreateTransports(&transport0, &transport1);
 
   IpczHandle b = ConnectToBroker(other_node, transport1);
 
   const std::string kMessage = "woot";
   Put(b, kMessage, {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({b});
 
-  IpczHandle a =
-      ConnectToNonBroker(node(), transport0, os::Process::GetCurrent());
+  IpczHandle a = ConnectToNonBroker(node, transport0);
 
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({a});
   EXPECT_EQ(kMessage, p.message);
 
-  ipcz.DestroyNode(other_node, IPCZ_NO_FLAGS, nullptr);
+  DestroyNodes({node, other_node});
 }
 
-TEST_F(RemotePortalTest, MultipleHopsThenSendAndClose) {
+TEST_P(RemotePortalTest, MultipleHopsThenSendAndClose) {
   // Covers the case where a new remote portal is accepted and then it
   // immediately sends a parcel and closes itself. Verifies that in this case
   // the sent parcel is actually delivered to its destination.
-  IpczHandle node1 = CreateSingleProcessNode();
-  IpczHandle node2 = CreateSingleProcessNode();
+
+  IpczHandle node0 = CreateBrokerNode();
+  IpczHandle node1 = CreateNonBrokerNode();
+  IpczHandle node2 = CreateNonBrokerNode();
 
   IpczHandle a, b;
-  ConnectSingleProcessBrokerToNonBroker(node(), node1, &a, &b);
+  Connect(node0, node1, &a, &b);
 
   IpczHandle c, d;
-  ConnectSingleProcessBrokerToNonBroker(node(), node2, &c, &d);
+  Connect(node0, node2, &c, &d);
 
   IpczHandle e, f1;
-  ipcz.OpenPortals(node1, IPCZ_NO_FLAGS, nullptr, &e, &f1);
+  OpenPortals(node1, &e, &f1);
   Put(b, "here", {&f1, 1}, {});
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
@@ -218,25 +217,23 @@ TEST_F(RemotePortalTest, MultipleHopsThenSendAndClose) {
 
   const std::string kMessage = "woot";
   Put(f2, kMessage, {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(f2, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({f2});
 
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));
   EXPECT_EQ(kMessage, p.message);
 
   ClosePortals({a, b, c, d, e});
-
-  ipcz.DestroyNode(node1, IPCZ_NO_FLAGS, nullptr);
-  ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
+  DestroyNodes({node0, node1, node2});
 }
+
+using MultiprocessRemotePortalTest = test::MultiprocessTest;
 
 const std::string kMultiprocessMessageFromA = "hello!";
 const std::string kMultiprocessMessageFromB = "hey hey";
 
-TEST_F(RemotePortalTest, BasicMultiprocess) {
+TEST_F(MultiprocessRemotePortalTest, BasicMultiprocess) {
   test::TestClient client("BasicMultiprocessClient");
-  IpczHandle node = CreateMultiprocessNode(IPCZ_CREATE_NODE_AS_BROKER);
-  IpczHandle a = ConnectToNonBroker(
-      node, CreateMultiprocessTransport(client.channel()), client.process());
+  IpczHandle a = ConnectToClient(client);
 
   Put(a, kMultiprocessMessageFromA, {}, {});
 
@@ -244,13 +241,11 @@ TEST_F(RemotePortalTest, BasicMultiprocess) {
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
   EXPECT_EQ(kMultiprocessMessageFromB, p.message);
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({a});
 }
 
-TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
-  IpczHandle node = CreateMultiprocessNode();
-  IpczHandle b = ConnectToBroker(node, CreateMultiprocessTransport(c));
+TEST_CLIENT_F(MultiprocessRemotePortalTest, BasicMultiprocessClient, c) {
+  IpczHandle b = ConnectToBroker(c);
   Put(b, kMultiprocessMessageFromB, {}, {});
 
   Parcel p;
@@ -264,9 +259,10 @@ TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
             ipcz.QueryPortalStatus(b, IPCZ_NO_FLAGS, nullptr, &status));
   EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED | IPCZ_PORTAL_STATUS_DEAD,
             status.flags);
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({b});
 }
+
+INSTANTIATE_MULTINODE_TEST_SUITE_P(RemotePortalTest);
 
 }  // namespace
 }  // namespace ipcz

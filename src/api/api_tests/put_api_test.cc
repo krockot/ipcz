@@ -18,7 +18,7 @@ TEST_F(PutAPITest, InvalidArgs) {
                      IPCZ_NO_FLAGS, nullptr));
 
   IpczHandle a, b;
-  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+  ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b);
 
   // Invalid options
   IpczPutOptions options = {0};
@@ -58,7 +58,7 @@ TEST_F(PutAPITest, InvalidArgs) {
 TEST_F(PutAPITest, PutData) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   uint8_t data[] = {1, 2, 3, 4};
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Put(a, data, 4, nullptr, 0, nullptr, 0,
@@ -76,7 +76,7 @@ TEST_F(PutAPITest, PutData) {
 TEST_F(PutAPITest, PutClosed) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr,
                                             0, IPCZ_NO_FLAGS, nullptr));
@@ -86,7 +86,7 @@ TEST_F(PutAPITest, PutClosed) {
 TEST_F(PutAPITest, PutParcelLimit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPutLimits limits = {sizeof(limits)};
   limits.max_queued_parcels = 2;
@@ -114,7 +114,7 @@ TEST_F(PutAPITest, PutParcelLimit) {
 TEST_F(PutAPITest, PutDataLimit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPutLimits limits = {sizeof(limits)};
   limits.max_queued_bytes = 8;

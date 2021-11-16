@@ -10,6 +10,9 @@
 namespace ipcz {
 namespace drivers {
 
+// A basic reference driver which supports multiprocess operation. This is also
+// suitable for single-process usage, but unlike kSingleProcessReferenceDriver
+// all transmissions through this driver are asynchronous.
 extern const IpczDriver kMultiprocessReferenceDriver;
 
 }  // namespace drivers

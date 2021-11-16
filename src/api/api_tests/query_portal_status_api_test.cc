@@ -13,7 +13,7 @@ using QueryPortalStatusAPITest = test::APITest;
 
 TEST_F(QueryPortalStatusAPITest, InvalidArgs) {
   IpczHandle a, b;
-  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+  ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b);
 
   // Null status
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
@@ -37,7 +37,7 @@ TEST_F(QueryPortalStatusAPITest, InvalidArgs) {
 TEST_F(QueryPortalStatusAPITest, ClosedBit) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPortalStatus status = {sizeof(status)};
   EXPECT_EQ(IPCZ_RESULT_OK,

@@ -17,9 +17,9 @@ TEST_F(OpenPortalsAPITest, InvalidArgs) {
       IPCZ_RESULT_INVALID_ARGUMENT,
       ipcz.OpenPortals(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, &a, &b));
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, nullptr, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, nullptr, &b));
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, nullptr));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, nullptr));
 }
 
 }  // namespace

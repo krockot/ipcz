@@ -19,7 +19,7 @@ TEST_F(EndPutAPITest, InvalidArgs) {
 
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   // Null IpczHandle buffer with non-zero handle count.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
@@ -46,7 +46,7 @@ TEST_F(EndPutAPITest, InvalidArgs) {
 TEST_F(EndPutAPITest, NoPutInProgress) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b));
+            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
             ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
@@ -60,7 +60,7 @@ TEST_F(EndPutAPITest, NoPutInProgress) {
 
 TEST_F(EndPutAPITest, Oversized) {
   IpczHandle a, b;
-  ipcz.OpenPortals(node(), IPCZ_NO_FLAGS, nullptr, &a, &b);
+  ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b);
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
