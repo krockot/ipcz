@@ -22,9 +22,10 @@ enum RoutingMode : uint32_t {
 
   // The portal has no peer or predecessor link and therefore no place to route
   // outgoing parcels. All outgoing parcels -- from either a Put() call if this
-  // portal is exposed to the application (e.g. AcceptRemotePortals()) or as
-  // forwarded from a successor -- are queued for later transmission. There is
-  // no source of incoming parcels in this case, so they are not handled.
+  // portal is exposed to the application (e.g. some portals returned from
+  // ConnectNode()) or as forwarded from a successor -- are queued for later
+  // transmission. There is no source of incoming parcels in this case, so they
+  // are not handled.
   kBuffering = 1,
 
   // The portal has been closed. It may still have outgoing parcels queued and

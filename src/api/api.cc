@@ -7,14 +7,13 @@
 #include <memory>
 #include <tuple>
 
-#include "build/build_config.h"
 #include "core/node.h"
 #include "core/portal.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "os/channel.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
 
@@ -32,16 +31,29 @@ using namespace ipcz;
 
 extern "C" {
 
-IpczResult CreateNode(IpczCreateNodeFlags flags,
+IpczResult CreateNode(const IpczDriver* driver,
+                      IpczDriverHandle driver_node,
+                      IpczCreateNodeFlags flags,
                       const void* options,
                       IpczHandle* node) {
-  if (!node) {
+  if (!node || !driver) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (driver->size < sizeof(IpczDriver)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (!driver->CreateTransports || !driver->DestroyTransport ||
+      !driver->SerializeTransport || !driver->DeserializeTransport ||
+      !driver->ActivateTransport || !driver->Transmit) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
   auto node_ptr = mem::MakeRefCounted<core::Node>(
       (flags & IPCZ_CREATE_NODE_AS_BROKER) != 0 ? core::Node::Type::kBroker
-                                                : core::Node::Type::kNormal);
+                                                : core::Node::Type::kNormal,
+      *driver, driver_node);
   *node = ToHandle(node_ptr.release());
   return IPCZ_RESULT_OK;
 }
@@ -58,6 +70,43 @@ IpczResult DestroyNode(IpczHandle node, uint32_t flags, const void* options) {
   return IPCZ_RESULT_OK;
 }
 
+IpczResult ConnectNode(IpczHandle node_handle,
+                       IpczDriverHandle driver_transport,
+                       const IpczOSProcessHandle* target_process,
+                       uint32_t num_initial_portals,
+                       IpczConnectNodeFlags flags,
+                       const void* options,
+                       IpczHandle* initial_portals) {
+  if (node_handle == IPCZ_INVALID_HANDLE ||
+      driver_transport == IPCZ_INVALID_HANDLE) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (target_process && target_process->size < sizeof(IpczOSProcessHandle)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (num_initial_portals == 0 || !initial_portals) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  os::Process process;
+  if (target_process) {
+    if (target_process->size < sizeof(IpczOSProcessHandle)) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+    process = os::Process::FromIpczOSProcessHandle(*target_process);
+  }
+
+  core::Node& node = ToRef<core::Node>(node_handle);
+  const core::Node::Type remote_node_type =
+      (flags & IPCZ_CONNECT_NODE_TO_BROKER) ? core::Node::Type::kBroker
+                                            : core::Node::Type::kNormal;
+  return node.ConnectNode(
+      driver_transport, remote_node_type, std::move(process),
+      absl::Span<IpczHandle>(initial_portals, num_initial_portals));
+}
+
 IpczResult OpenPortals(IpczHandle node,
                        uint32_t flags,
                        const void* options,
@@ -70,73 +119,6 @@ IpczResult OpenPortals(IpczHandle node,
   core::Portal::Pair portals = ToRef<core::Node>(node).OpenPortals();
   *portal0 = ToHandle(portals.first.release());
   *portal1 = ToHandle(portals.second.release());
-  return IPCZ_RESULT_OK;
-}
-
-IpczResult OpenRemotePortal(IpczHandle node,
-                            const IpczOSTransport* transport,
-                            const IpczOSProcessHandle* target_process,
-                            uint32_t flags,
-                            const void* options,
-                            IpczHandle* portal) {
-  if (node == IPCZ_INVALID_HANDLE || !portal) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-  if (!transport || transport->size < sizeof(IpczOSTransport)) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  os::Process process;
-  if (target_process) {
-    if (target_process->size < sizeof(IpczOSProcessHandle)) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-    process = os::Process::FromIpczOSProcessHandle(*target_process);
-  }
-
-#if defined(OS_WIN)
-  if (!process.is_valid()) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-#endif
-
-  os::Channel channel = os::Channel::FromIpczOSTransport(*transport);
-  if (!channel.is_valid()) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  mem::Ref<core::Portal> new_portal;
-  IpczResult result = ToRef<core::Node>(node).OpenRemotePortal(
-      std::move(channel), std::move(process), new_portal);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  *portal = ToHandle(new_portal.release());
-  return IPCZ_RESULT_OK;
-}
-
-IpczResult AcceptRemotePortal(IpczHandle node,
-                              const IpczOSTransport* transport,
-                              uint32_t flags,
-                              const void* options,
-                              IpczHandle* portal) {
-  if (node == IPCZ_INVALID_HANDLE || !portal) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-  if (!transport || transport->size < sizeof(IpczOSTransport)) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  os::Channel channel = os::Channel::FromIpczOSTransport(*transport);
-  mem::Ref<core::Portal> new_portal;
-  IpczResult result = ToRef<core::Node>(node).AcceptRemotePortal(
-      std::move(channel), new_portal);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  *portal = ToHandle(new_portal.release());
   return IPCZ_RESULT_OK;
 }
 
@@ -371,9 +353,8 @@ constexpr IpczAPI kCurrentAPI = {
     sizeof(kCurrentAPI),
     CreateNode,
     DestroyNode,
+    ConnectNode,
     OpenPortals,
-    OpenRemotePortal,
-    AcceptRemotePortal,
     ClosePortal,
     QueryPortalStatus,
     Put,

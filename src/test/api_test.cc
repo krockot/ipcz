@@ -4,6 +4,8 @@
 
 #include "test/api_test.h"
 
+#include "drivers/multiprocess_reference_driver.h"
+#include "drivers/single_process_reference_driver.h"
 #include "test/test_client.h"
 
 namespace ipcz {
@@ -25,7 +27,8 @@ APITest::APITest() {
   if (!TestClient::InClientProcess()) {
     flags |= IPCZ_CREATE_NODE_AS_BROKER;
   }
-  ipcz.CreateNode(flags, nullptr, &node_);
+  ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+                  IPCZ_INVALID_DRIVER_HANDLE, flags, nullptr, &node_);
   OpenPortals(&q, &p);
 }
 
@@ -34,39 +37,105 @@ APITest::~APITest() {
   ipcz.DestroyNode(node_, IPCZ_NO_FLAGS, nullptr);
 }
 
-void APITest::OpenPortals(IpczHandle* a, IpczHandle* b) {
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node_, IPCZ_NO_FLAGS, nullptr, a, b));
+IpczHandle APITest::CreateSingleProcessNode(IpczCreateNodeFlags flags) {
+  IpczHandle node;
+  ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+                  IPCZ_INVALID_DRIVER_HANDLE, flags, nullptr, &node);
+  return node;
 }
 
-IpczHandle APITest::OpenRemotePortal(IpczHandle node, TestClient& client) {
-  return OpenRemotePortal(node, client.channel(), client.process());
+void APITest::CreateSingleProcessTransports(IpczDriverHandle* first,
+                                            IpczDriverHandle* second) {
+  drivers::kSingleProcessReferenceDriver.CreateTransports(
+      IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr, first, second);
 }
 
-IpczHandle APITest::OpenRemotePortal(IpczHandle node,
-                                     os::Channel& channel,
-                                     const os::Process& process) {
-  os::Channel::OSTransportWithHandle transport;
-  os::Channel::ToOSTransport(std::move(channel), transport);
+IpczHandle APITest::ConnectNode(IpczHandle node,
+                                IpczDriverHandle driver_transport,
+                                const os::Process& process,
+                                IpczConnectNodeFlags flags) {
+  IpczOSProcessHandle ipcz_process = {sizeof(ipcz_process)};
+  const bool has_process =
+      process.is_valid() &&
+      os::Process::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
 
+  const uint32_t num_initial_portals = 1;
+  IpczHandle initial_portal;
+  IpczResult result = ipcz.ConnectNode(
+      node, driver_transport, has_process ? &ipcz_process : nullptr,
+      num_initial_portals, flags, nullptr, &initial_portal);
+  ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  return initial_portal;
+}
+
+IpczHandle APITest::ConnectToBroker(IpczHandle node,
+                                    IpczDriverHandle driver_transport) {
+  return ConnectNode(node, driver_transport, os::Process(),
+                     IPCZ_CONNECT_NODE_TO_BROKER);
+}
+
+IpczHandle APITest::ConnectToNonBroker(IpczHandle node,
+                                       IpczDriverHandle driver_transport,
+                                       const os::Process& process) {
+  return ConnectNode(node, driver_transport, process, IPCZ_NO_FLAGS);
+}
+
+void APITest::ConnectSingleProcessBrokerToNonBroker(
+    IpczHandle broker,
+    IpczHandle non_broker,
+    IpczHandle* broker_portal,
+    IpczHandle* non_broker_portal) {
+  IpczDriverHandle transport0;
+  IpczDriverHandle transport1;
+  CreateSingleProcessTransports(&transport0, &transport1);
+  *broker_portal =
+      ConnectToNonBroker(broker, transport0, os::Process::GetCurrent());
+  *non_broker_portal = ConnectToBroker(non_broker, transport1);
+}
+
+IpczHandle APITest::CreateMultiprocessNode(IpczCreateNodeFlags flags) {
+  IpczHandle node;
+  ipcz.CreateNode(&drivers::kMultiprocessReferenceDriver,
+                  IPCZ_INVALID_DRIVER_HANDLE, flags, nullptr, &node);
+  return node;
+}
+
+IpczDriverHandle APITest::CreateMultiprocessTransport(os::Channel& channel) {
+  IpczOSHandle os_handle;
+  if (!os::Handle::ToIpczOSHandle(channel.TakeHandle(), &os_handle)) {
+    return IPCZ_INVALID_DRIVER_HANDLE;
+  }
+
+  IpczDriverHandle transport;
+  IpczResult result =
+      drivers::kMultiprocessReferenceDriver.DeserializeTransport(
+          IPCZ_INVALID_DRIVER_HANDLE, nullptr, 0, &os_handle, 1, nullptr,
+          IPCZ_NO_FLAGS, nullptr, &transport);
+  if (result != IPCZ_RESULT_OK) {
+    return IPCZ_INVALID_DRIVER_HANDLE;
+  }
+
+  return transport;
+}
+
+IpczHandle APITest::ConnectNode(IpczHandle node, TestClient& client) {
+  return ConnectNode(node, client.channel(), client.process());
+}
+
+IpczHandle APITest::ConnectNode(IpczHandle node,
+                                os::Channel& channel,
+                                const os::Process& process) {
   IpczOSProcessHandle ipcz_process = {sizeof(ipcz_process)};
   os::Process::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
 
-  IpczHandle portal;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenRemotePortal(node, &transport, &ipcz_process,
-                                  IPCZ_NO_FLAGS, nullptr, &portal));
-  return portal;
+  // TODO
+
+  return IPCZ_INVALID_HANDLE;
 }
 
-IpczHandle APITest::AcceptRemotePortal(IpczHandle node, os::Channel& channel) {
-  os::Channel::OSTransportWithHandle transport;
-  os::Channel::ToOSTransport(std::move(channel), transport);
-  IpczHandle portal;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.AcceptRemotePortal(node, &transport, IPCZ_NO_FLAGS, nullptr,
-                                    &portal));
-  return portal;
+void APITest::OpenPortals(IpczHandle* a, IpczHandle* b) {
+  ASSERT_EQ(IPCZ_RESULT_OK,
+            ipcz.OpenPortals(node_, IPCZ_NO_FLAGS, nullptr, a, b));
 }
 
 void APITest::Put(IpczHandle portal,

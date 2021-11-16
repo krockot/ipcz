@@ -2,9 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "debug/log.h"
 #include "ipcz/ipcz.h"
-#include "os/channel.h"
 #include "os/process.h"
 #include "test/api_test.h"
 #include "test/test_client.h"
@@ -16,15 +14,9 @@ namespace {
 using RemotePortalTest = test::APITest;
 
 TEST_F(RemotePortalTest, BasicConnection) {
-  IpczHandle other_node;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
-
-  os::Channel local, remote;
-  std::tie(local, remote) = os::Channel::CreateChannelPair();
-
-  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
-  IpczHandle b = AcceptRemotePortal(other_node, remote);
+  IpczHandle a, b;
+  IpczHandle other_node = CreateSingleProcessNode();
+  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
 
   const std::string kMessageFromA = "hello!";
   const std::string kMessageFromB = "hey hey";
@@ -47,14 +39,9 @@ TEST_F(RemotePortalTest, BasicConnection) {
 }
 
 TEST_F(RemotePortalTest, TransferLocalPortal) {
-  IpczHandle other_node;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
-
-  os::Channel local, remote;
-  std::tie(local, remote) = os::Channel::CreateChannelPair();
-  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
-  IpczHandle b = AcceptRemotePortal(other_node, remote);
+  IpczHandle a, b;
+  IpczHandle other_node = CreateSingleProcessNode();
+  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
 
   IpczHandle c, d;
   OpenPortals(&c, &d);
@@ -88,14 +75,9 @@ TEST_F(RemotePortalTest, TransferLocalPortal) {
 }
 
 TEST_F(RemotePortalTest, TransferManyLocalPortals) {
-  IpczHandle other_node;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
-
-  os::Channel local, remote;
-  std::tie(local, remote) = os::Channel::CreateChannelPair();
-  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
-  IpczHandle b = AcceptRemotePortal(other_node, remote);
+  IpczHandle a, b;
+  IpczHandle other_node = CreateSingleProcessNode();
+  ConnectSingleProcessBrokerToNonBroker(node(), other_node, &a, &b);
 
   constexpr uint32_t kNumIterations = 100;
   for (uint32_t i = 0; i < kNumIterations; ++i) {
@@ -139,21 +121,15 @@ TEST_F(RemotePortalTest, TransferManyLocalPortals) {
 }
 
 TEST_F(RemotePortalTest, MultipleHops) {
-  IpczHandle node0, node1, node2;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node0));
-  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
-  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
+  IpczHandle node0 = CreateSingleProcessNode(IPCZ_CREATE_NODE_AS_BROKER);
+  IpczHandle node1 = CreateSingleProcessNode();
+  IpczHandle node2 = CreateSingleProcessNode();
 
-  os::Channel link01, link10;
-  std::tie(link01, link10) = os::Channel::CreateChannelPair();
-  IpczHandle a = OpenRemotePortal(node0, link01, os::Process::GetCurrent());
-  IpczHandle b = AcceptRemotePortal(node1, link10);
+  IpczHandle a, b;
+  ConnectSingleProcessBrokerToNonBroker(node0, node1, &a, &b);
 
-  os::Channel link02, link20;
-  std::tie(link02, link20) = os::Channel::CreateChannelPair();
-  IpczHandle c = OpenRemotePortal(node0, link02, os::Process::GetCurrent());
-  IpczHandle d = AcceptRemotePortal(node2, link20);
+  IpczHandle c, d;
+  ConnectSingleProcessBrokerToNonBroker(node0, node2, &c, &d);
 
   // Send `f` from node1 to node0 and then from node0 to node2
   IpczHandle e, f1;
@@ -188,24 +164,24 @@ TEST_F(RemotePortalTest, MultipleHops) {
   ipcz.DestroyNode(node2, IPCZ_NO_FLAGS, nullptr);
 }
 
-TEST_F(RemotePortalTest, AcceptThenSendAndClose) {
-  // Covers the case where a new remote portal is accepted and then it
-  // immediately sends a parcel and closes itself. Verifies that in this case
-  // the sent parcel is actually delivered to its destination.
-  IpczHandle other_node;
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &other_node));
+TEST_F(RemotePortalTest, SendAndCloseFromBufferingNonBroker) {
+  // Covers the case where a newly connected non-broker node sends a parcel on
+  // one of the initial portals and then closes the portal immediately. The test
+  // verifies that the parcel is eventually delivered once the peer node
+  // completes the connection process.
+  IpczHandle other_node = CreateSingleProcessNode();
 
-  os::Channel local, remote;
-  std::tie(local, remote) = os::Channel::CreateChannelPair();
+  IpczDriverHandle transport0, transport1;
+  CreateSingleProcessTransports(&transport0, &transport1);
 
-  IpczHandle b = AcceptRemotePortal(other_node, remote);
+  IpczHandle b = ConnectToBroker(other_node, transport1);
 
   const std::string kMessage = "woot";
   Put(b, kMessage, {}, {});
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
 
-  IpczHandle a = OpenRemotePortal(node(), local, os::Process::GetCurrent());
+  IpczHandle a =
+      ConnectToNonBroker(node(), transport0, os::Process::GetCurrent());
 
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
@@ -219,22 +195,14 @@ TEST_F(RemotePortalTest, MultipleHopsThenSendAndClose) {
   // Covers the case where a new remote portal is accepted and then it
   // immediately sends a parcel and closes itself. Verifies that in this case
   // the sent parcel is actually delivered to its destination.
-  IpczHandle node1;
-  IpczHandle node2;
-  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node1));
-  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, &node2));
+  IpczHandle node1 = CreateSingleProcessNode();
+  IpczHandle node2 = CreateSingleProcessNode();
 
-  os::Channel local1, remote1;
-  std::tie(local1, remote1) = os::Channel::CreateChannelPair();
+  IpczHandle a, b;
+  ConnectSingleProcessBrokerToNonBroker(node(), node1, &a, &b);
 
-  IpczHandle a = OpenRemotePortal(node(), local1, os::Process::GetCurrent());
-  IpczHandle b = AcceptRemotePortal(node1, remote1);
-
-  os::Channel local2, remote2;
-  std::tie(local2, remote2) = os::Channel::CreateChannelPair();
-
-  IpczHandle c = OpenRemotePortal(node(), local2, os::Process::GetCurrent());
-  IpczHandle d = AcceptRemotePortal(node2, remote2);
+  IpczHandle c, d;
+  ConnectSingleProcessBrokerToNonBroker(node(), node2, &c, &d);
 
   IpczHandle e, f1;
   ipcz.OpenPortals(node1, IPCZ_NO_FLAGS, nullptr, &e, &f1);
@@ -266,7 +234,9 @@ const std::string kMultiprocessMessageFromB = "hey hey";
 
 TEST_F(RemotePortalTest, BasicMultiprocess) {
   test::TestClient client("BasicMultiprocessClient");
-  IpczHandle a = OpenRemotePortal(node(), client.channel(), client.process());
+  IpczHandle node = CreateMultiprocessNode(IPCZ_CREATE_NODE_AS_BROKER);
+  IpczHandle a = ConnectToNonBroker(
+      node, CreateMultiprocessTransport(client.channel()), client.process());
 
   Put(a, kMultiprocessMessageFromA, {}, {});
 
@@ -275,10 +245,12 @@ TEST_F(RemotePortalTest, BasicMultiprocess) {
   EXPECT_EQ(kMultiprocessMessageFromB, p.message);
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
-  IpczHandle b = AcceptRemotePortal(node(), c);
+  IpczHandle node = CreateMultiprocessNode();
+  IpczHandle b = ConnectToBroker(node, CreateMultiprocessTransport(c));
   Put(b, kMultiprocessMessageFromB, {}, {});
 
   Parcel p;
@@ -293,6 +265,7 @@ TEST_CLIENT_F(RemotePortalTest, BasicMultiprocessClient, c) {
   EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED | IPCZ_PORTAL_STATUS_DEAD,
             status.flags);
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

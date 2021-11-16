@@ -19,6 +19,8 @@
 
 #define IPCZ_MSG_BEGIN(name, version_decl) \
   struct IPCZ_ALIGN(8) name##_Params {     \
+    name##_Params();                       \
+    ~name##_Params();                      \
     version_decl;                          \
     internal::StructHeader header;
 

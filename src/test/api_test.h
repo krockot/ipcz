@@ -55,12 +55,34 @@ class APITest : public testing::Test {
     }
   }
 
+  IpczHandle CreateSingleProcessNode(IpczCreateNodeFlags flags = IPCZ_NO_FLAGS);
+  void CreateSingleProcessTransports(IpczDriverHandle* first,
+                                     IpczDriverHandle* second);
+
+  IpczHandle ConnectNode(IpczHandle node,
+                         IpczDriverHandle driver_transport,
+                         const os::Process& process,
+                         IpczCreateNodeFlags flags);
+  IpczHandle ConnectToBroker(IpczHandle node,
+                             IpczDriverHandle driver_transport);
+  IpczHandle ConnectToNonBroker(IpczHandle node,
+                                IpczDriverHandle driver_transport,
+                                const os::Process& process);
+  void ConnectSingleProcessBrokerToNonBroker(IpczHandle broker,
+                                             IpczHandle non_broker,
+                                             IpczHandle* broker_portal,
+                                             IpczHandle* non_broker_portal);
+
+  IpczHandle CreateMultiprocessNode(IpczCreateNodeFlags flags = IPCZ_NO_FLAGS);
+  IpczDriverHandle CreateMultiprocessTransport(os::Channel& channel);
+
+  IpczHandle ConnectNode(IpczHandle node, TestClient& client);
+  IpczHandle ConnectNode(IpczHandle node,
+                         os::Channel& channel,
+                         const os::Process& process = {});
+
   void OpenPortals(IpczHandle* a, IpczHandle* b);
-  IpczHandle OpenRemotePortal(IpczHandle node, TestClient& client);
-  IpczHandle OpenRemotePortal(IpczHandle node,
-                              os::Channel& channel,
-                              const os::Process& process);
-  IpczHandle AcceptRemotePortal(IpczHandle node, os::Channel& channel);
+
   void Put(IpczHandle portal,
            const std::string& str,
            absl::Span<IpczHandle> portals = {},

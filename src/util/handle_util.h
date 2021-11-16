@@ -17,12 +17,17 @@ IpczHandle ToHandle(T* ptr) {
 }
 
 template <typename T>
-T* ToPtr(IpczHandle handle) {
+IpczDriverHandle ToDriverHandle(T* ptr) {
+  return static_cast<IpczDriverHandle>(reinterpret_cast<uintptr_t>(ptr));
+}
+
+template <typename T, typename HandleType>
+T* ToPtr(HandleType handle) {
   return reinterpret_cast<T*>(static_cast<uintptr_t>(handle));
 }
 
-template <typename T>
-T& ToRef(IpczHandle handle) {
+template <typename T, typename HandleType>
+T& ToRef(HandleType handle) {
   return *ToPtr<T>(handle);
 }
 

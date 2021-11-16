@@ -12,8 +12,8 @@
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
+#include "core/transport.h"
 #include "ipcz/ipcz.h"
-#include "os/channel.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -52,6 +52,7 @@ namespace msg {
 
 // hack
 static constexpr uint8_t kAcceptParcelId = 1;
+static constexpr uint8_t kIntroduceNodeId = 4;
 
 }  // namespace msg
 }  // namespace core

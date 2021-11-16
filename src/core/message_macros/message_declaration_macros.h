@@ -23,7 +23,7 @@
     name();                                                     \
     ~name();                                                    \
     void Serialize();                                           \
-    bool Deserialize(os::Channel::Message&);                    \
+    bool Deserialize(const Transport::Message&);                \
     internal::MessageHeader header;                             \
     name##_Params params;                                       \
                                                                 \

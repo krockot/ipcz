@@ -36,7 +36,7 @@
         absl::MakeSpan(&handle_storage[0], kNumHandles),                \
         absl::MakeSpan(&handle_data.handles[0], kNumHandles));          \
   }                                                                     \
-  bool name::Deserialize(os::Channel::Message& message) {               \
+  bool name::Deserialize(const Transport::Message& message) {           \
     using HandleData = decltype(handle_data);                           \
     return internal::DeserializeData(                                   \
                message.data, kVersion,                                  \

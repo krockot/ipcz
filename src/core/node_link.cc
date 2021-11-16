@@ -18,13 +18,14 @@
 #include "core/portal_link_state.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
+#include "core/transport.h"
 #include "core/trap_event_dispatcher.h"
-#include "debug/log.h"
-#include "os/channel.h"
+#include "ipcz/ipcz.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
+#include "util/handle_util.h"
 
 namespace ipcz {
 namespace core {
@@ -40,50 +41,98 @@ struct IPCZ_ALIGN(8) AcceptParcelHeader {
   uint32_t num_os_handles;
 };
 
+struct IPCZ_ALIGN(16) IntroduceNodeHeader {
+  internal::MessageHeader message_header;
+  bool known : 1;
+  NodeName name;
+  uint32_t num_transport_bytes;
+  uint32_t num_transport_os_handles;
+};
+
 }  // namespace
 
 NodeLink::NodeLink(Node& node,
-                   os::Channel channel,
+                   mem::Ref<Transport> transport,
                    os::Process remote_process,
                    Node::Type remote_node_type)
     : node_(mem::WrapRefCounted(&node)),
       remote_node_type_(remote_node_type),
-      channel_(std::make_unique<os::Channel>(std::move(channel))),
+      transport_(std::move(transport)),
       remote_process_(std::move(remote_process)) {}
 
 NodeLink::NodeLink(Node& node,
                    const NodeName& local_name,
                    const NodeName& remote_name,
-                   os::Channel channel,
+                   mem::Ref<Transport> transport,
                    os::Memory::Mapping link_state_mapping)
     : node_(mem::WrapRefCounted(&node)),
       remote_node_type_(Node::Type::kNormal),
+      transport_(std::move(transport)),
       local_name_(local_name),
       remote_name_(remote_name),
       remote_protocol_version_(0),
-      channel_(std::make_unique<os::Channel>(std::move(channel))),
       link_state_mapping_(std::move(link_state_mapping)) {}
 
 NodeLink::~NodeLink() = default;
 
-void NodeLink::Listen() {
-  absl::MutexLock lock(&mutex_);
-  channel_->Listen([this](os::Channel::Message message) {
-    return this->OnMessage(message);
-  });
+IpczResult NodeLink::Activate() {
+  mutex_.AssertNotHeld();
+  return transport_->Activate(mem::WrapRefCounted(this));
 }
 
-void NodeLink::StopListening() {
-  std::unique_ptr<os::Channel> channel;
-  {
-    absl::MutexLock lock(&mutex_);
-    channel = std::move(channel_);
+IpczResult NodeLink::Deactivate() {
+  mutex_.AssertNotHeld();
+  return transport_->Deactivate();
+}
+
+bool NodeLink::OnMessageFromTransport(const Transport::Message& message) {
+  if (message.data.size() < sizeof(internal::MessageHeader)) {
+    return false;
   }
-  channel->StopListening();
+
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
+  if (header.size < sizeof(internal::MessageHeader)) {
+    return false;
+  }
+
+  if (header.is_reply) {
+    return OnReplyFromTransport(message);
+  }
+
+  switch (header.message_id) {
+#include "core/message_macros/message_dispatch_macros.h"
+#include "core/node_message_defs.h"
+
+#include "core/message_macros/undef_message_macros.h"
+
+    case msg::kAcceptParcelId:
+      return OnAcceptParcel(message);
+    case msg::kIntroduceNodeId:
+      return OnIntroduceNode(message);
+
+    default:
+      // Unknown message types may come from clients using a newer ipcz version.
+      // If they expect a reply, reply to indicate that we don't know what
+      // they're talking about. Otherwise we silently ignore the message.
+      if (header.expects_reply) {
+        internal::MessageHeader nope{sizeof(nope)};
+        nope.message_id = header.message_id;
+        nope.wont_reply = true;
+        nope.request_id = header.request_id;
+        Send(absl::MakeSpan(reinterpret_cast<uint8_t*>(&nope), sizeof(nope)));
+      }
+      return true;
+  }
+}
+
+IpczResult NodeLink::OnTransportError() {
+  return IPCZ_RESULT_OK;
 }
 
 mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
-                                  const NodeName& remote_name) {
+                                  const NodeName& remote_name,
+                                  absl::Span<IpczHandle> initial_portals) {
   os::Memory portal_link_state_memory(sizeof(PortalLinkState));
   os::Memory::Mapping portal_link_state_mapping =
       portal_link_state_memory.Map();
@@ -93,23 +142,33 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
   os::Memory::Mapping node_link_state_mapping = node_link_state_memory.Map();
   NodeLinkState& node_link_state =
       NodeLinkState::Initialize(node_link_state_mapping.base());
+  RoutingId first_portal_routing_id =
+      node_link_state.AllocateRoutingIds(initial_portals.size());
+  const uint32_t num_portal_routing_ids =
+      static_cast<uint32_t>(initial_portals.size());
 
-  RoutingId routing_id;
+  for (IpczHandle& handle : initial_portals) {
+    auto portal = mem::MakeRefCounted<Portal>(node_, Side::kLeft);
+    handle = ToHandle(portal.release());
+  }
+
   mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(node_, Side::kLeft);
   mem::Ref<PortalLink> portal_link;
   msg::InviteNode invitation;
   {
     absl::MutexLock lock(&mutex_);
-    do {
-      routing_id = node_link_state.AllocateRoutingIds(1);
-    } while (!AssignRoutingId(routing_id, portal));
+    for (size_t i = 0; i < initial_portals.size(); ++i) {
+      AssignRoutingId(first_portal_routing_id + i,
+                      mem::WrapRefCounted(ToPtr<Portal>(initial_portals[i])));
+    }
     local_name_ = local_name;
     remote_name_ = remote_name;
     link_state_mapping_ = std::move(node_link_state_mapping);
     invitation.params.protocol_version = msg::kProtocolVersion;
     invitation.params.source_name = local_name;
     invitation.params.target_name = remote_name;
-    invitation.params.routing_id = routing_id;
+    invitation.params.first_portal_routing_id = first_portal_routing_id;
+    invitation.params.num_portal_routing_ids = num_portal_routing_ids;
     invitation.handles.node_link_state_memory =
         node_link_state_memory.TakeHandle();
     invitation.handles.portal_link_state_memory =
@@ -129,18 +188,23 @@ mem::Ref<Portal> NodeLink::Invite(const NodeName& local_name,
          return true;
        });
 
-  portal->ActivateFromBuffering(
-      mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this), routing_id,
-                                      std::move(portal_link_state_mapping)));
+  for (size_t i = 0; i < initial_portals.size(); ++i) {
+    ToRef<Portal>(initial_portals[i])
+        .ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
+            mem::WrapRefCounted(this), first_portal_routing_id + i,
+            std::move(portal_link_state_mapping)));
+  }
   return portal;
 }
 
-mem::Ref<Portal> NodeLink::AwaitInvitation() {
-  mem::Ref<Portal> portal = mem::MakeRefCounted<Portal>(node_, Side::kRight);
-
+void NodeLink::AwaitInvitation(absl::Span<IpczHandle> initial_portals) {
   absl::MutexLock lock(&mutex_);
-  portal_awaiting_invitation_ = portal;
-  return portal;
+  portals_awaiting_invitation_.resize(initial_portals.size());
+  for (size_t i = 0; i < initial_portals.size(); ++i) {
+    auto portal = mem::MakeRefCounted<Portal>(node_, Side::kRight);
+    portals_awaiting_invitation_[i] = portal;
+    initial_portals[i] = ToHandle(portal.release());
+  }
 }
 
 void NodeLink::RequestIntroduction(const NodeName& name,
@@ -323,36 +387,31 @@ void NodeLink::SetRemoteProtocolVersion(uint32_t version) {
 }
 
 void NodeLink::Send(absl::Span<uint8_t> data, absl::Span<os::Handle> handles) {
-  absl::MutexLock lock(&mutex_);
-  if (!channel_) {
-    return;
-  }
-  ABSL_ASSERT(channel_->is_valid());
   ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  channel_->Send(os::Channel::Message(os::Channel::Data(data), handles));
+  transport_->Transmit(Transport::Message(Transport::Data(data), handles));
 }
 
 void NodeLink::SendWithReplyHandler(absl::Span<uint8_t> data,
                                     absl::Span<os::Handle> handles,
                                     GenericReplyHandler reply_handler) {
-  absl::MutexLock lock(&mutex_);
-  if (!channel_) {
-    return;
-  }
-  ABSL_ASSERT(channel_->is_valid());
-  ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
-  internal::MessageHeader& header =
-      *reinterpret_cast<internal::MessageHeader*>(data.data());
-  header.request_id = next_request_id_.fetch_add(1, std::memory_order_relaxed);
-  PendingReply pending_reply(header.message_id, std::move(reply_handler));
-  while (
-      !header.request_id ||
-      !pending_replies_.try_emplace(header.request_id, std::move(pending_reply))
-           .second) {
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(data.size() >= sizeof(internal::MessageHeader));
+    internal::MessageHeader& header =
+        *reinterpret_cast<internal::MessageHeader*>(data.data());
     header.request_id =
         next_request_id_.fetch_add(1, std::memory_order_relaxed);
+    PendingReply pending_reply(header.message_id, std::move(reply_handler));
+    while (!header.request_id ||
+           !pending_replies_
+                .try_emplace(header.request_id, std::move(pending_reply))
+                .second) {
+      header.request_id =
+          next_request_id_.fetch_add(1, std::memory_order_relaxed);
+    }
   }
-  channel_->Send(os::Channel::Message(os::Channel::Data(data), handles));
+
+  Send(data, handles);
 }
 
 RoutingId NodeLink::AllocateRoutingIds(size_t count) {
@@ -383,46 +442,7 @@ mem::Ref<Portal> NodeLink::GetPortalForRoutingId(RoutingId id) {
   return it->second;
 }
 
-bool NodeLink::OnMessage(os::Channel::Message message) {
-  if (message.data.size() < sizeof(internal::MessageHeader)) {
-    return false;
-  }
-
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-  if (header.size < sizeof(internal::MessageHeader)) {
-    return false;
-  }
-
-  if (header.is_reply) {
-    return OnReply(message);
-  }
-
-  switch (header.message_id) {
-#include "core/message_macros/message_dispatch_macros.h"
-#include "core/node_message_defs.h"
-
-#include "core/message_macros/undef_message_macros.h"
-
-    case msg::kAcceptParcelId:
-      return OnAcceptParcel(message);
-
-    default:
-      // Unknown message types may come from clients using a newer ipcz version.
-      // If they expect a reply, reply to indicate that we don't know what
-      // they're talking about. Otherwise we silently ignore the message.
-      if (header.expects_reply) {
-        internal::MessageHeader nope{sizeof(nope)};
-        nope.message_id = header.message_id;
-        nope.wont_reply = true;
-        nope.request_id = header.request_id;
-        Send(absl::MakeSpan(reinterpret_cast<uint8_t*>(&nope), sizeof(nope)));
-      }
-      return true;
-  }
-}
-
-bool NodeLink::OnReply(os::Channel::Message message) {
+bool NodeLink::OnReplyFromTransport(const Transport::Message& message) {
   // TODO: make sure we get a validated header from OnMessage(), and separately
   // copy message data
   const auto& header =
@@ -468,24 +488,29 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
                              sizeof(NodeLinkState));
   os::Memory portal_link_state(std::move(m.handles.portal_link_state_memory),
                                sizeof(PortalLinkState));
-  mem::Ref<Portal> portal;
+
+  std::vector<mem::Ref<Portal>> portals_awaiting_invitation;
   {
     absl::MutexLock lock(&mutex_);
     if (remote_node_type_ == Node::Type::kBroker &&
-        portal_awaiting_invitation_ && !remote_name_.is_valid() &&
+        !portals_awaiting_invitation_.empty() && !remote_name_.is_valid() &&
         !local_name_.is_valid()) {
       remote_name_ = m.params.source_name;
       local_name_ = m.params.target_name;
       link_state_mapping_ = node_link_state.Map();
       if (node_->AcceptInvitationFromBroker(m.params.source_name,
-                                            m.params.target_name) &&
-          AssignRoutingId(m.params.routing_id, portal_awaiting_invitation_)) {
-        portal = std::move(portal_awaiting_invitation_);
+                                            m.params.target_name)) {
+        for (size_t i = 0; i < m.params.num_portal_routing_ids; ++i) {
+          AssignRoutingId(m.params.first_portal_routing_id + i,
+                          portals_awaiting_invitation_[i]);
+        }
+        portals_awaiting_invitation = std::move(portals_awaiting_invitation_);
+        portals_awaiting_invitation_.clear();
       }
     }
   }
 
-  const bool accepted = portal != nullptr;
+  const bool accepted = !portals_awaiting_invitation.empty();
   msg::InviteNode_Reply reply;
   reply.header.request_id = m.header.request_id;
   reply.params.protocol_version = msg::kProtocolVersion;
@@ -498,12 +523,17 @@ bool NodeLink::OnInviteNode(msg::InviteNode& m) {
     // initiate communication using the routing ID within
     // ActivateFromBuffering(), e.g. to flush outgoing parcels, and we need the
     // invitation reply to arrive first.
-    portal->ActivateFromBuffering(mem::MakeRefCounted<PortalLink>(
-        mem::WrapRefCounted(this), m.params.routing_id,
-        portal_link_state.Map()));
+    for (size_t i = 0; i < m.params.num_portal_routing_ids; ++i) {
+      portals_awaiting_invitation[i]->ActivateFromBuffering(
+          mem::MakeRefCounted<PortalLink>(mem::WrapRefCounted(this),
+                                          m.params.first_portal_routing_id + i,
+                                          portal_link_state.Map()));
+    }
   } else {
     absl::MutexLock lock(&mutex_);
-    routes_.erase(m.params.routing_id);
+    for (size_t i = 0; i < m.params.num_portal_routing_ids; ++i) {
+      routes_.erase(m.params.first_portal_routing_id + i);
+    }
   }
   return true;
 }
@@ -529,84 +559,31 @@ bool NodeLink::OnRequestIntroduction(msg::RequestIntroduction& m) {
   mem::Ref<NodeLink> peer = node_->GetLink(m.params.name);
   if (!node_->is_broker() || !peer) {
     // Give a response with no handles, indicating that the introduction failed.
-    msg::IntroduceNode introduction;
-    introduction.params.name = m.params.name;
-    Send(introduction);
+    IntroduceNodeHeader intro;
+    intro.message_header.size = sizeof(intro.message_header);
+    intro.message_header.message_id = msg::kIntroduceNodeId;
+    intro.name = m.params.name;
+    intro.known = false;
+    intro.num_transport_bytes = 0;
+    intro.num_transport_os_handles = 0;
+    Send(
+        absl::Span<uint8_t>(reinterpret_cast<uint8_t*>(&intro), sizeof(intro)));
     return true;
   }
 
-  os::Channel left, right;
-  std::tie(left, right) = os::Channel::CreateChannelPair();
+  Transport::Descriptor first;
+  Transport::Descriptor second;
+  IpczResult result = node_->CreateTransports(first, second);
+  if (result != IPCZ_RESULT_OK) {
+    return false;
+  }
 
   os::Memory link_state_memory(sizeof(NodeLinkState));
   os::Memory::Mapping link_state_mapping = link_state_memory.Map();
   NodeLinkState::Initialize(link_state_mapping.base());
 
-  msg::IntroduceNode requestor_intro;
-  requestor_intro.params.name = m.params.name;
-  requestor_intro.handles.channel = left.TakeHandle();
-  requestor_intro.handles.link_state_memory =
-      link_state_memory.Clone().TakeHandle();
-  Send(requestor_intro);
-
-  msg::IntroduceNode peer_intro;
-  peer_intro.params.name = requestor_name;
-  peer_intro.handles.channel = right.TakeHandle();
-  peer_intro.handles.link_state_memory = link_state_memory.TakeHandle();
-  peer->Send(peer_intro);
-  return true;
-}
-
-bool NodeLink::OnIntroduceNode(msg::IntroduceNode& m) {
-  if (remote_node_type_ != Node::Type::kBroker) {
-    return false;
-  }
-
-  if (!m.handles.channel.is_valid() ||
-      !m.handles.link_state_memory.is_valid()) {
-    DLOG(ERROR) << "Could not get introduction to " << m.params.name.ToString();
-    return true;
-  }
-
-  mem::Ref<NodeLink> link;
-  {
-    absl::MutexLock lock(&mutex_);
-    link = mem::MakeRefCounted<NodeLink>(
-        *node_, local_name_, m.params.name,
-        os::Channel(std::move(m.handles.channel)),
-        os::Memory(std::move(m.handles.link_state_memory),
-                   sizeof(NodeLinkState))
-            .Map());
-  }
-
-  if (!node_->AddLink(m.params.name, link)) {
-    // This introduction may have raced with a previous one and we may already
-    // have a link to the node. In that case, discard the link we just created
-    // and use the established link instead.
-    //
-    // It's also possible that in between the above failure and the GetLink()
-    // call here, we lose our connection to the named node. In that case `link`
-    // will be null and we'll behave below as if the introduction failed.
-    link = node_->GetLink(m.params.name);
-  } else {
-    link->Listen();
-  }
-
-  std::vector<RequestIntroductionCallback> callbacks;
-  {
-    absl::MutexLock lock(&mutex_);
-    auto it = pending_introductions_.find(m.params.name);
-    if (it == pending_introductions_.end()) {
-      return true;
-    }
-
-    callbacks = std::move(it->second);
-    it->second.clear();
-  }
-  for (auto& callback : callbacks) {
-    callback(link);
-  }
-
+  IntroduceNode(m.params.name, first, link_state_memory.Clone());
+  peer->IntroduceNode(requestor_name, second, std::move(link_state_memory));
   return true;
 }
 
@@ -660,7 +637,7 @@ bool NodeLink::OnInitiateProxyBypass(msg::InitiateProxyBypass& m) {
       /*notify_predecessor=*/true);
 }
 
-bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
+bool NodeLink::OnAcceptParcel(const Transport::Message& m) {
   if (m.data.size() < sizeof(AcceptParcelHeader)) {
     return false;
   }
@@ -724,6 +701,123 @@ bool NodeLink::OnAcceptParcel(os::Channel::Message m) {
 
   return receiver->AcceptParcelFromLink(*this, header.routing_id, parcel,
                                         dispatcher);
+}
+
+void NodeLink::IntroduceNode(const NodeName& name,
+                             Transport::Descriptor& transport_descriptor,
+                             os::Memory link_memory) {
+  absl::InlinedVector<uint8_t, sizeof(IntroduceNodeHeader) + 64>
+      serialized_data;
+  const uint32_t num_transport_bytes =
+      static_cast<uint32_t>(transport_descriptor.data.size());
+  const uint32_t num_transport_os_handles =
+      static_cast<uint32_t>(transport_descriptor.handles.size());
+  const size_t serialized_size =
+      sizeof(IntroduceNodeHeader) + num_transport_bytes +
+      sizeof(internal::OSHandleData) * num_transport_os_handles;
+
+  serialized_data.resize(serialized_size);
+  auto& intro = *reinterpret_cast<IntroduceNodeHeader*>(serialized_data.data());
+  intro.message_header.size = sizeof(intro.message_header);
+  intro.message_header.message_id = msg::kIntroduceNodeId;
+  intro.name = name;
+  intro.num_transport_bytes = num_transport_bytes;
+  intro.num_transport_os_handles = num_transport_os_handles;
+
+  memcpy(&intro + 1, transport_descriptor.data.data(), num_transport_bytes);
+
+  std::vector<os::Handle> os_handles(num_transport_os_handles + 1);
+  os_handles[0] = link_memory.TakeHandle();
+  for (size_t i = 0; i < transport_descriptor.handles.size(); ++i) {
+    os_handles[i + 1] = std::move(transport_descriptor.handles[i]);
+  }
+
+  // TODO: fill in OSHandleData
+
+  Send(absl::MakeSpan(serialized_data), absl::MakeSpan(os_handles));
+}
+
+bool NodeLink::OnIntroduceNode(const Transport::Message& m) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  if (m.data.size() < sizeof(IntroduceNodeHeader)) {
+    return false;
+  }
+
+  const auto& intro =
+      *reinterpret_cast<const IntroduceNodeHeader*>(m.data.data());
+  if (m.handles.size() < intro.num_transport_os_handles + 1) {
+    return false;
+  }
+
+  if (m.data.size() < sizeof(IntroduceNodeHeader) + intro.num_transport_bytes) {
+    return false;
+  }
+
+  Transport::Descriptor descriptor;
+  descriptor.data.resize(intro.num_transport_bytes);
+  descriptor.handles.resize(intro.num_transport_os_handles);
+  memcpy(descriptor.data.data(), &intro + 1, intro.num_transport_bytes);
+
+  os::Memory link_memory;
+  os::Memory::Mapping link_state_mapping;
+  if (m.handles[0].is_valid()) {
+    link_memory = os::Memory(std::move(m.handles[0]), sizeof(NodeLinkState));
+    link_state_mapping = link_memory.Map();
+    for (size_t i = 0; i < intro.num_transport_os_handles; ++i) {
+      descriptor.handles[i] = std::move(m.handles[i + 1]);
+    }
+  }
+
+  os::Process process;
+  {
+    absl::MutexLock lock(&mutex_);
+    process = remote_process_.Clone();
+  }
+
+  IpczDriverHandle driver_transport;
+  IpczResult result =
+      node_->DeserializeTransport(process, descriptor, &driver_transport);
+  mem::Ref<NodeLink> link;
+  if (link_state_mapping.is_valid() && result == IPCZ_RESULT_OK) {
+    auto transport = mem::MakeRefCounted<Transport>(node_, driver_transport);
+    absl::MutexLock lock(&mutex_);
+    link = mem::MakeRefCounted<NodeLink>(*node_, local_name_, intro.name,
+                                         std::move(transport),
+                                         std::move(link_state_mapping));
+  }
+
+  if (!link || !node_->AddLink(intro.name, link)) {
+    // This introduction may have raced with a previous one and we may already
+    // have a link to the node. In that case, discard the link we just created
+    // and use the established link instead.
+    //
+    // It's also possible that in between the above failure and the GetLink()
+    // call here, we lose our connection to the named node. In that case `link`
+    // will be null and we'll behave below as if the introduction failed.
+    link = node_->GetLink(intro.name);
+  } else {
+    link->Activate();
+  }
+
+  std::vector<RequestIntroductionCallback> callbacks;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = pending_introductions_.find(intro.name);
+    if (it == pending_introductions_.end()) {
+      return true;
+    }
+
+    callbacks = std::move(it->second);
+    it->second.clear();
+  }
+  for (auto& callback : callbacks) {
+    callback(link);
+  }
+
+  return true;
 }
 
 NodeLink::PendingReply::PendingReply() = default;

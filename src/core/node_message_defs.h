@@ -10,20 +10,21 @@
 // This needs to be incremented any time changes are made to these definitions.
 IPCZ_PROTOCOL_VERSION(0)
 
-// Message sent by the broker on any OS transport given to OpenRemotePortal().
-// This establishes one end of a primordial portal pair to another node. The
-// other node must call AcceptRemotePortal() so that it can expect and reply to
-// this message on its end of the same OS transport.
+// Message sent by the broker on any transport given to ConnectNode(). This
+// establishes an initial set of portals between the two nodes. The other node
+// must also call ConnectNode() on a correpsonding peer transport with
+// IPCZ_CONNECT_NODE_TO_BROKER so that it handles and replies to this message.
 IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, protocol_version)
   IPCZ_MSG_PARAM(NodeName, source_name)
   IPCZ_MSG_PARAM(NodeName, target_name)
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(RoutingId, first_portal_routing_id)
+  IPCZ_MSG_PARAM(uint32_t, num_portal_routing_ids)
   IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
   IPCZ_MSG_HANDLE_REQUIRED(portal_link_state_memory)
 IPCZ_MSG_END()
 
-// Reply sent by AcceptRemotePortal().
+// Reply sent by ConnectNode() with IPCZ_CONNECT_NODE_TO_BROKER.
 IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, protocol_version)
   IPCZ_MSG_PARAM(bool, accepted : 1)
@@ -46,22 +47,11 @@ IPCZ_MSG_END()
 // If the broker does not know the node named `name`, it will send an
 // IntroduceNode message back to the sender with empty handles, indicating
 // failure. Otherwise it will send an IntroduceNode message to both the sender
-// and the node identified by `name`, with opposite ends of the same os::Channel
+// and the node identified by `name`, with complementary transport descriptors
 // attached to each, and an os::Memory handle in `link_state_memory` which each
 // side can use to map a shared (zero-initialized) NodeLinkState.
 IPCZ_MSG_NO_REPLY(RequestIntroduction, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
-IPCZ_MSG_END()
-
-// Sent by a broker node to a non-broker node. Either both `channel` and
-// `link_state_memory` are valid or neither is. If not valid, this message
-// conveys that the broker does not know of a node named `name`. Otherwise the
-// provided handles can be used by the recipient to construct a new NodeLink for
-// immediate communication with the named node.
-IPCZ_MSG_NO_REPLY(IntroduceNode, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(NodeName, name)
-  IPCZ_MSG_HANDLE_OPTIONAL(channel)
-  IPCZ_MSG_HANDLE_OPTIONAL(link_state_memory)
 IPCZ_MSG_END()
 
 // Informs the recipient that its predecessor has become a half-proxy. In the
@@ -77,7 +67,7 @@ IPCZ_MSG_END()
 // This message is used to implement that decay operation. Once a full proxy
 // obtains a peer link to an active peer, it generates a random 128-bit key
 // as described on BypassProxy above and shares it in the peer link's shared
-// state. It also then sends this InitiateProxyRemoval message to its successor,
+// state. It also then sends this InitiateProxyBypass message to its successor,
 // with the same key and some information about its own peer link. The successor
 // then uses this information to construct and send a BypassProxy message to the
 // named peer.

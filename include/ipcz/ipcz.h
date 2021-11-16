@@ -107,45 +107,206 @@ struct IPCZ_ALIGN(8) IpczOSProcessHandle {
   uint64_t value;
 };
 
-// Enumeration to specify which type of platform-specific OS-level transport
-// object is identified by an IpczOSTransport structure. OS transports are used
-// with OpenRemotePortal() and AcceptRemotePortal() to bootstrap ipcz
-// communication between two nodes. See documentation on those functions.
-typedef uint32_t IpczOSTransportType;
+// An opaque handle value created by an IpczDriver implementation. ipcz uses
+// such handles to provide relevant context when calling back into the driver.
+typedef uint64_t IpczDriverHandle;
 
-// A UNIX domain socket. This is comprised of a single OS handle of type
-// IPCZ_OS_HANDLE_FILE_DESCRIPTOR, whose value is a file descriptor identifying
-// the socket to use.
-#define IPCZ_OS_TRANSPORT_UNIX_SOCKET ((IpczOSTransportType)0)
+#define IPCZ_INVALID_DRIVER_HANDLE ((IpczDriverHandle)0)
 
-// A Windows I/O object such as a named pipe, which supports WriteFile and
-// ReadFile APIs. This is comprised of a single OS handle of type
-// IPCZ_OS_HANDLE_WINDOWS, whose value is a HANDLE identifying the I/O object to
-// use.
-#define IPCZ_OS_TRANSPORT_WINDOWS_IO ((IpczOSTransportType)1)
+// Flags given to the ipcz activity handler by a driver transport to notify ipcz
+// about incoming data or state changes.
+typedef uint32_t IpczTransportActivityFlags;
 
-// A Fuchsia channel. This is comprised of a single OS handle of type
-// IPCZ_OS_HANDLE_FUCHSIA, whose value is a zx_handle_t identifying the Fuchsia
-// channel endpoint to use.
-#define IPCZ_OS_TRANSPORT_FUCHSIA_CHANNEL ((IpczOSTransportType)2)
+// If set, the driver encountered an uncoverable error using the transport and
+// ipcz should discard it.
+#define IPCZ_TRANSPORT_ACTIVITY_ERROR IPCZ_FLAG_BIT(0)
 
-// Describes an OS IPC transport which can be used to bootstrap a remote portal
-// between two processes. See OpenRemotePortal() and AcceptRemotePortal().
-struct IPCZ_ALIGN(8) IpczOSTransport {
-  // The exact size of this structure in bytes. Must be set accurately in any
-  // instance of this structure before passing it to an ipcz function.
+// If set, the driver is done using the ipcz transport and will no longer invoke
+// its activity handler. Driver transports must call this at some point to allow
+// ipcz to free associated resources.
+#define IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED IPCZ_FLAG_BIT(1)
+
+extern "C" {
+
+// Notifies ipcz of activity on a transport. `transport` must be a handle to a
+// transport which is currently activated. This handle is acquired exclusively
+// by the driver transport via an ipcz call to the driver's ActivateTransport(),
+// which also provides this handler to the driver.
+//
+// The driver must use this to feed incoming data and OS handles from the
+// transport to ipcz, or to inform ipcz of any error conditions resulting in
+// unexpected and irrecoverable dysfunction of the transport.
+//
+// If the driver encounters an unrecoverable error while performing I/O on the
+// transport, it should invoke this with the IPCZ_TRANSPORT_ACTIVITY_ERROR flag
+// to instigate immediate destruction of the transport.
+typedef IpczResult (*IpczTransportActivityHandler)(
+    IpczHandle transport,
+    const uint8_t* data,
+    uint32_t num_bytes,
+    const struct IpczOSHandle* os_handles,
+    uint32_t num_os_handles,
+    IpczTransportActivityFlags flags,
+    const void* options);
+
+// IpczDriver is a function table to be populated by the application and
+// provided to ipcz when creating a new node. The driver implements concrete
+// I/O operations to facilitate communication between nodes, giving embedding
+// systems full control over choice of OS-specific transport mechanisms and I/O
+// scheduling decisions.
+//
+// The driver API is meant to be used by both the application embedding ipcz,
+// particularly for creating transports to make initial contact between nodes,
+// as well as by ipcz itself to delegate creation and management of new
+// transports which ipcz brokers between nodes.
+struct IPCZ_ALIGN(8) IpczDriver {
+  // The exact size of this structure in bytes. Must be set accurately by the
+  // application before passing this structure to any ipcz API functions.
   uint32_t size;
 
-  // The type of transport described by this structure. See the definitions
-  // above. Not all types are supported on all platforms.
-  IpczOSTransportType type;
+  // Creates a new pair of entnagled bidirectional transports, returning them in
+  // `first_transport` and `second_transport`. Implementation of the transport
+  // is up to the driver, but:
+  //
+  //  - interconnecting nodes must use compatible driver implementations
+  //
+  //  - in a multiprocess environment, transports must be capable of
+  //    transmitting data and OS handles across a process boundary
+  //
+  //  - the handles and data comprising each transport should be fully
+  //    sufficient to operate the transport from another node if those handles
+  //    and data are moved there
+  //
+  //  - a transport is only activated once, and once it's activated it will
+  //    never be moved to another node
+  //
+  //  - once a transport is released, it is never re-activated by ipcz
+  //
+  // Transports created by this call are not necessarily used by the calling
+  // node, so the driver must not assume ownership or responsibility for them.
+  //
+  // `driver_node` is the application-provided driver-side handle assigned to
+  // the node when created with CreateNode().
+  //
+  // Returns IPCZ_RESULT_OK on success. Any other return value indicates
+  // failure.
+  IpczResult (*CreateTransports)(IpczDriverHandle driver_node,
+                                 uint32_t flags,
+                                 const void* options,
+                                 IpczDriverHandle* first_transport,
+                                 IpczDriverHandle* second_transport);
 
-  // An array of handles to any OS resources comprising this transport. See each
-  // type description for details regarding what kind of resource(s) must be
-  // given for each type.
-  const struct IpczOSHandle* handles;
-  uint32_t num_handles;
+  // Called by ipcz to request that the driver cease activity on the transport
+  // corresponding to `driver_transport` and clean up any associated resources.
+  // Once this is returns, both `driver_transport` and its corresponding
+  // `transport` IpczHandle (associated via ActivateTransport()) are
+  // invalidated.
+  IpczResult (*DestroyTransport)(IpczDriverHandle driver_transport,
+                                 uint32_t flags,
+                                 const void* options);
+
+  // Serializes a driver transport into a collection of bytes and handles which
+  // can be used to relocate it to another node -- possibly in another
+  // process -- where it can be deserialized by DeserializeTransport().
+  //
+  // On input, `*num_bytes` and `*num_os_handles` specify the amount of storage
+  // available in `data` and `os_handles` respectively. If insufficient to store
+  // the full serialized output, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  //
+  // In both success and failure cases, `*num_bytes` and `*num_os_handles` are
+  // updated with the exact amount of storage required for each before
+  // returning.
+  //
+  // If the caller's provided storage is sufficent, `data` and `os_handles` will
+  // be populated with the serialized transport, and this returns
+  // IPCZ_RESULT_OK. In this case `driver_transport` is also invalidated.
+  //
+  // Drivers are allowed but not required to support serialization of a
+  // transport which has already been activated by ActivateTransport(). If
+  // SerializeTransport() is called on such a transport, the driver may return
+  // IPCZ_RESULT_FAILED_PRECONDITION.
+  IpczResult (*SerializeTransport)(IpczDriverHandle driver_transport,
+                                   uint32_t flags,
+                                   const void* options,
+                                   uint8_t* data,
+                                   uint32_t* num_bytes,
+                                   struct IpczOSHandle* os_handles,
+                                   uint32_t* num_os_handles);
+
+  // Deserializes a driver transport from a collection of bytes and handles
+  // which was originally produced by SerializeTransport(). The transport must
+  // not be activated before this returns.
+  //
+  // `driver_node` is the application-provided driver-side handle assigned to
+  // the node when created with CreateNode().
+  //
+  // If ipcz has a known process handle to the remote process on the other end
+  // of the transport, it's provided to the driver in `target_process`.
+  // Otherwise `target_process` is null.
+  //
+  // Any return value other than IPCZ_RESULT_OK indicates an error, and the
+  // transport will be dropped by ipcz. Otherwise ipcz will imminently activate
+  // the transport via a call to the driver's ActivateTransport().
+  IpczResult (*DeserializeTransport)(
+      IpczDriverHandle driver_node,
+      const uint8_t* data,
+      uint32_t num_bytes,
+      const IpczOSHandle* os_handles,
+      uint32_t num_os_handles,
+      const struct IpczOSProcessHandle* target_process,
+      uint32_t flags,
+      const void* options,
+      IpczDriverHandle* driver_transport);
+
+  // Called by ipcz to activate a transport. `driver_transport` is the
+  // driver-side handle assigned to the transport by the driver, either as given
+  // to ipcz via ConnectNode(), or as returned by the driver from an ipcz call
+  // out to CreateDriverTransport().
+  //
+  // `transport` is a handle the driver can use when calling NotifyTransport()
+  // to update ipcz regarding any incoming data or state changes from the
+  // transport.
+  //
+  // Before this returns, the driver should establish any I/O monitoring or
+  // scheduling state necessary to support operation of the endpoint, and once
+  // it returns ipcz may immediately begin making Transmit() calls on
+  // `driver_transport`.
+  //
+  // Any return value other than IPCZ_RESULT_OK indicates an error, and the
+  // endpoint will be dropped by ipcz. Otherwise the endpoint may be used
+  // immediately to accept or submit data, and it should continue to operate
+  // until ipcz calls DestroyDriverTransport() on `driver_transport`.
+  //
+  // The driver may elicit forced destruction of itself by calling
+  // NotifyTransport() with the flag IPCZ_NOTIFY_TRANSPORT_ERROR.
+  IpczResult (*ActivateTransport)(IpczDriverHandle driver_transport,
+                                  IpczHandle transport,
+                                  IpczTransportActivityHandler activity_handler,
+                                  uint32_t flags,
+                                  const void* options);
+
+  // Called by ipcz to delegate transmission of data and OS handles over the
+  // identified transport endpoint. If the driver cannot fulfill the request,
+  // it must return a result other than IPCZ_RESULT_OK, and this will cause the
+  // transport's connection to be severed.
+  //
+  // The net result of this transmission should be a corresponding
+  // NotifyTransport() invocation on the correpsonding remote transport endpoint
+  // by the driver on its node. It is the driver's responsibility to get any
+  // data and handles to the other endpoint.
+  //
+  // If ipcz only wants to wake the peer node rather than transmit data or
+  // handles, `num_bytes` and `num_os_handles` may both be zero.
+  IpczResult (*Transmit)(IpczDriverHandle driver_transport,
+                         const uint8_t* data,
+                         uint32_t num_bytes,
+                         const struct IpczOSHandle* os_handles,
+                         uint32_t num_os_handles,
+                         uint32_t flags,
+                         const void* options);
 };
+
+}  // extern "C"
 
 // See CreateNode() and the IPCZ_CREATE_NODE_* flag descriptions below.
 typedef uint32_t IpczCreateNodeFlags;
@@ -167,6 +328,25 @@ typedef uint32_t IpczCreateNodeFlags;
 //
 // ** See notes on DestroyNode() regarding destruction of broker nodes.
 #define IPCZ_CREATE_NODE_AS_BROKER IPCZ_FLAG_BIT(0)
+
+// See NotifyTransport() and the IPCZ_NOTIFY_TRANSPORT_* flag descriptions
+// below.
+typedef uint32_t IpczNotifyTransportFlags;
+
+// Indicates that the transport has encountered an unrecoverable error and I/O
+// is no longer possible. If this flag is given, ipcz may immediately re-enter
+// the driver via DestroyDriverTransport() before disconnecting the transport.
+// The node on the other end of the transport will no longer be reachable and
+// any portals relying on the transport will be disconnected.
+#define IPCZ_NOTIFY_TRANSPORT_ERROR IPCZ_FLAG_BIT(0)
+
+// See ConnectNode() and the IPCZ_CONNECT_NODE_* flag descriptions below.
+typedef uint32_t IpczConnectNodeFlags;
+
+// Indicates that the remote node for this connection is expected to be a broker
+// node, and it will be treated as such. Do not use this flag when connecting to
+// any untrusted process.
+#define IPCZ_CONNECT_NODE_TO_BROKER IPCZ_FLAG_BIT(0)
 
 // Optional limits provided by IpczPutOptions for Put() or IpczBeginPutOptions
 // for BeginPut().
@@ -398,6 +578,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // All other ipcz calls are scoped to a specific node, or to a more specific
   // object which is itself scoped to a specific node.
   //
+  // `driver` is the driver to use when coordinating internode communication.
+  // Nodes which will be interconnected must use the same or compatible driver
+  // implementations.
+  //
+  // `driver_node` is a driver-side handle to assign to the node throughout its
+  // lifetime. This handle provides the driver with additional context when ipcz
+  // makes driver API calls pertaining to a specific node.
+  //
   // If `flags` contains IPCZ_CREATE_NODE_AS_BROKER then the node will act as
   // the broker in its cluster of connected nodes. See details on that flag
   // description above.
@@ -409,8 +597,11 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if a new node was created. In this case, `*node` is
   //        populated with a valid node handle upon return.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is null.
-  IpczResult (*CreateNode)(IpczCreateNodeFlags flags,
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is null, or `driver` is null or
+  //        invalid.
+  IpczResult (*CreateNode)(const struct IpczDriver* driver,
+                           IpczDriverHandle driver_node,
+                           IpczCreateNodeFlags flags,
                            const void* options,
                            IpczHandle* node);
 
@@ -423,6 +614,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // ensure that no other threads are making ipcz calls on `node` concurrently
   // with this call, or any time thereafter since `node` will no longer be
   // valid.
+  //
+  // Once this call returns, ipcz will never invoke another driver API with this
+  // node's associated IpczDriverHandle assigned by the original CreateNode()
+  // call, assuming the assigned driver handle was unique to this node.
   //
   // `flags` is ignored and must be 0.
   //
@@ -442,6 +637,49 @@ struct IPCZ_ALIGN(8) IpczAPI {
                             uint32_t flags,
                             const void* options);
 
+  // Connects `node` to another node in the system using an application-provided
+  // driver transport handle in `driver_transport` for communication. If this
+  // call will succeed, ipcz will call back into the driver to activate this
+  // transport via ActivateTransport() before returning.
+  //
+  // The application is responsible for delivering the other endpoint of the
+  // transport to whatever other node will use it with its own corresponding
+  // ConnectNode() call.
+  //
+  // If the caller has a process handle to the process in which the other node
+  // lives, it should be provided in `target_process`. If `node` is a broker
+  // node, a valid process handle may be required on Windows for the transport
+  // to be fully operational.
+  //
+  // If IPCZ_CONNECT_NODE_TO_BROKER is given in `flags`, the remote node must
+  // be a broker node, and the calling node will treat it as such.
+  //
+  // The caller may establish any number of initial portals to be linked
+  // between the nodes as soon as the two-way connection is complete. On
+  // success, all returned portal handles are usable immediately by the
+  // application.
+  //
+  // Returns:
+  //
+  //    IPCZ_RESULT_OK if all arguments were valid and connection was initiated.
+  //        `num_portals` portal handles are populated in `portals` and can be
+  //        used immediately by the application.
+  //
+  //        Note that because connection is generally an asynchronous operation
+  //        it may still fail after this returns. If connection fails in this
+  //        case, any returned initial portals will eventually appear to have a
+  //        closed peer.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid, `num_initial_portals`
+  //        is zero, or `initial_portals` is null.
+  IpczResult (*ConnectNode)(IpczHandle node,
+                            IpczDriverHandle driver_transport,
+                            const struct IpczOSProcessHandle* target_process,
+                            uint32_t num_initial_portals,
+                            IpczConnectNodeFlags flags,
+                            const void* options,
+                            IpczHandle* initial_portals);
+
   // Opens two new portals which exist as each other's opposite.
   //
   // Data, other portals, and OS handles can be put in a portal with put
@@ -449,8 +687,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // can be retrieved in the same order by get operations (Get(), BeginGet(),
   // EndGet()) on the opposite portal.
   //
-  // To open a pair of portals which span two different nodes at creation time,
-  // use OpenRemotePortal() instead.
+  // To open portals which span two different nodes at creation time, see
+  // ConnectNode().
   //
   // `flags` is ignored and must be 0.
   //
@@ -470,118 +708,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
                             const void* options,
                             IpczHandle* portal0,
                             IpczHandle* portal1);
-
-  // Opens a new local portal which will be linked to an opposite portal in
-  // another node. The local portal is usable immediately, and the opposite
-  // portal is established asynchronously by another node making a corresponding
-  // call to AcceptRemotePortal().
-  //
-  // The application is responsible for establishing an appropriate
-  // platform-specific transport mechanism between this node and whatever node
-  // will accept the new portal. For example, on Linux an application may create
-  // a new UNIX domain socket pair via socketpair(), passing one end in this
-  // call's `transport` argument, while getting the other end to some other
-  // process in the system (for example, to a child process via fork()) which
-  // may then use that end of the socket pair with a corresponding
-  // AcceptRemotePortal() call on their own node.
-  //
-  // This function, in combination with AcceptRemotePortal(), is how new nodes
-  // are able to join an existing cluster of nodes. Due to the relative
-  // complexity and overhead of this setup though, most remote portals should
-  // not be created using these functions: instead these functions should be
-  // used only when necessary to bootstrap communication. Once a single remote
-  // portal is established, local portals can be efficiently transferred through
-  // it to become remote portals themselves.
-  //
-  // Note that `target_process` MAY be null on some platforms without causing
-  // any issues, but cross-platform should always provide it for maximum
-  // compatibility. This operation will always fail on Windows with
-  // IPCZ_RESULT_INVALID_ARGUMENT if `target_process` is null.
-  //
-  // NOTE: Portals created by this function are NON-TRANSFERRABLE and cannot be
-  // placed into other portals.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if portal creation was successful. `portal` is populated
-  //        with a handle to the new local portal on `node`. Note that creation
-  //        of the opposite portal may still be pending, and it will complete
-  //        only once some other node uses AcceptRemotePortal() on an OS
-  //        transport linked to the one given to this call. A successful result
-  //        therefore does not guarantee that the opposite portal will be fully
-  //        established. If a failure does occur before that happens, including
-  //        destruction or dysfunction of the underlying OS transport used, the
-  //        local portal will eventually behave as if its opposite portal has
-  //        been closed.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid, `portal` is null, or
-  //        `transport` does not specify a valid OS transport. This may also be
-  //        returned if `target_process` is null on platforms which require a
-  //        valid process handle.
-  //
-  //    IPCZ_RESULT_PERMISSION_DENIED if some OS-specific operation failed to
-  //        use `transport` as expected prior to this call returning, for some
-  //        reason directly related to user or application privileges within the
-  //        system (e.g. failure to duplicate an OS handle and write to an I/O
-  //        object).
-  //
-  //    IPCZ_RESULT_FAILED_UNKNOWN if some OS-specific operation failed to use
-  //        `transport` as expected prior to this call returning, for some
-  //        reason unrelated to user or application privileges within the
-  //        system.
-  IpczResult (*OpenRemotePortal)(
-      IpczHandle node,
-      const struct IpczOSTransport* transport,
-      const struct IpczOSProcessHandle* target_process,
-      uint32_t flags,
-      const void* options,
-      IpczHandle* portal);
-
-  // Accepts a new portal from a remote source. Upon success this returns a
-  // local portal handle which can be used immediately by the calling node. The
-  // opposite portal may already be established or will be established
-  // asynchronously by a remote node calling OpenRemotePortal() with an OS
-  // transport related to the `transport` given here (for example, the two
-  // transports may be either side of a UNIX domain socket pair.)
-  //
-  // See OpenRemotePortal() for additional details.
-  //
-  // NOTE: Portals created by this function are NON-TRANSFERRABLE and cannot be
-  // placed into other portals.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if local portal creation was successful, and asynchronous
-  //        establishment of the opposite portal was initiated. In this case
-  //        `*portal` is populated with a handle to the new local portal. See
-  //        additional notes on the IPCZ_RESULT_OK result of OpenRemotePortal().
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid, `portal` is null, or
-  //        `transport` does not specify a valid OS transport.
-  //
-  //    IPCZ_RESULT_PERMISSION_DENIED if some OS-specific operation failed to
-  //        use `transport` as expected prior to this call returning, for some
-  //        reason directly related to user or application privileges within the
-  //        system (e.g. failure to duplicate an OS handle and write to an I/O
-  //        object).
-  //
-  //    IPCZ_RESULT_FAILED_UNKNOWN if some OS-specific operation failed to use
-  //        `transport` as expected prior to this call returning, for some
-  //        reason unrelated to user or application privileges within the
-  //        system.
-  IpczResult (*AcceptRemotePortal)(IpczHandle node,
-                                   const struct IpczOSTransport* transport,
-                                   uint32_t flags,
-                                   const void* options,
-                                   IpczHandle* portal);
 
   // Closes the portal identified by `portal`.
   //
@@ -658,10 +784,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
   //        `num_bytes` is non-zero, `portals` is null but `num_portals` is
   //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
-  //        `options` is non-null but invalid, one of the portals in `portals`
-  //        is equal to `portal` its (local) opposite if applicable, or one of
-  //        the portals in `portals` was established via OpenRemotePortal() or
-  //        AcceptRemotePortal().
+  //        `options` is non-null but invalid, or one of the portals in
+  //        `portals` is equal to `portal` its (local) opposite if applicable.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
   //        least one of the specified limits would be violated by the

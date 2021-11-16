@@ -13,7 +13,8 @@ using CreateNodeAPITest = test::APITest;
 
 TEST_F(CreateNodeAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.CreateNode(IPCZ_NO_FLAGS, nullptr, nullptr));
+            ipcz.CreateNode(nullptr, IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS,
+                            nullptr, nullptr));
 }
 
 }  // namespace

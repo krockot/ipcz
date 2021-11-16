@@ -9,9 +9,9 @@
 namespace ipcz {
 namespace {
 
-using OpenRemotePortalAPITest = test::APITest;
+using ConnectNodeAPITest = test::APITest;
 
-TEST_F(OpenRemotePortalAPITest, InvalidArgs) {
+TEST_F(ConnectNodeAPITest, InvalidArgs) {
   // TODO
 }
 

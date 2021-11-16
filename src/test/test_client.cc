@@ -8,6 +8,7 @@
 #include <tuple>
 
 #include "build/build_config.h"
+#include "drivers/multiprocess_reference_driver.h"
 
 #if defined(OS_POSIX)
 #include <errno.h>

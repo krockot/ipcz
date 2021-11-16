@@ -50,13 +50,6 @@ class Channel {
     absl::Span<Handle> handles;
   };
 
-  struct OSTransportWithHandle : IpczOSTransport {
-    OSTransportWithHandle()
-        : IpczOSTransport{sizeof(OSTransportWithHandle), 0, &handle, 1} {}
-
-    IpczOSHandle handle = {sizeof(handle)};
-  };
-
   // Creates a new Channel using `handle` as the endpoint to manipulate with
   // platform-specific I/O operations.
   //
@@ -80,9 +73,6 @@ class Channel {
   bool is_valid() const { return handle_.is_valid(); }
 
   const Handle& handle() const { return handle_; }
-
-  static Channel FromIpczOSTransport(const IpczOSTransport& transport);
-  static bool ToOSTransport(Channel channel, OSTransportWithHandle& out);
 
   Handle TakeHandle();
 

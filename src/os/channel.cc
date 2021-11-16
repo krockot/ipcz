@@ -94,41 +94,6 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
 #endif
 }
 
-// static
-Channel Channel::FromIpczOSTransport(const IpczOSTransport& transport) {
-#if defined(OS_WIN)
-  if (transport.type != IPCZ_OS_TRANSPORT_WINDOWS_IO) {
-    return Channel();
-  }
-#elif defined(OS_FUCHSIA)
-  if (transport.type != IPCZ_OS_TRANSPORT_FUCHSIA_CHANNEL) {
-    return Channel();
-  }
-#elif defined(OS_POSIX)
-  if (transport.type != IPCZ_OS_TRANSPORT_UNIX_SOCKET) {
-    return Channel();
-  }
-#endif
-
-  if (transport.num_handles != 1 || !transport.handles) {
-    return Channel();
-  }
-
-  return Channel(Handle::FromIpczOSHandle(transport.handles[0]));
-}
-
-// static
-bool Channel::ToOSTransport(Channel channel, OSTransportWithHandle& out) {
-#if defined(OS_WIN)
-  out.type = IPCZ_OS_TRANSPORT_WINDOWS_IO;
-#elif defined(OS_FUCHSIA)
-  out.type = IPCZ_OS_TRANSPORT_FUCHSIA_CHANNEL;
-#elif defined(OS_POSIX)
-  out.type = IPCZ_OS_TRANSPORT_UNIX_SOCKET;
-#endif
-  return os::Handle::ToIpczOSHandle(channel.TakeHandle(), &out.handle);
-}
-
 Handle Channel::TakeHandle() {
   StopListening();
   return std::move(handle_);

@@ -16,8 +16,9 @@
 #include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/transport.h"
 #include "mem/ref_counted.h"
-#include "os/channel.h"
+#include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
@@ -34,8 +35,8 @@ class Portal;
 class PortalLink;
 
 // NodeLink provides both a client and service interface from one Node to
-// another via an os::Channel and potentially other negotiated media like shared
-// memory queues.
+// another via a driver-operated Transport and potentially other internally
+// negotiated media like shared memory queues.
 //
 // All messages defined by node_messages.h are implemented here and proxied to
 // the local Node with any relevant context derived from the remote node's
@@ -46,13 +47,13 @@ class PortalLink;
 // and decoding handles, and forwarding replies (and rejections) to callers.
 class NodeLink : public mem::RefCounted {
  public:
-  // Constructs a new NodeLink for Node to talk to a remote node via `channel`
+  // Constructs a new NodeLink for Node to talk to a remote node via `transport`
   // as the basic transport. If the caller has a handle to the remote process,
   // it should be passed in `remote_process`. Generally this is only necessary
   // for links initiated by the broker node or by nodes who wish to introduce
   // other new nodes (e.g. their own child processes) to the broker node.
   NodeLink(Node& node,
-           os::Channel channel,
+           mem::Ref<Transport> transport,
            os::Process remote_process,
            Node::Type remote_node_type);
 
@@ -61,7 +62,7 @@ class NodeLink : public mem::RefCounted {
   NodeLink(Node& node,
            const NodeName& local_name,
            const NodeName& remote_name,
-           os::Channel channel,
+           mem::Ref<Transport> transport,
            os::Memory::Mapping link_state_mapping);
 
   const mem::Ref<Node>& node() const { return node_; }
@@ -71,9 +72,26 @@ class NodeLink : public mem::RefCounted {
     return remote_name_;
   }
 
+  // Invokes the the driver to activate I/O on the underlying transport for this
+  // NodeLink. By the time this returns, it's possible for the driver to
+  // re-enter the NodeLink at any time via OnMessageFromTransport.
+  IpczResult Activate();
+
+  // Invokes the driver to deactivate I/O on the underlying transport. Once this
+  // is called, the transport cannot be re-activated.
+  IpczResult Deactivate();
+
+  // Generic entry point for all messages received from another node. While the
+  // memory addressed by `message` is guaranteed to be safely addressable, it
+  // may live in untrusted shared memory. No other validation is assumed by this
+  // method.
+  bool OnMessageFromTransport(const Transport::Message& message);
+  IpczResult OnTransportError();
+
   mem::Ref<Portal> Invite(const NodeName& local_name,
-                          const NodeName& remote_name);
-  mem::Ref<Portal> AwaitInvitation();
+                          const NodeName& remote_name,
+                          absl::Span<IpczHandle> initial_portals);
+  void AwaitInvitation(absl::Span<IpczHandle> initial_portals);
 
   using RequestIntroductionCallback =
       std::function<void(const mem::Ref<NodeLink>&)>;
@@ -126,10 +144,6 @@ class NodeLink : public mem::RefCounted {
                               Side side,
                               SequenceNumber sequence_length);
 
-  // Starts or stops listening for incoming messages.
-  void Listen();
-  void StopListening();
-
   void SetRemoteProtocolVersion(uint32_t version);
 
   // Sends a message which does not expect a reply.
@@ -175,14 +189,9 @@ class NodeLink : public mem::RefCounted {
 
   mem::Ref<Portal> GetPortalForRoutingId(RoutingId id);
 
-  // Generic entry point for all messages. While the memory addressed by
-  // `message` is guaranteed to be safely addressable, it may be untrusted
-  // shared memory. No other validation is assumed by this method.
-  bool OnMessage(os::Channel::Message message);
-
   // Generic entry point for message replies. Always dispatched to a
   // corresponding callback after some validation.
-  bool OnReply(os::Channel::Message message);
+  bool OnReplyFromTransport(const Transport::Message& message);
 
   // Strongly typed message handlers, dispatched by the generic OnMessage()
   // above. If these methods are invoked, the message is at least superficially
@@ -198,12 +207,16 @@ class NodeLink : public mem::RefCounted {
   bool OnInviteNode(msg::InviteNode& m);
   bool OnSideClosed(msg::SideClosed& m);
   bool OnRequestIntroduction(msg::RequestIntroduction& m);
-  bool OnIntroduceNode(msg::IntroduceNode& m);
   bool OnInitiateProxyBypass(msg::InitiateProxyBypass& m);
   bool OnBypassProxy(msg::BypassProxy& m);
   bool OnStopProxyingTowardSide(msg::StopProxyingTowardSide& m);
 
-  bool OnAcceptParcel(os::Channel::Message m);
+  bool OnAcceptParcel(const Transport::Message& m);
+
+  void IntroduceNode(const NodeName& name,
+                     Transport::Descriptor& transport_descriptor,
+                     os::Memory link_memory);
+  bool OnIntroduceNode(const Transport::Message& m);
 
   struct PendingReply {
     PendingReply();
@@ -219,19 +232,20 @@ class NodeLink : public mem::RefCounted {
 
   const mem::Ref<Node> node_;
   const Node::Type remote_node_type_;
+  const mem::Ref<Transport> transport_;
   std::atomic<uint16_t> next_request_id_{1};
 
   absl::Mutex mutex_;
   NodeName local_name_ ABSL_GUARDED_BY(mutex_);
   NodeName remote_name_ ABSL_GUARDED_BY(mutex_);
   absl::optional<uint32_t> remote_protocol_version_ ABSL_GUARDED_BY(mutex_);
-  std::unique_ptr<os::Channel> channel_ ABSL_GUARDED_BY(mutex_);
   os::Process remote_process_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<uint16_t, PendingReply> pending_replies_
       ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<RoutingId, mem::Ref<Portal>> routes_
       ABSL_GUARDED_BY(mutex_);
-  mem::Ref<Portal> portal_awaiting_invitation_ ABSL_GUARDED_BY(mutex_);
+  std::vector<mem::Ref<Portal>> portals_awaiting_invitation_
+      ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<NodeName, std::vector<RequestIntroductionCallback>>
       pending_introductions_ ABSL_GUARDED_BY(mutex_);
   os::Memory::Mapping link_state_mapping_ ABSL_GUARDED_BY(mutex_);

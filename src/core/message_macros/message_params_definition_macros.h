@@ -14,7 +14,9 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)
+#define IPCZ_MSG_BEGIN(name, version_decl)  \
+  name##_Params::name##_Params() = default; \
+  name##_Params::~name##_Params() = default;
 
 #define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
   IPCZ_MSG_BEGIN(name, version_decl)
