@@ -239,6 +239,7 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
   Parcel p;
   constexpr size_t kNumIterations = 8;
   for (size_t i = 0; i < kNumIterations; ++i) {
+    Put(c, "hi", {}, {});
     Put(a, "", {&d, 1}, {});
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
     ASSERT_EQ(1u, p.portals.size());
@@ -247,6 +248,8 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
     ASSERT_EQ(1u, p.portals.size());
     d = p.portals[0];
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
+    EXPECT_EQ("hi", p.message);
   }
 
   Put(c, "hello", {}, {});

@@ -204,7 +204,7 @@ class Portal : public mem::RefCounted {
   absl::Mutex mutex_;
 
   // Local cache of our current RoutingMode.
-  RoutingMode routing_mode_ = RoutingMode::kBuffering;
+  RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kBuffering;
 
   // Non-null if and only if this portal's peer is local to the same node. In
   // this case both portals are always locked together by any PortalLock
@@ -216,6 +216,9 @@ class Portal : public mem::RefCounted {
   // its outgoing parcels to a known peer on another node.
   mem::Ref<PortalLink> peer_link_ ABSL_GUARDED_BY(mutex_);
 
+  // If present, this links to the portal whose own transfer resulted in the
+  // existence of this portal: we are that portal's successor, it is our
+  // predecessor.
   mem::Ref<PortalLink> predecessor_link_ ABSL_GUARDED_BY(mutex_);
 
   // `successor_link_` is non-null if and only iff this Portal has been moved

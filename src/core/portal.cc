@@ -550,7 +550,8 @@ bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
   ABSL_ASSERT(peer_name.is_valid());
   if (peer_name == node_->GetName()) {
     // Special case, the peer is local to this node, so we shortcut the
-    // BypassProxy message.
+    // BypassProxy message and directly connect the new peers to each
+    // other.
 
     mem::Ref<Portal> local_peer =
         predecessor->node_link().GetPortalForRoutingId(peer_proxy_routing_id);
@@ -570,6 +571,7 @@ bool Portal::InitiateProxyBypass(NodeLink& requesting_node,
       local_peer_ = local_peer;
       local_peer->local_peer_ = mem::WrapRefCounted(this);
       local_peer->routing_mode_ = RoutingMode::kBuffering;
+      routing_mode_ = RoutingMode::kBuffering;
       sequence_length_before_peer_change =
           local_peer->next_outgoing_sequence_number_;
       peer_proxy_link = std::move(local_peer->peer_link_);
@@ -1087,6 +1089,7 @@ bool Portal::Deserialize(const mem::Ref<NodeLink>& from_node,
   }
 
   // For now we'll forward all parcels to our predecessor.
+  absl::MutexLock lock(&mutex_);
   routing_mode_ = RoutingMode::kActive;
   return true;
 }
@@ -1167,8 +1170,10 @@ IpczResult Portal::PutImpl(absl::Span<const uint8_t> data,
       parcel.SetPortals(std::move(portals));
       parcel.SetOSHandles(std::move(os_handles));
       local_peer_->incoming_parcels_.Push(std::move(parcel));
-      local_peer_->status_.num_local_parcels += 1;
-      local_peer_->status_.num_local_bytes += data.size();
+      local_peer_->status_.num_local_parcels =
+          local_peer_->incoming_parcels_.GetNumAvailableParcels();
+      local_peer_->status_.num_local_bytes =
+          local_peer_->incoming_parcels_.GetNumAvailableBytes();
 
       // TODO: poke peer's traps
 

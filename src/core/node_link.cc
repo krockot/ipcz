@@ -301,7 +301,7 @@ void NodeLink::AcceptParcel(RoutingId routing_id, Parcel& parcel) {
 
   // Don't set links on the local portals until we've sent the parcel, since
   // portals may immediately start sending messages pertaining to their routing
-  // ID. The routing IDisn't establlished on the remote side until the parcel
+  // ID. The routing ID isn't establlished on the remote side until the parcel
   // above is received there.
   for (size_t i = 0; i < num_portals; ++i) {
     if (descriptors[i].route_is_peer) {
