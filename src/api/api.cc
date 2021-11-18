@@ -7,8 +7,7 @@
 #include <memory>
 #include <tuple>
 
-#include "core/node.h"
-#include "core/portal.h"
+#include "core/new_impl.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/process.h"
@@ -50,9 +49,9 @@ IpczResult CreateNode(const IpczDriver* driver,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  auto node_ptr = mem::MakeRefCounted<core::Node>(
-      (flags & IPCZ_CREATE_NODE_AS_BROKER) != 0 ? core::Node::Type::kBroker
-                                                : core::Node::Type::kNormal,
+  auto node_ptr = mem::MakeRefCounted<core::ZNode>(
+      (flags & IPCZ_CREATE_NODE_AS_BROKER) != 0 ? core::ZNode::Type::kBroker
+                                                : core::ZNode::Type::kNormal,
       *driver, driver_node);
   *node = ToHandle(node_ptr.release());
   return IPCZ_RESULT_OK;
@@ -63,8 +62,8 @@ IpczResult DestroyNode(IpczHandle node, uint32_t flags, const void* options) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  mem::Ref<core::Node> doomed_node(mem::RefCounted::kAdoptExistingRef,
-                                   ToPtr<core::Node>(node));
+  mem::Ref<core::ZNode> doomed_node(mem::RefCounted::kAdoptExistingRef,
+                                    ToPtr<core::ZNode>(node));
   doomed_node->ShutDown();
   doomed_node.reset();
   return IPCZ_RESULT_OK;
@@ -98,10 +97,10 @@ IpczResult ConnectNode(IpczHandle node_handle,
     process = os::Process::FromIpczOSProcessHandle(*target_process);
   }
 
-  core::Node& node = ToRef<core::Node>(node_handle);
-  const core::Node::Type remote_node_type =
-      (flags & IPCZ_CONNECT_NODE_TO_BROKER) ? core::Node::Type::kBroker
-                                            : core::Node::Type::kNormal;
+  core::ZNode& node = ToRef<core::ZNode>(node_handle);
+  const core::ZNode::Type remote_node_type =
+      (flags & IPCZ_CONNECT_NODE_TO_BROKER) ? core::ZNode::Type::kBroker
+                                            : core::ZNode::Type::kNormal;
   return node.ConnectNode(
       driver_transport, remote_node_type, std::move(process),
       absl::Span<IpczHandle>(initial_portals, num_initial_portals));
@@ -116,7 +115,7 @@ IpczResult OpenPortals(IpczHandle node,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  core::Portal::Pair portals = ToRef<core::Node>(node).OpenPortals();
+  auto portals = ToRef<core::ZNode>(node).OpenPortals();
   *portal0 = ToHandle(portals.first.release());
   *portal1 = ToHandle(portals.second.release());
   return IPCZ_RESULT_OK;
@@ -129,8 +128,8 @@ IpczResult ClosePortal(IpczHandle portal, uint32_t flags, const void* options) {
 
   // The Portal may outlive this call, but it's no longer reachable through any
   // ipcz API calls.
-  mem::Ref<core::Portal> released_portal(mem::RefCounted::kAdoptExistingRef,
-                                         ToPtr<core::Portal>(portal));
+  mem::Ref<core::ZPortal> released_portal(mem::RefCounted::kAdoptExistingRef,
+                                          ToPtr<core::ZPortal>(portal));
   released_portal->Close();
   return IPCZ_RESULT_OK;
 }
@@ -146,7 +145,7 @@ IpczResult QueryPortalStatus(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).QueryStatus(*status);
+  return ToRef<core::ZPortal>(portal).QueryStatus(*status);
 }
 
 IpczResult Put(IpczHandle portal,
@@ -180,7 +179,7 @@ IpczResult Put(IpczHandle portal,
   }
 
   const auto* bytes = static_cast<const uint8_t*>(data);
-  return ToRef<core::Portal>(portal).Put(
+  return ToRef<core::ZPortal>(portal).Put(
       absl::MakeSpan(bytes, num_bytes), absl::MakeSpan(portals, num_portals),
       absl::MakeSpan(os_handles, num_os_handles), limits);
 }
@@ -209,7 +208,7 @@ IpczResult BeginPut(IpczHandle portal,
   if (!num_bytes) {
     num_bytes = &dummy_num_bytes;
   }
-  return ToRef<core::Portal>(portal).BeginPut(flags, limits, *num_bytes, data);
+  return ToRef<core::ZPortal>(portal).BeginPut(flags, limits, *num_bytes, data);
 }
 
 IpczResult EndPut(IpczHandle portal,
@@ -231,10 +230,10 @@ IpczResult EndPut(IpczHandle portal,
   }
 
   if (flags & IPCZ_END_PUT_ABORT) {
-    return ToRef<core::Portal>(portal).AbortPut();
+    return ToRef<core::ZPortal>(portal).AbortPut();
   }
 
-  return ToRef<core::Portal>(portal).CommitPut(
+  return ToRef<core::ZPortal>(portal).CommitPut(
       num_bytes_produced, absl::MakeSpan(portals, num_portals),
       absl::MakeSpan(os_handles, num_os_handles));
 }
@@ -261,7 +260,7 @@ IpczResult Get(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).Get(data, num_bytes, portals, num_portals,
+  return ToRef<core::ZPortal>(portal).Get(data, num_bytes, portals, num_portals,
                                          os_handles, num_os_handles);
 }
 
@@ -276,7 +275,7 @@ IpczResult BeginGet(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).BeginGet(data, num_bytes, num_portals,
+  return ToRef<core::ZPortal>(portal).BeginGet(data, num_bytes, num_portals,
                                               num_os_handles);
 }
 
@@ -299,10 +298,10 @@ IpczResult EndGet(IpczHandle portal,
   }
 
   if (flags & IPCZ_END_GET_ABORT) {
-    return ToRef<core::Portal>(portal).AbortGet();
+    return ToRef<core::ZPortal>(portal).AbortGet();
   }
 
-  return ToRef<core::Portal>(portal).CommitGet(
+  return ToRef<core::ZPortal>(portal).CommitGet(
       num_bytes_consumed, portals, num_portals, os_handles, num_os_handles);
 }
 
@@ -320,7 +319,7 @@ IpczResult CreateTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).CreateTrap(*conditions, handler, context,
+  return ToRef<core::ZPortal>(portal).CreateTrap(*conditions, handler, context,
                                                 *trap);
 }
 
@@ -334,7 +333,7 @@ IpczResult ArmTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).ArmTrap(trap, satisfied_condition_flags,
+  return ToRef<core::ZPortal>(portal).ArmTrap(trap, satisfied_condition_flags,
                                              status);
 }
 
@@ -346,7 +345,7 @@ IpczResult DestroyTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).DestroyTrap(trap);
+  return ToRef<core::ZPortal>(portal).DestroyTrap(trap);
 }
 
 constexpr IpczAPI kCurrentAPI = {

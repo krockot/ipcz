@@ -263,7 +263,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // to ipcz via ConnectNode(), or as returned by the driver from an ipcz call
   // out to CreateDriverTransport().
   //
-  // `transport` is a handle the driver can use when calling NotifyTransport()
+  // `transport` is a handle the driver can use when calling `activity_handler`
   // to update ipcz regarding any incoming data or state changes from the
   // transport.
   //
@@ -277,8 +277,12 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // immediately to accept or submit data, and it should continue to operate
   // until ipcz calls DestroyDriverTransport() on `driver_transport`.
   //
+  // Note that `activity_handler` invocations MUST be mutually exclusive,
+  // because transmissions from ipcz are expected to arrive and be processed
+  // strictly in-order.
+  //
   // The driver may elicit forced destruction of itself by calling
-  // NotifyTransport() with the flag IPCZ_NOTIFY_TRANSPORT_ERROR.
+  // `activity_handler` with the flag IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED.
   IpczResult (*ActivateTransport)(IpczDriverHandle driver_transport,
                                   IpczHandle transport,
                                   IpczTransportActivityHandler activity_handler,
@@ -290,10 +294,12 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // it must return a result other than IPCZ_RESULT_OK, and this will cause the
   // transport's connection to be severed.
   //
-  // The net result of this transmission should be a corresponding
-  // NotifyTransport() invocation on the correpsonding remote transport endpoint
-  // by the driver on its node. It is the driver's responsibility to get any
-  // data and handles to the other endpoint.
+  // The net result of this transmission should be an activity handler
+  // invocation on the correpsonding remote transport by the driver on its node.
+  // It is the driver's responsibility to get any data and handles to the other
+  // transport, and to ensure that all transmissions from transport end up
+  // invoking the activity handler on the peer transport in the same order they
+  // were transmitted.
   //
   // If ipcz only wants to wake the peer node rather than transmit data or
   // handles, `num_bytes` and `num_os_handles` may both be zero.
@@ -328,17 +334,6 @@ typedef uint32_t IpczCreateNodeFlags;
 //
 // ** See notes on DestroyNode() regarding destruction of broker nodes.
 #define IPCZ_CREATE_NODE_AS_BROKER IPCZ_FLAG_BIT(0)
-
-// See NotifyTransport() and the IPCZ_NOTIFY_TRANSPORT_* flag descriptions
-// below.
-typedef uint32_t IpczNotifyTransportFlags;
-
-// Indicates that the transport has encountered an unrecoverable error and I/O
-// is no longer possible. If this flag is given, ipcz may immediately re-enter
-// the driver via DestroyDriverTransport() before disconnecting the transport.
-// The node on the other end of the transport will no longer be reachable and
-// any portals relying on the transport will be disconnected.
-#define IPCZ_NOTIFY_TRANSPORT_ERROR IPCZ_FLAG_BIT(0)
 
 // See ConnectNode() and the IPCZ_CONNECT_NODE_* flag descriptions below.
 typedef uint32_t IpczConnectNodeFlags;

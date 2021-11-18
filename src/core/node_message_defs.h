@@ -10,25 +10,62 @@
 // This needs to be incremented any time changes are made to these definitions.
 IPCZ_PROTOCOL_VERSION(0)
 
+// Initial greeting sent by every node via the ConnectNode() API.
+IPCZ_MSG_NO_REPLY(Connect, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
+  // The highest protocol version known and desired by the sender.
+  IPCZ_MSG_PARAM(uint32_t, protocol_version)
+
+  // The name of the sending node. Names should be randomly generated once at
+  // the start of a node's lifetime. They are large and random for global
+  // uniqueness, not for security reasons.
+  IPCZ_MSG_PARAM(NodeName, name)
+
+  // The number of initial portals assumed on the sender's end of the
+  // connection. If there is a mismatch between the number sent by each node on
+  // an initial connection, the node which sent the larger number should behave
+  // as if its excess portals have observed peer closure.
+  IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
+
+  // An optional handle to a shared memory object which can be used to allocate
+  // chunks of shared state.
+  //
+  // TODO: decide on resolution here if both/neither ends provide a handle. for
+  // now, ConnectNode() only goes between broker and non-broker, and we adopt
+  // the convention that the broker always sends a handle and the non-broker
+  // never does. will need something better to support non-broker to non-broker
+  // ConnectNode().
+  //
+  // one idea would be to leave the transport in a state not suitable for portal
+  // operation until someone provides a memory object (if neither does); and to
+  // introduce a separate message for adding a new link buffer, which we'll need
+  // anyway. also if both send a memory handle, we could e.g. assign one as
+  // the primary and the other as an auxilliary buffer, based on the relative
+  // ordering of the `name` given on each side; but that requires both sides
+  // waiting for a Connect from the other side before parcels can flow in either
+  // direction, whereas otherwise at least one side could begin operating
+  // immediately.
+  IPCZ_MSG_HANDLE_OPTIONAL(link_state_memory)
+IPCZ_MSG_END()
+
 // Message sent by the broker on any transport given to ConnectNode(). This
 // establishes an initial set of portals between the two nodes. The other node
 // must also call ConnectNode() on a correpsonding peer transport with
 // IPCZ_CONNECT_NODE_TO_BROKER so that it handles and replies to this message.
-IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(uint32_t, protocol_version)
-  IPCZ_MSG_PARAM(NodeName, source_name)
-  IPCZ_MSG_PARAM(NodeName, target_name)
-  IPCZ_MSG_PARAM(RoutingId, first_portal_routing_id)
-  IPCZ_MSG_PARAM(uint32_t, num_portal_routing_ids)
-  IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
-  IPCZ_MSG_HANDLE_REQUIRED(portal_link_state_memory)
-IPCZ_MSG_END()
+//IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
+//  IPCZ_MSG_PARAM(uint32_t, protocol_version)
+//  IPCZ_MSG_PARAM(NodeName, source_name)
+//  IPCZ_MSG_PARAM(NodeName, target_name)
+//  IPCZ_MSG_PARAM(RoutingId, first_portal_routing_id)
+//  IPCZ_MSG_PARAM(uint32_t, num_portal_routing_ids)
+//  IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
+//  IPCZ_MSG_HANDLE_REQUIRED(portal_link_state_memory)
+//IPCZ_MSG_END()
 
-// Reply sent by ConnectNode() with IPCZ_CONNECT_NODE_TO_BROKER.
-IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(uint32_t, protocol_version)
-  IPCZ_MSG_PARAM(bool, accepted : 1)
-IPCZ_MSG_END()
+// // Reply sent by ConnectNode() with IPCZ_CONNECT_NODE_TO_BROKER.
+// IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
+//   IPCZ_MSG_PARAM(uint32_t, protocol_version)
+//   IPCZ_MSG_PARAM(bool, accepted : 1)
+// IPCZ_MSG_END()
 
 // Notifies a node that the side of the route which contains a link bound to
 // `routing_id` on this NodeLink has been closed. `sequence_length` is the total

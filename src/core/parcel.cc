@@ -6,7 +6,7 @@
 
 #include <utility>
 
-#include "core/portal.h"
+#include "core/new_impl.h"
 #include "util/handle_util.h"
 
 namespace ipcz {

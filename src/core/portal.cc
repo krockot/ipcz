@@ -75,6 +75,9 @@ bool MatchPortalLink(const mem::Ref<PortalLink>& portal_link,
 
 }  // namespace
 
+ZPortal::ZPortal(mem::Ref<Node> node, Side side)
+    : node_(std::move(node)), side_(side) {}
+
 Portal::Portal(mem::Ref<Node> node, Side side)
     : node_(std::move(node)), side_(side) {}
 
