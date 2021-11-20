@@ -51,15 +51,15 @@ IPCZ_MSG_END()
 // establishes an initial set of portals between the two nodes. The other node
 // must also call ConnectNode() on a correpsonding peer transport with
 // IPCZ_CONNECT_NODE_TO_BROKER so that it handles and replies to this message.
-//IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
+// IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
 //  IPCZ_MSG_PARAM(uint32_t, protocol_version)
 //  IPCZ_MSG_PARAM(NodeName, source_name)
 //  IPCZ_MSG_PARAM(NodeName, target_name)
 //  IPCZ_MSG_PARAM(RoutingId, first_portal_routing_id)
 //  IPCZ_MSG_PARAM(uint32_t, num_portal_routing_ids)
 //  IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
-//  IPCZ_MSG_HANDLE_REQUIRED(portal_link_state_memory)
-//IPCZ_MSG_END()
+//  IPCZ_MSG_HANDLE_REQUIRED(router_link_state_memory)
+// IPCZ_MSG_END()
 
 // // Reply sent by ConnectNode() with IPCZ_CONNECT_NODE_TO_BROKER.
 // IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))

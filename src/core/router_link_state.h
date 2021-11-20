@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_PORTAL_LINK_STATE_
-#define IPCZ_SRC_CORE_PORTAL_LINK_STATE_
+#ifndef IPCZ_SRC_CORE_ROUTER_LINK_STATE_
+#define IPCZ_SRC_CORE_ROUTER_LINK_STATE_
 
 #include <atomic>
 
@@ -22,10 +22,10 @@ namespace core {
 // instance of this structure is only shared between the two nodes on either
 // of a single PortalLink.
 //
-// TODO: PortalLinkState data should be rolled into NodeLinkState, and ideally
+// TODO: RouterLinkState data should be rolled into NodeLinkState, and ideally
 // each side would be stored in separate cache lines to avoid collisions: a side
 // only writes to its own state, and only reads from the other side's state.
-struct PortalLinkState {
+struct RouterLinkState {
   // The full shared state of a portal on one side of the link.
   struct SideState {
     SideState();
@@ -40,11 +40,11 @@ struct PortalLinkState {
     absl::uint128 bypass_key;
   };
 
-  // Provides guarded access to this PortalLinkState's data. Note that access is
+  // Provides guarded access to this RouterLinkState's data. Note that access is
   // guarded only by a spinlock, so keep accesses brief.
   class Locked {
    public:
-    Locked(PortalLinkState& state, Side side);
+    Locked(RouterLinkState& state, Side side);
     ~Locked();
 
     SideState& this_side() { return state_.sides_[side_]; }
@@ -52,15 +52,15 @@ struct PortalLinkState {
 
    private:
     const Side side_;
-    PortalLinkState& state_;
+    RouterLinkState& state_;
   };
 
-  PortalLinkState();
-  ~PortalLinkState();
+  RouterLinkState();
+  ~RouterLinkState();
 
-  // Initializes a new PortalLinkState at a given memory address and returns a
+  // Initializes a new RouterLinkState at a given memory address and returns a
   // reference to it.
-  static PortalLinkState& Initialize(void* where);
+  static RouterLinkState& Initialize(void* where);
 
  private:
   void Lock();
@@ -78,4 +78,4 @@ struct PortalLinkState {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_PORTAL_LINK_STATE_
+#endif  // IPCZ_SRC_CORE_ROUTER_LINK_STATE_

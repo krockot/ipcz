@@ -50,9 +50,25 @@ namespace msg {
 
 #pragma pack(pop)
 
-// hack
-static constexpr uint8_t kAcceptParcelId = 1;
-static constexpr uint8_t kIntroduceNodeId = 4;
+// hacks
+struct IPCZ_ALIGN(8) AcceptParcel {
+  static constexpr uint8_t kId = 1;
+  internal::MessageHeader message_header;
+  RoutingId routing_id;
+  SequenceNumber sequence_number;
+  uint32_t num_bytes;
+  uint32_t num_portals;
+  uint32_t num_os_handles;
+};
+
+struct IPCZ_ALIGN(16) IntroduceNode {
+  static constexpr uint8_t kId = 4;
+  internal::MessageHeader message_header;
+  bool known : 1;
+  NodeName name;
+  uint32_t num_transport_bytes;
+  uint32_t num_transport_os_handles;
+};
 
 }  // namespace msg
 }  // namespace core

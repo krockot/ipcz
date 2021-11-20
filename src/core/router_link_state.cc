@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/portal_link_state.h"
+#include "core/router_link_state.h"
 
 #include <cstring>
 #include <new>
@@ -11,30 +11,30 @@
 namespace ipcz {
 namespace core {
 
-PortalLinkState::SideState::SideState() = default;
+RouterLinkState::SideState::SideState() = default;
 
-PortalLinkState::SideState::~SideState() = default;
+RouterLinkState::SideState::~SideState() = default;
 
-PortalLinkState::Locked::Locked(PortalLinkState& state, Side side)
+RouterLinkState::Locked::Locked(RouterLinkState& state, Side side)
     : side_(side), state_(state) {
   state_.Lock();
 }
 
-PortalLinkState::Locked::~Locked() {
+RouterLinkState::Locked::~Locked() {
   state_.Unlock();
 }
 
-PortalLinkState::PortalLinkState() = default;
+RouterLinkState::RouterLinkState() = default;
 
-PortalLinkState::~PortalLinkState() = default;
+RouterLinkState::~RouterLinkState() = default;
 
 // static
-PortalLinkState& PortalLinkState::Initialize(void* where) {
-  memset(where, 0, sizeof(PortalLinkState));
-  return *(new (where) PortalLinkState());
+RouterLinkState& RouterLinkState::Initialize(void* where) {
+  memset(where, 0, sizeof(RouterLinkState));
+  return *(new (where) RouterLinkState());
 }
 
-void PortalLinkState::Lock() {
+void RouterLinkState::Lock() {
   for (;;) {
     size_t num_attempts_before_yield = 10;
     while (num_attempts_before_yield--) {
@@ -52,7 +52,7 @@ void PortalLinkState::Lock() {
   }
 }
 
-void PortalLinkState::Unlock() {
+void RouterLinkState::Unlock() {
   locked_.store(false, std::memory_order_release);
 }
 
