@@ -30,6 +30,7 @@ class OutgoingParcelQueue {
 
   bool empty() const { return parcels_.empty(); }
   size_t size() const { return size_; }
+  size_t data_size() const { return data_size_; }
 
   void clear();
   Parcel& front();
@@ -42,6 +43,7 @@ class OutgoingParcelQueue {
  private:
   std::forward_list<Parcel> parcels_;
   size_t size_ = 0;
+  size_t data_size_ = 0;
   std::forward_list<Parcel>::iterator last_parcel_{parcels_.before_begin()};
 };
 

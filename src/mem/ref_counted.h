@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <utility>
 
 namespace ipcz {
@@ -61,6 +62,17 @@ class Ref : public GenericRef {
   Ref(T* ptr) : GenericRef(ptr) {}
   Ref(decltype(RefCounted::kAdoptExistingRef), T* ptr)
       : GenericRef(RefCounted::kAdoptExistingRef, ptr) {}
+
+  template <typename U>
+  using EnableIfConvertible =
+      typename std::enable_if<std::is_convertible<U*, T*>::value>::type;
+
+  template <typename U, typename = EnableIfConvertible<U>>
+  Ref(const Ref<U>& other) : Ref(other.ptr_) {}
+
+  template <typename U, typename = EnableIfConvertible<U>>
+  Ref(Ref<U>&& other) noexcept
+      : Ref(RefCounted::kAdoptExistingRef, other.release()) {}
 
   T* get() const { return static_cast<T*>(ptr_); }
   T* operator->() const { return get(); }

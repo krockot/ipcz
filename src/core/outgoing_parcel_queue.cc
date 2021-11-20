@@ -14,7 +14,9 @@ namespace core {
 OutgoingParcelQueue::OutgoingParcelQueue() = default;
 
 OutgoingParcelQueue::OutgoingParcelQueue(OutgoingParcelQueue&& other)
-    : parcels_(std::move(other.parcels_)), size_(other.size_) {
+    : parcels_(std::move(other.parcels_)),
+      size_(other.size_),
+      data_size_(other.data_size_) {
   if (parcels_.empty()) {
     last_parcel_ = parcels_.before_begin();
   } else {
@@ -30,6 +32,7 @@ OutgoingParcelQueue& OutgoingParcelQueue::operator=(
   } else {
     parcels_ = std::move(other.parcels_);
     size_ = other.size_;
+    data_size_ = other.data_size_;
     last_parcel_ = other.last_parcel_;
     other.clear();
   }
@@ -41,6 +44,7 @@ OutgoingParcelQueue::~OutgoingParcelQueue() = default;
 void OutgoingParcelQueue::clear() {
   parcels_.clear();
   size_ = 0;
+  data_size_ = 0;
   last_parcel_ = parcels_.before_begin();
 }
 
@@ -59,6 +63,7 @@ Parcel OutgoingParcelQueue::pop() {
   Parcel parcel = std::move(parcels_.front());
   parcels_.pop_front();
   --size_;
+  data_size_ -= parcel.data_view().size();
   if (parcels_.empty()) {
     last_parcel_ = parcels_.before_begin();
   }
@@ -66,6 +71,7 @@ Parcel OutgoingParcelQueue::pop() {
 }
 
 void OutgoingParcelQueue::push(Parcel parcel) {
+  data_size_ += parcel.data_view().size();
   last_parcel_ = parcels_.insert_after(last_parcel_, std::move(parcel));
   ++size_;
 }
@@ -75,6 +81,7 @@ std::forward_list<Parcel> OutgoingParcelQueue::TakeParcels() {
   parcels_.clear();
   last_parcel_ = parcels_.before_begin();
   size_ = 0;
+  data_size_ = 0;
   return parcels;
 }
 

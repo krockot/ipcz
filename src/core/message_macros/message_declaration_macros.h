@@ -23,7 +23,7 @@
     name();                                                     \
     ~name();                                                    \
     void Serialize();                                           \
-    bool Deserialize(const Transport::Message&);                \
+    bool Deserialize(const DriverTransport::Message&);          \
     internal::MessageHeader header;                             \
     name##_Params params;                                       \
                                                                 \

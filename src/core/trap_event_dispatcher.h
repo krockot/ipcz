@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "core/trap.h"
+#include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 
 namespace ipcz {

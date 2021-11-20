@@ -350,16 +350,16 @@ struct IPCZ_ALIGN(8) IpczPutLimits {
   // passing the structure to any API functions.
   uint32_t size;
 
-  // If non-zero, this specifies the maximum number of parcels to allow in the
-  // portal's queue. If a Put() or BeginPut() call specifying this limit would
-  // cause the number of queued parcels to exceed this value, it will fail with
-  // IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // Specifies the maximum number of unread parcels to allow in a portal's
+  // queue. If a Put() or BeginPut() call specifying this limit would cause the
+  // receiver's number of number of queued unread parcels to exceed this value,
+  // the call will fail with IPCZ_RESULT_RESOURCE_EXHAUSTED.
   uint32_t max_queued_parcels;
 
-  // If non-zero, this specifies the maxmimum number of data bytes to allow in
-  // the portal's queue. If a Put() or BeginPut() call specifying this limit
-  // would cause the number of queued data bytes across all queued parcels to
-  // exceed this value, it will fail with IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // Specifies the maxmimum number of data bytes to allow in a portal's queue.
+  // If a Put() or BeginPut() call specifying this limit would cause the number
+  // of data bytes across all queued unread parcels to exceed this value, the
+  // call will fail with IPCZ_RESULT_RESOURCE_EXHAUSTED.
   uint32_t max_queued_bytes;
 };
 

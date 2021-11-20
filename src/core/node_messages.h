@@ -7,12 +7,12 @@
 
 #include <cstdint>
 
+#include "core/driver_transport.h"
 #include "core/message_internal.h"
 #include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
-#include "core/transport.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"

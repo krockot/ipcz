@@ -1,22 +1,28 @@
 #ifndef NEW_IMPL_H_
 #define NEW_IMPL_H_
 
+#include <atomic>
 #include <cstdint>
 #include <utility>
 
 #include "core/node_name.h"
+#include "core/parcel.h"
 #include "core/side.h"
+#include "core/trap.h"
+#include "core/trap_event_dispatcher.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
 
 class Router;
+class ZNodeLink;
 class ZPortal;
 
 class ZNode : public mem::RefCounted {
@@ -42,15 +48,31 @@ class ZNode : public mem::RefCounted {
  private:
   ~ZNode() override;
 
+  bool AddLink(const NodeName& remote_node_name, mem::Ref<ZNodeLink> link);
+
   const NodeName name_{NodeName::kRandom};
   const Type type_;
   const IpczDriver driver_;
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
+  absl::flat_hash_map<NodeName, mem::Ref<ZNodeLink>> node_links_
+      ABSL_GUARDED_BY(mutex_);
 };
 
-class ZPortal : public mem::RefCounted {
+class RouterObserver : public mem::RefCounted {
+ public:
+  virtual void OnPeerClosed(bool is_route_dead) = 0;
+  virtual void OnIncomingParcel(uint32_t num_available_parcels,
+                                uint32_t num_avialable_bytes) = 0;
+
+ protected:
+  ~RouterObserver() override = default;
+};
+
+struct ZPortalDescriptor;
+
+class ZPortal : public RouterObserver {
  public:
   ZPortal(mem::Ref<ZNode> node, mem::Ref<Router> router);
 
@@ -59,6 +81,8 @@ class ZPortal : public mem::RefCounted {
 
   static std::pair<mem::Ref<ZPortal>, mem::Ref<ZPortal>> CreatePair(
       mem::Ref<ZNode> node);
+
+  mem::Ref<ZPortal> Serialize(ZPortalDescriptor& descriptor);
 
   // ipcz portal API implementation:
   IpczResult Close();
@@ -106,8 +130,17 @@ class ZPortal : public mem::RefCounted {
  private:
   ~ZPortal() override;
 
+  // RouterObserver:
+  void OnPeerClosed(bool is_route_dead) override;
+  void OnIncomingParcel(uint32_t num_available_parcels,
+                        uint32_t num_avialable_bytes) override;
+
   const mem::Ref<ZNode> node_;
   const mem::Ref<Router> router_;
+
+  absl::Mutex mutex_;
+  IpczPortalStatus status_ = {sizeof(status_)};
+  TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core
