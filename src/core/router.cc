@@ -68,8 +68,10 @@ bool Router::WouldIncomingParcelExceedLimits(size_t data_size,
                                              const IpczPutLimits& limits) {
   absl::MutexLock lock(&mutex_);
   ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-  return incoming_parcels_.GetNumAvailableBytes() < limits.max_queued_bytes &&
-         incoming_parcels_.GetNumAvailableParcels() < limits.max_queued_parcels;
+  return incoming_parcels_.GetNumAvailableBytes() + data_size >
+             limits.max_queued_bytes &&
+         incoming_parcels_.GetNumAvailableParcels() >=
+             limits.max_queued_parcels;
 }
 
 IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
@@ -93,6 +95,7 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
     link = peer_ ? peer_ : predecessor_;
   }
 
+  ABSL_ASSERT(link);
   link->AcceptParcel(parcel);
   return IPCZ_RESULT_OK;
 }

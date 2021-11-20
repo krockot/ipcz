@@ -108,6 +108,15 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
+  {
+    absl::MutexLock lock(&mutex_);
+    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
+    status_.num_remote_parcels += 1;
+    status_.num_remote_bytes += static_cast<uint32_t>(data.size());
+  }
+
   std::vector<os::Handle> handles(os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
     handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
@@ -118,12 +127,14 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     for (os::Handle& handle : handles) {
       (void)handle.release();
     }
+
+    // smash that undo button
+    absl::MutexLock lock(&mutex_);
+    status_.num_remote_parcels -= 1;
+    status_.num_remote_bytes -= static_cast<uint32_t>(data.size());
     return result;
   }
 
-  absl::MutexLock lock(&mutex_);
-  status_.num_remote_parcels += 1;
-  status_.num_remote_bytes += static_cast<uint32_t>(data.size());
   return IPCZ_RESULT_OK;
 }
 
