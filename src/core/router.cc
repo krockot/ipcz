@@ -80,8 +80,7 @@ bool Router::WouldIncomingParcelExceedLimits(size_t data_size,
 IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
                                       Parcel::PortalVector& portals,
                                       std::vector<os::Handle>& os_handles) {
-  Parcel parcel(
-      outgoing_sequence_length_.fetch_add(1, std::memory_order_relaxed));
+  Parcel parcel;
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
@@ -89,6 +88,7 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
+    parcel.set_sequence_number(outgoing_sequence_length_++);
     if (routing_mode_ == RoutingMode::kBuffering) {
       buffered_parcels_.push(std::move(parcel));
       return IPCZ_RESULT_OK;

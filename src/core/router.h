@@ -5,7 +5,6 @@
 #ifndef IPCZ_SRC_CORE_ROUTER_H_
 #define IPCZ_SRC_CORE_ROUTER_H_
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -105,14 +104,16 @@ class Router : public mem::RefCounted {
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
 
  private:
+  friend class LocalRouterLink;
+
   ~Router() override;
 
   void FlushProxiedParcels();
 
   const Side side_;
-  std::atomic<SequenceNumber> outgoing_sequence_length_{0};
 
   absl::Mutex mutex_;
+  SequenceNumber outgoing_sequence_length_ = 0;
   mem::Ref<RouterObserver> observer_ ABSL_GUARDED_BY(mutex_);
   RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kBuffering;
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
