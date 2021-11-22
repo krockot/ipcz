@@ -107,12 +107,10 @@ void Router::CloseRoute() {
   mem::Ref<RouterLink> someone_who_cares;
   SequenceNumber sequence_length;
   {
-    RoutingMode routing_mode = RoutingMode::kClosed;
     absl::MutexLock lock(&mutex_);
-    std::swap(routing_mode, routing_mode_);
-    ABSL_ASSERT(routing_mode == RoutingMode::kBuffering ||
-                routing_mode == RoutingMode::kActive);
-    if (routing_mode == RoutingMode::kActive) {
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering ||
+                routing_mode_ == RoutingMode::kActive);
+    if (routing_mode_ == RoutingMode::kActive) {
       someone_who_cares = peer_ ? peer_ : predecessor_;
       sequence_length = outgoing_sequence_length_;
     }

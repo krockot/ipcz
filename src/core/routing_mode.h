@@ -28,13 +28,6 @@ enum RoutingMode : uint32_t {
   // are not handled.
   kBuffering = 1,
 
-  // The portal has been closed. It may still have outgoing parcels queued and
-  // pending transmission, but any incoming parcels destined for it should be
-  // discarded. A closed portal with outgoing parcels queued may persist until
-  // it is given a peer or predecessor link on which the parcels can be
-  // forwarded.
-  kClosed = 2,
-
   // The portal is in a half-proxying mode. This means it has both a peer and
   // successor link, and definitely no predecessor link. All incoming parcels
   // from the peer are forwarded to the successor, and no outgoing parcels are
@@ -47,7 +40,7 @@ enum RoutingMode : uint32_t {
   // A portal cannot enter half-proxy mode if its peer is currently buffering or
   // half-proxying. In such cases the moved portal will instead switch to
   // full-proxying mode.
-  kHalfProxy = 3,
+  kHalfProxy = 2,
 
   // The portal is in a full-proxying mode. This means it has a successor link
   // as well as EITHER a peer OR predecessor link; and like half-proxying mode,
@@ -61,7 +54,7 @@ enum RoutingMode : uint32_t {
   //
   // A full-proxying portal decays into a half-proxying portal as soon as it has
   // a peer link whose other side is not buffering or half-proxying.
-  kFullProxy = 4,
+  kFullProxy = 3,
 };
 
 }  // namespace core
