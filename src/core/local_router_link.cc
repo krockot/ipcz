@@ -50,8 +50,8 @@ RouterLinkState& LocalRouterLink::GetLinkState() {
   return state_->state();
 }
 
-bool LocalRouterLink::IsLocalLinkTo(Router& router) {
-  return state_->side(Opposite(side_)).get() == &router;
+mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
+  return state_->side(Opposite(side_));
 }
 
 bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,

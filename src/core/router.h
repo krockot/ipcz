@@ -27,6 +27,7 @@ namespace ipcz {
 namespace core {
 
 class NodeLink;
+struct PortalDescriptor;
 class RouterLink;
 class RouterObserver;
 
@@ -62,7 +63,16 @@ class Router : public mem::RefCounted {
   void CloseRoute();
 
   // Activates a buffering router, using `link` as its new peer link.
-  void Activate(mem::Ref<RouterLink> link);
+  void ActivateWithPeer(mem::Ref<RouterLink> link);
+
+  // Activates a buffering router, using `link` as its new predecessor link.
+  void ActivateWithPredecessor(mem::Ref<RouterLink> link);
+
+  // Provides the Router with a new successor link to which it should forward
+  // all incoming parcels. If the Router is in full proxying mode, it may also
+  // listen for outgoing parcels from the same link, to be forwarded to its peer
+  // or predecessor.
+  void BeginProxyingWithSuccessor(mem::Ref<RouterLink> link);
 
   // Accepts a parcel routed here from `link` via `routing_id`, which is
   // determined to be either an incoming or outgoing parcel based on the source
@@ -92,8 +102,12 @@ class Router : public mem::RefCounted {
                                    IpczOSHandle* os_handles,
                                    uint32_t* num_os_handles);
 
+  mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
+
  private:
   ~Router() override;
+
+  void FlushProxiedParcels();
 
   const Side side_;
   std::atomic<SequenceNumber> outgoing_sequence_length_{0};

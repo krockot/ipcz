@@ -6,6 +6,7 @@
 #define IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
 
 #include "core/routing_id.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 
 namespace ipcz {
@@ -18,6 +19,7 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   PortalDescriptor& operator=(const PortalDescriptor&);
   ~PortalDescriptor();
 
+  Side side;
   bool route_is_peer : 1;
   RoutingId new_routing_id;
 };

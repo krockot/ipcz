@@ -19,7 +19,6 @@ namespace ipcz {
 namespace core {
 
 class Node;
-struct PortalDescriptor;
 class Router;
 
 class Portal : public RouterObserver {
@@ -31,8 +30,6 @@ class Portal : public RouterObserver {
 
   static std::pair<mem::Ref<Portal>, mem::Ref<Portal>> CreatePair(
       mem::Ref<Node> node);
-
-  mem::Ref<Portal> Serialize(PortalDescriptor& descriptor);
 
   // ipcz portal API implementation:
   IpczResult Close();

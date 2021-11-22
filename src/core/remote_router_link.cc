@@ -16,6 +16,7 @@
 #include "core/parcel.h"
 #include "core/portal.h"
 #include "core/portal_descriptor.h"
+#include "core/router.h"
 #include "core/router_link_state.h"
 #include "core/routing_id.h"
 #include "ipcz/ipcz.h"
@@ -40,8 +41,8 @@ RouterLinkState& RemoteRouterLink::GetLinkState() {
   return node_link_->buffer().router_link_state(link_state_index_);
 }
 
-bool RemoteRouterLink::IsLocalLinkTo(Router& router) {
-  return false;
+mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
+  return nullptr;
 }
 
 bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
@@ -82,6 +83,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const RoutingId first_routing_id =
       node_link()->AllocateRoutingIds(num_portals);
   std::vector<os::Handle> os_handles;
+  std::vector<mem::Ref<Router>> routers(num_portals);
   std::vector<mem::Ref<RouterLink>> new_links(num_portals);
   os_handles.reserve(num_os_handles);
   for (size_t i = 0; i < num_portals; ++i) {
@@ -90,13 +92,20 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
         node_link()->buffer().router_link_state(routing_id);
     RouterLinkState::Initialize(&state);
     descriptors[i].new_routing_id = routing_id;
-    portals[i] = portals[i]->Serialize(descriptors[i]);
-    new_links[i] =
-        node_link()->AddRoute(routing_id, routing_id, portals[i]->router());
+    routers[i] = portals[i]->router()->Serialize(descriptors[i]);
+    new_links[i] = node_link()->AddRoute(routing_id, routing_id, routers[i]);
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
                         parcel.os_handles_view());
+
+  for (size_t i = 0; i < num_portals; ++i) {
+    if (descriptors[i].route_is_peer) {
+      routers[i]->ActivateWithPeer(std::move(new_links[i]));
+    } else {
+      routers[i]->BeginProxyingWithSuccessor(std::move(new_links[i]));
+    }
+  }
 }
 
 void RemoteRouterLink::AcceptRouteClosure(Side side,

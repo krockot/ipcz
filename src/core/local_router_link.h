@@ -26,7 +26,7 @@ class LocalRouterLink : public RouterLink {
 
   // RouterLink:
   RouterLinkState& GetLinkState() override;
-  bool IsLocalLinkTo(Router& router) override;
+  mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;

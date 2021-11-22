@@ -10,6 +10,7 @@
 #include "core/node.h"
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
+#include "core/portal.h"
 #include "core/portal_descriptor.h"
 #include "core/remote_router_link.h"
 #include "core/router.h"
@@ -103,7 +104,6 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   if (message.data.size() < sizeof(msg::AcceptParcel)) {
     return false;
   }
-
   const auto& accept =
       *reinterpret_cast<const msg::AcceptParcel*>(message.data.data());
   const uint32_t num_bytes = accept.num_bytes;
@@ -119,9 +119,17 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
 
   Parcel::PortalVector portals(num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
-    // TODO
+    const PortalDescriptor& descriptor = descriptors[i];
+    auto new_router = mem::MakeRefCounted<Router>(descriptor.side);
+    auto new_router_link = AddRoute(descriptor.new_routing_id,
+                                    descriptor.new_routing_id, new_router);
+    if (descriptor.route_is_peer) {
+      new_router->ActivateWithPeer(std::move(new_router_link));
+    } else {
+      new_router->ActivateWithPredecessor(std::move(new_router_link));
+    }
+    portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }
-  (void)descriptors;
 
   std::vector<os::Handle> os_handles(num_os_handles);
   for (size_t i = 0; i < num_os_handles; ++i) {

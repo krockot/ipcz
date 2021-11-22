@@ -8,11 +8,13 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <forward_list>
 #include <utility>
 #include <vector>
 
 #include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
+#include "core/portal_descriptor.h"
 #include "core/router_link.h"
 #include "core/router_observer.h"
 #include "core/routing_id.h"
@@ -25,6 +27,36 @@
 
 namespace ipcz {
 namespace core {
+
+namespace {
+
+// Scopes acquisition of two locks simultaneously. Locks are acquired in order
+// of ascending Mutex address for globally consistent ordering.
+class ABSL_SCOPED_LOCKABLE TwoMutexLock {
+ public:
+  TwoMutexLock(absl::Mutex& a, absl::Mutex& b)
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(&a, &b)
+      : a_(a), b_(b) {
+    if (&a_ < &b_) {
+      a_.Lock();
+      b_.Lock();
+    } else {
+      b_.Lock();
+      a_.Lock();
+    }
+  }
+
+  ~TwoMutexLock() ABSL_UNLOCK_FUNCTION() {
+    a_.Unlock();
+    b_.Unlock();
+  }
+
+ private:
+  absl::Mutex& a_;
+  absl::Mutex& b_;
+};
+
+}  // namespace
 
 Router::Router(Side side) : side_(side) {}
 
@@ -42,7 +74,7 @@ mem::Ref<RouterObserver> Router::GetObserver() {
 
 bool Router::HasLocalPeer(const mem::Ref<Router>& router) {
   absl::MutexLock lock(&mutex_);
-  return peer_ && peer_->IsLocalLinkTo(*router);
+  return peer_ && peer_->GetLocalTarget() == router;
 }
 
 bool Router::WouldOutgoingParcelExceedLimits(size_t data_size,
@@ -120,19 +152,41 @@ void Router::CloseRoute() {
   }
 }
 
-void Router::Activate(mem::Ref<RouterLink> link) {
-  OutgoingParcelQueue parcels;
+void Router::ActivateWithPeer(mem::Ref<RouterLink> link) {
+  std::forward_list<Parcel> parcels;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
-    routing_mode_ = RoutingMode::kActive;
     peer_ = link;
-    parcels = std::move(buffered_parcels_);
+    routing_mode_ = RoutingMode::kActive;
+    parcels = buffered_parcels_.TakeParcels();
   }
 
-  for (Parcel& parcel : parcels.TakeParcels()) {
+  for (Parcel& parcel : parcels) {
     link->AcceptParcel(parcel);
   }
+}
+
+void Router::ActivateWithPredecessor(mem::Ref<RouterLink> link) {
+  absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(!predecessor_);
+  ABSL_ASSERT(!peer_);
+  ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
+  ABSL_ASSERT(buffered_parcels_.empty());
+  predecessor_ = link;
+  routing_mode_ = RoutingMode::kActive;
+}
+
+void Router::BeginProxyingWithSuccessor(mem::Ref<RouterLink> link) {
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(!successor_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kHalfProxy ||
+                routing_mode_ == RoutingMode::kFullProxy);
+    ABSL_ASSERT(predecessor_ || routing_mode_ == RoutingMode::kHalfProxy);
+  }
+
+  FlushProxiedParcels();
 }
 
 bool Router::AcceptParcelFrom(NodeLink& link,
@@ -245,6 +299,84 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   parcel.Consume(portals, os_handles);
   return IPCZ_RESULT_OK;
+}
+
+mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
+  descriptor.side = side_;
+
+  // The fast path for a local pair being split is to directly establish a new
+  // peer link to the destination, rather than proxying. First we acquire a
+  // ref to the local peer Router, if there is one.
+  mem::Ref<Router> local_peer;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (peer_) {
+      local_peer = peer_->GetLocalTarget();
+    }
+  }
+
+  if (local_peer) {
+    // Note that by the time we acquire both locks here, the pair may have been
+    // split by another thread serializing the peer for transmission elsewhere,
+    // so we need to first verify that the pair is still intact. If it's not we
+    // fall back to the normal proxying path.
+    TwoMutexLock lock(local_peer->mutex_, mutex_);
+    if (local_peer->peer_ && local_peer->peer_->GetLocalTarget() == this) {
+      // Temporarily place the peer in buffering mode so that it can't transmit
+      // any parcels to its new remote peer until this descriptor is
+      // transmitted, since the remote peer doesn't exist until then.
+      local_peer->routing_mode_ = RoutingMode::kBuffering;
+      local_peer->peer_ = nullptr;
+      ABSL_ASSERT(local_peer->buffered_parcels_.empty());
+
+      Parcel p;
+      while (incoming_parcels_.Pop(p)) {
+        local_peer->buffered_parcels_.push(std::move(p));
+      }
+
+      descriptor.route_is_peer = true;
+      return local_peer;
+    }
+  }
+
+  absl::MutexLock lock(&mutex_);
+  routing_mode_ = RoutingMode::kFullProxy;
+  descriptor.route_is_peer = false;
+  return mem::WrapRefCounted(this);
+}
+
+void Router::FlushProxiedParcels() {
+  mem::Ref<RouterLink> where_to_forward_incoming_parcels;
+  mem::Ref<RouterLink> where_to_forward_outgoing_parcels;
+  std::forward_list<Parcel> outgoing_parcels;
+  std::vector<Parcel> incoming_parcels;
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy ||
+                routing_mode_ == RoutingMode::kHalfProxy);
+    ABSL_ASSERT(peer_ || predecessor_);
+    if (!buffered_parcels_.empty()) {
+      ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy);
+      where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
+      outgoing_parcels = buffered_parcels_.TakeParcels();
+    }
+
+    ABSL_ASSERT(successor_);
+    incoming_parcels.reserve(incoming_parcels_.GetNumAvailableParcels());
+    Parcel parcel;
+    while (incoming_parcels_.Pop(parcel)) {
+      incoming_parcels.push_back(std::move(parcel));
+    }
+    where_to_forward_incoming_parcels = successor_;
+  }
+
+  for (Parcel& parcel : outgoing_parcels) {
+    where_to_forward_outgoing_parcels->AcceptParcel(parcel);
+  }
+
+  for (Parcel& parcel : incoming_parcels) {
+    where_to_forward_incoming_parcels->AcceptParcel(parcel);
+  }
 }
 
 }  // namespace core

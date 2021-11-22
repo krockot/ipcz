@@ -24,7 +24,7 @@ struct RouterLinkState;
 class RouterLink : public mem::RefCounted {
  public:
   virtual RouterLinkState& GetLinkState() = 0;
-  virtual bool IsLocalLinkTo(Router& router) = 0;
+  virtual mem::Ref<Router> GetLocalTarget() = 0;
   virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;
   virtual bool WouldParcelExceedLimits(size_t data_size,
                                        const IpczPutLimits& limits) = 0;

@@ -15,6 +15,7 @@
 #include "core/local_router_link.h"
 #include "core/node.h"
 #include "core/parcel.h"
+#include "core/portal_descriptor.h"
 #include "core/router.h"
 #include "core/side.h"
 #include "core/trap.h"
@@ -70,14 +71,9 @@ std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Portal::CreatePair(
   mem::Ref<LocalRouterLink> right_link;
   std::tie(left_link, right_link) =
       LocalRouterLink::CreatePair(left->router(), right->router());
-  left->router()->Activate(std::move(left_link));
-  right->router()->Activate(std::move(right_link));
+  left->router()->ActivateWithPeer(std::move(left_link));
+  right->router()->ActivateWithPeer(std::move(right_link));
   return {std::move(left), std::move(right)};
-}
-
-mem::Ref<Portal> Portal::Serialize(PortalDescriptor& descriptor) {
-  // TODO
-  return mem::WrapRefCounted(this);
 }
 
 IpczResult Portal::Close() {
