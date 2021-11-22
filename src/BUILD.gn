@@ -49,6 +49,7 @@ source_set("support") {
     "os/process.h",
     "util/handle_util.h",
     "util/random.h",
+    "util/two_mutex_lock.h",
   ]
 
   sources = [
@@ -64,6 +65,7 @@ source_set("support") {
     "os/memory.cc",
     "os/process.cc",
     "util/random.cc",
+    "util/two_mutex_lock.cc",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]

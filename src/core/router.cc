@@ -24,39 +24,10 @@
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "util/two_mutex_lock.h"
 
 namespace ipcz {
 namespace core {
-
-namespace {
-
-// Scopes acquisition of two locks simultaneously. Locks are acquired in order
-// of ascending Mutex address for globally consistent ordering.
-class ABSL_SCOPED_LOCKABLE TwoMutexLock {
- public:
-  TwoMutexLock(absl::Mutex& a, absl::Mutex& b)
-      ABSL_EXCLUSIVE_LOCK_FUNCTION(&a, &b)
-      : a_(a), b_(b) {
-    if (&a_ < &b_) {
-      a_.Lock();
-      b_.Lock();
-    } else {
-      b_.Lock();
-      a_.Lock();
-    }
-  }
-
-  ~TwoMutexLock() ABSL_UNLOCK_FUNCTION() {
-    a_.Unlock();
-    b_.Unlock();
-  }
-
- private:
-  absl::Mutex& a_;
-  absl::Mutex& b_;
-};
-
-}  // namespace
 
 Router::Router(Side side) : side_(side) {}
 
@@ -327,6 +298,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       // transmitted, since the remote peer doesn't exist until then.
       local_peer->routing_mode_ = RoutingMode::kBuffering;
       local_peer->peer_ = nullptr;
+      peer_ = nullptr;
       ABSL_ASSERT(local_peer->buffered_parcels_.empty());
 
       Parcel p;
