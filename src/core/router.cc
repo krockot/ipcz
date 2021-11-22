@@ -155,9 +155,36 @@ void Router::BeginProxyingWithSuccessor(mem::Ref<RouterLink> link) {
     ABSL_ASSERT(routing_mode_ == RoutingMode::kHalfProxy ||
                 routing_mode_ == RoutingMode::kFullProxy);
     ABSL_ASSERT(predecessor_ || routing_mode_ == RoutingMode::kHalfProxy);
+    successor_ = std::move(link);
   }
 
   FlushProxiedParcels();
+}
+
+void Router::BeginProxyingWithSuccessorAndUpdateLocalPeer(
+    mem::Ref<RouterLink> link) {
+  bool is_proxying = false;
+  mem::Ref<RouterLink> peer_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(!successor_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
+    peer_link = peer_;
+    peer_ = nullptr;
+    if (!incoming_parcels_.IsDead()) {
+      routing_mode_ = RoutingMode::kHalfProxy;
+      successor_ = link;
+      is_proxying = true;
+    }
+  }
+
+  ABSL_ASSERT(peer_link);
+  mem::Ref<Router> local_peer = peer_link->GetLocalTarget();
+  local_peer->ActivateWithPeer(std::move(link));
+
+  if (is_proxying) {
+    FlushProxiedParcels();
+  }
 }
 
 bool Router::AcceptParcelFrom(NodeLink& link,
@@ -183,18 +210,30 @@ bool Router::AcceptParcelFrom(NodeLink& link,
 }
 
 bool Router::AcceptIncomingParcel(Parcel& parcel) {
+  mem::Ref<RouterLink> successor;
   mem::Ref<RouterObserver> observer;
   uint32_t num_parcels;
   uint32_t num_bytes;
   {
     absl::MutexLock lock(&mutex_);
-    observer = observer_;
-    if (!incoming_parcels_.Push(std::move(parcel))) {
-      return false;
-    }
+    if (routing_mode_ == RoutingMode::kHalfProxy ||
+        routing_mode_ == RoutingMode::kFullProxy) {
+      ABSL_ASSERT(successor_);
+      successor = successor_;
+    } else {
+      observer = observer_;
+      if (!incoming_parcels_.Push(std::move(parcel))) {
+        return false;
+      }
 
-    num_parcels = incoming_parcels_.GetNumAvailableParcels();
-    num_bytes = incoming_parcels_.GetNumAvailableBytes();
+      num_parcels = incoming_parcels_.GetNumAvailableParcels();
+      num_bytes = incoming_parcels_.GetNumAvailableBytes();
+    }
+  }
+
+  if (successor) {
+    successor->AcceptParcel(parcel);
+    return true;
   }
 
   if (observer) {
@@ -296,16 +335,12 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       // Temporarily place the peer in buffering mode so that it can't transmit
       // any parcels to its new remote peer until this descriptor is
       // transmitted, since the remote peer doesn't exist until then.
+      routing_mode_ = RoutingMode::kBuffering;
       local_peer->routing_mode_ = RoutingMode::kBuffering;
       local_peer->peer_ = nullptr;
-      peer_ = nullptr;
       ABSL_ASSERT(local_peer->buffered_parcels_.empty());
-
-      Parcel p;
-      while (incoming_parcels_.Pop(p)) {
-        local_peer->buffered_parcels_.push(std::move(p));
-      }
-
+      incoming_parcels_.SetPeerSequenceLength(
+          local_peer->outgoing_sequence_length_);
       descriptor.route_is_peer = true;
       return local_peer;
     }
@@ -326,7 +361,6 @@ void Router::FlushProxiedParcels() {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy ||
                 routing_mode_ == RoutingMode::kHalfProxy);
-    ABSL_ASSERT(peer_ || predecessor_);
     if (!buffered_parcels_.empty()) {
       ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy);
       where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;

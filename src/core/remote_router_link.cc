@@ -92,8 +92,11 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
         node_link()->buffer().router_link_state(routing_id);
     RouterLinkState::Initialize(&state);
     descriptors[i].new_routing_id = routing_id;
-    routers[i] = portals[i]->router()->Serialize(descriptors[i]);
-    new_links[i] = node_link()->AddRoute(routing_id, routing_id, routers[i]);
+    routers[i] = portals[i]->router();
+    mem::Ref<Router> route_listener =
+        portals[i]->router()->Serialize(descriptors[i]);
+    new_links[i] = node_link()->AddRoute(routing_id, routing_id,
+                                         std::move(route_listener));
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
@@ -101,7 +104,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
   for (size_t i = 0; i < num_portals; ++i) {
     if (descriptors[i].route_is_peer) {
-      routers[i]->ActivateWithPeer(std::move(new_links[i]));
+      routers[i]->BeginProxyingWithSuccessorAndUpdateLocalPeer(
+          std::move(new_links[i]));
     } else {
       routers[i]->BeginProxyingWithSuccessor(std::move(new_links[i]));
     }

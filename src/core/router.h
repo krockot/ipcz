@@ -73,6 +73,13 @@ class Router : public mem::RefCounted {
   // or predecessor.
   void BeginProxyingWithSuccessor(mem::Ref<RouterLink> link);
 
+  // A special case used when splitting a local pair over a new router link.
+  // Similar to BeginProxyingWithSuccessor, this portal treats `link` as its
+  // successor link; but rather than coordinating a half-proxy bypass, the
+  // our former local peer is also updated atomically to use `link` as its new
+  // peer link.
+  void BeginProxyingWithSuccessorAndUpdateLocalPeer(mem::Ref<RouterLink> link);
+
   // Accepts a parcel routed here from `link` via `routing_id`, which is
   // determined to be either an incoming or outgoing parcel based on the source
   // and current routing mode.
