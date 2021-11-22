@@ -250,14 +250,14 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       continue;
     }
 
-    size_t capacity = read_buffer_.size() - unread_data_.size();
+    const size_t unread_offset = unread_data_.data() - read_buffer_.data();
+    size_t capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
     if (capacity < kMaxDataSize) {
       size_t new_size = read_buffer_.size() * 2;
-      size_t unread_offset = unread_data_.data() - read_buffer_.data();
       read_buffer_.resize(new_size);
       unread_data_ = absl::Span<uint8_t>(read_buffer_.data() + unread_offset,
                                          unread_data_.size());
-      capacity = read_buffer_.size() - unread_data_.size();
+      capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
     }
     uint8_t* data = unread_data_.end();
     struct iovec iov = {data, capacity};
