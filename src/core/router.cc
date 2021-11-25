@@ -336,7 +336,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     // so we need to first verify that the pair is still intact. If it's not we
     // fall back to the normal proxying path.
     TwoMutexLock lock(local_peer->mutex_, mutex_);
-    if (local_peer->peer_ && local_peer->peer_->GetLocalTarget() == this) {
+    if (peer_ == local_peer && local_peer->peer_ &&
+        local_peer->peer_->GetLocalTarget() == this) {
       // Temporarily place the peer in buffering mode so that it can't transmit
       // any parcels to its new remote peer until this descriptor is
       // transmitted, since the remote peer doesn't exist until then.
