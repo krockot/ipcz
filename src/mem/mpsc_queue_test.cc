@@ -20,7 +20,7 @@ namespace {
 using MpscQueueTest = testing::Test;
 
 constexpr size_t kNumProducers = 8;
-constexpr size_t kNumElementsPerProducer = 100000;
+constexpr size_t kNumElementsPerProducer = 10000;
 constexpr size_t kNumElementsTotal = kNumProducers * kNumElementsPerProducer;
 constexpr size_t kQueueLength = 16;
 

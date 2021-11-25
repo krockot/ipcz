@@ -22,8 +22,8 @@ namespace {
 
 using MpmcQueueTest = testing::Test;
 
-constexpr size_t kNumProducers = 16;
-constexpr size_t kNumElementsPerProducer = 50000;
+constexpr size_t kNumProducers = 8;
+constexpr size_t kNumElementsPerProducer = 5000;
 constexpr size_t kNumElementsTotal = kNumProducers * kNumElementsPerProducer;
 constexpr size_t kNumConsumers = kNumProducers;
 constexpr size_t kNumElementsPerConsumer = kNumElementsPerProducer;
