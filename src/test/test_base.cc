@@ -150,5 +150,19 @@ TestBase::Parcel TestBase::Get(IpczHandle portal) {
   return parcel;
 }
 
+void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
+  Parcel p;
+  const std::string kMessage = "psssst";
+  Put(a, kMessage, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ(kMessage, p.message);
+
+  Put(b, kMessage, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  EXPECT_EQ(kMessage, p.message);
+}
+
+void TestBase::WaitForProxyDecay(IpczHandle a, IpczHandle b) {}
+
 }  // namespace test
 }  // namespace ipcz

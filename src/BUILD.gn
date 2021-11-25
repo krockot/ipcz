@@ -226,6 +226,7 @@ test("ipcz_tests") {
   ]
 
   deps = [
+    ":core",
     ":drivers",
     ":ipcz",
     "//testing/gtest",

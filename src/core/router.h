@@ -34,7 +34,9 @@ class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
 
-  void SetObserver(mem::Ref<RouterObserver> observer);
+  void BindToPortal(mem::Ref<RouterObserver> observer,
+                    IpczPortalStatus& initial_status);
+  void Unbind();
   mem::Ref<RouterObserver> GetObserver();
 
   // Returns true iff this Router's peer link is a LocalRouterLink and its local
@@ -71,14 +73,8 @@ class Router : public mem::RefCounted {
   // all incoming parcels. If the Router is in full proxying mode, it may also
   // listen for outgoing parcels from the same link, to be forwarded to its peer
   // or predecessor.
-  void BeginProxyingWithSuccessor(mem::Ref<RouterLink> link);
-
-  // A special case used when splitting a local pair over a new router link.
-  // Similar to BeginProxyingWithSuccessor, this portal treats `link` as its
-  // successor link; but rather than coordinating a half-proxy bypass, the
-  // our former local peer is also updated atomically to use `link` as its new
-  // peer link.
-  void BeginProxyingWithSuccessorAndUpdateLocalPeer(mem::Ref<RouterLink> link);
+  void BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
+                                  mem::Ref<RouterLink> link);
 
   // Accepts a parcel routed here from `link` via `routing_id`, which is
   // determined to be either an incoming or outgoing parcel based on the source
@@ -106,7 +102,8 @@ class Router : public mem::RefCounted {
                                    IpczHandle* portals,
                                    uint32_t* num_portals,
                                    IpczOSHandle* os_handles,
-                                   uint32_t* num_os_handles);
+                                   uint32_t* num_os_handles,
+                                   IpczPortalStatus& status_after_get);
 
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
   static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor);
@@ -121,7 +118,7 @@ class Router : public mem::RefCounted {
   const Side side_;
 
   absl::Mutex mutex_;
-  SequenceNumber outgoing_sequence_length_ = 0;
+  SequenceNumber outgoing_sequence_length_ ABSL_GUARDED_BY(mutex_) = 0;
   mem::Ref<RouterObserver> observer_ ABSL_GUARDED_BY(mutex_);
   RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kBuffering;
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
@@ -129,6 +126,7 @@ class Router : public mem::RefCounted {
   mem::Ref<RouterLink> predecessor_ ABSL_GUARDED_BY(mutex_);
   OutgoingParcelQueue buffered_parcels_ ABSL_GUARDED_BY(mutex_);
   IncomingParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
+  bool peer_closure_propagated_ ABSL_GUARDED_BY(mutex_) = false;
 };
 
 }  // namespace core

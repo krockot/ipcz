@@ -33,9 +33,23 @@ Router::Router(Side side) : side_(side) {}
 
 Router::~Router() = default;
 
-void Router::SetObserver(mem::Ref<RouterObserver> observer) {
+void Router::BindToPortal(mem::Ref<RouterObserver> observer,
+                          IpczPortalStatus& initial_status) {
   absl::MutexLock lock(&mutex_);
   observer_ = std::move(observer);
+  if (incoming_parcels_.peer_sequence_length().has_value()) {
+    initial_status.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+  }
+  if (incoming_parcels_.IsDead()) {
+    initial_status.flags |= IPCZ_PORTAL_STATUS_DEAD;
+  }
+  initial_status.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+  initial_status.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+}
+
+void Router::Unbind() {
+  absl::MutexLock lock(&mutex_);
+  observer_.reset();
 }
 
 mem::Ref<RouterObserver> Router::GetObserver() {
@@ -145,39 +159,44 @@ void Router::ActivateWithPredecessor(mem::Ref<RouterLink> link) {
   routing_mode_ = RoutingMode::kActive;
 }
 
-void Router::BeginProxyingWithSuccessor(mem::Ref<RouterLink> link) {
-  {
-    absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(!successor_);
-    successor_ = std::move(link);
-  }
-
-  FlushParcels();
-}
-
-void Router::BeginProxyingWithSuccessorAndUpdateLocalPeer(
-    mem::Ref<RouterLink> link) {
+void Router::BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
+                                        mem::Ref<RouterLink> link) {
   bool is_proxying = false;
   mem::Ref<RouterLink> peer_link;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!successor_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
-    peer_link = peer_;
-    peer_ = nullptr;
-    if (!incoming_parcels_.IsDead()) {
-      routing_mode_ = RoutingMode::kHalfProxy;
+    if (descriptor.route_is_peer) {
+      ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
+      std::swap(peer_, peer_link);
+      if (!incoming_parcels_.IsDead()) {
+        routing_mode_ = RoutingMode::kHalfProxy;
+        successor_ = link;
+        is_proxying = true;
+      }
+    } else {
       successor_ = link;
-      is_proxying = true;
     }
   }
 
-  ABSL_ASSERT(peer_link);
-  mem::Ref<Router> local_peer = peer_link->GetLocalTarget();
-  local_peer->ActivateWithPeer(std::move(link));
+  if (descriptor.route_is_peer) {
+    ABSL_ASSERT(peer_link);
+    mem::Ref<Router> local_peer = peer_link->GetLocalTarget();
+    local_peer->ActivateWithPeer(link);
+  }
 
-  if (is_proxying) {
-    FlushParcels();
+  FlushParcels();
+
+  absl::optional<SequenceNumber> peer_sequence_length;
+  absl::MutexLock lock(&mutex_);
+  if (incoming_parcels_.peer_sequence_length().has_value() &&
+      !peer_closure_propagated_) {
+    peer_closure_propagated_ = true;
+    peer_sequence_length = incoming_parcels_.peer_sequence_length();
+  }
+
+  if (peer_sequence_length) {
+    link->AcceptRouteClosure(Opposite(side_), *peer_sequence_length);
   }
 }
 
@@ -278,7 +297,8 @@ IpczResult Router::GetNextIncomingParcel(void* data,
                                          IpczHandle* portals,
                                          uint32_t* num_portals,
                                          IpczOSHandle* os_handles,
-                                         uint32_t* num_os_handles) {
+                                         uint32_t* num_os_handles,
+                                         IpczPortalStatus& status_after_get) {
   absl::MutexLock lock(&mutex_);
   if (!incoming_parcels_.HasNextParcel()) {
     if (incoming_parcels_.IsDead()) {
@@ -313,6 +333,14 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   incoming_parcels_.Pop(parcel);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   parcel.Consume(portals, os_handles);
+
+  if (incoming_parcels_.IsDead()) {
+    status_after_get.flags |= IPCZ_PORTAL_STATUS_DEAD;
+  }
+  status_after_get.num_local_parcels =
+      incoming_parcels_.GetNumAvailableParcels();
+  status_after_get.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+
   return IPCZ_RESULT_OK;
 }
 
@@ -347,6 +375,12 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       ABSL_ASSERT(local_peer->buffered_parcels_.empty());
       incoming_parcels_.SetPeerSequenceLength(
           local_peer->outgoing_sequence_length_);
+      if (incoming_parcels_.peer_sequence_length()) {
+        descriptor.peer_closed = true;
+        descriptor.closed_peer_sequence_length =
+            *incoming_parcels_.peer_sequence_length();
+        peer_closure_propagated_ = true;
+      }
       descriptor.route_is_peer = true;
       descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
       descriptor.next_incoming_sequence_number =
@@ -363,6 +397,12 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
   descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
   descriptor.next_incoming_sequence_number =
       incoming_parcels_.current_sequence_number();
+  if (incoming_parcels_.peer_sequence_length()) {
+    descriptor.peer_closed = true;
+    descriptor.closed_peer_sequence_length =
+        *incoming_parcels_.peer_sequence_length();
+    peer_closure_propagated_ = true;
+  }
   return mem::WrapRefCounted(this);
 }
 
@@ -373,6 +413,10 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor) {
   router->outgoing_sequence_length_ = descriptor.next_outgoing_sequence_number;
   router->incoming_parcels_ =
       IncomingParcelQueue(descriptor.next_incoming_sequence_number);
+  if (descriptor.peer_closed) {
+    router->incoming_parcels_.SetPeerSequenceLength(
+        descriptor.closed_peer_sequence_length);
+  }
   return router;
 }
 

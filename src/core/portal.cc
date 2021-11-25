@@ -53,11 +53,11 @@ bool ValidateAndAcquirePortalsForTransitFrom(
 
 Portal::Portal(mem::Ref<Node> node, mem::Ref<Router> router)
     : node_(std::move(node)), router_(std::move(router)) {
-  router_->SetObserver(mem::WrapRefCounted(this));
+  router_->BindToPortal(mem::WrapRefCounted(this), status_);
 }
 
 Portal::~Portal() {
-  router_->SetObserver(nullptr);
+  router_->Unbind();
 }
 
 // static
@@ -157,17 +157,21 @@ IpczResult Portal::Get(void* data,
                        uint32_t* num_portals,
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) {
-  IpczResult result = router_->GetNextIncomingParcel(
-      data, num_data_bytes, portals, num_portals, os_handles, num_os_handles);
+  IpczPortalStatus status;
+  {
+    absl::MutexLock lock(&mutex_);
+    status = status_;
+  }
+
+  IpczResult result =
+      router_->GetNextIncomingParcel(data, num_data_bytes, portals, num_portals,
+                                     os_handles, num_os_handles, status);
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
 
   absl::MutexLock lock(&mutex_);
-  status_.num_local_parcels -= 1;
-  if (num_data_bytes) {
-    status_.num_local_bytes -= *num_data_bytes;
-  }
+  status_ = status;
   return IPCZ_RESULT_OK;
 }
 

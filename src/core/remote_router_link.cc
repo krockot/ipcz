@@ -103,12 +103,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
                         parcel.os_handles_view());
 
   for (size_t i = 0; i < num_portals; ++i) {
-    if (descriptors[i].route_is_peer) {
-      routers[i]->BeginProxyingWithSuccessorAndUpdateLocalPeer(
-          std::move(new_links[i]));
-    } else {
-      routers[i]->BeginProxyingWithSuccessor(std::move(new_links[i]));
-    }
+    routers[i]->BeginProxyingWithSuccessor(descriptors[i],
+                                           std::move(new_links[i]));
   }
 }
 

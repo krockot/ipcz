@@ -73,6 +73,9 @@ class TestBase : public testing::Test {
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);
+
+  void VerifyEndToEnd(IpczHandle a, IpczHandle b);
+  void WaitForProxyDecay(IpczHandle a, IpczHandle b);
 };
 
 }  // namespace test

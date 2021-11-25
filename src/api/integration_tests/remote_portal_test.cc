@@ -252,9 +252,9 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
-  Put(c, "hello", {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
-  EXPECT_EQ("hello", p.message);
+  VerifyEndToEnd(c, d);
+  WaitForProxyDecay(c, d);
+  VerifyEndToEnd(c, d);
 
   ClosePortals({a, b, c, d});
   DestroyNodes({node, other_node});
@@ -305,11 +305,9 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
     b = p.portals[0];
   }
 
-  Parcel p;
-  const std::string kMessage = "shhh";
-  Put(a, kMessage, {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-  EXPECT_EQ(kMessage, p.message);
+  VerifyEndToEnd(a, b);
+  WaitForProxyDecay(a, b);
+  VerifyEndToEnd(a, b);
 
   ClosePortals({a, b});
   for (size_t i = 0; i < kNumHops; ++i) {

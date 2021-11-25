@@ -22,6 +22,8 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
 
   Side side;
   bool route_is_peer : 1;
+  bool peer_closed : 1;
+  SequenceNumber closed_peer_sequence_length;
   RoutingId new_routing_id;
   SequenceNumber next_outgoing_sequence_number;
   SequenceNumber next_incoming_sequence_number;
