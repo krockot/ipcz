@@ -231,9 +231,10 @@ bool Router::AcceptIncomingParcel(Parcel& parcel) {
     absl::MutexLock lock(&mutex_);
     if (routing_mode_ == RoutingMode::kHalfProxy ||
         routing_mode_ == RoutingMode::kFullProxy) {
-      ABSL_ASSERT(successor_);
       successor = successor_;
-    } else {
+    }
+
+    if (!successor) {
       observer = observer_;
       if (!incoming_parcels_.Push(std::move(parcel))) {
         return false;
