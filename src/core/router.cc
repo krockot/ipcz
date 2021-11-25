@@ -67,17 +67,14 @@ bool Router::WouldOutgoingParcelExceedLimits(size_t data_size,
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    if (routing_mode_ == RoutingMode::kBuffering) {
+    link = peer_ ? peer_ : predecessor_;
+    if (!link) {
       return buffered_parcels_.size() < limits.max_queued_parcels &&
              buffered_parcels_.data_size() <=
                  limits.max_queued_bytes + data_size;
     }
-
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-    link = peer_ ? peer_ : predecessor_;
   }
 
-  ABSL_ASSERT(link);
   return link->WouldParcelExceedLimits(data_size, limits);
 }
 
@@ -103,86 +100,79 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
   {
     absl::MutexLock lock(&mutex_);
     parcel.set_sequence_number(outgoing_sequence_length_++);
-    if (routing_mode_ == RoutingMode::kBuffering) {
+    link = peer_ ? peer_ : predecessor_;
+    if (!link) {
       buffered_parcels_.push(std::move(parcel));
       return IPCZ_RESULT_OK;
     }
-
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-    link = peer_ ? peer_ : predecessor_;
   }
 
-  ABSL_ASSERT(link);
   link->AcceptParcel(parcel);
   return IPCZ_RESULT_OK;
 }
 
 void Router::CloseRoute() {
-  mem::Ref<RouterLink> someone_who_cares;
+  mem::Ref<RouterLink> who_to_notify;
   SequenceNumber sequence_length;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering ||
-                routing_mode_ == RoutingMode::kActive);
-    if (routing_mode_ == RoutingMode::kActive) {
-      someone_who_cares = peer_ ? peer_ : predecessor_;
-      sequence_length = outgoing_sequence_length_;
-    }
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
+    who_to_notify = peer_ ? peer_ : predecessor_;
+    sequence_length = outgoing_sequence_length_;
   }
 
-  if (someone_who_cares) {
-    someone_who_cares->AcceptRouteClosure(side_, sequence_length);
+  if (who_to_notify) {
+    who_to_notify->AcceptRouteClosure(side_, sequence_length);
   }
 }
 
-void Router::ActivateWithPeer(mem::Ref<RouterLink> link) {
+void Router::SetPeer(mem::Ref<RouterLink> link) {
   {
     absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive ||
+                routing_mode_ == RoutingMode::kProxy);
     peer_ = link;
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering ||
-                routing_mode_ == RoutingMode::kFullProxy);
-    if (routing_mode_ == RoutingMode::kBuffering) {
-      routing_mode_ = RoutingMode::kActive;
-    }
   }
 
   FlushParcels();
 }
 
-void Router::ActivateWithPredecessor(mem::Ref<RouterLink> link) {
-  absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
-  ABSL_ASSERT(!predecessor_);
-  ABSL_ASSERT(!peer_);
-  ABSL_ASSERT(buffered_parcels_.empty());
-  predecessor_ = link;
-  routing_mode_ = RoutingMode::kActive;
+void Router::SetPredecessor(mem::Ref<RouterLink> link) {
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
+    ABSL_ASSERT(!predecessor_);
+    ABSL_ASSERT(!peer_);
+    ABSL_ASSERT(buffered_parcels_.empty());
+    predecessor_ = link;
+  }
+
+  FlushParcels();
 }
 
 void Router::BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
                                         mem::Ref<RouterLink> link) {
-  bool is_proxying = false;
   mem::Ref<RouterLink> peer_link;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!successor_);
     if (descriptor.route_is_peer) {
-      ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
+      ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
       std::swap(peer_, peer_link);
       if (!incoming_parcels_.IsDead()) {
         routing_mode_ = RoutingMode::kHalfProxy;
         successor_ = link;
-        is_proxying = true;
       }
     } else {
       successor_ = link;
+      routing_mode_ = RoutingMode::kProxy;
     }
   }
 
   if (descriptor.route_is_peer) {
     ABSL_ASSERT(peer_link);
     mem::Ref<Router> local_peer = peer_link->GetLocalTarget();
-    local_peer->ActivateWithPeer(link);
+    local_peer->SetPeer(link);
   }
 
   FlushParcels();
@@ -251,14 +241,13 @@ bool Router::AcceptOutgoingParcel(Parcel& parcel) {
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    if (routing_mode_ == RoutingMode::kBuffering) {
+    link = peer_ ? peer_ : predecessor_;
+    if (!link) {
       buffered_parcels_.push(std::move(parcel));
       return true;
     }
-    link = peer_ ? peer_ : predecessor_;
   }
 
-  ABSL_ASSERT(link);
   link->AcceptParcel(parcel);
   return true;
 }
@@ -361,8 +350,6 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       // Temporarily place the peer in buffering mode so that it can't transmit
       // any parcels to its new remote peer until this descriptor is
       // transmitted, since the remote peer doesn't exist until then.
-      routing_mode_ = RoutingMode::kBuffering;
-      local_peer->routing_mode_ = RoutingMode::kBuffering;
       local_peer->peer_ = nullptr;
       ABSL_ASSERT(local_peer->buffered_parcels_.empty());
       incoming_parcels_.SetPeerSequenceLength(
@@ -382,9 +369,6 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
   }
 
   absl::MutexLock lock(&mutex_);
-  if (routing_mode_ == RoutingMode::kActive) {
-    routing_mode_ = RoutingMode::kFullProxy;
-  }
   descriptor.route_is_peer = false;
   descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
   descriptor.next_incoming_sequence_number =
@@ -420,9 +404,8 @@ void Router::FlushParcels() {
   bool incoming_queue_dead = false;
   {
     absl::MutexLock lock(&mutex_);
-    if (!buffered_parcels_.empty() &&
-        routing_mode_ != RoutingMode::kBuffering) {
-      where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
+    where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
+    if (!buffered_parcels_.empty() && where_to_forward_outgoing_parcels) {
       outgoing_parcels = buffered_parcels_.TakeParcels();
     }
 

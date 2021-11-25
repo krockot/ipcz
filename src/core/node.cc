@@ -79,7 +79,7 @@ class ConnectListener : public DriverTransport::Listener,
     handler(node_link);
     for (size_t i = 0; i < waiting_portals_.size(); ++i) {
       const mem::Ref<Router>& router = waiting_portals_[i]->router();
-      router->ActivateWithPeer(
+      router->SetPeer(
           node_link->AddRoute(static_cast<RoutingId>(i), i, router));
     }
     return IPCZ_RESULT_OK;

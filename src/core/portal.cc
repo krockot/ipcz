@@ -71,8 +71,8 @@ std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Portal::CreatePair(
   mem::Ref<LocalRouterLink> right_link;
   std::tie(left_link, right_link) =
       LocalRouterLink::CreatePair(left->router(), right->router());
-  left->router()->ActivateWithPeer(std::move(left_link));
-  right->router()->ActivateWithPeer(std::move(right_link));
+  left->router()->SetPeer(std::move(left_link));
+  right->router()->SetPeer(std::move(right_link));
   return {std::move(left), std::move(right)};
 }
 

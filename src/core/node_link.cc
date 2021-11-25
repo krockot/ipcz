@@ -124,9 +124,9 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
     auto new_router_link = AddRoute(descriptor.new_routing_id,
                                     descriptor.new_routing_id, new_router);
     if (descriptor.route_is_peer) {
-      new_router->ActivateWithPeer(std::move(new_router_link));
+      new_router->SetPeer(std::move(new_router_link));
     } else {
-      new_router->ActivateWithPredecessor(std::move(new_router_link));
+      new_router->SetPredecessor(std::move(new_router_link));
     }
     portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }

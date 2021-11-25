@@ -63,11 +63,11 @@ class Router : public mem::RefCounted {
   // which a Portal is currently attached, and only by that Portal.
   void CloseRoute();
 
-  // Activates a buffering router, using `link` as its new peer link.
-  void ActivateWithPeer(mem::Ref<RouterLink> link);
+  // Uses `link` as this Router's new peer link.
+  void SetPeer(mem::Ref<RouterLink> link);
 
-  // Activates a buffering router, using `link` as its new predecessor link.
-  void ActivateWithPredecessor(mem::Ref<RouterLink> link);
+  // Uses `link` as this Router's new predecessor link.
+  void SetPredecessor(mem::Ref<RouterLink> link);
 
   // Provides the Router with a new successor link to which it should forward
   // all incoming parcels. If the Router is in full proxying mode, it may also
@@ -120,7 +120,7 @@ class Router : public mem::RefCounted {
   absl::Mutex mutex_;
   SequenceNumber outgoing_sequence_length_ ABSL_GUARDED_BY(mutex_) = 0;
   mem::Ref<RouterObserver> observer_ ABSL_GUARDED_BY(mutex_);
-  RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kBuffering;
+  RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kActive;
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> successor_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> predecessor_ ABSL_GUARDED_BY(mutex_);

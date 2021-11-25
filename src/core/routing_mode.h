@@ -10,51 +10,48 @@
 namespace ipcz {
 namespace core {
 
-// Indicates how a portal is currently dealing with incoming and outgoing
-// parcels, and how it uses whatever links it has available to other portals.
+// Indicates how a Router is currently dealing with incoming and outgoing
+// parcels, and how it uses whatever links it has available to other Routers.
 enum RoutingMode : uint32_t {
-  // The portal has at least a peer link or a predecessor link -- possibly
-  // both -- and definitely has no successor link. If a peer link is present,
-  // all outgoing parcels are sent on it. Incoming parcels may also be received
-  // from the peer link, as well as from the predecessor link if present. If
-  // only a predecessor link is present, all outgoing parcels are sent on it.
+  // The Router is bound to a Portal which may use it to transmit outgoing
+  // parcels to this Router's peer (preferred) or its predecessor. If the Router
+  // has neither a peer nor a predecessor, outgoing parcels are queued within
+  // Router until this changes.
+  //
+  // Incoming parcels may come from the peer or predecessor link if present, and
+  // they are queued and exposed to the Portal for retrieval by the embedding
+  // application.
   kActive = 0,
 
-  // The portal has no peer or predecessor link and therefore no place to route
-  // outgoing parcels. All outgoing parcels -- from either a Put() call if this
-  // portal is exposed to the application (e.g. some portals returned from
-  // ConnectNode()) or as forwarded from a successor -- are queued for later
-  // transmission. There is no source of incoming parcels in this case, so they
-  // are not handled.
-  kBuffering = 1,
-
-  // The portal is in a half-proxying mode. This means it has both a peer and
-  // successor link, and definitely no predecessor link. All incoming parcels
-  // from the peer are forwarded to the successor, and no outgoing parcels are
-  // handled at all.
+  // The Router is in a half-proxy mode. This means it expects and handles no
+  // outgoing parcels, but incoming parcels -- which may come from a peer or
+  // predecessor -- are forwarded to its successor if present. If no successor
+  // is present yet, incoming parcels are queued until this changes.
   //
-  // A portal in this mode decays to non-existence as soon as its sucessor and
-  // peer can establish a link to bypass it, and it has forwarded all in-flight
-  // incoming parcels to its successor.
+  // A Router is always given a successor shortly after switching to half-proxy
+  // mode, and it will only continue to exist beyond that point until it has
+  // forwarded its last message to its successor, either because the other side
+  // of the route has closed or because the successor has conspired successfully
+  // with a peer Router to bypass this one.
   //
-  // A portal cannot enter half-proxy mode if its peer is currently buffering or
-  // half-proxying. In such cases the moved portal will instead switch to
-  // full-proxying mode.
+  // Only one side of a route may have half-proxying Routers at any moment. A
+  // Router can only enter half-proxy mode by decaying from full proxy mode (see
+  // below) or if it extends its own side of the route while its peer is already
+  // known to be closed.
   kHalfProxy = 2,
 
-  // The portal is in a full-proxying mode. This means it has a successor link
-  // as well as EITHER a peer OR predecessor link; and like half-proxying mode,
-  // incoming parcels from the peer (or the predecessor here) are forwarded to
-  // the successor; but unlike half-proxying mode, outgoing parcels may also be
-  // accepted from the successor and fowarded to the peer or predecessor.
+  // The Router is in a full proxy mode. Any outgoing parcels received from its
+  // successor (if present) are forwarded to its peer or predecessor if present.
+  // If the Router has no peer or predecessor, outgoing parcels are queued
+  // within the Router until this changes.
   //
-  // Full-proxy mode is always a safe mode for a portal to enter when moving it
-  // to extend the route to another node, but it is not ideal since it requires
-  // an extra hop in both directions.
+  // Incoming parcels received from the Router's peer or predecessor are
+  // forwarded to its successor, or queued within the Router until it has a
+  // successor.
   //
-  // A full-proxying portal decays into a half-proxying portal as soon as it has
-  // a peer link whose other side is not buffering or half-proxying.
-  kFullProxy = 3,
+  // A proxy decays into a half-proxy as soon as it acquires a peer link to
+  // another Router which is not a half-proxy.
+  kProxy = 3,
 };
 
 }  // namespace core
