@@ -229,30 +229,21 @@ bool Router::AcceptIncomingParcel(Parcel& parcel) {
   uint32_t num_bytes;
   {
     absl::MutexLock lock(&mutex_);
-    if (routing_mode_ == RoutingMode::kHalfProxy ||
-        routing_mode_ == RoutingMode::kFullProxy) {
-      successor = successor_;
+    if (!incoming_parcels_.Push(std::move(parcel))) {
+      return false;
     }
 
-    if (!successor) {
-      observer = observer_;
-      if (!incoming_parcels_.Push(std::move(parcel))) {
-        return false;
-      }
-
-      num_parcels = incoming_parcels_.GetNumAvailableParcels();
-      num_bytes = incoming_parcels_.GetNumAvailableBytes();
-    }
-  }
-
-  if (successor) {
-    successor->AcceptParcel(parcel);
-    return true;
+    observer = observer_;
+    num_parcels = incoming_parcels_.GetNumAvailableParcels();
+    num_bytes = incoming_parcels_.GetNumAvailableBytes();
   }
 
   if (observer) {
     observer->OnIncomingParcel(num_parcels, num_bytes);
+    return true;
   }
+
+  FlushParcels();
   return true;
 }
 
@@ -426,6 +417,7 @@ void Router::FlushParcels() {
   mem::Ref<RouterLink> where_to_forward_outgoing_parcels;
   std::forward_list<Parcel> outgoing_parcels;
   std::vector<Parcel> incoming_parcels;
+  bool incoming_queue_dead = false;
   {
     absl::MutexLock lock(&mutex_);
     if (!buffered_parcels_.empty() &&
@@ -440,6 +432,7 @@ void Router::FlushParcels() {
       while (incoming_parcels_.Pop(parcel)) {
         incoming_parcels.push_back(std::move(parcel));
       }
+      incoming_queue_dead = incoming_parcels_.IsDead();
       where_to_forward_incoming_parcels = successor_;
     }
   }
@@ -450,6 +443,12 @@ void Router::FlushParcels() {
 
   for (Parcel& parcel : incoming_parcels) {
     where_to_forward_incoming_parcels->AcceptParcel(parcel);
+  }
+
+  if (incoming_queue_dead) {
+    // TODO: unbind route receiving inbound parcels and clean up any other refs
+    // we might be leaving around. either the peer is closed or we're a half
+    // proxy who has outlived its usefulness.
   }
 }
 

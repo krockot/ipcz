@@ -93,6 +93,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     RouterLinkState::Initialize(&state);
     descriptors[i].new_routing_id = routing_id;
     routers[i] = portals[i]->router();
+    routers[i]->Unbind();
     mem::Ref<Router> route_listener =
         portals[i]->router()->Serialize(descriptors[i]);
     new_links[i] = node_link()->AddRoute(routing_id, routing_id,
