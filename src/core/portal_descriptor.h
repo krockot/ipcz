@@ -6,6 +6,7 @@
 #define IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
 
 #include "core/routing_id.h"
+#include "core/sequence_number.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
 
@@ -22,6 +23,8 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   Side side;
   bool route_is_peer : 1;
   RoutingId new_routing_id;
+  SequenceNumber next_outgoing_sequence_number;
+  SequenceNumber next_incoming_sequence_number;
 };
 
 }  // namespace core

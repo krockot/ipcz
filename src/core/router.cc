@@ -122,25 +122,24 @@ void Router::CloseRoute() {
 }
 
 void Router::ActivateWithPeer(mem::Ref<RouterLink> link) {
-  std::forward_list<Parcel> parcels;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
     peer_ = link;
-    routing_mode_ = RoutingMode::kActive;
-    parcels = buffered_parcels_.TakeParcels();
+    ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering ||
+                routing_mode_ == RoutingMode::kFullProxy);
+    if (routing_mode_ == RoutingMode::kBuffering) {
+      routing_mode_ = RoutingMode::kActive;
+    }
   }
 
-  for (Parcel& parcel : parcels) {
-    link->AcceptParcel(parcel);
-  }
+  FlushParcels();
 }
 
 void Router::ActivateWithPredecessor(mem::Ref<RouterLink> link) {
   absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
   ABSL_ASSERT(!predecessor_);
   ABSL_ASSERT(!peer_);
-  ABSL_ASSERT(routing_mode_ == RoutingMode::kBuffering);
   ABSL_ASSERT(buffered_parcels_.empty());
   predecessor_ = link;
   routing_mode_ = RoutingMode::kActive;
@@ -150,13 +149,10 @@ void Router::BeginProxyingWithSuccessor(mem::Ref<RouterLink> link) {
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!successor_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kHalfProxy ||
-                routing_mode_ == RoutingMode::kFullProxy);
-    ABSL_ASSERT(predecessor_ || routing_mode_ == RoutingMode::kHalfProxy);
     successor_ = std::move(link);
   }
 
-  FlushProxiedParcels();
+  FlushParcels();
 }
 
 void Router::BeginProxyingWithSuccessorAndUpdateLocalPeer(
@@ -181,7 +177,7 @@ void Router::BeginProxyingWithSuccessorAndUpdateLocalPeer(
   local_peer->ActivateWithPeer(std::move(link));
 
   if (is_proxying) {
-    FlushProxiedParcels();
+    FlushParcels();
   }
 }
 
@@ -241,8 +237,19 @@ bool Router::AcceptIncomingParcel(Parcel& parcel) {
 }
 
 bool Router::AcceptOutgoingParcel(Parcel& parcel) {
-  // TODO
-  return false;
+  mem::Ref<RouterLink> link;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (routing_mode_ == RoutingMode::kBuffering) {
+      buffered_parcels_.push(std::move(parcel));
+      return true;
+    }
+    link = peer_ ? peer_ : predecessor_;
+  }
+
+  ABSL_ASSERT(link);
+  link->AcceptParcel(parcel);
+  return true;
 }
 
 void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
@@ -340,38 +347,55 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       incoming_parcels_.SetPeerSequenceLength(
           local_peer->outgoing_sequence_length_);
       descriptor.route_is_peer = true;
+      descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
+      descriptor.next_incoming_sequence_number =
+          incoming_parcels_.current_sequence_number();
       return local_peer;
     }
   }
 
   absl::MutexLock lock(&mutex_);
-  routing_mode_ = RoutingMode::kFullProxy;
+  if (routing_mode_ == RoutingMode::kActive) {
+    routing_mode_ = RoutingMode::kFullProxy;
+  }
   descriptor.route_is_peer = false;
+  descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
+  descriptor.next_incoming_sequence_number =
+      incoming_parcels_.current_sequence_number();
   return mem::WrapRefCounted(this);
 }
 
-void Router::FlushProxiedParcels() {
+// static
+mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor) {
+  auto router = mem::MakeRefCounted<Router>(descriptor.side);
+  absl::MutexLock lock(&router->mutex_);
+  router->outgoing_sequence_length_ = descriptor.next_outgoing_sequence_number;
+  router->incoming_parcels_ =
+      IncomingParcelQueue(descriptor.next_incoming_sequence_number);
+  return router;
+}
+
+void Router::FlushParcels() {
   mem::Ref<RouterLink> where_to_forward_incoming_parcels;
   mem::Ref<RouterLink> where_to_forward_outgoing_parcels;
   std::forward_list<Parcel> outgoing_parcels;
   std::vector<Parcel> incoming_parcels;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy ||
-                routing_mode_ == RoutingMode::kHalfProxy);
-    if (!buffered_parcels_.empty()) {
-      ABSL_ASSERT(routing_mode_ == RoutingMode::kFullProxy);
+    if (!buffered_parcels_.empty() &&
+        routing_mode_ != RoutingMode::kBuffering) {
       where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
       outgoing_parcels = buffered_parcels_.TakeParcels();
     }
 
-    ABSL_ASSERT(successor_);
-    incoming_parcels.reserve(incoming_parcels_.GetNumAvailableParcels());
-    Parcel parcel;
-    while (incoming_parcels_.Pop(parcel)) {
-      incoming_parcels.push_back(std::move(parcel));
+    if (successor_) {
+      incoming_parcels.reserve(incoming_parcels_.GetNumAvailableParcels());
+      Parcel parcel;
+      while (incoming_parcels_.Pop(parcel)) {
+        incoming_parcels.push_back(std::move(parcel));
+      }
+      where_to_forward_incoming_parcels = successor_;
     }
-    where_to_forward_incoming_parcels = successor_;
   }
 
   for (Parcel& parcel : outgoing_parcels) {

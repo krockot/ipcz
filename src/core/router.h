@@ -109,13 +109,14 @@ class Router : public mem::RefCounted {
                                    uint32_t* num_os_handles);
 
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
+  static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor);
 
  private:
   friend class LocalRouterLink;
 
   ~Router() override;
 
-  void FlushProxiedParcels();
+  void FlushParcels();
 
   const Side side_;
 

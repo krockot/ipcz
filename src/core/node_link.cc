@@ -120,7 +120,7 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   Parcel::PortalVector portals(num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
     const PortalDescriptor& descriptor = descriptors[i];
-    auto new_router = mem::MakeRefCounted<Router>(descriptor.side);
+    auto new_router = Router::Deserialize(descriptor);
     auto new_router_link = AddRoute(descriptor.new_routing_id,
                                     descriptor.new_routing_id, new_router);
     if (descriptor.route_is_peer) {
