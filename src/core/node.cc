@@ -109,7 +109,18 @@ Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
 
 Node::~Node() = default;
 
-void Node::ShutDown() {}
+void Node::ShutDown() {
+  absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links;
+  {
+    absl::MutexLock lock(&mutex_);
+    node_links = std::move(node_links_);
+    node_links_.clear();
+  }
+
+  for (const auto& entry : node_links) {
+    entry.second->Deactivate();
+  }
+}
 
 IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
                              Type remote_node_type,

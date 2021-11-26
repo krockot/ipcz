@@ -55,6 +55,9 @@ mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
 
 void NodeLink::Deactivate() {
   transport_->Deactivate();
+
+  absl::MutexLock lock(&mutex_);
+  routes_.clear();
 }
 
 void NodeLink::Transmit(absl::Span<const uint8_t> data,
