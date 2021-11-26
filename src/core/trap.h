@@ -23,8 +23,6 @@ class Trap {
   struct SharedState final : mem::RefCounted {
     SharedState();
 
-    bool DisarmIfArmed();
-
    private:
     friend class Trap;
 

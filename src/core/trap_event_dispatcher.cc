@@ -32,13 +32,11 @@ void TrapEventDispatcher::DispatchAll() {
   absl::InlinedVector<Event, 8> events;
   std::swap(events, events_);
   for (const Event& event : events) {
-    if (event.trap_state->DisarmIfArmed()) {
-      IpczTrapEvent e = {sizeof(e)};
-      e.context = event.context;
-      e.condition_flags = event.condition_flags;
-      e.status = &event.status;
-      event.handler(&e);
-    }
+    IpczTrapEvent e = {sizeof(e)};
+    e.context = event.context;
+    e.condition_flags = event.condition_flags;
+    e.status = &event.status;
+    event.handler(&e);
   }
 }
 

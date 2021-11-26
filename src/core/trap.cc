@@ -14,13 +14,6 @@ Trap::SharedState::SharedState() = default;
 
 Trap::SharedState::~SharedState() = default;
 
-bool Trap::SharedState::DisarmIfArmed() {
-  absl::MutexLock lock(&mutex_);
-  bool was_armed = is_armed_;
-  is_armed_ = false;
-  return was_armed;
-}
-
 Trap::Trap(const IpczTrapConditions& conditions,
            IpczTrapEventHandler handler,
            uintptr_t context)
@@ -56,6 +49,7 @@ void Trap::MaybeNotify(TrapEventDispatcher& dispatcher,
 
   const IpczTrapConditionFlags event_flags = GetEventFlags(status);
   if (event_flags != 0) {
+    state_->is_armed_ = false;
     dispatcher.DeferEvent(handler_, context_, event_flags, status, *state_);
   }
 }
