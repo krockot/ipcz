@@ -37,7 +37,6 @@ class Router : public mem::RefCounted {
   void BindToPortal(mem::Ref<RouterObserver> observer,
                     IpczPortalStatus& initial_status);
   void Unbind();
-  mem::Ref<RouterObserver> GetObserver();
 
   // Returns true iff this Router's peer link is a LocalRouterLink and its local
   // peer is `other`.

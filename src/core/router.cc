@@ -52,11 +52,6 @@ void Router::Unbind() {
   observer_.reset();
 }
 
-mem::Ref<RouterObserver> Router::GetObserver() {
-  absl::MutexLock lock(&mutex_);
-  return observer_;
-}
-
 bool Router::HasLocalPeer(const mem::Ref<Router>& router) {
   absl::MutexLock lock(&mutex_);
   return peer_ && peer_->GetLocalTarget() == router;
