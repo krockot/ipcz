@@ -8,8 +8,11 @@
 #include <cstdint>
 #include <utility>
 
+#include "core/parcel.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -76,6 +79,11 @@ class Portal : public mem::RefCounted {
 
   const mem::Ref<Node> node_;
   const mem::Ref<Router> router_;
+
+  absl::Mutex mutex_;
+  absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
+  bool in_two_phase_put_ ABSL_GUARDED_BY(mutex_) = false;
+  bool in_two_phase_get_ ABSL_GUARDED_BY(mutex_) = false;
 };
 
 }  // namespace core

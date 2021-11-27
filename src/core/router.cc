@@ -309,6 +309,86 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   return IPCZ_RESULT_OK;
 }
 
+IpczResult Router::BeginGetNextIncomingParcel(const void** data,
+                                              uint32_t* num_data_bytes,
+                                              uint32_t* num_portals,
+                                              uint32_t* num_os_handles) {
+  absl::MutexLock lock(&mutex_);
+  if (!incoming_parcels_.HasNextParcel()) {
+    return IPCZ_RESULT_UNAVAILABLE;
+  }
+
+  Parcel& p = incoming_parcels_.NextParcel();
+  const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
+  const uint32_t portals_size = static_cast<uint32_t>(p.portals_view().size());
+  const uint32_t os_handles_size =
+      static_cast<uint32_t>(p.os_handles_view().size());
+  if (num_data_bytes) {
+    *num_data_bytes = data_size;
+  } else if (data_size) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  if (num_portals) {
+    *num_portals = portals_size;
+  }
+
+  if (num_os_handles) {
+    *num_os_handles = os_handles_size;
+  }
+
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
+                                               IpczHandle* portals,
+                                               uint32_t* num_portals,
+                                               IpczOSHandle* os_handles,
+                                               uint32_t* num_os_handles) {
+  TrapEventDispatcher dispatcher;
+  absl::MutexLock lock(&mutex_);
+  if (!incoming_parcels_.HasNextParcel()) {
+    // If ipcz is used correctly this is impossible.
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  Parcel& p = incoming_parcels_.NextParcel();
+  const uint32_t portals_capacity = num_portals ? *num_portals : 0;
+  const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
+  if (num_portals) {
+    *num_portals = static_cast<uint32_t>(p.portals_view().size());
+  }
+  if (num_os_handles) {
+    *num_os_handles = static_cast<uint32_t>(p.os_handles_view().size());
+  }
+  if (portals_capacity < p.portals_view().size() ||
+      os_handles_capacity < p.os_handles_view().size()) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  if (num_data_bytes_consumed > p.data_view().size()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (num_data_bytes_consumed < p.data_view().size()) {
+    p.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
+  } else {
+    p.Consume(portals, os_handles);
+  }
+
+  Parcel consumed_parcel;
+  bool ok = incoming_parcels_.Pop(consumed_parcel);
+  ABSL_ASSERT(ok);
+
+  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+  if (incoming_parcels_.IsDead()) {
+    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    traps_.MaybeNotify(dispatcher, status_);
+  }
+  return IPCZ_RESULT_OK;
+}
+
 IpczResult Router::AddTrap(std::unique_ptr<Trap> trap) {
   absl::MutexLock lock(&mutex_);
   return traps_.Add(std::move(trap));

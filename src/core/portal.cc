@@ -100,6 +100,11 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
+  absl::MutexLock lock(&mutex_);
+  if (in_two_phase_put_) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
   std::vector<os::Handle> handles(os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
     handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
@@ -120,17 +125,84 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
                             const IpczPutLimits* limits,
                             uint32_t& num_data_bytes,
                             void** data) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  if (limits &&
+      router_->WouldOutgoingParcelExceedLimits(num_data_bytes, *limits)) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  if (router_->IsPeerClosed()) {
+    return IPCZ_RESULT_NOT_FOUND;
+  }
+
+  absl::MutexLock lock(&mutex_);
+  if (in_two_phase_put_) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  in_two_phase_put_ = true;
+  pending_parcel_.emplace();
+  pending_parcel_->ResizeData(num_data_bytes);
+  if (data) {
+    *data = pending_parcel_->data_view().data();
+  }
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
-                             absl::Span<const IpczHandle> portals,
+                             absl::Span<const IpczHandle> portal_handles,
                              absl::Span<const IpczOSHandle> os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  Parcel::PortalVector portals;
+  if (!ValidateAndAcquirePortalsForTransitFrom(*this, portal_handles,
+                                               portals)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  Parcel parcel;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!in_two_phase_put_ || !pending_parcel_) {
+      return IPCZ_RESULT_FAILED_PRECONDITION;
+    }
+
+    if (num_data_bytes_produced > pending_parcel_->data_view().size()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    parcel = std::move(*pending_parcel_);
+    pending_parcel_.reset();
+  }
+
+  std::vector<os::Handle> handles(os_handles.size());
+  for (size_t i = 0; i < os_handles.size(); ++i) {
+    handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
+  }
+
+  IpczResult result = router_->SendOutgoingParcel(
+      parcel.data_view().subspan(0, num_data_bytes_produced), portals, handles);
+  if (result != IPCZ_RESULT_OK) {
+    for (os::Handle& handle : handles) {
+      (void)handle.release();
+    }
+
+    absl::MutexLock lock(&mutex_);
+    pending_parcel_.emplace(std::move(parcel));
+  } else {
+    absl::MutexLock lock(&mutex_);
+    in_two_phase_put_ = false;
+  }
+
+  return result;
 }
 
 IpczResult Portal::AbortPut() {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  if (!in_two_phase_put_) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  in_two_phase_put_ = false;
+  pending_parcel_.reset();
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult Portal::Get(void* data,
@@ -139,6 +211,11 @@ IpczResult Portal::Get(void* data,
                        uint32_t* num_portals,
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) {
+  absl::MutexLock lock(&mutex_);
+  if (in_two_phase_get_) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
   return router_->GetNextIncomingParcel(
       data, num_data_bytes, portals, num_portals, os_handles, num_os_handles);
 }
@@ -147,7 +224,21 @@ IpczResult Portal::BeginGet(const void** data,
                             uint32_t* num_data_bytes,
                             uint32_t* num_portals,
                             uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  if (in_two_phase_get_) {
+    return IPCZ_RESULT_ALREADY_EXISTS;
+  }
+
+  if (router_->IsRouteDead()) {
+    return IPCZ_RESULT_NOT_FOUND;
+  }
+
+  IpczResult result = router_->BeginGetNextIncomingParcel(
+      data, num_data_bytes, num_portals, num_os_handles);
+  if (result == IPCZ_RESULT_OK) {
+    in_two_phase_get_ = true;
+  }
+  return result;
 }
 
 IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
@@ -155,11 +246,28 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
                              uint32_t* num_portals,
                              IpczOSHandle* os_handles,
                              uint32_t* num_os_handles) {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  if (!in_two_phase_get_) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  IpczResult result = router_->CommitGetNextIncomingParcel(
+      num_data_bytes_consumed, portals, num_portals, os_handles,
+      num_os_handles);
+  if (result == IPCZ_RESULT_OK) {
+    in_two_phase_get_ = false;
+  }
+  return result;
 }
 
 IpczResult Portal::AbortGet() {
-  return IPCZ_RESULT_UNIMPLEMENTED;
+  absl::MutexLock lock(&mutex_);
+  if (!in_two_phase_get_) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  in_two_phase_get_ = false;
+  return IPCZ_RESULT_OK;
 }
 
 IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,

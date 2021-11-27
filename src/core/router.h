@@ -112,6 +112,15 @@ class Router : public mem::RefCounted {
                                    uint32_t* num_portals,
                                    IpczOSHandle* os_handles,
                                    uint32_t* num_os_handles);
+  IpczResult BeginGetNextIncomingParcel(const void** data,
+                                        uint32_t* num_data_bytes,
+                                        uint32_t* num_portals,
+                                        uint32_t* num_os_handles);
+  IpczResult CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
+                                         IpczHandle* portals,
+                                         uint32_t* num_portals,
+                                         IpczOSHandle* os_handles,
+                                         uint32_t* num_os_handles);
 
   IpczResult AddTrap(std::unique_ptr<Trap> trap);
   IpczResult ArmTrap(Trap& trap,

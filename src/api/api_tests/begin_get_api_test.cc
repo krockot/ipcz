@@ -46,9 +46,8 @@ TEST_F(BeginGetAPITest, NoStorage) {
                           nullptr));
 
   uint32_t num_bytes;
-  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes,
-                          nullptr, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                          &num_bytes, nullptr, nullptr));
 }
 
 TEST_F(BeginGetAPITest, Empty) {
