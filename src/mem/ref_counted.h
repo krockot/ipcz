@@ -43,8 +43,6 @@ class GenericRef {
   ~GenericRef();
 
   explicit operator bool() const { return ptr_ != nullptr; }
-  bool operator==(const GenericRef& other) const { return ptr_ == other.ptr_; }
-  bool operator!=(const GenericRef& other) const { return ptr_ != other.ptr_; }
 
   void reset();
 
@@ -77,6 +75,9 @@ class Ref : public GenericRef {
   T* get() const { return static_cast<T*>(ptr_); }
   T* operator->() const { return get(); }
   T& operator*() const { return *get(); }
+
+  bool operator==(const Ref<T>& other) const { return ptr_ == other.ptr_; }
+  bool operator!=(const Ref<T>& other) const { return ptr_ != other.ptr_; }
 
   T* release() { return static_cast<T*>(ReleaseImpl()); }
 

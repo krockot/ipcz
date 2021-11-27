@@ -5,10 +5,12 @@
 #ifndef IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
 #define IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
 
+#include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -27,6 +29,9 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   RoutingId new_routing_id;
   SequenceNumber next_outgoing_sequence_number;
   SequenceNumber next_incoming_sequence_number;
+  NodeName proxy_peer_node_name;
+  RoutingId proxy_peer_routing_id;
+  absl::uint128 bypass_key;
 };
 
 }  // namespace core

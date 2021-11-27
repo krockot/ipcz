@@ -50,7 +50,7 @@ LocalRouterLink::~LocalRouterLink() = default;
 void LocalRouterLink::Deactivate() {
   mem::Ref<Router> left = state_->side(Side::kLeft);
   mem::Ref<Router> right = state_->side(Side::kRight);
-  TwoMutexLock lock(left->mutex_, right->mutex_);
+  TwoMutexLock lock(&left->mutex_, &right->mutex_);
   if (!left->peer_ || left->peer_->GetLocalTarget() != right || !right->peer_ ||
       right->peer_->GetLocalTarget() != left) {
     return;

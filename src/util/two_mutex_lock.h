@@ -11,13 +11,13 @@ namespace ipcz {
 
 class ABSL_SCOPED_LOCKABLE TwoMutexLock {
  public:
-  TwoMutexLock(absl::Mutex& a, absl::Mutex& b)
-      ABSL_EXCLUSIVE_LOCK_FUNCTION(&a, &b);
+  TwoMutexLock(absl::Mutex* a, absl::Mutex* b)
+      ABSL_EXCLUSIVE_LOCK_FUNCTION(*a, *b);
   ~TwoMutexLock() ABSL_UNLOCK_FUNCTION();
 
  private:
-  absl::Mutex& a_;
-  absl::Mutex& b_;
+  absl::Mutex* a_;
+  absl::Mutex* b_;
 };
 
 }  // namespace ipcz

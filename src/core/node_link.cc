@@ -83,6 +83,32 @@ void NodeLink::Transmit(absl::Span<const uint8_t> data,
   transport_->TransmitMessage(DriverTransport::Message(data, handles));
 }
 
+bool NodeLink::BypassProxy(const NodeName& proxy_name,
+                           RoutingId proxy_routing_id,
+                           Side side,
+                           absl::uint128 bypass_key,
+                           mem::Ref<Router> new_peer) {
+  RoutingId new_routing_id = AllocateRoutingIds(1);
+  mem::Ref<RouterLink> new_link =
+      AddRoute(new_routing_id, new_routing_id, new_peer);
+  // We don't want `new_peer` transmitting any outgoing parcels until we've
+  // transmitted the BypassProxy message; otherwise the new route may not be
+  // recognized by the remote node and any parcels may be dropped.
+  new_peer->PauseOutgoingTransmission(true);
+  new_peer->SetPeer(new_link);
+
+  msg::BypassProxy bypass;
+  bypass.params.proxy_name = proxy_name;
+  bypass.params.proxy_routing_id = proxy_routing_id;
+  bypass.params.new_routing_id = new_routing_id;
+  bypass.params.sender_side = side;
+  bypass.params.bypass_key = bypass_key;
+  Transmit(bypass);
+
+  new_peer->PauseOutgoingTransmission(false);
+  return true;
+}
+
 mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
   absl::MutexLock lock(&mutex_);
   auto it = routes_.find(routing_id);
@@ -148,6 +174,14 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
       new_router->SetPeer(std::move(new_router_link));
     } else {
       new_router->SetPredecessor(std::move(new_router_link));
+    }
+    if (descriptor.proxy_peer_node_name.is_valid()) {
+      // The predecessor is already a half-proxy and has given us the means to
+      // initiate its own bypass.
+      new_router->InitiateProxyBypass(
+          *this, accept.routing_id, descriptor.proxy_peer_node_name,
+          descriptor.proxy_peer_routing_id, descriptor.bypass_key,
+          /*notify_predecessor=*/false);
     }
     portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }

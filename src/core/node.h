@@ -5,6 +5,7 @@
 #ifndef IPCZ_SRC_CORE_NODE_H_
 #define IPCZ_SRC_CORE_NODE_H_
 
+#include <functional>
 #include <utility>
 
 #include "core/node_name.h"
@@ -40,6 +41,11 @@ class Node : public mem::RefCounted {
                          os::Process remote_process,
                          absl::Span<IpczHandle> initial_portals);
   std::pair<mem::Ref<Portal>, mem::Ref<Portal>> OpenPortals();
+
+  mem::Ref<NodeLink> GetLink(const NodeName& name);
+
+  using EstablishLinkCallback = std::function<void(NodeLink*)>;
+  void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
 
  private:
   ~Node() override;

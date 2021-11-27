@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "core/incoming_parcel_queue.h"
+#include "core/node_name.h"
 #include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
 #include "core/routing_id.h"
@@ -34,6 +35,9 @@ class RouterLink;
 class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
+
+  // Pauses or unpauses outgoing parcel transmission.
+  void PauseOutgoingTransmission(bool paused);
 
   // Returns true iff the other side of this Router's route is known to be
   // closed.
@@ -131,6 +135,13 @@ class Router : public mem::RefCounted {
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
   static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor);
 
+  bool InitiateProxyBypass(NodeLink& requesting_node_link,
+                           RoutingId requesting_routing_id,
+                           const NodeName& proxy_peer_node_name,
+                           RoutingId proxy_peer_routing_id,
+                           absl::uint128 bypass_key,
+                           bool notify_predecessor);
+
  private:
   friend class LocalRouterLink;
 
@@ -146,7 +157,8 @@ class Router : public mem::RefCounted {
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> successor_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> predecessor_ ABSL_GUARDED_BY(mutex_);
-  OutgoingParcelQueue buffered_parcels_ ABSL_GUARDED_BY(mutex_);
+  int num_outgoing_transmission_blockers_ ABSL_GUARDED_BY(mutex_) = 0;
+  OutgoingParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
   IncomingParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
   bool peer_closure_propagated_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};

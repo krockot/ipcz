@@ -6,19 +6,29 @@
 
 namespace ipcz {
 
-TwoMutexLock::TwoMutexLock(absl::Mutex& a, absl::Mutex& b) : a_(a), b_(b) {
-  if (&a_ < &b_) {
-    a_.Lock();
-    b_.Lock();
+TwoMutexLock::TwoMutexLock(absl::Mutex* a, absl::Mutex* b) : a_(a), b_(b) {
+  if (a_ < b_) {
+    if (a_) {
+      a_->Lock();
+    }
+    b_->Lock();
   } else {
-    b_.Lock();
-    a_.Lock();
+    if (b_) {
+      b_->Lock();
+    }
+    if (a_) {
+      a_->Lock();
+    }
   }
 }
 
 TwoMutexLock::~TwoMutexLock() {
-  a_.Unlock();
-  b_.Unlock();
+  if (a_) {
+    a_->Unlock();
+  }
+  if (b_) {
+    b_->Unlock();
+  }
 }
 
 }  // namespace ipcz

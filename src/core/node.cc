@@ -173,6 +173,19 @@ std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Node::OpenPortals() {
   return Portal::CreatePair(mem::WrapRefCounted(this));
 }
 
+mem::Ref<NodeLink> Node::GetLink(const NodeName& name) {
+  absl::MutexLock lock(&mutex_);
+  auto it = node_links_.find(name);
+  if (it == node_links_.end()) {
+    return nullptr;
+  }
+  return it->second;
+}
+
+void Node::EstablishLink(const NodeName& name, EstablishLinkCallback callback) {
+  callback(nullptr);
+}
+
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {
   absl::MutexLock lock(&mutex_);
   auto result = node_links_.try_emplace(remote_node_name, std::move(link));
