@@ -18,6 +18,7 @@
 #include "core/portal.h"
 #include "core/router.h"
 #include "core/routing_id.h"
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
@@ -68,7 +69,10 @@ class ConnectListener : public DriverTransport::Listener,
     }
 
     auto node_link = mem::MakeRefCounted<NodeLink>(
-        node_, connect.params.name, connect.params.protocol_version, transport_,
+        node_, connect.params.name,
+        node_->type() == Node::Type::kBroker ? Node::Type::kNormal
+                                             : Node::Type::kBroker,
+        connect.params.protocol_version, transport_,
         std::move(link_buffer_mapping_));
 
     if (!handler_) {
@@ -153,11 +157,16 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
   auto listener = mem::MakeRefCounted<ConnectListener>(
       mem::WrapRefCounted(this), transport, std::move(buffering_portals),
       std::move(link_state_mapping));
-  listener->Listen(
-      [node = mem::WrapRefCounted(this), listener](mem::Ref<NodeLink> link) {
-        const NodeName name = link->remote_node_name();
-        node->AddLink(name, std::move(link));
-      });
+  listener->Listen([node = mem::WrapRefCounted(this), listener,
+                    remote_node_type](mem::Ref<NodeLink> link) {
+    const NodeName name = link->remote_node_name();
+    node->AddLink(name, link);
+
+    if (remote_node_type == Type::kBroker) {
+      absl::MutexLock lock(&node->mutex_);
+      node->broker_link_ = std::move(link);
+    }
+  });
 
   transport->set_listener(listener.get());
   transport->Activate();
@@ -183,7 +192,126 @@ mem::Ref<NodeLink> Node::GetLink(const NodeName& name) {
 }
 
 void Node::EstablishLink(const NodeName& name, EstablishLinkCallback callback) {
-  callback(nullptr);
+  mem::Ref<NodeLink> link;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = node_links_.find(name);
+    if (it != node_links_.end()) {
+      link = it->second;
+    }
+  }
+
+  if (!link && type_ == Type::kBroker) {
+    DLOG(ERROR) << "Broker cannot establish link to unknown node "
+                << name.ToString();
+    callback(nullptr);
+    return;
+  }
+
+  if (link) {
+    callback(link.get());
+    return;
+  }
+
+  mem::Ref<NodeLink> broker;
+  bool request_intro = false;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (broker_link_) {
+      auto result = pending_introductions_.try_emplace(
+          name, std::vector<EstablishLinkCallback>());
+      result.first->second.push_back(std::move(callback));
+      request_intro = result.second;
+      broker = broker_link_;
+    }
+  }
+
+  if (!broker) {
+    DLOG(ERROR) << "Non-broker cannot establish link to unknown node "
+                << name.ToString() << " without a broker link.";
+    callback(nullptr);
+    return;
+  }
+
+  if (request_intro) {
+    broker->RequestIntroduction(name);
+  }
+}
+
+bool Node::OnRequestIntroduction(NodeLink& from_node_link,
+                                 const msg::RequestIntroduction& request) {
+  if (type_ != Type::kBroker) {
+    return false;
+  }
+
+  mem::Ref<NodeLink> other_node_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = node_links_.find(request.params.name);
+    if (it != node_links_.end()) {
+      other_node_link = it->second;
+    }
+  }
+
+  if (!other_node_link) {
+    from_node_link.IntroduceNode(request.params.name, nullptr, os::Memory());
+    return true;
+  }
+
+  os::Memory link_buffer_memory(sizeof(NodeLinkBuffer));
+  os::Memory::Mapping link_buffer_mapping = link_buffer_memory.Map();
+  NodeLinkBuffer::Init(link_buffer_mapping.base(), /*num_initial_portals=*/0);
+  std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
+      DriverTransport::CreatePair(driver_, driver_node_);
+  other_node_link->IntroduceNode(from_node_link.remote_node_name(),
+                                 std::move(transports.first),
+                                 link_buffer_memory.Clone());
+  from_node_link.IntroduceNode(request.params.name,
+                               std::move(transports.second),
+                               std::move(link_buffer_memory));
+  return true;
+}
+
+bool Node::OnIntroduceNode(
+    const NodeName& name,
+    bool known,
+    os::Memory link_buffer_memory,
+    absl::Span<const uint8_t> serialized_transport_data,
+    absl::Span<os::Handle> serialized_transport_handles) {
+  mem::Ref<NodeLink> new_link;
+  if (known) {
+    mem::Ref<DriverTransport> transport = DriverTransport::Deserialize(
+        driver_, driver_node_, serialized_transport_data,
+        serialized_transport_handles);
+    if (transport) {
+      new_link = mem::MakeRefCounted<NodeLink>(
+          mem::WrapRefCounted(this), name, Type::kNormal, 0,
+          std::move(transport), link_buffer_memory.Map());
+    }
+  }
+
+  std::vector<EstablishLinkCallback> callbacks;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto result = node_links_.try_emplace(name, std::move(new_link));
+    if (!result.second) {
+      // Already introduced. Nothing to do.
+      return true;
+    }
+
+    auto it = pending_introductions_.find(name);
+    if (it == pending_introductions_.end()) {
+      return true;
+    }
+
+    callbacks = std::move(it->second);
+    pending_introductions_.erase(it);
+  }
+
+  for (EstablishLinkCallback& callback : callbacks) {
+    callback(new_link.get());
+  }
+  return true;
 }
 
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {

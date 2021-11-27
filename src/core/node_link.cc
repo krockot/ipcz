@@ -3,6 +3,7 @@
 
 #include "core/node_link.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -18,17 +19,20 @@
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 
 namespace ipcz {
 namespace core {
 
 NodeLink::NodeLink(mem::Ref<Node> node,
                    const NodeName& remote_node_name,
+                   Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    mem::Ref<DriverTransport> transport,
                    os::Memory::Mapping link_memory)
     : node_(std::move(node)),
       remote_node_name_(remote_node_name),
+      remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
       transport_(std::move(transport)),
       link_memory_(std::move(link_memory)) {
@@ -83,6 +87,53 @@ void NodeLink::Transmit(absl::Span<const uint8_t> data,
   transport_->TransmitMessage(DriverTransport::Message(data, handles));
 }
 
+void NodeLink::RequestIntroduction(const NodeName& name) {
+  msg::RequestIntroduction request;
+  request.params.name = name;
+  Transmit(request);
+}
+
+void NodeLink::IntroduceNode(const NodeName& name,
+                             mem::Ref<DriverTransport> transport,
+                             os::Memory link_buffer_memory) {
+  std::vector<uint8_t> serialized_transport_data;
+  std::vector<os::Handle> serialized_transport_handles;
+  if (transport) {
+    IpczResult result = transport->Serialize(serialized_transport_data,
+                                             serialized_transport_handles);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  }
+
+  const size_t num_memory_handles = link_buffer_memory.is_valid() ? 1 : 0;
+  absl::InlinedVector<uint8_t, 256> serialized_data;
+  const size_t serialized_size =
+      sizeof(msg::IntroduceNode) + serialized_transport_data.size() +
+      (serialized_transport_handles.size() + num_memory_handles) *
+          sizeof(internal::OSHandleData);
+  serialized_data.resize(serialized_size);
+
+  auto& intro = *reinterpret_cast<msg::IntroduceNode*>(serialized_data.data());
+  new (&intro) msg::IntroduceNode();
+  intro.known = (transport != nullptr);
+  intro.name = name;
+  intro.num_transport_bytes =
+      static_cast<uint32_t>(serialized_transport_data.size());
+  intro.num_transport_os_handles =
+      static_cast<uint32_t>(serialized_transport_handles.size());
+  memcpy(&intro + 1, serialized_transport_data.data(),
+         serialized_transport_data.size());
+
+  std::vector<os::Handle> handles(serialized_transport_handles.size() +
+                                  num_memory_handles);
+  if (link_buffer_memory.is_valid()) {
+    handles[0] = link_buffer_memory.TakeHandle();
+  }
+  std::move(serialized_transport_handles.begin(),
+            serialized_transport_handles.end(), &handles[num_memory_handles]);
+
+  Transmit(absl::MakeSpan(serialized_data), absl::MakeSpan(handles));
+}
+
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
                            Side side,
@@ -133,6 +184,22 @@ IpczResult NodeLink::OnTransportMessage(
     case msg::SideClosed::kId: {
       msg::SideClosed side_closed;
       if (side_closed.Deserialize(message) && OnSideClosed(side_closed)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::RequestIntroduction::kId: {
+      msg::RequestIntroduction request;
+      if (request.Deserialize(message) &&
+          node_->OnRequestIntroduction(*this, request)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::IntroduceNode::kId: {
+      if (OnIntroduceNode(message)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -212,6 +279,38 @@ bool NodeLink::OnSideClosed(const msg::SideClosed& side_closed) {
   receiver->AcceptRouteClosure(side_closed.params.side,
                                side_closed.params.sequence_length);
   return true;
+}
+
+bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  if (message.data.size() < sizeof(msg::IntroduceNode)) {
+    return false;
+  }
+  const auto& intro =
+      *reinterpret_cast<const msg::IntroduceNode*>(message.data.data());
+  const uint32_t num_transport_bytes = intro.num_transport_bytes;
+  const uint32_t num_transport_os_handles = intro.num_transport_os_handles;
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&intro + 1);
+
+  const size_t serialized_size =
+      sizeof(intro) + num_transport_bytes +
+      (num_transport_os_handles + 1) * sizeof(internal::OSHandleData);
+  if (message.data.size() < serialized_size) {
+    return false;
+  }
+  if (message.handles.size() != num_transport_os_handles + 1) {
+    return false;
+  }
+
+  os::Memory link_buffer_memory(std::move(message.handles[0]),
+                                sizeof(NodeLinkBuffer));
+  return node_->OnIntroduceNode(
+      intro.name, intro.known, std::move(link_buffer_memory),
+      absl::Span<const uint8_t>(bytes, num_transport_bytes),
+      message.handles.subspan(1));
 }
 
 }  // namespace core

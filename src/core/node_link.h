@@ -9,6 +9,7 @@
 #include <cstdint>
 
 #include "core/driver_transport.h"
+#include "core/node.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/routing_id.h"
@@ -32,12 +33,14 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  public:
   NodeLink(mem::Ref<Node> node,
            const NodeName& remote_node_name,
+           Node::Type remote_node_type,
            uint32_t remote_protocol_version,
            mem::Ref<DriverTransport> transport,
            os::Memory::Mapping link_memory);
 
   const mem::Ref<Node>& node() const { return node_; }
   const NodeName& remote_node_name() const { return remote_node_name_; }
+  Node::Type remote_node_type() const { return remote_node_type_; }
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
   const mem::Ref<DriverTransport>& transport() const { return transport_; }
   NodeLinkBuffer& buffer() const { return *link_memory_.As<NodeLinkBuffer>(); }
@@ -57,6 +60,17 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   void Transmit(T& message) {
     transport_->Transmit(message);
   }
+
+  // Asks this link (which must be linked to a remote broker node) to introduce
+  // us to the named node. This will always elicit an eventual IntroduceNode
+  // message from the broker, even if only to indicate failure.
+  void RequestIntroduction(const NodeName& name);
+
+  // Introduces the remote node to the node named `name`, giving it a new
+  // DriverTransport it can use to communicate with that node.
+  void IntroduceNode(const NodeName& name,
+                     mem::Ref<DriverTransport> transport,
+                     os::Memory link_buffer_memory);
 
   // Sends a request to the remote node to have one of its routers reconfigured
   // with a new peer link. Specifically, whatever router has a peer
@@ -86,9 +100,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnSideClosed(const msg::SideClosed& side_closed);
+  bool OnIntroduceNode(const DriverTransport::Message& message);
 
   const mem::Ref<Node> node_;
   const NodeName remote_node_name_;
+  const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
   const mem::Ref<DriverTransport> transport_;
   const os::Memory::Mapping link_memory_;

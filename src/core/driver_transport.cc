@@ -99,6 +99,20 @@ DriverTransport::DriverTransport(const IpczDriver& driver,
 
 DriverTransport::~DriverTransport() = default;
 
+// static
+std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
+DriverTransport::CreatePair(const IpczDriver& driver,
+                            IpczDriverHandle driver_node) {
+  IpczDriverHandle transport0;
+  IpczDriverHandle transport1;
+  IpczResult result = driver.CreateTransports(
+      driver_node, IPCZ_NO_FLAGS, nullptr, &transport0, &transport1);
+  ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  auto first = mem::MakeRefCounted<DriverTransport>(driver, transport0);
+  auto second = mem::MakeRefCounted<DriverTransport>(driver, transport1);
+  return {std::move(first), std::move(second)};
+}
+
 IpczResult DriverTransport::Activate() {
   // Acquire a self-reference, balanced in NotifyTransport() when the driver
   // invokes its activity handler with IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED.
@@ -126,6 +140,63 @@ IpczResult DriverTransport::TransmitMessage(const Message& message) {
       driver_transport_, message.data.data(),
       static_cast<uint32_t>(message.data.size()), os_handles.data(),
       static_cast<uint32_t>(os_handles.size()), IPCZ_NO_FLAGS, nullptr);
+}
+
+IpczResult DriverTransport::Serialize(std::vector<uint8_t>& data,
+                                      std::vector<os::Handle>& handles) {
+  uint32_t num_bytes = 0;
+  uint32_t num_os_handles = 0;
+  IpczResult result =
+      driver_.SerializeTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr,
+                                 nullptr, &num_bytes, nullptr, &num_os_handles);
+  ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
+  data.resize(num_bytes);
+  std::vector<IpczOSHandle> os_handles(num_bytes);
+  result = driver_.SerializeTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr,
+                                      data.data(), &num_bytes,
+                                      os_handles.data(), &num_os_handles);
+  ABSL_ASSERT(result != IPCZ_RESULT_RESOURCE_EXHAUSTED);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  handles.resize(num_os_handles);
+  for (size_t i = 0; i < num_os_handles; ++i) {
+    handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
+  }
+
+  return IPCZ_RESULT_OK;
+}
+
+// static
+mem::Ref<DriverTransport> DriverTransport::Deserialize(
+    const IpczDriver& driver,
+    IpczDriverHandle driver_node,
+    absl::Span<const uint8_t> data,
+    absl::Span<os::Handle> handles) {
+  std::vector<IpczOSHandle> os_handles(handles.size());
+  bool fail = false;
+  for (size_t i = 0; i < handles.size(); ++i) {
+    bool ok = os::Handle::ToIpczOSHandle(std::move(handles[i]), &os_handles[i]);
+    if (!ok) {
+      fail = true;
+    }
+  }
+
+  if (fail) {
+    return nullptr;
+  }
+
+  IpczDriverHandle transport;
+  IpczResult result = driver.DeserializeTransport(
+      driver_node, data.data(), static_cast<uint32_t>(data.size()),
+      os_handles.data(), static_cast<uint32_t>(os_handles.size()),
+      /*target_process=*/nullptr, IPCZ_NO_FLAGS, nullptr, &transport);
+  if (result != IPCZ_RESULT_OK) {
+    return nullptr;
+  }
+
+  return mem::MakeRefCounted<DriverTransport>(driver, transport);
 }
 
 IpczResult DriverTransport::Notify(const Message& message) {

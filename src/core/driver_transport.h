@@ -59,6 +59,9 @@ class DriverTransport : public mem::RefCounted {
 
   DriverTransport(const IpczDriver& driver, IpczDriverHandle driver_transport);
 
+  static std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
+  CreatePair(const IpczDriver& driver, IpczDriverHandle driver_node);
+
   // Set the object handling any incoming message or error notifications. This
   // is only safe to set before Activate() is called, or from within one of the
   // Listener methods when invoked by this DriverTransport (because invocations
@@ -68,6 +71,14 @@ class DriverTransport : public mem::RefCounted {
   IpczResult Activate();
   IpczResult Deactivate();
   IpczResult TransmitMessage(const Message& message);
+
+  IpczResult Serialize(std::vector<uint8_t>& data,
+                       std::vector<os::Handle>& handles);
+
+  static mem::Ref<DriverTransport> Deserialize(const IpczDriver& driver,
+                                               IpczDriverHandle driver_node,
+                                               absl::Span<const uint8_t> data,
+                                               absl::Span<os::Handle> handles);
 
   template <typename T>
   IpczResult Transmit(T& message) {

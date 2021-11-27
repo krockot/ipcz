@@ -8,9 +8,11 @@
 #include <functional>
 #include <utility>
 
+#include "core/node_messages.h"
 #include "core/node_name.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -47,6 +49,14 @@ class Node : public mem::RefCounted {
   using EstablishLinkCallback = std::function<void(NodeLink*)>;
   void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
 
+  bool OnRequestIntroduction(NodeLink& from_node_link,
+                             const msg::RequestIntroduction& request);
+  bool OnIntroduceNode(const NodeName& name,
+                       bool known,
+                       os::Memory link_buffer_memory,
+                       absl::Span<const uint8_t> serialized_transport_data,
+                       absl::Span<os::Handle> serialized_transport_handles);
+
  private:
   ~Node() override;
 
@@ -58,8 +68,11 @@ class Node : public mem::RefCounted {
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
+  mem::Ref<NodeLink> broker_link_;
   absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links_
       ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<NodeName, std::vector<EstablishLinkCallback>>
+      pending_introductions_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core
