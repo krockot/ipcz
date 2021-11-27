@@ -45,6 +45,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
                                 size_t link_state_index,
                                 mem::Ref<Router> router);
+  bool RemoveRoute(RoutingId routing_id);
 
   void Deactivate();
 

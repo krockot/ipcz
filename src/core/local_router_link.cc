@@ -10,6 +10,7 @@
 #include "core/router_link_state.h"
 #include "core/side.h"
 #include "mem/ref_counted.h"
+#include "util/two_mutex_lock.h"
 
 namespace ipcz {
 namespace core {
@@ -45,6 +46,19 @@ LocalRouterLink::LocalRouterLink(Side side, mem::Ref<SharedState> state)
     : side_(side), state_(std::move(state)) {}
 
 LocalRouterLink::~LocalRouterLink() = default;
+
+void LocalRouterLink::Deactivate() {
+  mem::Ref<Router> left = state_->side(Side::kLeft);
+  mem::Ref<Router> right = state_->side(Side::kRight);
+  TwoMutexLock lock(left->mutex_, right->mutex_);
+  if (!left->peer_ || left->peer_->GetLocalTarget() != right || !right->peer_ ||
+      right->peer_->GetLocalTarget() != left) {
+    return;
+  }
+
+  left->peer_ = nullptr;
+  right->peer_ = nullptr;
+}
 
 RouterLinkState& LocalRouterLink::GetLinkState() {
   return state_->state();

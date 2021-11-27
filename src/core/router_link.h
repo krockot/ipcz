@@ -23,6 +23,7 @@ struct RouterLinkState;
 
 class RouterLink : public mem::RefCounted {
  public:
+  virtual void Deactivate() = 0;
   virtual RouterLinkState& GetLinkState() = 0;
   virtual mem::Ref<Router> GetLocalTarget() = 0;
   virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;

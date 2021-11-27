@@ -106,17 +106,30 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
 }
 
 void Router::CloseRoute() {
-  mem::Ref<RouterLink> who_to_notify;
+  mem::Ref<RouterLink> peer;
+  mem::Ref<RouterLink> predecessor;
   SequenceNumber sequence_length;
+  std::vector<Parcel> incoming_parcels;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-    who_to_notify = peer_ ? peer_ : predecessor_;
     sequence_length = outgoing_sequence_length_;
+    std::swap(peer, peer_);
+    std::swap(predecessor, predecessor_);
+    std::move(incoming_parcels_).StealAllParcels(incoming_parcels);
   }
 
-  if (who_to_notify) {
-    who_to_notify->AcceptRouteClosure(side_, sequence_length);
+  mem::Ref<RouterLink> target = peer ? peer : predecessor;
+  if (target) {
+    target->AcceptRouteClosure(side_, sequence_length);
+  }
+
+  if (peer) {
+    peer->Deactivate();
+  }
+
+  if (predecessor) {
+    predecessor->Deactivate();
   }
 }
 

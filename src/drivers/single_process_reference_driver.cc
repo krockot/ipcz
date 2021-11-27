@@ -119,7 +119,9 @@ class InProcessTransport : public mem::RefCounted {
       peer_transport = peer->transport_;
     }
 
-    peer_transport->Notify(data, os_handles);
+    if (peer_transport) {
+      peer_transport->Notify(data, os_handles);
+    }
     return IPCZ_RESULT_OK;
   }
 

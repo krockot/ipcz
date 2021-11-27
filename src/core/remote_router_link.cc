@@ -37,6 +37,10 @@ RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 
+void RemoteRouterLink::Deactivate() {
+  node_link_->RemoveRoute(routing_id_);
+}
+
 RouterLinkState& RemoteRouterLink::GetLinkState() {
   return node_link_->buffer().router_link_state(link_state_index_);
 }
@@ -104,6 +108,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     routers[i]->BeginProxyingWithSuccessor(descriptors[i],
                                            std::move(new_links[i]));
+    portals[i].reset();
   }
 }
 

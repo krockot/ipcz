@@ -111,14 +111,20 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   }
 
   IpczResult result = router_->SendOutgoingParcel(data, portals, handles);
-  if (result != IPCZ_RESULT_OK) {
+  if (result == IPCZ_RESULT_OK) {
+    // If the parcel was sent, the sender relinquished handle ownership and
+    // therefore implicitly releases its ref to each portal.
+    for (IpczHandle handle : portal_handles) {
+      mem::Ref<Portal> released_portal(mem::RefCounted::kAdoptExistingRef,
+                                       ToPtr<Portal>(handle));
+    }
+  } else {
     for (os::Handle& handle : handles) {
       (void)handle.release();
     }
-    return result;
   }
 
-  return IPCZ_RESULT_OK;
+  return result;
 }
 
 IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
@@ -179,16 +185,23 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
 
   IpczResult result = router_->SendOutgoingParcel(
       parcel.data_view().subspan(0, num_data_bytes_produced), portals, handles);
-  if (result != IPCZ_RESULT_OK) {
+  if (result == IPCZ_RESULT_OK) {
+    // If the parcel was sent, the sender relinquished handle ownership and
+    // therefore implicitly releases its ref to each portal.
+    for (IpczHandle handle : portal_handles) {
+      mem::Ref<Portal> released_portal(mem::RefCounted::kAdoptExistingRef,
+                                       ToPtr<Portal>(handle));
+    }
+
+    absl::MutexLock lock(&mutex_);
+    in_two_phase_put_ = false;
+  } else {
     for (os::Handle& handle : handles) {
       (void)handle.release();
     }
 
     absl::MutexLock lock(&mutex_);
     pending_parcel_.emplace(std::move(parcel));
-  } else {
-    absl::MutexLock lock(&mutex_);
-    in_two_phase_put_ = false;
   }
 
   return result;

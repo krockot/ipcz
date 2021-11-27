@@ -13,6 +13,7 @@
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
@@ -38,6 +39,7 @@ class MultiprocessTransport : public mem::RefCounted {
       return {};
     }
 
+    absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(channel_);
     os::Channel channel = std::move(*channel_);
     channel_.reset();
@@ -49,6 +51,8 @@ class MultiprocessTransport : public mem::RefCounted {
     was_activated_ = true;
     transport_ = transport;
     activity_handler_ = activity_handler;
+
+    absl::MutexLock lock(&mutex_);
     channel_->Listen(
         [transport = mem::WrapRefCounted(this)](os::Channel::Message message) {
           return transport->OnMessage(message);
@@ -56,7 +60,10 @@ class MultiprocessTransport : public mem::RefCounted {
   }
 
   void Deactivate() {
-    channel_.reset();
+    {
+      absl::MutexLock lock(&mutex_);
+      channel_.reset();
+    }
 
     if (activity_handler_) {
       activity_handler_(transport_, nullptr, 0, nullptr, 0,
@@ -71,6 +78,7 @@ class MultiprocessTransport : public mem::RefCounted {
       handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
     }
 
+    absl::MutexLock lock(&mutex_);
     channel_->Send(
         os::Channel::Message(os::Channel::Data(data), absl::MakeSpan(handles)));
     return IPCZ_RESULT_OK;
@@ -103,10 +111,12 @@ class MultiprocessTransport : public mem::RefCounted {
   // Because activation and de-activation are also one-time operations, a well
   // behaved application and ipcz implementation cannot elicit race conditions.
 
-  std::unique_ptr<os::Channel> channel_;
   IpczHandle transport_ = IPCZ_INVALID_HANDLE;
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
+
+  absl::Mutex mutex_;
+  std::unique_ptr<os::Channel> channel_ ABSL_GUARDED_BY(mutex_);
 };
 
 IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,

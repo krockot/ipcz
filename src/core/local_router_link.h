@@ -25,6 +25,7 @@ class LocalRouterLink : public RouterLink {
   CreatePair(mem::Ref<Router> left_router, mem::Ref<Router> right_router);
 
   // RouterLink:
+  void Deactivate() override;
   RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;

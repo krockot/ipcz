@@ -21,7 +21,13 @@ Parcel::Parcel(Parcel&& other) = default;
 
 Parcel& Parcel::operator=(Parcel&& other) = default;
 
-Parcel::~Parcel() = default;
+Parcel::~Parcel() {
+  for (mem::Ref<Portal>& portal : portals_) {
+    if (portal) {
+      portal->Close();
+    }
+  }
+}
 
 void Parcel::SetData(std::vector<uint8_t> data) {
   data_ = std::move(data);

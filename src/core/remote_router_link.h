@@ -25,6 +25,7 @@ class RemoteRouterLink : public RouterLink {
   RoutingId routing_id() const { return routing_id_; }
 
   // RouterLink:
+  void Deactivate() override;
   RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;

@@ -53,6 +53,17 @@ mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
                                                routing_id, link_state_index);
 }
 
+bool NodeLink::RemoveRoute(RoutingId routing_id) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routes_.find(routing_id);
+  if (it == routes_.end()) {
+    return false;
+  }
+
+  routes_.erase(routing_id);
+  return true;
+}
+
 void NodeLink::Deactivate() {
   {
     absl::MutexLock lock(&mutex_);

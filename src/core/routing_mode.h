@@ -38,7 +38,7 @@ enum RoutingMode : uint32_t {
   // Router can only enter half-proxy mode by decaying from full proxy mode (see
   // below) or if it extends its own side of the route while its peer is not a
   // half-proxy.
-  kHalfProxy = 2,
+  kHalfProxy = 1,
 
   // The Router is in a full proxy mode. Any outgoing parcels received from its
   // successor (if present) are forwarded to its peer or predecessor if present.
@@ -51,7 +51,7 @@ enum RoutingMode : uint32_t {
   //
   // A proxy decays into a half-proxy as soon as it acquires a peer link to
   // another Router which is not a half-proxy.
-  kProxy = 3,
+  kProxy = 2,
 };
 
 }  // namespace core
