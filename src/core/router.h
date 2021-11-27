@@ -22,7 +22,9 @@
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -89,6 +91,11 @@ class Router : public mem::RefCounted {
   void BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
                                   mem::Ref<RouterLink> link);
 
+  // Cuts off this Router's proxying responsibilities in the direction of `side`
+  // once the router has forwarded all parcels up to and including
+  // `proxy_sequence_length` in that direction.
+  bool StopProxyingTowardSide(Side side, SequenceNumber proxy_sequence_length);
+
   // Accepts a parcel routed here from `link` via `routing_id`, which is
   // determined to be either an incoming or outgoing parcel based on the source
   // and current routing mode.
@@ -141,6 +148,12 @@ class Router : public mem::RefCounted {
                            RoutingId proxy_peer_routing_id,
                            absl::uint128 bypass_key,
                            bool notify_predecessor);
+  bool BypassProxyTo(mem::Ref<RouterLink> new_peer, absl::uint128 bypass_key);
+
+  // Disconnects this Router from all RouterLinks, such that no further parcels
+  // or events will be routed to it, and no references are retained on behalf of
+  // any such links.
+  void Disconnect();
 
  private:
   friend class LocalRouterLink;
@@ -153,6 +166,8 @@ class Router : public mem::RefCounted {
 
   absl::Mutex mutex_;
   SequenceNumber outgoing_sequence_length_ ABSL_GUARDED_BY(mutex_) = 0;
+  absl::optional<SequenceNumber> last_outgoing_sequence_number_to_forward_
+      ABSL_GUARDED_BY(mutex_);
   RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kActive;
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> successor_ ABSL_GUARDED_BY(mutex_);

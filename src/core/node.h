@@ -56,6 +56,7 @@ class Node : public mem::RefCounted {
                        os::Memory link_buffer_memory,
                        absl::Span<const uint8_t> serialized_transport_data,
                        absl::Span<os::Handle> serialized_transport_handles);
+  bool OnBypassProxy(NodeLink& from_node_link, const msg::BypassProxy& bypass);
 
  private:
   ~Node() override;

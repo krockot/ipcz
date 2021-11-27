@@ -33,6 +33,8 @@ class RemoteRouterLink : public RouterLink {
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(Side side, SequenceNumber sequence_length) override;
+  void StopProxyingTowardSide(Side side,
+                              SequenceNumber proxy_sequence_length) override;
 
  private:
   ~RemoteRouterLink() override;

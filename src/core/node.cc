@@ -171,10 +171,6 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
   transport->set_listener(listener.get());
   transport->Activate();
   transport->Transmit(connect);
-
-  // TODO
-  (void)driver_node_;
-
   return IPCZ_RESULT_OK;
 }
 
@@ -278,40 +274,57 @@ bool Node::OnIntroduceNode(
     os::Memory link_buffer_memory,
     absl::Span<const uint8_t> serialized_transport_data,
     absl::Span<os::Handle> serialized_transport_handles) {
+  mem::Ref<DriverTransport> transport;
   mem::Ref<NodeLink> new_link;
   if (known) {
-    mem::Ref<DriverTransport> transport = DriverTransport::Deserialize(
-        driver_, driver_node_, serialized_transport_data,
-        serialized_transport_handles);
+    transport = DriverTransport::Deserialize(driver_, driver_node_,
+                                             serialized_transport_data,
+                                             serialized_transport_handles);
     if (transport) {
-      new_link = mem::MakeRefCounted<NodeLink>(
-          mem::WrapRefCounted(this), name, Type::kNormal, 0,
-          std::move(transport), link_buffer_memory.Map());
+      new_link = mem::MakeRefCounted<NodeLink>(mem::WrapRefCounted(this), name,
+                                               Type::kNormal, 0, transport,
+                                               link_buffer_memory.Map());
     }
   }
 
   std::vector<EstablishLinkCallback> callbacks;
   {
     absl::MutexLock lock(&mutex_);
-    auto result = node_links_.try_emplace(name, std::move(new_link));
+    auto result = node_links_.try_emplace(name, new_link);
     if (!result.second) {
       // Already introduced. Nothing to do.
       return true;
     }
 
     auto it = pending_introductions_.find(name);
-    if (it == pending_introductions_.end()) {
-      return true;
+    if (it != pending_introductions_.end()) {
+      callbacks = std::move(it->second);
+      pending_introductions_.erase(it);
     }
+  }
 
-    callbacks = std::move(it->second);
-    pending_introductions_.erase(it);
+  if (transport) {
+    transport->Activate();
   }
 
   for (EstablishLinkCallback& callback : callbacks) {
     callback(new_link.get());
   }
   return true;
+}
+
+bool Node::OnBypassProxy(NodeLink& from_node_link,
+                         const msg::BypassProxy& bypass) {
+  mem::Ref<NodeLink> proxy_node_link = GetLink(bypass.params.proxy_name);
+  mem::Ref<Router> proxy_peer =
+      proxy_node_link->GetRouter(bypass.params.proxy_routing_id);
+  if (!proxy_peer) {
+    return false;
+  }
+
+  mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
+      bypass.params.new_routing_id, bypass.params.new_routing_id, proxy_peer);
+  return proxy_peer->BypassProxyTo(new_peer_link, bypass.params.bypass_key);
 }
 
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {

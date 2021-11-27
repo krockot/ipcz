@@ -121,5 +121,15 @@ void RemoteRouterLink::AcceptRouteClosure(Side side,
   node_link()->Transmit(side_closed);
 }
 
+void RemoteRouterLink::StopProxyingTowardSide(
+    Side side,
+    SequenceNumber proxy_sequence_length) {
+  msg::StopProxyingTowardSide stop;
+  stop.params.routing_id = routing_id_;
+  stop.params.side = side;
+  stop.params.sequence_length = proxy_sequence_length;
+  node_link()->Transmit(stop);
+}
+
 }  // namespace core
 }  // namespace ipcz

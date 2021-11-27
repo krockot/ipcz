@@ -151,7 +151,7 @@ IpczResult DriverTransport::Serialize(std::vector<uint8_t>& data,
                                  nullptr, &num_bytes, nullptr, &num_os_handles);
   ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
   data.resize(num_bytes);
-  std::vector<IpczOSHandle> os_handles(num_bytes);
+  std::vector<IpczOSHandle> os_handles(num_os_handles);
   result = driver_.SerializeTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr,
                                       data.data(), &num_bytes,
                                       os_handles.data(), &num_os_handles);
@@ -177,6 +177,7 @@ mem::Ref<DriverTransport> DriverTransport::Deserialize(
   std::vector<IpczOSHandle> os_handles(handles.size());
   bool fail = false;
   for (size_t i = 0; i < handles.size(); ++i) {
+    os_handles[i].size = sizeof(os_handles[i]);
     bool ok = os::Handle::ToIpczOSHandle(std::move(handles[i]), &os_handles[i]);
     if (!ok) {
       fail = true;

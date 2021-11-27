@@ -154,15 +154,16 @@ void TestBase::VerifyEndToEnd(IpczHandle a,
                               IpczHandle b,
                               size_t num_iterations) {
   Parcel p;
-  const std::string kMessage = "psssst";
+  const std::string kMessage1 = "psssst";
+  const std::string kMessage2 = "ssshhh";
   for (size_t i = 0; i < num_iterations; ++i) {
-    Put(a, kMessage, {}, {});
+    Put(a, kMessage1, {}, {});
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-    EXPECT_EQ(kMessage, p.message);
+    EXPECT_EQ(kMessage1, p.message);
 
-    Put(b, kMessage, {}, {});
+    Put(b, kMessage2, {}, {});
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-    EXPECT_EQ(kMessage, p.message);
+    EXPECT_EQ(kMessage2, p.message);
   }
 }
 

@@ -221,6 +221,25 @@ void Router::BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
   }
 }
 
+bool Router::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
+  if (side == Opposite(side_)) {
+    ABSL_ASSERT(false);
+    // TODO: need this case for proxy decay to half-proxy
+    return false;
+  }
+
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!incoming_parcels_.SetPeerSequenceLength(sequence_length)) {
+      ABSL_ASSERT(false);
+      return false;
+    }
+  }
+
+  FlushParcels();
+  return true;
+}
+
 bool Router::AcceptParcelFrom(NodeLink& link,
                               RoutingId routing_id,
                               Parcel& parcel) {
@@ -265,6 +284,11 @@ bool Router::AcceptOutgoingParcel(Parcel& parcel) {
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
+    if (parcel.sequence_number() != outgoing_sequence_length_) {
+      return false;
+    }
+
+    outgoing_sequence_length_ = parcel.sequence_number() + 1;
     link = peer_ ? peer_ : predecessor_;
     if (!link || num_outgoing_transmission_blockers_) {
       outgoing_parcels_.push(std::move(parcel));
@@ -610,7 +634,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       requesting_node_link.node()->GetLink(proxy_peer_node_name);
   if (new_peer_node) {
     new_peer_node->BypassProxy(requesting_node_link.remote_node_name(),
-                               proxy_peer_routing_id, side_, bypass_key,
+                               proxy_peer_routing_id, bypass_key,
                                mem::WrapRefCounted(this));
     return true;
   }
@@ -618,23 +642,77 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   // We don't want to forward outgoing parcels to our predecessor while waiting
   // for the peer link to be established.
   PauseOutgoingTransmission(true);
-
   requesting_node_link.node()->EstablishLink(
       proxy_peer_node_name,
       [requesting_node_name = requesting_node_link.remote_node_name(),
-       proxy_peer_routing_id, side = side_, bypass_key,
+       proxy_peer_routing_id, bypass_key,
        self = mem::WrapRefCounted(this)](NodeLink* new_link) {
         if (!new_link) {
-          // TODO: failed to establish a link to the new peer node, so the route
-          // is effectively toast. behave as in peer closure.
+          SequenceNumber peer_sequence_length;
+          {
+            absl::MutexLock lock(&self->mutex_);
+            peer_sequence_length =
+                self->incoming_parcels_.peer_sequence_length().value_or(
+                    self->incoming_parcels_.current_sequence_number() +
+                    self->incoming_parcels_.GetNumAvailableParcels());
+          }
+          self->AcceptRouteClosure(Opposite(self->side_), peer_sequence_length);
           return;
         }
 
-        new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id, side,
+        new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
                               bypass_key, self);
         self->PauseOutgoingTransmission(false);
       });
   return true;
+}
+
+bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
+                           absl::uint128 bypass_key) {
+  SequenceNumber proxy_sequence_length;
+  mem::Ref<RouterLink> old_peer;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!peer_) {
+      new_peer->AcceptRouteClosure(side_, outgoing_sequence_length_);
+      return true;
+    }
+
+    RouterLinkState::Locked state(peer_->GetLinkState(), side_);
+    if (state.other_side().bypass_key != bypass_key ||
+        state.other_side().routing_mode != RoutingMode::kHalfProxy) {
+      return false;
+    }
+
+    old_peer = std::move(peer_);
+    peer_ = std::move(new_peer);
+    proxy_sequence_length = outgoing_sequence_length_;
+  }
+
+  old_peer->StopProxyingTowardSide(Opposite(side_), proxy_sequence_length);
+  return true;
+}
+
+void Router::Disconnect() {
+  mem::Ref<RouterLink> peer;
+  mem::Ref<RouterLink> predecessor;
+  mem::Ref<RouterLink> successor;
+  {
+    absl::MutexLock lock(&mutex_);
+    std::swap(peer, peer_);
+    std::swap(predecessor, predecessor_);
+    std::swap(successor, successor_);
+  }
+
+  if (peer) {
+    peer->Deactivate();
+  }
+  if (predecessor) {
+    predecessor->Deactivate();
+  }
+  if (successor) {
+    successor->Deactivate();
+  }
 }
 
 void Router::FlushParcels() {
@@ -642,9 +720,14 @@ void Router::FlushParcels() {
   mem::Ref<RouterLink> where_to_forward_outgoing_parcels;
   std::forward_list<Parcel> outgoing_parcels;
   std::vector<Parcel> incoming_parcels;
+  absl::optional<SequenceNumber> last_outgoing_sequence_number_to_forward;
+  SequenceNumber outgoing_sequence_length = 0;
+  bool is_proxying_toward_peer = false;
   bool incoming_queue_dead = false;
   {
     absl::MutexLock lock(&mutex_);
+    last_outgoing_sequence_number_to_forward =
+        last_outgoing_sequence_number_to_forward_;
     where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
     if (!outgoing_parcels_.empty() && where_to_forward_outgoing_parcels &&
         !num_outgoing_transmission_blockers_) {
@@ -659,7 +742,10 @@ void Router::FlushParcels() {
       }
       incoming_queue_dead = incoming_parcels_.IsDead();
       where_to_forward_incoming_parcels = successor_;
+      is_proxying_toward_peer = routing_mode_ == RoutingMode::kProxy;
     }
+
+    outgoing_sequence_length = outgoing_sequence_length_;
   }
 
   for (Parcel& parcel : outgoing_parcels) {
@@ -670,10 +756,14 @@ void Router::FlushParcels() {
     where_to_forward_incoming_parcels->AcceptParcel(parcel);
   }
 
-  if (incoming_queue_dead) {
-    // TODO: unbind route receiving inbound parcels and clean up any other refs
-    // we might be leaving around. either the peer is closed or we're a half
-    // proxy who has outlived its usefulness.
+  const bool done_forwarding_outgoing_parcels =
+      is_proxying_toward_peer &&
+      (last_outgoing_sequence_number_to_forward &&
+       *last_outgoing_sequence_number_to_forward <= outgoing_sequence_length);
+  const bool done_forwarding_incoming_parcels = incoming_queue_dead;
+  if (done_forwarding_incoming_parcels && done_forwarding_outgoing_parcels) {
+    // May delete `this`;
+    Disconnect();
   }
 }
 

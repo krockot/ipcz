@@ -51,6 +51,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
                                 size_t link_state_index,
                                 mem::Ref<Router> router);
   bool RemoveRoute(RoutingId routing_id);
+  mem::Ref<Router> GetRouter(RoutingId routing_id);
 
   void Deactivate();
 
@@ -84,14 +85,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // reconfigured remote router.
   bool BypassProxy(const NodeName& proxy_name,
                    RoutingId proxy_routing_id,
-                   Side side,
                    absl::uint128 bypass_key,
                    mem::Ref<Router> new_peer);
 
  private:
   ~NodeLink() override;
-
-  mem::Ref<Router> GetRouter(RoutingId routing_id);
 
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(
@@ -101,6 +99,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnSideClosed(const msg::SideClosed& side_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);
+  bool OnStopProxyingTowardSide(const msg::StopProxyingTowardSide& stop);
 
   const mem::Ref<Node> node_;
   const NodeName remote_node_name_;

@@ -32,6 +32,8 @@ class RouterLink : public mem::RefCounted {
   virtual void AcceptParcel(Parcel& parcel) = 0;
   virtual void AcceptRouteClosure(Side side,
                                   SequenceNumber sequence_length) = 0;
+  virtual void StopProxyingTowardSide(Side side,
+                                      SequenceNumber proxy_sequence_length) = 0;
 
  protected:
   ~RouterLink() override = default;

@@ -88,5 +88,13 @@ void LocalRouterLink::AcceptRouteClosure(Side side,
   state_->side(Opposite(side_))->AcceptRouteClosure(side, sequence_length);
 }
 
+void LocalRouterLink::StopProxyingTowardSide(
+    Side side,
+    SequenceNumber proxy_sequence_length) {
+  // Local links are always peer links, and existing peers never tell each other
+  // to stop proxying in any direction.
+  ABSL_ASSERT(false);
+}
+
 }  // namespace core
 }  // namespace ipcz

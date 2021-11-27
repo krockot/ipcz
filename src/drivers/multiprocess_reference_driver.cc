@@ -167,6 +167,7 @@ IpczResult CDECL SerializeTransport(IpczDriverHandle driver_transport,
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
+  os_handles[0].size = sizeof(os_handles[0]);
   if (!os::Handle::ToIpczOSHandle(channel.TakeHandle(), &os_handles[0])) {
     return IPCZ_RESULT_UNKNOWN;
   }

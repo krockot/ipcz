@@ -1,3 +1,4 @@
+// Copyright 2021 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -68,6 +69,15 @@ bool NodeLink::RemoveRoute(RoutingId routing_id) {
   return true;
 }
 
+mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routes_.find(routing_id);
+  if (it == routes_.end()) {
+    return nullptr;
+  }
+  return it->second;
+}
+
 void NodeLink::Deactivate() {
   {
     absl::MutexLock lock(&mutex_);
@@ -114,6 +124,8 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
   auto& intro = *reinterpret_cast<msg::IntroduceNode*>(serialized_data.data());
   new (&intro) msg::IntroduceNode();
+  intro.message_header.size = sizeof(intro.message_header);
+  intro.message_header.message_id = msg::IntroduceNode::kId;
   intro.known = (transport != nullptr);
   intro.name = name;
   intro.num_transport_bytes =
@@ -128,15 +140,16 @@ void NodeLink::IntroduceNode(const NodeName& name,
   if (link_buffer_memory.is_valid()) {
     handles[0] = link_buffer_memory.TakeHandle();
   }
-  std::move(serialized_transport_handles.begin(),
-            serialized_transport_handles.end(), &handles[num_memory_handles]);
+  if (!serialized_transport_handles.empty()) {
+    std::move(serialized_transport_handles.begin(),
+              serialized_transport_handles.end(), &handles[num_memory_handles]);
+  }
 
   Transmit(absl::MakeSpan(serialized_data), absl::MakeSpan(handles));
 }
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
-                           Side side,
                            absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
   RoutingId new_routing_id = AllocateRoutingIds(1);
@@ -152,21 +165,11 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.sender_side = side;
   bypass.params.bypass_key = bypass_key;
   Transmit(bypass);
 
   new_peer->PauseOutgoingTransmission(false);
   return true;
-}
-
-mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
-  absl::MutexLock lock(&mutex_);
-  auto it = routes_.find(routing_id);
-  if (it == routes_.end()) {
-    return nullptr;
-  }
-  return it->second;
 }
 
 IpczResult NodeLink::OnTransportMessage(
@@ -198,8 +201,23 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    case msg::IntroduceNode::kId: {
+    case msg::IntroduceNode::kId:
       if (OnIntroduceNode(message)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+
+    case msg::BypassProxy::kId: {
+      msg::BypassProxy bypass;
+      if (bypass.Deserialize(message) && node_->OnBypassProxy(*this, bypass)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::StopProxyingTowardSide::kId: {
+      msg::StopProxyingTowardSide stop;
+      if (stop.Deserialize(message) && OnStopProxyingTowardSide(stop)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -242,11 +260,12 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
     } else {
       new_router->SetPredecessor(std::move(new_router_link));
     }
+
     if (descriptor.proxy_peer_node_name.is_valid()) {
       // The predecessor is already a half-proxy and has given us the means to
       // initiate its own bypass.
       new_router->InitiateProxyBypass(
-          *this, accept.routing_id, descriptor.proxy_peer_node_name,
+          *this, descriptor.new_routing_id, descriptor.proxy_peer_node_name,
           descriptor.proxy_peer_routing_id, descriptor.bypass_key,
           /*notify_predecessor=*/false);
     }
@@ -311,6 +330,17 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
       intro.name, intro.known, std::move(link_buffer_memory),
       absl::Span<const uint8_t>(bytes, num_transport_bytes),
       message.handles.subspan(1));
+}
+
+bool NodeLink::OnStopProxyingTowardSide(
+    const msg::StopProxyingTowardSide& stop) {
+  mem::Ref<Router> router = GetRouter(stop.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  return router->StopProxyingTowardSide(stop.params.side,
+                                        stop.params.sequence_length);
 }
 
 }  // namespace core
