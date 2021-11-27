@@ -150,16 +150,20 @@ TestBase::Parcel TestBase::Get(IpczHandle portal) {
   return parcel;
 }
 
-void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
+void TestBase::VerifyEndToEnd(IpczHandle a,
+                              IpczHandle b,
+                              size_t num_iterations) {
   Parcel p;
   const std::string kMessage = "psssst";
-  Put(a, kMessage, {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-  EXPECT_EQ(kMessage, p.message);
+  for (size_t i = 0; i < num_iterations; ++i) {
+    Put(a, kMessage, {}, {});
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+    EXPECT_EQ(kMessage, p.message);
 
-  Put(b, kMessage, {}, {});
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-  EXPECT_EQ(kMessage, p.message);
+    Put(b, kMessage, {}, {});
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+    EXPECT_EQ(kMessage, p.message);
+  }
 }
 
 void TestBase::WaitForProxyDecay(IpczHandle a, IpczHandle b) {}

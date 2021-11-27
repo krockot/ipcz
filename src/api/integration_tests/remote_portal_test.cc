@@ -252,9 +252,9 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
-  VerifyEndToEnd(c, d);
+  VerifyEndToEnd(c, d, 100);
   WaitForProxyDecay(c, d);
-  VerifyEndToEnd(c, d);
+  VerifyEndToEnd(c, d, 100);
 
   ClosePortals({a, b, c, d});
   DestroyNodes({node, other_node});
@@ -305,9 +305,9 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
     b = p.portals[0];
   }
 
-  VerifyEndToEnd(a, b);
+  VerifyEndToEnd(a, b, 100);
   WaitForProxyDecay(a, b);
-  VerifyEndToEnd(a, b);
+  VerifyEndToEnd(a, b, 100);
 
   ClosePortals({a, b});
   for (size_t i = 0; i < kNumHops; ++i) {
