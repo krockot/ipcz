@@ -502,6 +502,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
             incoming_parcels_.current_sequence_number();
         return local_peer;
       }
+    } else if (peer_ && peer_->GetLocalTarget()) {
+      // We didn't have a local peer before, but now we do. Try again.
+      continue;
     }
 
     descriptor.route_is_peer = false;
@@ -517,8 +520,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       descriptor.closed_peer_sequence_length =
           *incoming_parcels_.peer_sequence_length();
       peer_closure_propagated_ = true;
-    } else if (peer_) {
-      ABSL_ASSERT(!peer_->GetLocalTarget());
+    } else if (peer_ && !peer_->GetLocalTarget()) {
+      // We only need to prepare the new router for proxy bypass if our own peer
+      // is remote to us.
       RemoteRouterLink& remote_link =
           *static_cast<RemoteRouterLink*>(peer_.get());
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
