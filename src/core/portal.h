@@ -8,11 +8,8 @@
 #include <cstdint>
 #include <utility>
 
-#include "core/router_observer.h"
-#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -21,7 +18,7 @@ namespace core {
 class Node;
 class Router;
 
-class Portal : public RouterObserver {
+class Portal : public mem::RefCounted {
  public:
   Portal(mem::Ref<Node> node, mem::Ref<Router> router);
 
@@ -77,17 +74,8 @@ class Portal : public RouterObserver {
  private:
   ~Portal() override;
 
-  // RouterObserver:
-  void OnPeerClosed(bool is_route_dead) override;
-  void OnIncomingParcel(uint32_t num_available_parcels,
-                        uint32_t num_avialable_bytes) override;
-
   const mem::Ref<Node> node_;
   const mem::Ref<Router> router_;
-
-  absl::Mutex mutex_;
-  IpczPortalStatus status_ = {sizeof(status_)};
-  TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

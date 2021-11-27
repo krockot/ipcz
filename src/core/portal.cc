@@ -19,7 +19,6 @@
 #include "core/router.h"
 #include "core/side.h"
 #include "core/trap.h"
-#include "core/trap_event_dispatcher.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -52,13 +51,9 @@ bool ValidateAndAcquirePortalsForTransitFrom(
 }  // namespace
 
 Portal::Portal(mem::Ref<Node> node, mem::Ref<Router> router)
-    : node_(std::move(node)), router_(std::move(router)) {
-  router_->BindToPortal(mem::WrapRefCounted(this), status_);
-}
+    : node_(std::move(node)), router_(std::move(router)) {}
 
-Portal::~Portal() {
-  router_->Unbind();
-}
+Portal::~Portal() = default;
 
 // static
 std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Portal::CreatePair(
@@ -82,10 +77,7 @@ IpczResult Portal::Close() {
 }
 
 IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
-  absl::MutexLock lock(&mutex_);
-  uint32_t size = std::min(status.size, status_.size);
-  memcpy(&status, &status_, size);
-  status.size = size;
+  router_->QueryStatus(status);
   return IPCZ_RESULT_OK;
 }
 
@@ -104,13 +96,8 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  {
-    absl::MutexLock lock(&mutex_);
-    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
-      return IPCZ_RESULT_NOT_FOUND;
-    }
-    status_.num_remote_parcels += 1;
-    status_.num_remote_bytes += static_cast<uint32_t>(data.size());
+  if (router_->IsPeerClosed()) {
+    return IPCZ_RESULT_NOT_FOUND;
   }
 
   std::vector<os::Handle> handles(os_handles.size());
@@ -123,11 +110,6 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     for (os::Handle& handle : handles) {
       (void)handle.release();
     }
-
-    // smash that undo button
-    absl::MutexLock lock(&mutex_);
-    status_.num_remote_parcels -= 1;
-    status_.num_remote_bytes -= static_cast<uint32_t>(data.size());
     return result;
   }
 
@@ -157,22 +139,8 @@ IpczResult Portal::Get(void* data,
                        uint32_t* num_portals,
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) {
-  IpczPortalStatus status;
-  {
-    absl::MutexLock lock(&mutex_);
-    status = status_;
-  }
-
-  IpczResult result =
-      router_->GetNextIncomingParcel(data, num_data_bytes, portals, num_portals,
-                                     os_handles, num_os_handles, status);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  absl::MutexLock lock(&mutex_);
-  status_ = status;
-  return IPCZ_RESULT_OK;
+  return router_->GetNextIncomingParcel(
+      data, num_data_bytes, portals, num_portals, os_handles, num_os_handles);
 }
 
 IpczResult Portal::BeginGet(const void** data,
@@ -200,55 +168,26 @@ IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
                               IpczHandle& trap) {
   auto new_trap = std::make_unique<Trap>(conditions, handler, context);
   trap = ToHandle(new_trap.get());
-
-  absl::MutexLock lock(&mutex_);
-  return traps_.Add(std::move(new_trap));
+  return router_->AddTrap(std::move(new_trap));
 }
 
 IpczResult Portal::ArmTrap(IpczHandle trap,
                            IpczTrapConditionFlags* satisfied_condition_flags,
                            IpczPortalStatus* status) {
   IpczTrapConditionFlags flags = 0;
-  absl::MutexLock lock(&mutex_);
-  IpczResult result = ToRef<Trap>(trap).Arm(status_, flags);
+  IpczResult result = router_->ArmTrap(ToRef<Trap>(trap), flags, status);
   if (result == IPCZ_RESULT_OK) {
-    return result;
+    return IPCZ_RESULT_OK;
   }
 
   if (satisfied_condition_flags) {
     *satisfied_condition_flags = flags;
   }
-
-  if (status) {
-    size_t size = std::min(status_.size, status->size);
-    memcpy(status, &status_, size);
-    status->size = size;
-  }
   return result;
 }
 
 IpczResult Portal::DestroyTrap(IpczHandle trap) {
-  absl::MutexLock lock(&mutex_);
-  return traps_.Remove(ToRef<Trap>(trap));
-}
-
-void Portal::OnPeerClosed(bool is_route_dead) {
-  TrapEventDispatcher dispatcher;
-  absl::MutexLock lock(&mutex_);
-  status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-  if (is_route_dead) {
-    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-  }
-  traps_.MaybeNotify(dispatcher, status_);
-}
-
-void Portal::OnIncomingParcel(uint32_t num_available_parcels,
-                              uint32_t num_available_bytes) {
-  TrapEventDispatcher dispatcher;
-  absl::MutexLock lock(&mutex_);
-  status_.num_local_parcels = num_available_parcels;
-  status_.num_remote_parcels = num_available_bytes;
-  traps_.MaybeNotify(dispatcher, status_);
+  return router_->RemoveTrap(ToRef<Trap>(trap));
 }
 
 }  // namespace core

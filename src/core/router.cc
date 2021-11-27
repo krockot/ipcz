@@ -16,10 +16,11 @@
 #include "core/parcel.h"
 #include "core/portal_descriptor.h"
 #include "core/router_link.h"
-#include "core/router_observer.h"
 #include "core/routing_id.h"
 #include "core/routing_mode.h"
 #include "core/sequence_number.h"
+#include "core/trap.h"
+#include "core/trap_event_dispatcher.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -33,23 +34,21 @@ Router::Router(Side side) : side_(side) {}
 
 Router::~Router() = default;
 
-void Router::BindToPortal(mem::Ref<RouterObserver> observer,
-                          IpczPortalStatus& initial_status) {
+bool Router::IsPeerClosed() {
   absl::MutexLock lock(&mutex_);
-  observer_ = std::move(observer);
-  if (incoming_parcels_.peer_sequence_length().has_value()) {
-    initial_status.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-  }
-  if (incoming_parcels_.IsDead()) {
-    initial_status.flags |= IPCZ_PORTAL_STATUS_DEAD;
-  }
-  initial_status.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
-  initial_status.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+  return status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED;
 }
 
-void Router::Unbind() {
+bool Router::IsRouteDead() {
   absl::MutexLock lock(&mutex_);
-  observer_.reset();
+  return status_.flags & IPCZ_PORTAL_STATUS_DEAD;
+}
+
+void Router::QueryStatus(IpczPortalStatus& status) {
+  absl::MutexLock lock(&mutex_);
+  const size_t size = std::min(status.size, status_.size);
+  memcpy(&status, &status_, size);
+  status.size = size;
 }
 
 bool Router::HasLocalPeer(const mem::Ref<Router>& router) {
@@ -209,23 +208,16 @@ bool Router::AcceptParcelFrom(NodeLink& link,
 
 bool Router::AcceptIncomingParcel(Parcel& parcel) {
   mem::Ref<RouterLink> successor;
-  mem::Ref<RouterObserver> observer;
-  uint32_t num_parcels;
-  uint32_t num_bytes;
+  TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
     if (!incoming_parcels_.Push(std::move(parcel))) {
       return false;
     }
 
-    observer = observer_;
-    num_parcels = incoming_parcels_.GetNumAvailableParcels();
-    num_bytes = incoming_parcels_.GetNumAvailableBytes();
-  }
-
-  if (observer) {
-    observer->OnIncomingParcel(num_parcels, num_bytes);
-    return true;
+    status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+    status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
+    traps_.MaybeNotify(dispatcher, status_);
   }
 
   FlushParcels();
@@ -253,19 +245,16 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
     return;
   }
 
-  bool is_route_dead = false;
-  mem::Ref<RouterObserver> observer;
+  TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
-    if (!observer_) {
-      return;
-    }
-    observer = observer_;
     incoming_parcels_.SetPeerSequenceLength(sequence_length);
-    is_route_dead = incoming_parcels_.IsDead();
+    status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+    if (incoming_parcels_.IsDead()) {
+      status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    }
+    traps_.MaybeNotify(dispatcher, status_);
   }
-
-  observer->OnPeerClosed(is_route_dead);
 }
 
 IpczResult Router::GetNextIncomingParcel(void* data,
@@ -273,8 +262,8 @@ IpczResult Router::GetNextIncomingParcel(void* data,
                                          IpczHandle* portals,
                                          uint32_t* num_portals,
                                          IpczOSHandle* os_handles,
-                                         uint32_t* num_os_handles,
-                                         IpczPortalStatus& status_after_get) {
+                                         uint32_t* num_os_handles) {
+  TrapEventDispatcher dispatcher;
   absl::MutexLock lock(&mutex_);
   if (!incoming_parcels_.HasNextParcel()) {
     if (incoming_parcels_.IsDead()) {
@@ -310,14 +299,37 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   parcel.Consume(portals, os_handles);
 
+  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
+  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
   if (incoming_parcels_.IsDead()) {
-    status_after_get.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    traps_.MaybeNotify(dispatcher, status_);
   }
-  status_after_get.num_local_parcels =
-      incoming_parcels_.GetNumAvailableParcels();
-  status_after_get.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
 
   return IPCZ_RESULT_OK;
+}
+
+IpczResult Router::AddTrap(std::unique_ptr<Trap> trap) {
+  absl::MutexLock lock(&mutex_);
+  return traps_.Add(std::move(trap));
+}
+
+IpczResult Router::ArmTrap(Trap& trap,
+                           IpczTrapConditionFlags& satistfied_conditions,
+                           IpczPortalStatus* status) {
+  absl::MutexLock lock(&mutex_);
+  IpczResult result = trap.Arm(status_, satistfied_conditions);
+  if (result != IPCZ_RESULT_OK && status) {
+    const size_t size = std::min(status_.size, status->size);
+    memcpy(status, &status_, size);
+    status->size = size;
+  }
+  return result;
+}
+
+IpczResult Router::RemoveTrap(Trap& trap) {
+  absl::MutexLock lock(&mutex_);
+  return traps_.Remove(trap);
 }
 
 mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
@@ -329,6 +341,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
   mem::Ref<Router> local_peer;
   {
     absl::MutexLock lock(&mutex_);
+    traps_.Clear();
     if (peer_) {
       local_peer = peer_->GetLocalTarget();
     }
@@ -385,8 +398,12 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor) {
   router->incoming_parcels_ =
       IncomingParcelQueue(descriptor.next_incoming_sequence_number);
   if (descriptor.peer_closed) {
+    router->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
     router->incoming_parcels_.SetPeerSequenceLength(
         descriptor.closed_peer_sequence_length);
+    if (router->incoming_parcels_.IsDead()) {
+      router->status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    }
   }
   return router;
 }

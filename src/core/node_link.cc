@@ -54,10 +54,17 @@ mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
 }
 
 void NodeLink::Deactivate() {
-  transport_->Deactivate();
+  {
+    absl::MutexLock lock(&mutex_);
+    routes_.clear();
+    if (!active_) {
+      return;
+    }
 
-  absl::MutexLock lock(&mutex_);
-  routes_.clear();
+    active_ = false;
+  }
+
+  transport_->Deactivate();
 }
 
 void NodeLink::Transmit(absl::Span<const uint8_t> data,
@@ -144,14 +151,17 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
   mem::Ref<Router> receiver = GetRouter(accept.routing_id);
-  return !receiver ||
-         receiver->AcceptParcelFrom(*this, accept.routing_id, parcel);
+  if (!receiver) {
+    return true;
+  }
+
+  return receiver->AcceptParcelFrom(*this, accept.routing_id, parcel);
 }
 
 bool NodeLink::OnSideClosed(const msg::SideClosed& side_closed) {
   mem::Ref<Router> receiver = GetRouter(side_closed.params.routing_id);
   if (!receiver) {
-    return false;
+    return true;
   }
 
   receiver->AcceptRouteClosure(side_closed.params.side,

@@ -75,6 +75,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   const os::Memory::Mapping link_memory_;
 
   absl::Mutex mutex_;
+  bool active_ = true;
   absl::flat_hash_map<RoutingId, mem::Ref<Router>> routes_
       ABSL_GUARDED_BY(mutex_);
 };

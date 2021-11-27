@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "core/incoming_parcel_queue.h"
@@ -16,6 +17,7 @@
 #include "core/routing_mode.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
+#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -28,15 +30,23 @@ namespace core {
 class NodeLink;
 struct PortalDescriptor;
 class RouterLink;
-class RouterObserver;
 
 class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
 
-  void BindToPortal(mem::Ref<RouterObserver> observer,
-                    IpczPortalStatus& initial_status);
-  void Unbind();
+  // Returns true iff the other side of this Router's route is known to be
+  // closed.
+  bool IsPeerClosed();
+
+  // Returns true iff the other side of this Router's route is known to be
+  // closed, AND all parcels sent from that side have already been retrieved by
+  // the application.
+  bool IsRouteDead();
+
+  // Fills in an IpczPortalStatus corresponding to the current state of this
+  // Router.
+  void QueryStatus(IpczPortalStatus& status);
 
   // Returns true iff this Router's peer link is a LocalRouterLink and its local
   // peer is `other`.
@@ -101,8 +111,13 @@ class Router : public mem::RefCounted {
                                    IpczHandle* portals,
                                    uint32_t* num_portals,
                                    IpczOSHandle* os_handles,
-                                   uint32_t* num_os_handles,
-                                   IpczPortalStatus& status_after_get);
+                                   uint32_t* num_os_handles);
+
+  IpczResult AddTrap(std::unique_ptr<Trap> trap);
+  IpczResult ArmTrap(Trap& trap,
+                     IpczTrapConditionFlags& satistfied_conditions,
+                     IpczPortalStatus* status);
+  IpczResult RemoveTrap(Trap& trap);
 
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
   static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor);
@@ -118,7 +133,6 @@ class Router : public mem::RefCounted {
 
   absl::Mutex mutex_;
   SequenceNumber outgoing_sequence_length_ ABSL_GUARDED_BY(mutex_) = 0;
-  mem::Ref<RouterObserver> observer_ ABSL_GUARDED_BY(mutex_);
   RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kActive;
   mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
   mem::Ref<RouterLink> successor_ ABSL_GUARDED_BY(mutex_);
@@ -126,6 +140,8 @@ class Router : public mem::RefCounted {
   OutgoingParcelQueue buffered_parcels_ ABSL_GUARDED_BY(mutex_);
   IncomingParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
   bool peer_closure_propagated_ ABSL_GUARDED_BY(mutex_) = false;
+  IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
+  TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

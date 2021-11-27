@@ -68,6 +68,7 @@ class TrapSet {
   IpczResult Remove(Trap& trap);
   void MaybeNotify(TrapEventDispatcher& dispatcher,
                    const IpczPortalStatus& status);
+  void Clear();
 
  private:
   absl::flat_hash_set<std::unique_ptr<Trap>> traps_;

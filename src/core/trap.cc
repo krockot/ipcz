@@ -121,5 +121,9 @@ void TrapSet::MaybeNotify(TrapEventDispatcher& dispatcher,
   }
 }
 
+void TrapSet::Clear() {
+  traps_.clear();
+}
+
 }  // namespace core
 }  // namespace ipcz

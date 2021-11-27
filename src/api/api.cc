@@ -334,6 +334,10 @@ IpczResult ArmTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
+  if (status && status->size < sizeof(IpczPortalStatus)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
   return ToRef<core::Portal>(portal).ArmTrap(trap, satisfied_condition_flags,
                                              status);
 }
