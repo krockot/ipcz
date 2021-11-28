@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/local_router_link.h"
 #include "core/node.h"
 #include "core/node_link.h"
 #include "core/node_name.h"
@@ -544,7 +545,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       descriptor.closed_peer_sequence_length =
           *incoming_parcels_.peer_sequence_length();
       peer_closure_propagated_ = true;
-    } else if (peer_ && !peer_->GetLocalTarget()) {
+    } else if (peer_ && !peer_->GetLocalTarget() && !predecessor_) {
       // We only need to prepare the new router for proxy bypass if our own peer
       // is remote to us.
       RemoteRouterLink& remote_link =
@@ -620,13 +621,34 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   }
 
   if (proxy_peer_node_name == requesting_node_link.node()->name()) {
-    // TODO: special case when the outcome of proxy bypass is this router
-    // becoming locally linked to its new peer. In this case
-    // proxy_peer_routing_id must identify a route on `requesting_node_link`
-    // itself which corresponds to the local peer's own link to its peer (our
-    // predecessor on requesting_routing_id). we can use this to locate that
-    // router and fix it up with this one using a new LocalRouterLink.
-    ABSL_ASSERT(false);
+    mem::Ref<RouterLink> old_peer;
+    mem::Ref<Router> new_peer =
+        requesting_node_link.GetRouter(proxy_peer_routing_id);
+    SequenceNumber proxy_sequence_length;
+    ABSL_ASSERT(new_peer->side_ == Opposite(side_));
+    {
+      TwoMutexLock lock(&mutex_, &new_peer->mutex_);
+      mem::Ref<Router> left =
+          side_ == Side::kLeft ? mem::WrapRefCounted(this) : new_peer;
+      mem::Ref<Router> right =
+          side_ == Side::kLeft ? new_peer : mem::WrapRefCounted(this);
+      ABSL_ASSERT(left != right);
+      left->mutex_.AssertHeld();
+      right->mutex_.AssertHeld();
+      mem::Ref<RouterLink> left_link;
+      mem::Ref<RouterLink> right_link;
+      std::tie(left_link, right_link) =
+          LocalRouterLink::CreatePair(left, right);
+      old_peer = std::move(new_peer->peer_);
+      proxy_sequence_length = new_peer->outgoing_sequence_length_;
+      left->peer_ = std::move(left_link);
+      right->peer_ = std::move(right_link);
+    }
+
+    if (old_peer) {
+      old_peer->StopProxyingTowardSide(side_, proxy_sequence_length);
+      old_peer->Deactivate();
+    }
     return true;
   }
 

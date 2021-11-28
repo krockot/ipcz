@@ -316,6 +316,10 @@ bool Node::OnIntroduceNode(
 bool Node::OnBypassProxy(NodeLink& from_node_link,
                          const msg::BypassProxy& bypass) {
   mem::Ref<NodeLink> proxy_node_link = GetLink(bypass.params.proxy_name);
+  if (!proxy_node_link) {
+    return true;
+  }
+
   mem::Ref<Router> proxy_peer =
       proxy_node_link->GetRouter(bypass.params.proxy_routing_id);
   if (!proxy_peer) {
