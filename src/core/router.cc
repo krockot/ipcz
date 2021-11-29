@@ -23,7 +23,6 @@
 #include "core/router_link.h"
 #include "core/router_link_state.h"
 #include "core/routing_id.h"
-#include "core/routing_mode.h"
 #include "core/sequence_number.h"
 #include "core/trap.h"
 #include "core/trap_event_dispatcher.h"
