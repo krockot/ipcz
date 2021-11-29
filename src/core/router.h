@@ -36,7 +36,7 @@ class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
 
-  // Pauses or unpauses outward parcel transmission.
+  // Pauses or unpauses outbound parcel transmission.
   void PauseOutboundTransmission(bool paused);
 
   // Returns true iff the other side of this Router's route is known to be
@@ -89,11 +89,11 @@ class Router : public mem::RefCounted {
 
   // Finalizes this Router's proxying responsibilities in either direction. Once
   // the proxy has forwarded any inbound parcels up to (but not including)
-  // `inward_sequence_length` over to its inward link, and it has forwarded any
-  // outbound parcels up to but not including `outward_sequence_length` to its
+  // `inbound_sequence_length` over to its inward link, and it has forwarded any
+  // outbound parcels up to but not including `outbound_sequence_length` to its
   // outward link, it will destroy itself.
-  bool StopProxying(SequenceNumber inward_sequence_length,
-                    SequenceNumber outward_sequence_length);
+  bool StopProxying(SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length);
 
   // Accepts a parcel routed here from `link` via `routing_id`, which is
   // determined to be either an inbound or outbound parcel based on the active
@@ -149,7 +149,7 @@ class Router : public mem::RefCounted {
                            absl::uint128 bypass_key);
   bool BypassProxyTo(mem::Ref<RouterLink> new_peer,
                      absl::uint128 bypass_key,
-                     SequenceNumber proxy_outward_sequence_length);
+                     SequenceNumber proxy_outbound_sequence_length);
 
  private:
   friend class LocalRouterLink;
@@ -176,8 +176,8 @@ class Router : public mem::RefCounted {
   absl::Mutex mutex_;
   RouterSide inward_ ABSL_GUARDED_BY(mutex_);
   RouterSide outward_ ABSL_GUARDED_BY(mutex_);
-  bool outward_transmission_paused_ = false;
-  SequenceNumber outward_sequence_length_ = 0;
+  bool outbound_transmission_paused_ = false;
+  SequenceNumber outbound_sequence_length_ = 0;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };

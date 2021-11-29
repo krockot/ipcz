@@ -146,7 +146,7 @@ IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
   IPCZ_MSG_PARAM(absl::uint128, bypass_key)
-  IPCZ_MSG_PARAM(SequenceNumber, proxy_outward_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that the portal on `routing_id` for this NodeLink can
@@ -155,6 +155,6 @@ IPCZ_MSG_END()
 // `sequence_length`.
 IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, inward_sequence_length)
-  IPCZ_MSG_PARAM(SequenceNumber, outward_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, inbound_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, outbound_sequence_length)
 IPCZ_MSG_END()

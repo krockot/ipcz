@@ -88,8 +88,8 @@ void LocalRouterLink::AcceptRouteClosure(Side side,
   state_->side(Opposite(side_))->AcceptRouteClosure(side, sequence_length);
 }
 
-void LocalRouterLink::StopProxying(SequenceNumber inward_sequence_length,
-                                   SequenceNumber outward_sequence_length) {
+void LocalRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
+                                   SequenceNumber outbound_sequence_length) {
   // Local links are never proxying links.
   ABSL_ASSERT(false);
 }

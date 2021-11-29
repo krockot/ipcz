@@ -33,8 +33,8 @@ class LocalRouterLink : public RouterLink {
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(Side side, SequenceNumber sequence_length) override;
-  void StopProxying(SequenceNumber inward_sequence_length,
-                    SequenceNumber outward_sequence_length) override;
+  void StopProxying(SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length) override;
 
  private:
   class SharedState;

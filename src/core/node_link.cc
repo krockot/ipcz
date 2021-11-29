@@ -150,7 +150,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
-                           SequenceNumber proxy_outward_sequence_length,
+                           SequenceNumber proxy_outbound_sequence_length,
                            absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
   RoutingId new_routing_id = AllocateRoutingIds(1);
@@ -168,7 +168,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
   bypass.params.bypass_key = bypass_key;
-  bypass.params.proxy_outward_sequence_length = proxy_outward_sequence_length;
+  bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   Transmit(bypass);
 
   new_peer->PauseOutboundTransmission(false);
@@ -335,8 +335,8 @@ bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
     return true;
   }
 
-  return router->StopProxying(stop.params.inward_sequence_length,
-                              stop.params.outward_sequence_length);
+  return router->StopProxying(stop.params.inbound_sequence_length,
+                              stop.params.outbound_sequence_length);
 }
 
 }  // namespace core

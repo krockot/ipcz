@@ -120,12 +120,12 @@ void RemoteRouterLink::AcceptRouteClosure(Side side,
   node_link()->Transmit(side_closed);
 }
 
-void RemoteRouterLink::StopProxying(SequenceNumber inward_sequence_length,
-                                    SequenceNumber outward_sequence_length) {
+void RemoteRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
+                                    SequenceNumber outbound_sequence_length) {
   msg::StopProxying stop;
   stop.params.routing_id = routing_id_;
-  stop.params.inward_sequence_length = inward_sequence_length;
-  stop.params.outward_sequence_length = outward_sequence_length;
+  stop.params.inbound_sequence_length = inbound_sequence_length;
+  stop.params.outbound_sequence_length = outbound_sequence_length;
   node_link()->Transmit(stop);
 }
 
