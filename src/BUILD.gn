@@ -111,8 +111,6 @@ source_set("core") {
     "core/node_messages.h",
     "core/node_name.cc",
     "core/node_name.h",
-    "core/outgoing_parcel_queue.cc",
-    "core/outgoing_parcel_queue.h",
     "core/parcel.cc",
     "core/parcel.h",
     "core/portal.cc",

@@ -16,7 +16,6 @@
 #include "core/node.h"
 #include "core/node_link.h"
 #include "core/node_name.h"
-#include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
 #include "core/portal_descriptor.h"
 #include "core/remote_router_link.h"

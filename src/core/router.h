@@ -12,7 +12,6 @@
 
 #include "core/incoming_parcel_queue.h"
 #include "core/node_name.h"
-#include "core/outgoing_parcel_queue.h"
 #include "core/parcel.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
