@@ -85,6 +85,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // reconfigured remote router.
   bool BypassProxy(const NodeName& proxy_name,
                    RoutingId proxy_routing_id,
+                   SequenceNumber proxy_outward_sequence_length,
                    absl::uint128 bypass_key,
                    mem::Ref<Router> new_peer);
 
@@ -99,7 +100,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnSideClosed(const msg::SideClosed& side_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);
-  bool OnStopProxyingTowardSide(const msg::StopProxyingTowardSide& stop);
+  bool OnStopProxying(const msg::StopProxying& stop);
 
   const mem::Ref<Node> node_;
   const NodeName remote_node_name_;

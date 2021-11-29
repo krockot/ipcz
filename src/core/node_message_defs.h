@@ -138,23 +138,23 @@ IPCZ_MSG_END()
 // allowing R to trust the request and immediately stop using the peer link to
 // P, replacing it instead with a new peer link directly to S.
 //
-// R also sends a StopProxyingTowardSide message to P just before this operation
-// completes to inform P of the last in-flight parcel already sent to P and
-// therefore the last parcel P needs to accept and forward to S before it can
-// cease to exist.
+// R also sends a StopProxying message to P just before this operation completes
+// to inform P of the last in-flight parcel already sent to P and therefore the
+// last parcel P needs to accept and forward to S before it can cease to exist.
 IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, proxy_name)
   IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
   IPCZ_MSG_PARAM(absl::uint128, bypass_key)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_outward_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that the portal on `routing_id` for this NodeLink can
 // cease to exist once it has received and forwarded to its successor every
 // in-flight parcel with a SequenceNumber up to but not including
 // `sequence_length`.
-IPCZ_MSG_NO_REPLY(StopProxyingTowardSide, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(Side, side)
-  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, inward_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, outward_sequence_length)
 IPCZ_MSG_END()

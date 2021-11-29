@@ -83,7 +83,7 @@ class ConnectListener : public DriverTransport::Listener,
     handler(node_link);
     for (size_t i = 0; i < waiting_portals_.size(); ++i) {
       const mem::Ref<Router>& router = waiting_portals_[i]->router();
-      router->SetPeer(
+      router->SetOutwardLink(
           node_link->AddRoute(static_cast<RoutingId>(i), i, router));
     }
     return IPCZ_RESULT_OK;
@@ -328,7 +328,8 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
 
   mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
       bypass.params.new_routing_id, bypass.params.new_routing_id, proxy_peer);
-  return proxy_peer->BypassProxyTo(new_peer_link, bypass.params.bypass_key);
+  return proxy_peer->BypassProxyTo(new_peer_link, bypass.params.bypass_key,
+                                   bypass.params.proxy_outward_sequence_length);
 }
 
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {

@@ -30,6 +30,7 @@
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -43,15 +44,11 @@ Router::Router(Side side) : side_(side) {}
 
 Router::~Router() = default;
 
-void Router::PauseOutgoingTransmission(bool paused) {
+void Router::PauseOutboundTransmission(bool paused) {
   {
     absl::MutexLock lock(&mutex_);
-    if (paused) {
-      num_outgoing_transmission_blockers_++;
-    } else {
-      ABSL_ASSERT(num_outgoing_transmission_blockers_ > 0);
-      num_outgoing_transmission_blockers_--;
-    }
+    ABSL_ASSERT(outward_transmission_paused_ != paused);
+    outward_transmission_paused_ = paused;
   }
 
   if (!paused) {
@@ -78,36 +75,38 @@ void Router::QueryStatus(IpczPortalStatus& status) {
 
 bool Router::HasLocalPeer(const mem::Ref<Router>& router) {
   absl::MutexLock lock(&mutex_);
-  return peer_ && peer_->GetLocalTarget() == router;
+  return outward_.link && outward_.link->GetLocalTarget() == router;
 }
 
-bool Router::WouldOutgoingParcelExceedLimits(size_t data_size,
+bool Router::WouldOutboundParcelExceedLimits(size_t data_size,
                                              const IpczPutLimits& limits) {
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    link = peer_ ? peer_ : predecessor_;
+    link = outward_.link;
     if (!link) {
-      return outgoing_parcels_.size() < limits.max_queued_parcels &&
-             outgoing_parcels_.data_size() <=
-                 limits.max_queued_bytes + data_size;
+      return outward_.parcels.GetNumAvailableParcels() <
+                 limits.max_queued_parcels &&
+             outward_.parcels.GetNumAvailableBytes() <=
+                 limits.max_queued_bytes &&
+             limits.max_queued_bytes -
+                     outward_.parcels.GetNumAvailableBytes() <=
+                 data_size;
     }
   }
 
   return link->WouldParcelExceedLimits(data_size, limits);
 }
 
-bool Router::WouldIncomingParcelExceedLimits(size_t data_size,
-                                             const IpczPutLimits& limits) {
+bool Router::WouldInboundParcelExceedLimits(size_t data_size,
+                                            const IpczPutLimits& limits) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-  return incoming_parcels_.GetNumAvailableBytes() + data_size >
+  return inward_.parcels.GetNumAvailableBytes() + data_size >
              limits.max_queued_bytes &&
-         incoming_parcels_.GetNumAvailableParcels() >=
-             limits.max_queued_parcels;
+         inward_.parcels.GetNumAvailableParcels() >= limits.max_queued_parcels;
 }
 
-IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
+IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
                                       Parcel::PortalVector& portals,
                                       std::vector<os::Handle>& os_handles) {
   Parcel parcel;
@@ -118,10 +117,11 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
   mem::Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    parcel.set_sequence_number(outgoing_sequence_length_++);
-    link = peer_ ? peer_ : predecessor_;
-    if (!link || num_outgoing_transmission_blockers_) {
-      outgoing_parcels_.push(std::move(parcel));
+    parcel.set_sequence_number(outward_sequence_length_++);
+    link = outward_.link;
+    if (!link || outward_transmission_paused_) {
+      const bool ok = outward_.parcels.Push(std::move(parcel));
+      ABSL_ASSERT(ok);
       return IPCZ_RESULT_OK;
     }
   }
@@ -131,110 +131,62 @@ IpczResult Router::SendOutgoingParcel(absl::Span<const uint8_t> data,
 }
 
 void Router::CloseRoute() {
-  mem::Ref<RouterLink> peer;
-  mem::Ref<RouterLink> predecessor;
-  SequenceNumber sequence_length;
-  std::vector<Parcel> incoming_parcels;
+  SequenceNumber final_sequence_length;
+  mem::Ref<RouterLink> forwarding_link;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-    sequence_length = outgoing_sequence_length_;
-    std::swap(peer, peer_);
-    std::swap(predecessor, predecessor_);
-    std::move(incoming_parcels_).StealAllParcels(incoming_parcels);
+    outward_.parcels = IncomingParcelQueue(outward_sequence_length_);
+    outward_.parcels.SetPeerSequenceLength(outward_sequence_length_);
+    if (outward_transmission_paused_) {
+      return;
+    }
+    forwarding_link = outward_.link;
+    final_sequence_length = outward_sequence_length_;
   }
 
-  mem::Ref<RouterLink> target = peer ? peer : predecessor;
-  if (target) {
-    target->AcceptRouteClosure(side_, sequence_length);
-  }
-
-  if (peer) {
-    peer->Deactivate();
-  }
-
-  if (predecessor) {
-    predecessor->Deactivate();
-  }
+  forwarding_link->AcceptRouteClosure(side_, final_sequence_length);
 }
 
-void Router::SetPeer(mem::Ref<RouterLink> link) {
+void Router::SetOutwardLink(mem::Ref<RouterLink> link) {
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive ||
-                routing_mode_ == RoutingMode::kProxy);
-    peer_ = link;
+    outward_.link = std::move(link);
   }
 
   FlushParcels();
 }
 
-void Router::SetPredecessor(mem::Ref<RouterLink> link) {
+void Router::BeginProxying(const PortalDescriptor& descriptor,
+                           mem::Ref<RouterLink> link) {
+  mem::Ref<RouterLink> outward_link;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-    ABSL_ASSERT(!predecessor_);
-    ABSL_ASSERT(!peer_);
-    ABSL_ASSERT(outgoing_parcels_.empty());
-    predecessor_ = link;
-  }
-
-  FlushParcels();
-}
-
-void Router::BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
-                                        mem::Ref<RouterLink> link) {
-  mem::Ref<RouterLink> peer_link;
-  {
-    absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(!successor_);
+    ABSL_ASSERT(!inward_.link);
     if (descriptor.route_is_peer) {
-      ABSL_ASSERT(routing_mode_ == RoutingMode::kActive);
-      std::swap(peer_, peer_link);
-      if (!incoming_parcels_.IsDead()) {
-        routing_mode_ = RoutingMode::kHalfProxy;
-        successor_ = link;
+      std::swap(outward_.link, outward_link);
+      if (!inward_.parcels.IsDead()) {
+        inward_.link = link;
       }
     } else {
-      successor_ = link;
-      routing_mode_ = RoutingMode::kProxy;
+      inward_.link = link;
     }
   }
 
   if (descriptor.route_is_peer) {
-    ABSL_ASSERT(peer_link);
-    mem::Ref<Router> local_peer = peer_link->GetLocalTarget();
-    local_peer->SetPeer(link);
+    ABSL_ASSERT(outward_link);
+    mem::Ref<Router> local_peer = outward_link->GetLocalTarget();
+    local_peer->SetOutwardLink(link);
   }
 
   FlushParcels();
-
-  absl::optional<SequenceNumber> peer_sequence_length;
-  absl::MutexLock lock(&mutex_);
-  if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED &&
-      !peer_closure_propagated_) {
-    peer_closure_propagated_ = true;
-    peer_sequence_length = incoming_parcels_.peer_sequence_length();
-  }
-
-  if (peer_sequence_length) {
-    link->AcceptRouteClosure(Opposite(side_), *peer_sequence_length);
-  }
 }
 
-bool Router::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
-  if (side == Opposite(side_)) {
-    ABSL_ASSERT(false);
-    // TODO: need this case for proxy decay to half-proxy
-    return false;
-  }
-
+bool Router::StopProxying(SequenceNumber inward_sequence_length,
+                          SequenceNumber outward_sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
-    if (!incoming_parcels_.SetPeerSequenceLength(sequence_length)) {
-      ABSL_ASSERT(false);
-      return false;
-    }
+    inward_.parcels.SetPeerSequenceLength(inward_sequence_length);
+    outward_.parcels.SetPeerSequenceLength(outward_sequence_length);
   }
 
   FlushParcels();
@@ -244,78 +196,92 @@ bool Router::StopProxyingTowardSide(Side side, SequenceNumber sequence_length) {
 bool Router::AcceptParcelFrom(NodeLink& link,
                               RoutingId routing_id,
                               Parcel& parcel) {
-  bool is_incoming = false;
+  bool is_outbound;
   {
     absl::MutexLock lock(&mutex_);
-    if (peer_ && peer_->IsRemoteLinkTo(link, routing_id)) {
-      is_incoming = true;
-    } else if (predecessor_ && predecessor_->IsRemoteLinkTo(link, routing_id)) {
-      is_incoming = true;
-    } else if (!successor_ || !successor_->IsRemoteLinkTo(link, routing_id)) {
+    if ((outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) ||
+        (outward_.decaying_link &&
+         outward_.decaying_link->IsRemoteLinkTo(link, routing_id))) {
+      is_outbound = true;
+    } else if ((inward_.link &&
+                inward_.link->IsRemoteLinkTo(link, routing_id)) ||
+               (inward_.decaying_link &&
+                inward_.decaying_link->IsRemoteLinkTo(link, routing_id))) {
+      is_outbound = false;
+    } else {
       return false;
     }
   }
 
-  if (is_incoming) {
-    return AcceptIncomingParcel(parcel);
+  if (is_outbound) {
+    return AcceptOutboundParcel(parcel);
   }
 
-  return AcceptOutgoingParcel(parcel);
+  return AcceptInboundParcel(parcel);
 }
 
-bool Router::AcceptIncomingParcel(Parcel& parcel) {
-  mem::Ref<RouterLink> successor;
+bool Router::AcceptInboundParcel(Parcel& parcel) {
   TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
-    if (!incoming_parcels_.Push(std::move(parcel))) {
+    if (!inward_.parcels.Push(std::move(parcel))) {
       return false;
     }
 
-    status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
-    status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
-    traps_.MaybeNotify(dispatcher, status_);
+    if (!inward_.link) {
+      status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
+      status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
+      traps_.MaybeNotify(dispatcher, status_);
+    }
   }
 
   FlushParcels();
   return true;
 }
 
-bool Router::AcceptOutgoingParcel(Parcel& parcel) {
-  mem::Ref<RouterLink> link;
+bool Router::AcceptOutboundParcel(Parcel& parcel) {
   {
     absl::MutexLock lock(&mutex_);
-    if (parcel.sequence_number() != outgoing_sequence_length_) {
+    if (!outward_.parcels.Push(std::move(parcel))) {
       return false;
     }
 
-    outgoing_sequence_length_ = parcel.sequence_number() + 1;
-    link = peer_ ? peer_ : predecessor_;
-    if (!link || num_outgoing_transmission_blockers_) {
-      outgoing_parcels_.push(std::move(parcel));
+    if (!outward_.link || outward_transmission_paused_) {
       return true;
     }
   }
 
-  link->AcceptParcel(parcel);
+  FlushParcels();
   return true;
 }
 
 void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
-  if (side == side_) {
-    // assert?
-    return;
-  }
-
   TrapEventDispatcher dispatcher;
-  {
+  mem::Ref<RouterLink> forwarding_link;
+  if (side == side_) {
     absl::MutexLock lock(&mutex_);
-    incoming_parcels_.SetPeerSequenceLength(sequence_length);
+    outward_.parcels.SetPeerSequenceLength(sequence_length);
+    if (!outward_.closure_propagated && !outward_transmission_paused_ &&
+        outward_.link) {
+      forwarding_link = outward_.link;
+      outward_.closure_propagated = true;
+    }
+  } else {
+    absl::MutexLock lock(&mutex_);
+    inward_.parcels.SetPeerSequenceLength(sequence_length);
+    if (!inward_.closure_propagated && inward_.link) {
+      forwarding_link = inward_.link;
+      inward_.closure_propagated = true;
+    }
     status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-    if (incoming_parcels_.IsDead()) {
+    if (inward_.parcels.IsDead()) {
       status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     }
     traps_.MaybeNotify(dispatcher, status_);
+  }
+
+  if (forwarding_link) {
+    forwarding_link->AcceptRouteClosure(side, sequence_length);
   }
 }
 
@@ -327,14 +293,14 @@ IpczResult Router::GetNextIncomingParcel(void* data,
                                          uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
   absl::MutexLock lock(&mutex_);
-  if (!incoming_parcels_.HasNextParcel()) {
-    if (incoming_parcels_.IsDead()) {
+  if (!inward_.parcels.HasNextParcel()) {
+    if (inward_.parcels.IsDead()) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& p = incoming_parcels_.NextParcel();
+  Parcel& p = inward_.parcels.NextParcel();
   const uint32_t data_capacity = num_bytes ? *num_bytes : 0;
   const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
   const uint32_t portals_capacity = num_portals ? *num_portals : 0;
@@ -357,13 +323,13 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   }
 
   Parcel parcel;
-  incoming_parcels_.Pop(parcel);
+  inward_.parcels.Pop(parcel);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
   parcel.Consume(portals, os_handles);
 
-  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
-  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
-  if (incoming_parcels_.IsDead()) {
+  status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
+  status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
+  if (inward_.parcels.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     traps_.MaybeNotify(dispatcher, status_);
   }
@@ -376,11 +342,11 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
                                               uint32_t* num_portals,
                                               uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
-  if (!incoming_parcels_.HasNextParcel()) {
+  if (!inward_.parcels.HasNextParcel()) {
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& p = incoming_parcels_.NextParcel();
+  Parcel& p = inward_.parcels.NextParcel();
   const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
   const uint32_t portals_size = static_cast<uint32_t>(p.portals_view().size());
   const uint32_t os_handles_size =
@@ -409,12 +375,12 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
                                                uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
   absl::MutexLock lock(&mutex_);
-  if (!incoming_parcels_.HasNextParcel()) {
+  if (!inward_.parcels.HasNextParcel()) {
     // If ipcz is used correctly this is impossible.
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Parcel& p = incoming_parcels_.NextParcel();
+  Parcel& p = inward_.parcels.NextParcel();
   const uint32_t portals_capacity = num_portals ? *num_portals : 0;
   const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
   if (num_portals) {
@@ -439,12 +405,12 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   }
 
   Parcel consumed_parcel;
-  bool ok = incoming_parcels_.Pop(consumed_parcel);
+  bool ok = inward_.parcels.Pop(consumed_parcel);
   ABSL_ASSERT(ok);
 
-  status_.num_local_parcels = incoming_parcels_.GetNumAvailableParcels();
-  status_.num_local_bytes = incoming_parcels_.GetNumAvailableBytes();
-  if (incoming_parcels_.IsDead()) {
+  status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
+  status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
+  if (inward_.parcels.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     traps_.MaybeNotify(dispatcher, status_);
   }
@@ -479,21 +445,21 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
 
   for (;;) {
     // The fast path for a local pair being split is to directly establish a new
-    // peer link to the destination, rather than proxying. First we acquire a
+    // outward link to the destination, rather than proxying. First we acquire a
     // ref to the local peer Router, if there is one.
     mem::Ref<Router> local_peer;
     {
       absl::MutexLock lock(&mutex_);
       traps_.Clear();
-      if (peer_) {
-        local_peer = peer_->GetLocalTarget();
+      if (outward_.link) {
+        local_peer = outward_.link->GetLocalTarget();
       }
     }
 
     TwoMutexLock lock(&mutex_, local_peer ? &local_peer->mutex_ : nullptr);
     if (local_peer) {
-      // The peer has already changed. Loop back and try again,
-      if (!peer_ || peer_->GetLocalTarget() != local_peer) {
+      // The outward link has already changed. Loop back and try again,
+      if (!outward_.link || outward_.link->GetLocalTarget() != local_peer) {
         continue;
       }
 
@@ -503,65 +469,66 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       // been split by another thread serializing the peer for transmission
       // elsewhere, so we need to first verify that the pair is still intact. If
       // it's not we fall back to the normal proxying path below.
-      if (local_peer->peer_ && local_peer->peer_->GetLocalTarget() == this) {
-        // Temporarily place the peer in buffering mode so that it can't
-        // transmit any parcels to its new remote peer until this descriptor is
-        // transmitted, since the remote peer doesn't exist until then.
-        local_peer->peer_ = nullptr;
-        ABSL_ASSERT(local_peer->outgoing_parcels_.empty());
-        if (incoming_parcels_.peer_sequence_length()) {
+      if (local_peer->outward_.link &&
+          local_peer->outward_.link->GetLocalTarget() == this) {
+        // Temporarily remove the peer's outward link so that it doesn't
+        // transmit any parcels to the new destination yet.
+        local_peer->outward_.link.reset();
+        if (inward_.parcels.peer_sequence_length()) {
           descriptor.peer_closed = true;
           descriptor.closed_peer_sequence_length =
-              *incoming_parcels_.peer_sequence_length();
-          peer_closure_propagated_ = true;
+              *inward_.parcels.peer_sequence_length();
+          inward_.closure_propagated = true;
         } else {
           // Fix the incoming sequence length at the last transmitted parcel, so
           // this router can be destroyed once incoming parcels up to this point
           // have been forwarded to the new peer.
-          incoming_parcels_.SetPeerSequenceLength(
-              local_peer->outgoing_sequence_length_);
+          inward_.parcels.SetPeerSequenceLength(
+              local_peer->outward_sequence_length_);
         }
         descriptor.route_is_peer = true;
-        descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
+        descriptor.next_outgoing_sequence_number = outward_sequence_length_;
         descriptor.next_incoming_sequence_number =
-            incoming_parcels_.current_sequence_number();
+            inward_.parcels.current_sequence_number();
         return local_peer;
       }
-    } else if (peer_ && peer_->GetLocalTarget()) {
+    } else if (outward_.link && outward_.link->GetLocalTarget()) {
       // We didn't have a local peer before, but now we do. Try again.
       continue;
     }
 
     descriptor.route_is_peer = false;
-    descriptor.next_outgoing_sequence_number = outgoing_sequence_length_;
+    descriptor.next_outgoing_sequence_number = outward_sequence_length_;
     descriptor.next_incoming_sequence_number =
-        incoming_parcels_.current_sequence_number();
-    bool half_proxy = false;
+        inward_.parcels.current_sequence_number();
+    bool immediate_bypass = false;
     NodeName proxy_peer_node_name;
     RoutingId proxy_peer_routing_id;
     absl::uint128 bypass_key;
-    if (incoming_parcels_.peer_sequence_length()) {
+    if (inward_.parcels.peer_sequence_length()) {
       descriptor.peer_closed = true;
       descriptor.closed_peer_sequence_length =
-          *incoming_parcels_.peer_sequence_length();
-      peer_closure_propagated_ = true;
-    } else if (peer_ && !peer_->GetLocalTarget() && !predecessor_) {
+          *inward_.parcels.peer_sequence_length();
+      inward_.closure_propagated = true;
+    } else if (outward_.link && !outward_.link->GetLocalTarget() &&
+               !inward_.link && !outward_.decaying_link &&
+               !inward_.decaying_link) {
       // We only need to prepare the new router for proxy bypass if our own peer
       // is remote to us.
       RemoteRouterLink& remote_link =
-          *static_cast<RemoteRouterLink*>(peer_.get());
+          *static_cast<RemoteRouterLink*>(outward_.link.get());
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
       proxy_peer_routing_id = remote_link.routing_id();
       bypass_key = RandomUint128();
-      RouterLinkState::Locked locked(peer_->GetLinkState(), side_);
-      if (locked.other_side().routing_mode != RoutingMode::kHalfProxy) {
-        half_proxy = true;
-        locked.this_side().routing_mode = RoutingMode::kHalfProxy;
+      RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
+      if (!locked.other_side().is_decaying) {
+        immediate_bypass = true;
+        locked.this_side().is_decaying = true;
         locked.this_side().bypass_key = bypass_key;
       }
     }
 
-    if (half_proxy) {
+    if (immediate_bypass) {
       descriptor.proxy_peer_node_name = proxy_peer_node_name;
       descriptor.proxy_peer_routing_id = proxy_peer_routing_id;
       descriptor.bypass_key = bypass_key;
@@ -575,14 +542,14 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
 mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor) {
   auto router = mem::MakeRefCounted<Router>(descriptor.side);
   absl::MutexLock lock(&router->mutex_);
-  router->outgoing_sequence_length_ = descriptor.next_outgoing_sequence_number;
-  router->incoming_parcels_ =
+  router->outward_sequence_length_ = descriptor.next_outgoing_sequence_number;
+  router->inward_.parcels =
       IncomingParcelQueue(descriptor.next_incoming_sequence_number);
   if (descriptor.peer_closed) {
     router->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-    router->incoming_parcels_.SetPeerSequenceLength(
+    router->inward_.parcels.SetPeerSequenceLength(
         descriptor.closed_peer_sequence_length);
-    if (router->incoming_parcels_.IsDead()) {
+    if (router->inward_.parcels.IsDead()) {
       router->status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     }
   }
@@ -594,40 +561,36 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
                                  RoutingId requesting_routing_id,
                                  const NodeName& proxy_peer_node_name,
                                  RoutingId proxy_peer_routing_id,
-                                 absl::uint128 bypass_key,
-                                 bool notify_predecessor) {
-  mem::Ref<RouterLink> predecessor;
+                                 absl::uint128 bypass_key) {
+  SequenceNumber outward_sequence_length;
+  mem::Ref<RouterLink> outward_link;
   {
     absl::MutexLock lock(&mutex_);
-    if (!predecessor_) {
+    if (!outward_.link) {
       // Must have been disconnected already.
       return true;
     }
 
-    if (!predecessor_->IsRemoteLinkTo(requesting_node_link,
-                                      requesting_routing_id)) {
-      // Authenticate that the request to bypass our predecessor is actually
-      // coming from our predecessor.
+    if (!outward_.link->IsRemoteLinkTo(requesting_node_link,
+                                       requesting_routing_id)) {
+      // Authenticate that the request to bypass our outward peer is actually
+      // coming from our outward peer.
       return false;
     }
 
-    if (peer_) {
-      // A well-behaved system will never ask a router to bypass a proxy when
-      // the router already has a peer link.
-      return false;
-    }
-
-    predecessor = predecessor_;
+    outward_link = outward_.link;
+    outward_sequence_length = outward_sequence_length_;
   }
 
   if (proxy_peer_node_name == requesting_node_link.node()->name()) {
     mem::Ref<RouterLink> old_peer;
     mem::Ref<Router> new_peer =
         requesting_node_link.GetRouter(proxy_peer_routing_id);
-    SequenceNumber proxy_sequence_length;
+    SequenceNumber inward_sequence_length;
     ABSL_ASSERT(new_peer->side_ == Opposite(side_));
     {
       TwoMutexLock lock(&mutex_, &new_peer->mutex_);
+      inward_sequence_length = new_peer->outward_sequence_length_;
       mem::Ref<Router> left =
           side_ == Side::kLeft ? mem::WrapRefCounted(this) : new_peer;
       mem::Ref<Router> right =
@@ -639,14 +602,15 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       mem::Ref<RouterLink> right_link;
       std::tie(left_link, right_link) =
           LocalRouterLink::CreatePair(left, right);
-      old_peer = std::move(new_peer->peer_);
-      proxy_sequence_length = new_peer->outgoing_sequence_length_;
-      left->peer_ = std::move(left_link);
-      right->peer_ = std::move(right_link);
+      old_peer = std::move(new_peer->outward_.link);
+      left->outward_.link = std::move(left_link);
+      right->outward_.link = std::move(right_link);
+      outward_.decaying_link = old_peer;
+      outward_.decaying_link_sequence_length = inward_sequence_length;
     }
 
     if (old_peer) {
-      old_peer->StopProxyingTowardSide(side_, proxy_sequence_length);
+      old_peer->StopProxying(inward_sequence_length, outward_sequence_length);
       old_peer->Deactivate();
     }
     return true;
@@ -656,138 +620,114 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       requesting_node_link.node()->GetLink(proxy_peer_node_name);
   if (new_peer_node) {
     new_peer_node->BypassProxy(requesting_node_link.remote_node_name(),
-                               proxy_peer_routing_id, bypass_key,
-                               mem::WrapRefCounted(this));
+                               proxy_peer_routing_id, outward_sequence_length,
+                               bypass_key, mem::WrapRefCounted(this));
     return true;
   }
 
-  // We don't want to forward outgoing parcels to our predecessor while waiting
-  // for the peer link to be established.
-  PauseOutgoingTransmission(true);
   requesting_node_link.node()->EstablishLink(
       proxy_peer_node_name,
       [requesting_node_name = requesting_node_link.remote_node_name(),
-       proxy_peer_routing_id, bypass_key,
+       proxy_peer_routing_id, outward_sequence_length, bypass_key,
        self = mem::WrapRefCounted(this)](NodeLink* new_link) {
         if (!new_link) {
-          SequenceNumber peer_sequence_length;
-          {
-            absl::MutexLock lock(&self->mutex_);
-            peer_sequence_length =
-                self->incoming_parcels_.peer_sequence_length().value_or(
-                    self->incoming_parcels_.current_sequence_number() +
-                    self->incoming_parcels_.GetNumAvailableParcels());
-          }
-          self->AcceptRouteClosure(Opposite(self->side_), peer_sequence_length);
+          // TODO: failure to connect to a node here should result in route
+          // destruction. This is not the same as closure since we can't make
+          // any guarantees about parcel delivery up to the last transmitted
+          // sequence number.
           return;
         }
 
         new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
-                              bypass_key, self);
-        self->PauseOutgoingTransmission(false);
+                              outward_sequence_length, bypass_key, self);
       });
   return true;
 }
 
 bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
-                           absl::uint128 bypass_key) {
-  SequenceNumber proxy_sequence_length;
+                           absl::uint128 bypass_key,
+                           SequenceNumber proxy_outward_sequence_length) {
+  SequenceNumber proxy_inward_sequence_length;
   mem::Ref<RouterLink> old_peer;
   {
     absl::MutexLock lock(&mutex_);
-    if (!peer_) {
-      new_peer->AcceptRouteClosure(side_, outgoing_sequence_length_);
+    if (!outward_.link) {
+      // TODO: terminate the route. not the same as closure.
       return true;
     }
 
-    RouterLinkState::Locked state(peer_->GetLinkState(), side_);
+    RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
     if (state.other_side().bypass_key != bypass_key ||
-        state.other_side().routing_mode != RoutingMode::kHalfProxy) {
+        !state.other_side().is_decaying) {
       return false;
     }
 
-    old_peer = std::move(peer_);
-    peer_ = std::move(new_peer);
-    proxy_sequence_length = outgoing_sequence_length_;
+    old_peer = std::move(outward_.link);
+    outward_.decaying_link = old_peer;
+    outward_.link = std::move(new_peer);
+    proxy_inward_sequence_length = outward_sequence_length_;
   }
 
-  old_peer->StopProxyingTowardSide(Opposite(side_), proxy_sequence_length);
+  old_peer->StopProxying(proxy_inward_sequence_length,
+                         proxy_outward_sequence_length);
   return true;
 }
 
-void Router::Disconnect() {
-  mem::Ref<RouterLink> peer;
-  mem::Ref<RouterLink> predecessor;
-  mem::Ref<RouterLink> successor;
-  {
-    absl::MutexLock lock(&mutex_);
-    std::swap(peer, peer_);
-    std::swap(predecessor, predecessor_);
-    std::swap(successor, successor_);
-  }
-
-  if (peer) {
-    peer->Deactivate();
-  }
-  if (predecessor) {
-    predecessor->Deactivate();
-  }
-  if (successor) {
-    successor->Deactivate();
-  }
-}
-
 void Router::FlushParcels() {
-  mem::Ref<RouterLink> where_to_forward_incoming_parcels;
-  mem::Ref<RouterLink> where_to_forward_outgoing_parcels;
-  std::forward_list<Parcel> outgoing_parcels;
-  std::vector<Parcel> incoming_parcels;
-  absl::optional<SequenceNumber> last_outgoing_sequence_number_to_forward;
-  SequenceNumber outgoing_sequence_length = 0;
-  bool is_proxying_toward_peer = false;
-  bool incoming_queue_dead = false;
+  mem::Ref<RouterLink> inward_forwarding_link;
+  mem::Ref<RouterLink> outward_forwarding_link;
+  absl::InlinedVector<Parcel, 4> outbound_parcels;
+  absl::InlinedVector<Parcel, 4> inbound_parcels;
+  bool outward_sequence_dead = false;
+  bool inward_sequence_dead = false;
   {
     absl::MutexLock lock(&mutex_);
-    last_outgoing_sequence_number_to_forward =
-        last_outgoing_sequence_number_to_forward_;
-    where_to_forward_outgoing_parcels = peer_ ? peer_ : predecessor_;
-    if (!outgoing_parcels_.empty() && where_to_forward_outgoing_parcels &&
-        !num_outgoing_transmission_blockers_) {
-      outgoing_parcels = outgoing_parcels_.TakeParcels();
-    }
-
-    if (successor_) {
-      incoming_parcels.reserve(incoming_parcels_.GetNumAvailableParcels());
+    inward_forwarding_link = inward_.link;
+    outward_forwarding_link = outward_.link;
+    if (outward_.parcels.HasNextParcel() && outward_forwarding_link &&
+        !outward_transmission_paused_) {
       Parcel parcel;
-      while (incoming_parcels_.Pop(parcel)) {
-        incoming_parcels.push_back(std::move(parcel));
+      while (outward_.parcels.Pop(parcel)) {
+        outbound_parcels.push_back(std::move(parcel));
       }
-      incoming_queue_dead = incoming_parcels_.IsDead();
-      where_to_forward_incoming_parcels = successor_;
-      is_proxying_toward_peer = routing_mode_ == RoutingMode::kProxy;
+      outward_sequence_dead = outward_.parcels.IsDead();
     }
 
-    outgoing_sequence_length = outgoing_sequence_length_;
+    if (inward_.parcels.HasNextParcel() && inward_forwarding_link) {
+      Parcel parcel;
+      while (inward_.parcels.Pop(parcel)) {
+        inbound_parcels.push_back(std::move(parcel));
+      }
+      inward_sequence_dead = inward_.parcels.IsDead();
+    }
   }
 
-  for (Parcel& parcel : outgoing_parcels) {
-    where_to_forward_outgoing_parcels->AcceptParcel(parcel);
+  for (Parcel& parcel : outbound_parcels) {
+    outward_forwarding_link->AcceptParcel(parcel);
   }
 
-  for (Parcel& parcel : incoming_parcels) {
-    where_to_forward_incoming_parcels->AcceptParcel(parcel);
+  for (Parcel& parcel : inbound_parcels) {
+    inward_forwarding_link->AcceptParcel(parcel);
   }
 
-  const bool done_forwarding_outgoing_parcels =
-      is_proxying_toward_peer &&
-      (last_outgoing_sequence_number_to_forward &&
-       *last_outgoing_sequence_number_to_forward <= outgoing_sequence_length);
-  const bool done_forwarding_incoming_parcels = incoming_queue_dead;
-  if (done_forwarding_incoming_parcels && done_forwarding_outgoing_parcels) {
-    // May delete `this`;
-    Disconnect();
+  if (inward_sequence_dead) {
+    inward_forwarding_link->Deactivate();
+
+    absl::MutexLock lock(&mutex_);
+    inward_.link = nullptr;
+  }
+
+  if (outward_sequence_dead) {
+    outward_forwarding_link->Deactivate();
+
+    absl::MutexLock lock(&mutex_);
+    outward_.link = nullptr;
   }
 }
+
+Router::RouterSide::RouterSide() = default;
+
+Router::RouterSide::~RouterSide() = default;
 
 }  // namespace core
 }  // namespace ipcz

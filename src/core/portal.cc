@@ -66,8 +66,8 @@ std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Portal::CreatePair(
   mem::Ref<LocalRouterLink> right_link;
   std::tie(left_link, right_link) =
       LocalRouterLink::CreatePair(left->router(), right->router());
-  left->router()->SetPeer(std::move(left_link));
-  right->router()->SetPeer(std::move(right_link));
+  left->router()->SetOutwardLink(std::move(left_link));
+  right->router()->SetOutwardLink(std::move(right_link));
   return {std::move(left), std::move(right)};
 }
 
@@ -92,7 +92,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   }
 
   if (limits &&
-      router_->WouldOutgoingParcelExceedLimits(data.size(), *limits)) {
+      router_->WouldOutboundParcelExceedLimits(data.size(), *limits)) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
@@ -110,7 +110,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
   }
 
-  IpczResult result = router_->SendOutgoingParcel(data, portals, handles);
+  IpczResult result = router_->SendOutboundParcel(data, portals, handles);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquished handle ownership and
     // therefore implicitly releases its ref to each portal.
@@ -132,7 +132,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
                             uint32_t& num_data_bytes,
                             void** data) {
   if (limits &&
-      router_->WouldOutgoingParcelExceedLimits(num_data_bytes, *limits)) {
+      router_->WouldOutboundParcelExceedLimits(num_data_bytes, *limits)) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
@@ -183,7 +183,7 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
   }
 
-  IpczResult result = router_->SendOutgoingParcel(
+  IpczResult result = router_->SendOutboundParcel(
       parcel.data_view().subspan(0, num_data_bytes_produced), portals, handles);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquished handle ownership and

@@ -150,6 +150,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
+                           SequenceNumber proxy_outward_sequence_length,
                            absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
   RoutingId new_routing_id = AllocateRoutingIds(1);
@@ -158,17 +159,19 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the new route may not be
   // recognized by the remote node and any parcels may be dropped.
-  new_peer->PauseOutgoingTransmission(true);
-  new_peer->SetPeer(new_link);
+  new_peer->PauseOutboundTransmission(true);
+  new_peer->SetOutwardLink(new_link);
+  // TODO: retain old outward link as decaying
 
   msg::BypassProxy bypass;
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
   bypass.params.bypass_key = bypass_key;
+  bypass.params.proxy_outward_sequence_length = proxy_outward_sequence_length;
   Transmit(bypass);
 
-  new_peer->PauseOutgoingTransmission(false);
+  new_peer->PauseOutboundTransmission(false);
   return true;
 }
 
@@ -215,9 +218,9 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    case msg::StopProxyingTowardSide::kId: {
-      msg::StopProxyingTowardSide stop;
-      if (stop.Deserialize(message) && OnStopProxyingTowardSide(stop)) {
+    case msg::StopProxying::kId: {
+      msg::StopProxying stop;
+      if (stop.Deserialize(message) && OnStopProxying(stop)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -255,19 +258,13 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
     auto new_router = Router::Deserialize(descriptor);
     auto new_router_link = AddRoute(descriptor.new_routing_id,
                                     descriptor.new_routing_id, new_router);
-    if (descriptor.route_is_peer) {
-      new_router->SetPeer(std::move(new_router_link));
-    } else {
-      new_router->SetPredecessor(std::move(new_router_link));
-    }
-
+    new_router->SetOutwardLink(std::move(new_router_link));
     if (descriptor.proxy_peer_node_name.is_valid()) {
       // The predecessor is already a half-proxy and has given us the means to
       // initiate its own bypass.
       new_router->InitiateProxyBypass(
           *this, descriptor.new_routing_id, descriptor.proxy_peer_node_name,
-          descriptor.proxy_peer_routing_id, descriptor.bypass_key,
-          /*notify_predecessor=*/false);
+          descriptor.next_outgoing_sequence_number, descriptor.bypass_key);
     }
     portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }
@@ -332,15 +329,14 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
       message.handles.subspan(1));
 }
 
-bool NodeLink::OnStopProxyingTowardSide(
-    const msg::StopProxyingTowardSide& stop) {
+bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
   mem::Ref<Router> router = GetRouter(stop.params.routing_id);
   if (!router) {
     return true;
   }
 
-  return router->StopProxyingTowardSide(stop.params.side,
-                                        stop.params.sequence_length);
+  return router->StopProxying(stop.params.inward_sequence_length,
+                              stop.params.outward_sequence_length);
 }
 
 }  // namespace core

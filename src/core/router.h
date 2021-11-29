@@ -38,8 +38,8 @@ class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
 
-  // Pauses or unpauses outgoing parcel transmission.
-  void PauseOutgoingTransmission(bool paused);
+  // Pauses or unpauses outward parcel transmission.
+  void PauseOutboundTransmission(bool paused);
 
   // Returns true iff the other side of this Router's route is known to be
   // closed.
@@ -47,30 +47,30 @@ class Router : public mem::RefCounted {
 
   // Returns true iff the other side of this Router's route is known to be
   // closed, AND all parcels sent from that side have already been retrieved by
-  // the application.
+  // the application on this side.
   bool IsRouteDead();
 
   // Fills in an IpczPortalStatus corresponding to the current state of this
   // Router.
   void QueryStatus(IpczPortalStatus& status);
 
-  // Returns true iff this Router's peer link is a LocalRouterLink and its local
-  // peer is `other`.
+  // Returns true iff this Router's outward link is a LocalRouterLink between
+  // `this` and `router`.
   bool HasLocalPeer(const mem::Ref<Router>& router);
 
   // Returns true iff sending a parcel of `data_size` towards the other side of
   // the route may exceed the specified `limits` on the receiving end.
-  bool WouldOutgoingParcelExceedLimits(size_t data_size,
+  bool WouldOutboundParcelExceedLimits(size_t data_size,
                                        const IpczPutLimits& limits);
 
-  // Returns true iff accepting an incoming parcel of `data_size` would cause
-  // this router's incoming parcel queue to exceed limits specified by `limits`.
-  bool WouldIncomingParcelExceedLimits(size_t data_size,
-                                       const IpczPutLimits& limits);
+  // Returns true iff accepting an inbound parcel of `data_size` would cause
+  // this router's inbound parcel queue to exceed limits specified by `limits`.
+  bool WouldInboundParcelExceedLimits(size_t data_size,
+                                      const IpczPutLimits& limits);
 
-  // Attempts to send an outgoing parcel originating from this Router. Called
+  // Attempts to send an outbound parcel originating from this Router. Called
   // only as a direct result of a Put() call on the router's owning portal.
-  IpczResult SendOutgoingParcel(absl::Span<const uint8_t> data,
+  IpczResult SendOutboundParcel(absl::Span<const uint8_t> data,
                                 Parcel::PortalVector& portals,
                                 std::vector<os::Handle>& os_handles);
 
@@ -78,45 +78,47 @@ class Router : public mem::RefCounted {
   // which a Portal is currently attached, and only by that Portal.
   void CloseRoute();
 
-  // Uses `link` as this Router's new peer link.
-  void SetPeer(mem::Ref<RouterLink> link);
+  // Uses `link` as this Router's new outward link. This is the primary link on
+  // which the router transmits parcels and control messages directed toward the
+  // other side of its route.
+  void SetOutwardLink(mem::Ref<RouterLink> link);
 
-  // Uses `link` as this Router's new predecessor link.
-  void SetPredecessor(mem::Ref<RouterLink> link);
+  // Provides the Router with a new inward link to which it should forward all
+  // inbound parcels received from its outward link. The Router may also forward
+  // outbound parcels received from the new inward link to the outward link.
+  void BeginProxying(const PortalDescriptor& descriptor,
+                     mem::Ref<RouterLink> link);
 
-  // Provides the Router with a new successor link to which it should forward
-  // all incoming parcels. If the Router is in full proxying mode, it may also
-  // listen for outgoing parcels from the same link, to be forwarded to its peer
-  // or predecessor.
-  void BeginProxyingWithSuccessor(const PortalDescriptor& descriptor,
-                                  mem::Ref<RouterLink> link);
-
-  // Cuts off this Router's proxying responsibilities in the direction of `side`
-  // once the router has forwarded all parcels up to and including
-  // `proxy_sequence_length` in that direction.
-  bool StopProxyingTowardSide(Side side, SequenceNumber proxy_sequence_length);
+  // Finalizes this Router's proxying responsibilities in either direction. Once
+  // the proxy has forwarded any inbound parcels up to (but not including)
+  // `inward_sequence_length` over to its inward link, and it has forwarded any
+  // outbound parcels up to but not including `outward_sequence_length` to its
+  // outward link, it will destroy itself.
+  bool StopProxying(SequenceNumber inward_sequence_length,
+                    SequenceNumber outward_sequence_length);
 
   // Accepts a parcel routed here from `link` via `routing_id`, which is
-  // determined to be either an incoming or outgoing parcel based on the source
-  // and current routing mode.
+  // determined to be either an inbound or outbound parcel based on the active
+  // links this Router has at its disposal.
   bool AcceptParcelFrom(NodeLink& link, RoutingId routing_id, Parcel& parcel);
 
-  // Accepts an incoming parcel routed here from some other Router. What happens
-  // to the parcel depends on the Router's current RoutingMode and established
-  // links to other Routers.
-  bool AcceptIncomingParcel(Parcel& parcel);
+  // Accepts an inbound parcel routed here from some other Router. The parcel
+  // is queued here and may either be made available for retrieval by a portal,
+  // or (perhaps immediately) forwarded further along the route via this
+  // Router's inward link.
+  bool AcceptInboundParcel(Parcel& parcel);
 
-  // Accepts an outgoing parcel router here from some other Router. What happens
-  // to the parcel depends on the Router's current RoutingMode and its
-  // established links to other Routers.
-  bool AcceptOutgoingParcel(Parcel& parcel);
+  // Accepts an outbound parcel here from some other Router. The parcel is
+  // queued for eventual (and possibly immediate) transmission over the Router's
+  // outward link.
+  bool AcceptOutboundParcel(Parcel& parcel);
 
   // Accepts notification that one `side` of this route has been closed.
-  // Depending on current routing mode and established links, this notification
-  // may be propagated elsewhere by this Router.
+  // The closed side of the route has transmitted all parcels up to but not
+  // including the sequence number `sequence_length`.
   void AcceptRouteClosure(Side side, SequenceNumber sequence_length);
 
-  // Retrieves the next available incoming parcel from this Router, if present.
+  // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,
                                    uint32_t* num_bytes,
                                    IpczHandle* portals,
@@ -146,17 +148,26 @@ class Router : public mem::RefCounted {
                            RoutingId requesting_routing_id,
                            const NodeName& proxy_peer_node_name,
                            RoutingId proxy_peer_routing_id,
-                           absl::uint128 bypass_key,
-                           bool notify_predecessor);
-  bool BypassProxyTo(mem::Ref<RouterLink> new_peer, absl::uint128 bypass_key);
-
-  // Disconnects this Router from all RouterLinks, such that no further parcels
-  // or events will be routed to it, and no references are retained on behalf of
-  // any such links.
-  void Disconnect();
+                           absl::uint128 bypass_key);
+  bool BypassProxyTo(mem::Ref<RouterLink> new_peer,
+                     absl::uint128 bypass_key,
+                     SequenceNumber proxy_outward_sequence_length);
 
  private:
   friend class LocalRouterLink;
+
+  struct RouterSide {
+    RouterSide();
+    RouterSide(const RouterSide&) = delete;
+    RouterSide& operator=(const RouterSide&) = delete;
+    ~RouterSide();
+
+    IncomingParcelQueue parcels;
+    mem::Ref<RouterLink> link;
+    mem::Ref<RouterLink> decaying_link;
+    absl::optional<SequenceNumber> decaying_link_sequence_length;
+    bool closure_propagated = false;
+  };
 
   ~Router() override;
 
@@ -165,17 +176,10 @@ class Router : public mem::RefCounted {
   const Side side_;
 
   absl::Mutex mutex_;
-  SequenceNumber outgoing_sequence_length_ ABSL_GUARDED_BY(mutex_) = 0;
-  absl::optional<SequenceNumber> last_outgoing_sequence_number_to_forward_
-      ABSL_GUARDED_BY(mutex_);
-  RoutingMode routing_mode_ ABSL_GUARDED_BY(mutex_) = RoutingMode::kActive;
-  mem::Ref<RouterLink> peer_ ABSL_GUARDED_BY(mutex_);
-  mem::Ref<RouterLink> successor_ ABSL_GUARDED_BY(mutex_);
-  mem::Ref<RouterLink> predecessor_ ABSL_GUARDED_BY(mutex_);
-  int num_outgoing_transmission_blockers_ ABSL_GUARDED_BY(mutex_) = 0;
-  OutgoingParcelQueue outgoing_parcels_ ABSL_GUARDED_BY(mutex_);
-  IncomingParcelQueue incoming_parcels_ ABSL_GUARDED_BY(mutex_);
-  bool peer_closure_propagated_ ABSL_GUARDED_BY(mutex_) = false;
+  RouterSide inward_ ABSL_GUARDED_BY(mutex_);
+  RouterSide outward_ ABSL_GUARDED_BY(mutex_);
+  bool outward_transmission_paused_ = false;
+  SequenceNumber outward_sequence_length_ = 0;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };

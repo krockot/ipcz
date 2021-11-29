@@ -8,7 +8,6 @@
 #include <atomic>
 
 #include "core/node_name.h"
-#include "core/routing_mode.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "os/memory.h"
@@ -31,12 +30,11 @@ struct RouterLinkState {
     SideState();
     ~SideState();
 
-    // The RoutingMode of the portal on this side of the link.
-    RoutingMode routing_mode;
+    // Indicates whether the router on this side of the link is decaying.
+    bool is_decaying;
 
-    // A key, set only if `routing_mode` is kHalfProxy, which can be used to
-    // validate another node's request to replace this link with a link to the
-    // other node.
+    // A key, set only if `is_decaying` is true, which can be used to validate
+    // another node's request to replace this link with a link to itself.
     absl::uint128 bypass_key;
   };
 

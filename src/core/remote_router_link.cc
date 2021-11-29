@@ -106,8 +106,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
                         parcel.os_handles_view());
 
   for (size_t i = 0; i < num_portals; ++i) {
-    routers[i]->BeginProxyingWithSuccessor(descriptors[i],
-                                           std::move(new_links[i]));
+    routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]));
     portals[i].reset();
   }
 }
@@ -121,13 +120,12 @@ void RemoteRouterLink::AcceptRouteClosure(Side side,
   node_link()->Transmit(side_closed);
 }
 
-void RemoteRouterLink::StopProxyingTowardSide(
-    Side side,
-    SequenceNumber proxy_sequence_length) {
-  msg::StopProxyingTowardSide stop;
+void RemoteRouterLink::StopProxying(SequenceNumber inward_sequence_length,
+                                    SequenceNumber outward_sequence_length) {
+  msg::StopProxying stop;
   stop.params.routing_id = routing_id_;
-  stop.params.side = side;
-  stop.params.sequence_length = proxy_sequence_length;
+  stop.params.inward_sequence_length = inward_sequence_length;
+  stop.params.outward_sequence_length = outward_sequence_length;
   node_link()->Transmit(stop);
 }
 

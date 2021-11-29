@@ -51,13 +51,13 @@ void LocalRouterLink::Deactivate() {
   mem::Ref<Router> left = state_->side(Side::kLeft);
   mem::Ref<Router> right = state_->side(Side::kRight);
   TwoMutexLock lock(&left->mutex_, &right->mutex_);
-  if (!left->peer_ || left->peer_->GetLocalTarget() != right || !right->peer_ ||
-      right->peer_->GetLocalTarget() != left) {
+  if (!left->outward_.link || left->outward_.link->GetLocalTarget() != right ||
+      !right->outward_.link || right->outward_.link->GetLocalTarget() != left) {
     return;
   }
 
-  left->peer_ = nullptr;
-  right->peer_ = nullptr;
+  left->outward_.link = nullptr;
+  right->outward_.link = nullptr;
 }
 
 RouterLinkState& LocalRouterLink::GetLinkState() {
@@ -76,11 +76,11 @@ bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
                                               const IpczPutLimits& limits) {
   return state_->side(Opposite(side_))
-      ->WouldIncomingParcelExceedLimits(data_size, limits);
+      ->WouldInboundParcelExceedLimits(data_size, limits);
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  state_->side(Opposite(side_))->AcceptIncomingParcel(parcel);
+  state_->side(Opposite(side_))->AcceptInboundParcel(parcel);
 }
 
 void LocalRouterLink::AcceptRouteClosure(Side side,
@@ -88,11 +88,9 @@ void LocalRouterLink::AcceptRouteClosure(Side side,
   state_->side(Opposite(side_))->AcceptRouteClosure(side, sequence_length);
 }
 
-void LocalRouterLink::StopProxyingTowardSide(
-    Side side,
-    SequenceNumber proxy_sequence_length) {
-  // Local links are always peer links, and existing peers never tell each other
-  // to stop proxying in any direction.
+void LocalRouterLink::StopProxying(SequenceNumber inward_sequence_length,
+                                   SequenceNumber outward_sequence_length) {
+  // Local links are never proxying links.
   ABSL_ASSERT(false);
 }
 
