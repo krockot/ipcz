@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/incoming_parcel_queue.h"
+#include "core/parcel_queue.h"
 
 #include <algorithm>
 #include <utility>
@@ -12,12 +12,12 @@
 namespace ipcz {
 namespace core {
 
-IncomingParcelQueue::IncomingParcelQueue() = default;
+ParcelQueue::ParcelQueue() = default;
 
-IncomingParcelQueue::IncomingParcelQueue(SequenceNumber current_sequence_number)
+ParcelQueue::ParcelQueue(SequenceNumber current_sequence_number)
     : base_sequence_number_(current_sequence_number) {}
 
-IncomingParcelQueue::IncomingParcelQueue(IncomingParcelQueue&& other)
+ParcelQueue::ParcelQueue(ParcelQueue&& other)
     : base_sequence_number_(other.base_sequence_number_),
       num_parcels_(other.num_parcels_),
       peer_sequence_length_(other.peer_sequence_length_) {
@@ -29,8 +29,7 @@ IncomingParcelQueue::IncomingParcelQueue(IncomingParcelQueue&& other)
   }
 }
 
-IncomingParcelQueue& IncomingParcelQueue::operator=(
-    IncomingParcelQueue&& other) {
+ParcelQueue& ParcelQueue::operator=(ParcelQueue&& other) {
   base_sequence_number_ = other.base_sequence_number_;
   num_parcels_ = other.num_parcels_;
   peer_sequence_length_ = other.peer_sequence_length_;
@@ -46,9 +45,9 @@ IncomingParcelQueue& IncomingParcelQueue::operator=(
   return *this;
 }
 
-IncomingParcelQueue::~IncomingParcelQueue() = default;
+ParcelQueue::~ParcelQueue() = default;
 
-size_t IncomingParcelQueue::GetNumAvailableParcels() const {
+size_t ParcelQueue::GetNumAvailableParcels() const {
   if (parcels_.empty() || !parcels_[0].has_value()) {
     return 0;
   }
@@ -56,7 +55,7 @@ size_t IncomingParcelQueue::GetNumAvailableParcels() const {
   return parcels_[0]->num_parcels_in_span;
 }
 
-size_t IncomingParcelQueue::GetNumAvailableBytes() const {
+size_t ParcelQueue::GetNumAvailableBytes() const {
   if (parcels_.empty() || !parcels_[0].has_value()) {
     return 0;
   }
@@ -64,7 +63,7 @@ size_t IncomingParcelQueue::GetNumAvailableBytes() const {
   return parcels_[0]->num_bytes_in_span;
 }
 
-bool IncomingParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
+bool ParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
   if (peer_sequence_length_) {
     return false;
   }
@@ -78,7 +77,7 @@ bool IncomingParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
   return true;
 }
 
-bool IncomingParcelQueue::IsExpectingMoreParcels() const {
+bool ParcelQueue::IsExpectingMoreParcels() const {
   if (!peer_sequence_length_) {
     return true;
   }
@@ -92,23 +91,23 @@ bool IncomingParcelQueue::IsExpectingMoreParcels() const {
   return num_parcels_ < num_parcels_remaining;
 }
 
-absl::optional<SequenceNumber>
-IncomingParcelQueue::GetNextExpectedSequenceNumber() const {
+absl::optional<SequenceNumber> ParcelQueue::GetNextExpectedSequenceNumber()
+    const {
   if (!IsExpectingMoreParcels()) {
     return absl::nullopt;
   }
   return base_sequence_number_ + parcels_.size();
 }
 
-bool IncomingParcelQueue::HasNextParcel() const {
+bool ParcelQueue::HasNextParcel() const {
   return !parcels_.empty() && parcels_[0].has_value();
 }
 
-bool IncomingParcelQueue::IsDead() const {
+bool ParcelQueue::IsDead() const {
   return !HasNextParcel() && !IsExpectingMoreParcels();
 }
 
-bool IncomingParcelQueue::Push(Parcel parcel) {
+bool ParcelQueue::Push(Parcel parcel) {
   const SequenceNumber n = parcel.sequence_number();
   if (n < base_sequence_number_) {
     return false;
@@ -136,7 +135,7 @@ bool IncomingParcelQueue::Push(Parcel parcel) {
   return true;
 }
 
-bool IncomingParcelQueue::Pop(Parcel& parcel) {
+bool ParcelQueue::Pop(Parcel& parcel) {
   if (parcels_.empty() || !parcels_[0].has_value()) {
     return false;
   }
@@ -177,12 +176,12 @@ bool IncomingParcelQueue::Pop(Parcel& parcel) {
   return true;
 }
 
-Parcel& IncomingParcelQueue::NextParcel() {
+Parcel& ParcelQueue::NextParcel() {
   ABSL_ASSERT(HasNextParcel());
   return parcels_[0]->parcel;
 }
 
-void IncomingParcelQueue::StealAllParcels(std::vector<Parcel>& parcels) && {
+void ParcelQueue::StealAllParcels(std::vector<Parcel>& parcels) && {
   for (auto& entry : parcels_) {
     if (entry) {
       parcels.push_back(std::move(entry->parcel));
@@ -190,7 +189,7 @@ void IncomingParcelQueue::StealAllParcels(std::vector<Parcel>& parcels) && {
   }
 }
 
-void IncomingParcelQueue::Reallocate(SequenceNumber sequence_length) {
+void ParcelQueue::Reallocate(SequenceNumber sequence_length) {
   size_t parcels_offset = parcels_.data() - storage_.data();
   size_t new_parcels_size = sequence_length - base_sequence_number_;
   if (parcels_offset + new_parcels_size < storage_.size()) {
@@ -211,7 +210,7 @@ void IncomingParcelQueue::Reallocate(SequenceNumber sequence_length) {
   parcels_ = ParcelView(storage_.data(), new_parcels_size);
 }
 
-void IncomingParcelQueue::PlaceNewEntry(size_t index, Parcel& parcel) {
+void ParcelQueue::PlaceNewEntry(size_t index, Parcel& parcel) {
   ABSL_ASSERT(index < parcels_.size());
   ABSL_ASSERT(!parcels_[index].has_value());
 
@@ -263,14 +262,13 @@ void IncomingParcelQueue::PlaceNewEntry(size_t index, Parcel& parcel) {
   ++num_parcels_;
 }
 
-IncomingParcelQueue::Entry::Entry() = default;
+ParcelQueue::Entry::Entry() = default;
 
-IncomingParcelQueue::Entry::Entry(Entry&&) = default;
+ParcelQueue::Entry::Entry(Entry&&) = default;
 
-IncomingParcelQueue::Entry& IncomingParcelQueue::Entry::operator=(Entry&&) =
-    default;
+ParcelQueue::Entry& ParcelQueue::Entry::operator=(Entry&&) = default;
 
-IncomingParcelQueue::Entry::~Entry() = default;
+ParcelQueue::Entry::~Entry() = default;
 
 }  // namespace core
 }  // namespace ipcz

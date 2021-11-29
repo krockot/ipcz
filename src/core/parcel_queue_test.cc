@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/incoming_parcel_queue.h"
+#include "core/parcel_queue.h"
 
 #include "core/parcel.h"
 #include "core/sequence_number.h"
@@ -19,8 +19,8 @@ Parcel ParcelWithData(SequenceNumber n, size_t size) {
   return p;
 }
 
-TEST(IncomingParcelQueueTest, Empty) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, Empty) {
+  ParcelQueue q;
   EXPECT_TRUE(q.IsExpectingMoreParcels());
   EXPECT_FALSE(q.HasNextParcel());
 
@@ -28,8 +28,8 @@ TEST(IncomingParcelQueueTest, Empty) {
   EXPECT_FALSE(q.Pop(p));
 }
 
-TEST(IncomingParcelQueueTest, SetPeerSequenceLength) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, SetPeerSequenceLength) {
+  ParcelQueue q;
   q.SetPeerSequenceLength(3);
   EXPECT_TRUE(q.IsExpectingMoreParcels());
   EXPECT_FALSE(q.HasNextParcel());
@@ -65,8 +65,8 @@ TEST(IncomingParcelQueueTest, SetPeerSequenceLength) {
   EXPECT_FALSE(q.HasNextParcel());
 }
 
-TEST(IncomingParcelQueueTest, SequenceTooLow) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, SequenceTooLow) {
+  ParcelQueue q;
 
   Parcel p;
   EXPECT_TRUE(q.Push(Parcel(0)));
@@ -89,15 +89,15 @@ TEST(IncomingParcelQueueTest, SequenceTooLow) {
   EXPECT_FALSE(q.Push(Parcel(1)));
 }
 
-TEST(IncomingParcelQueueTest, SequenceTooHigh) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, SequenceTooHigh) {
+  ParcelQueue q;
   q.SetPeerSequenceLength(5);
 
   EXPECT_FALSE(q.Push(Parcel(5)));
 }
 
-TEST(IncomingParcelQueueTest, SparseSequence) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, SparseSequence) {
+  ParcelQueue q;
 
   // Push a sparse but eventually complete sequence of messages into a queue and
   // ensure that they can only be popped out in sequence-order.
@@ -116,8 +116,8 @@ TEST(IncomingParcelQueueTest, SparseSequence) {
   EXPECT_EQ(16u, next_expected_pop);
 }
 
-TEST(IncomingParcelQueueTest, Accounting) {
-  IncomingParcelQueue q;
+TEST(ParcelQueueTest, Accounting) {
+  ParcelQueue q;
 
   constexpr size_t kParcel0Size = 42;
   constexpr size_t kParcel1Size = 5;

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_INCOMING_PARCEL_QUEUE_H_
-#define IPCZ_SRC_CORE_INCOMING_PARCEL_QUEUE_H_
+#ifndef IPCZ_SRC_CORE_PARCEL_QUEUE_H_
+#define IPCZ_SRC_CORE_PARCEL_QUEUE_H_
 
 #include <cstddef>
 #include <vector>
@@ -16,28 +16,28 @@
 namespace ipcz {
 namespace core {
 
-// IncomingParcelQueue retains a queue of Parcel objects strictly ordered by
-// sequence number.
+// ParcelQueue retains a queue of Parcel objects strictly ordered by sequence
+// number.
 //
 // All parcels are assigned a sequence number by the portal that produced them,
 // and this number is increased with every parcel sent. Because portals may move
 // across nodes and because some parcels may be relayed through the broker on
 // some platforms, it is prohibitively difficult to ensure that parcels always
 // arrive at their destination in the same order in which they were sent. In
-// light of this, portals place incoming parcels into an IncomingParcelQueue.
+// light of this, portals place incoming parcels into an ParcelQueue.
 //
 // Based on the assumption that temporary sequence gaps are common but tend to
 // be small, this retains at least enough sparse linear storage to hold every
 // parcel between the last popped sequence number (exclusive) and the highest
 // received sequence number so far (inclusive). As parcels are consumed from the
 // queue this storage may be efficiently compacted to reduce waste.
-class IncomingParcelQueue {
+class ParcelQueue {
  public:
-  IncomingParcelQueue();
-  IncomingParcelQueue(SequenceNumber current_sequence_number);
-  IncomingParcelQueue(IncomingParcelQueue&& other);
-  IncomingParcelQueue& operator=(IncomingParcelQueue&& other);
-  ~IncomingParcelQueue();
+  ParcelQueue();
+  ParcelQueue(SequenceNumber current_sequence_number);
+  ParcelQueue(ParcelQueue&& other);
+  ParcelQueue& operator=(ParcelQueue&& other);
+  ~ParcelQueue();
 
   // The next sequence number in queue. This starts at the constructor's
   // `current_sequence_number` and increments any time a parcel is successfully
@@ -237,4 +237,4 @@ class IncomingParcelQueue {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_INCOMING_PARCEL_QUEUE_H_
+#endif  // IPCZ_SRC_CORE_PARCEL_QUEUE_H_

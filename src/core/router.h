@@ -10,9 +10,9 @@
 #include <memory>
 #include <vector>
 
-#include "core/incoming_parcel_queue.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
+#include "core/parcel_queue.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
@@ -160,7 +160,7 @@ class Router : public mem::RefCounted {
     RouterSide& operator=(const RouterSide&) = delete;
     ~RouterSide();
 
-    IncomingParcelQueue parcels;
+    ParcelQueue parcels;
     mem::Ref<RouterLink> link;
     mem::Ref<RouterLink> decaying_link;
     absl::optional<SequenceNumber> decaying_link_sequence_length;

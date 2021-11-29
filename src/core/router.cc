@@ -133,7 +133,7 @@ void Router::CloseRoute() {
   mem::Ref<RouterLink> forwarding_link;
   {
     absl::MutexLock lock(&mutex_);
-    outward_.parcels = IncomingParcelQueue(outward_sequence_length_);
+    outward_.parcels = ParcelQueue(outward_sequence_length_);
     outward_.parcels.SetPeerSequenceLength(outward_sequence_length_);
     if (outward_transmission_paused_) {
       return;
@@ -542,7 +542,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor) {
   absl::MutexLock lock(&router->mutex_);
   router->outward_sequence_length_ = descriptor.next_outgoing_sequence_number;
   router->inward_.parcels =
-      IncomingParcelQueue(descriptor.next_incoming_sequence_number);
+      ParcelQueue(descriptor.next_incoming_sequence_number);
   if (descriptor.peer_closed) {
     router->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
     router->inward_.parcels.SetPeerSequenceLength(
