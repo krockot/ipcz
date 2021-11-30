@@ -98,7 +98,9 @@ DriverTransport::DriverTransport(const IpczDriver& driver,
     : driver_(driver), driver_transport_(driver_transport) {}
 
 DriverTransport::~DriverTransport() {
-  driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
+  if (!serialized_) {
+    driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
+  }
 }
 
 // static
@@ -161,6 +163,8 @@ IpczResult DriverTransport::Serialize(std::vector<uint8_t>& data,
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
+
+  serialized_ = true;
 
   handles.resize(num_os_handles);
   for (size_t i = 0; i < num_os_handles; ++i) {

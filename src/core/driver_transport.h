@@ -102,6 +102,7 @@ class DriverTransport : public mem::RefCounted {
   const IpczDriver& driver_;
   const IpczDriverHandle driver_transport_;
 
+  bool serialized_ = false;
   Listener* listener_ = nullptr;
 };
 
