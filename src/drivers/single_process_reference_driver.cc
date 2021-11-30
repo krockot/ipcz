@@ -239,6 +239,13 @@ IpczResult CDECL ActivateTransport(IpczDriverHandle driver_transport,
       .Activate(transport, handler);
 }
 
+IpczResult CDECL DeactivateTransport(IpczDriverHandle driver_transport,
+                                     uint32_t flags,
+                                     const void* options) {
+  ToRef<InProcessTransport>(driver_transport).Deactivate();
+  return IPCZ_RESULT_OK;
+}
+
 IpczResult CDECL Transmit(IpczDriverHandle driver_transport,
                           const uint8_t* data,
                           uint32_t num_bytes,
@@ -260,6 +267,7 @@ const IpczDriver kSingleProcessReferenceDriver = {
     SerializeTransport,
     DeserializeTransport,
     ActivateTransport,
+    DeactivateTransport,
     Transmit,
 };
 

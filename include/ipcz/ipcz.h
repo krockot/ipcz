@@ -289,6 +289,14 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                   uint32_t flags,
                                   const void* options);
 
+  // Called by ipcz to deactivate a transport. Once this returns successfully,
+  // the driver must make no further calls into this transport's activity
+  // handler. ipcz may continue to use the transport for outgoing transmissions
+  // until DestroyTransport() is called.
+  IpczResult (*DeactivateTransport)(IpczDriverHandle driver_transport,
+                                    uint32_t flags,
+                                    const void* options);
+
   // Called by ipcz to delegate transmission of data and OS handles over the
   // identified transport endpoint. If the driver cannot fulfill the request,
   // it must return a result other than IPCZ_RESULT_OK, and this will cause the

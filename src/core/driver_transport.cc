@@ -97,7 +97,9 @@ DriverTransport::DriverTransport(const IpczDriver& driver,
                                  IpczDriverHandle driver_transport)
     : driver_(driver), driver_transport_(driver_transport) {}
 
-DriverTransport::~DriverTransport() = default;
+DriverTransport::~DriverTransport() {
+  driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
+}
 
 // static
 std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
@@ -122,7 +124,7 @@ IpczResult DriverTransport::Activate() {
 }
 
 IpczResult DriverTransport::Deactivate() {
-  return driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
+  return driver_.DeactivateTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::TransmitMessage(const Message& message) {

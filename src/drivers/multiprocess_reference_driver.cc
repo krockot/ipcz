@@ -13,7 +13,6 @@
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/handle.h"
-#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
@@ -39,7 +38,6 @@ class MultiprocessTransport : public mem::RefCounted {
       return {};
     }
 
-    absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(channel_);
     os::Channel channel = std::move(*channel_);
     channel_.reset();
@@ -51,8 +49,6 @@ class MultiprocessTransport : public mem::RefCounted {
     was_activated_ = true;
     transport_ = transport;
     activity_handler_ = activity_handler;
-
-    absl::MutexLock lock(&mutex_);
     channel_->Listen(
         [transport = mem::WrapRefCounted(this)](os::Channel::Message message) {
           return transport->OnMessage(message);
@@ -60,11 +56,7 @@ class MultiprocessTransport : public mem::RefCounted {
   }
 
   void Deactivate() {
-    {
-      absl::MutexLock lock(&mutex_);
-      channel_.reset();
-    }
-
+    channel_->StopListening();
     if (activity_handler_) {
       activity_handler_(transport_, nullptr, 0, nullptr, 0,
                         IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED, nullptr);
@@ -77,8 +69,6 @@ class MultiprocessTransport : public mem::RefCounted {
     for (size_t i = 0; i < os_handles.size(); ++i) {
       handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
     }
-
-    absl::MutexLock lock(&mutex_);
     channel_->Send(
         os::Channel::Message(os::Channel::Data(data), absl::MakeSpan(handles)));
     return IPCZ_RESULT_OK;
@@ -114,9 +104,7 @@ class MultiprocessTransport : public mem::RefCounted {
   IpczHandle transport_ = IPCZ_INVALID_HANDLE;
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
-
-  absl::Mutex mutex_;
-  std::unique_ptr<os::Channel> channel_ ABSL_GUARDED_BY(mutex_);
+  std::unique_ptr<os::Channel> channel_;
 };
 
 IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
@@ -141,7 +129,6 @@ IpczResult CDECL DestroyTransport(IpczDriverHandle driver_transport,
   mem::Ref<MultiprocessTransport> transport(
       mem::RefCounted::kAdoptExistingRef,
       ToPtr<MultiprocessTransport>(driver_transport));
-  transport->Deactivate();
   return IPCZ_RESULT_OK;
 }
 
@@ -211,6 +198,13 @@ ActivateTransport(IpczDriverHandle driver_transport,
   return IPCZ_RESULT_OK;
 }
 
+IpczResult CDECL DeactivateTransport(IpczDriverHandle driver_transport,
+                                     uint32_t flags,
+                                     const void* options) {
+  ToRef<MultiprocessTransport>(driver_transport).Deactivate();
+  return IPCZ_RESULT_OK;
+}
+
 IpczResult CDECL Transmit(IpczDriverHandle driver_transport,
                           const uint8_t* data,
                           uint32_t num_bytes,
@@ -232,6 +226,7 @@ const IpczDriver kMultiprocessReferenceDriver = {
     SerializeTransport,
     DeserializeTransport,
     ActivateTransport,
+    DeactivateTransport,
     Transmit,
 };
 
