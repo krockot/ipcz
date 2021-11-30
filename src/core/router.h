@@ -78,8 +78,16 @@ class Router : public mem::RefCounted {
 
   // Uses `link` as this Router's new outward link. This is the primary link on
   // which the router transmits parcels and control messages directed toward the
-  // other side of its route.
+  // other side of its route. Must only be called on a Router which has no
+  // outward link.
   void SetOutwardLink(mem::Ref<RouterLink> link);
+
+  // Uses `link` as this Router's new outward link, replacing its previous
+  // outward link. The previous outward link is demoted to a decaying outward
+  // link. Returns the length of the outbound sequence just before the outward
+  // link was switched, indicating the length of the outbound sequence which is
+  // expected by the previous outward link before it can be dropped.
+  SequenceNumber ReplaceProxyingOutwardLink(mem::Ref<RouterLink> new_link);
 
   // Provides the Router with a new inward link to which it should forward all
   // inbound parcels received from its outward link. The Router may also forward
@@ -162,14 +170,20 @@ class Router : public mem::RefCounted {
 
     ParcelQueue parcels;
     mem::Ref<RouterLink> link;
-    mem::Ref<RouterLink> decaying_link;
-    absl::optional<SequenceNumber> decaying_link_sequence_length;
+    mem::Ref<RouterLink> decaying_proxy_link;
+    absl::optional<SequenceNumber> sequence_length_to_decaying_link;
+    absl::optional<SequenceNumber> sequence_length_from_decaying_link;
     bool closure_propagated = false;
   };
 
   ~Router() override;
 
-  void FlushParcels();
+  // Flushes any inbound or outbound parcels to be proxied, as well as any route
+  // closure notifications. If the result of the flush is that one or more
+  // RouterLinks is no longer necessary, they will be deactivated here. As a
+  // result, Flush() may delete `this` if it happens to cause this Router's last
+  // reference to be dropped.
+  void Flush();
 
   const Side side_;
 

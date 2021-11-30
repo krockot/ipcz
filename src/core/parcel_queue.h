@@ -24,13 +24,14 @@ namespace core {
 // across nodes and because some parcels may be relayed through the broker on
 // some platforms, it is prohibitively difficult to ensure that parcels always
 // arrive at their destination in the same order in which they were sent. In
-// light of this, portals place incoming parcels into an ParcelQueue.
+// light of this, portals place incoming parcels into a ParcelQueue.
 //
 // Based on the assumption that temporary sequence gaps are common but tend to
-// be small, this retains at least enough sparse linear storage to hold every
-// parcel between the last popped sequence number (exclusive) and the highest
-// received sequence number so far (inclusive). As parcels are consumed from the
-// queue this storage may be efficiently compacted to reduce waste.
+// be small, this retains at least enough linear storage to hold every parcel
+// between the last popped sequence number (exclusive) and the highest received
+// sequence number so far (inclusive). This storage may only be sparsely
+// populated at times, but as parcels are consumed from the queue, storage is
+// compacted to reduce waste.
 class ParcelQueue {
  public:
   ParcelQueue();
@@ -61,6 +62,14 @@ class ParcelQueue {
   // parcel (the same parcels counted by GetNumAvailableParcels()).
   size_t GetNumAvailableBytes() const;
 
+  // Returns the length of the contiguous Parcel sequence seen so far by this
+  // queue. This is essentially `current_sequence_number()` plus
+  // `GetNumAvailableParcels()`. For example if `current_sequence_number()` is
+  // 5 and `GetNumAvailableParcels()` is 3, then parcels 5, 6, and 7 are
+  // available for retrieval and the total length of the available sequence so
+  // far is 8; so this method would return 8.
+  SequenceNumber GetAvailableSequenceLength() const;
+
   // Sets the known final length of the incoming parcel sequence. This is the
   // sequence number of the peer side's last outgoing parcel, plus 1; or it's 0
   // if the peer side was closed without sending any parcels.
@@ -84,9 +93,19 @@ class ParcelQueue {
   // Indicates whether the next parcel (in sequence order) is available to pop.
   bool HasNextParcel() const;
 
+  // Indicates that there are no parcels in this queue, not even parcels beyond
+  // the current sequence number that are merely inaccessible.
+  bool IsEmpty() const;
+
   // Indicates whether this incoming queue is "dead," meaning it will no longer
   // accept new incoming messages and there will never be another parcel to pop.
   bool IsDead() const;
+
+  // Resets this ParcelQueue to start at the base SequenceNumber `n`. Must only
+  // be called on an empty ParcelQueue (IsEmpty() == true) and only when the
+  // caller can be sure they don't want to push any parcels with a
+  // SequenceNumber below `n`.
+  void ResetBaseSequenceNumber(SequenceNumber n);
 
   // This may fail if `n` falls below the minimum or maximum (when applicable)
   // expected sequence number for parcels in this queue.
@@ -100,10 +119,6 @@ class ParcelQueue {
   // Gets a reference to the next parcel. This reference is NOT stable across
   // ANY non-const methods on this object.
   Parcel& NextParcel();
-
-  // Steals all parcels from the queue, effectively invaliding it. The parcels
-  // are stored in `parcels` in order of increasing sequence number.
-  void StealAllParcels(std::vector<Parcel>& parcels) &&;
 
  private:
   void Reallocate(SequenceNumber sequence_length);

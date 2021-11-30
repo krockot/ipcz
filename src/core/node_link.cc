@@ -150,25 +150,26 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
-                           SequenceNumber proxy_outbound_sequence_length,
                            absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
   RoutingId new_routing_id = AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link =
       AddRoute(new_routing_id, new_routing_id, new_peer);
+
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the new route may not be
   // recognized by the remote node and any parcels may be dropped.
   new_peer->PauseOutboundTransmission(true);
-  new_peer->SetOutwardLink(new_link);
-  // TODO: retain old outward link as decaying
+  const SequenceNumber proxied_outbound_sequence_length =
+      new_peer->ReplaceProxyingOutwardLink(new_link);
 
   msg::BypassProxy bypass;
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
   bypass.params.bypass_key = bypass_key;
-  bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
+  bypass.params.proxied_outbound_sequence_length =
+      proxied_outbound_sequence_length;
   Transmit(bypass);
 
   new_peer->PauseOutboundTransmission(false);

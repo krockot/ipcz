@@ -63,6 +63,10 @@ size_t ParcelQueue::GetNumAvailableBytes() const {
   return parcels_[0]->num_bytes_in_span;
 }
 
+SequenceNumber ParcelQueue::GetAvailableSequenceLength() const {
+  return current_sequence_number() + GetNumAvailableParcels();
+}
+
 bool ParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
   if (peer_sequence_length_) {
     return false;
@@ -103,8 +107,17 @@ bool ParcelQueue::HasNextParcel() const {
   return !parcels_.empty() && parcels_[0].has_value();
 }
 
+bool ParcelQueue::IsEmpty() const {
+  return num_parcels_ == 0;
+}
+
 bool ParcelQueue::IsDead() const {
   return !HasNextParcel() && !IsExpectingMoreParcels();
+}
+
+void ParcelQueue::ResetBaseSequenceNumber(SequenceNumber n) {
+  ABSL_ASSERT(IsEmpty());
+  base_sequence_number_ = n;
 }
 
 bool ParcelQueue::Push(Parcel parcel) {
@@ -179,14 +192,6 @@ bool ParcelQueue::Pop(Parcel& parcel) {
 Parcel& ParcelQueue::NextParcel() {
   ABSL_ASSERT(HasNextParcel());
   return parcels_[0]->parcel;
-}
-
-void ParcelQueue::StealAllParcels(std::vector<Parcel>& parcels) && {
-  for (auto& entry : parcels_) {
-    if (entry) {
-      parcels.push_back(std::move(entry->parcel));
-    }
-  }
 }
 
 void ParcelQueue::Reallocate(SequenceNumber sequence_length) {
