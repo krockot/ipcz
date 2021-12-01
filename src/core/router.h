@@ -87,9 +87,13 @@ class Router : public mem::RefCounted {
 
   // Provides the Router with a new inward link to which it should forward all
   // inbound parcels received from its outward link. The Router may also forward
-  // outbound parcels received from the new inward link to the outward link.
+  // outbound parcels received from the new inward link to the outward link. If
+  // `decaying_link` is non-null, it is adopted as the router's decaying inward
+  // link and will be used to transmit any parcels up to the current
+  // `outbound_sequence_length_`.
   void BeginProxying(const PortalDescriptor& descriptor,
-                     mem::Ref<RouterLink> link);
+                     mem::Ref<RouterLink> link,
+                     mem::Ref<RouterLink> decaying_link);
 
   // Finalizes this Router's proxying responsibilities in either direction. Once
   // the proxy has forwarded any inbound parcels up to (but not including)
@@ -144,7 +148,10 @@ class Router : public mem::RefCounted {
   IpczResult RemoveTrap(Trap& trap);
 
   mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
-  static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor);
+
+  // Deserializes a new Router from `descriptor` received over `from_node_link`.
+  static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor,
+                                      NodeLink& from_node_link);
 
   bool InitiateProxyBypass(NodeLink& requesting_node_link,
                            RoutingId requesting_routing_id,

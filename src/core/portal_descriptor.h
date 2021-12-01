@@ -27,6 +27,7 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   bool peer_closed : 1;
   SequenceNumber closed_peer_sequence_length;
   RoutingId new_routing_id;
+  RoutingId new_decaying_routing_id;
   SequenceNumber next_outgoing_sequence_number;
   SequenceNumber next_incoming_sequence_number;
   NodeName proxy_peer_node_name;

@@ -104,6 +104,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     descriptors[i].new_routing_id = routing_id;
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener = routers[i]->Serialize(descriptors[i]);
+    if (descriptors[i].route_is_peer) {
+      descriptors[i].new_decaying_routing_id =
+          node_link()->AllocateRoutingIds(1);
+    }
     new_links[i] = node_link()->AddRoute(
         routing_id, routing_id, std::move(route_listener),
         descriptors[i].route_is_peer ? RemoteRouterLink::Type::kToOtherSide
@@ -114,7 +118,15 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
                         parcel.os_handles_view());
 
   for (size_t i = 0; i < num_portals; ++i) {
-    routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]));
+    mem::Ref<RouterLink> decaying_link;
+    if (descriptors[i].route_is_peer) {
+      decaying_link = node_link()->AddRoute(
+          descriptors[i].new_decaying_routing_id,
+          descriptors[i].new_decaying_routing_id, routers[i],
+          RemoteRouterLink::Type::kToSameSide);
+    }
+    routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
+                              std::move(decaying_link));
     portals[i].reset();
   }
 }

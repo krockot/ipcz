@@ -257,21 +257,8 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
 
   Parcel::PortalVector portals(num_portals);
   for (size_t i = 0; i < num_portals; ++i) {
-    const PortalDescriptor& descriptor = descriptors[i];
-    auto new_router = Router::Deserialize(descriptor);
-    auto new_router_link = AddRoute(
-        descriptor.new_routing_id, descriptor.new_routing_id, new_router,
-        descriptor.route_is_peer ? RemoteRouterLink::Type::kToOtherSide
-                                 : RemoteRouterLink::Type::kToSameSide);
-    new_router->SetOutwardLink(std::move(new_router_link));
-    if (descriptor.proxy_peer_node_name.is_valid()) {
-      // The predecessor is already a half-proxy and has given us the means to
-      // initiate its own bypass.
-      new_router->InitiateProxyBypass(
-          *this, descriptor.new_routing_id, descriptor.proxy_peer_node_name,
-          descriptor.proxy_peer_routing_id, descriptor.bypass_key);
-    }
-    portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
+    portals[i] = mem::MakeRefCounted<Portal>(
+        node_, Router::Deserialize(descriptors[i], *this));
   }
 
   std::vector<os::Handle> os_handles(num_os_handles);
