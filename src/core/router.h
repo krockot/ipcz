@@ -80,14 +80,10 @@ class Router : public mem::RefCounted {
   // which the router transmits parcels and control messages directed toward the
   // other side of its route. Must only be called on a Router which has no
   // outward link.
-  void SetOutwardLink(mem::Ref<RouterLink> link);
-
-  // Uses `link` as this Router's new outward link, replacing its previous
-  // outward link. The previous outward link is demoted to a decaying outward
-  // link. Returns the length of the outbound sequence just before the outward
-  // link was switched, indicating the length of the outbound sequence which is
-  // expected by the previous outward link before it can be dropped.
-  SequenceNumber ReplaceProxyingOutwardLink(mem::Ref<RouterLink> new_link);
+  //
+  // Returns the SequenceNumber of the first parcel that will be sent over that
+  // link if any parcels are sent over it.
+  SequenceNumber SetOutwardLink(mem::Ref<RouterLink> link);
 
   // Provides the Router with a new inward link to which it should forward all
   // inbound parcels received from its outward link. The Router may also forward

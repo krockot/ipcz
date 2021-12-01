@@ -73,6 +73,10 @@ bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
   return false;
 }
 
+bool LocalRouterLink::IsLinkToOtherSide() {
+  return true;
+}
+
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
                                               const IpczPutLimits& limits) {
   return state_->side(Opposite(side_))

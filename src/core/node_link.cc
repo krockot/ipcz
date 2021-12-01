@@ -50,12 +50,13 @@ RoutingId NodeLink::AllocateRoutingIds(size_t count) {
 
 mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
                                         size_t link_state_index,
-                                        mem::Ref<Router> router) {
+                                        mem::Ref<Router> router,
+                                        RemoteRouterLink::Type link_type) {
   absl::MutexLock lock(&mutex_);
   auto result = routes_.try_emplace(routing_id, router);
   ABSL_ASSERT(result.second);
-  return mem::MakeRefCounted<RemoteRouterLink>(mem::WrapRefCounted(this),
-                                               routing_id, link_state_index);
+  return mem::MakeRefCounted<RemoteRouterLink>(
+      mem::WrapRefCounted(this), routing_id, link_state_index, link_type);
 }
 
 bool NodeLink::RemoveRoute(RoutingId routing_id) {
@@ -154,14 +155,15 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            mem::Ref<Router> new_peer) {
   RoutingId new_routing_id = AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link =
-      AddRoute(new_routing_id, new_routing_id, new_peer);
+      AddRoute(new_routing_id, new_routing_id, new_peer,
+               RemoteRouterLink::Type::kToOtherSide);
 
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the new route may not be
   // recognized by the remote node and any parcels may be dropped.
   new_peer->PauseOutboundTransmission(true);
   const SequenceNumber proxied_outbound_sequence_length =
-      new_peer->ReplaceProxyingOutwardLink(new_link);
+      new_peer->SetOutwardLink(new_link);
 
   msg::BypassProxy bypass;
   bypass.params.proxy_name = proxy_name;
@@ -257,15 +259,17 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   for (size_t i = 0; i < num_portals; ++i) {
     const PortalDescriptor& descriptor = descriptors[i];
     auto new_router = Router::Deserialize(descriptor);
-    auto new_router_link = AddRoute(descriptor.new_routing_id,
-                                    descriptor.new_routing_id, new_router);
+    auto new_router_link = AddRoute(
+        descriptor.new_routing_id, descriptor.new_routing_id, new_router,
+        descriptor.route_is_peer ? RemoteRouterLink::Type::kToOtherSide
+                                 : RemoteRouterLink::Type::kToSameSide);
     new_router->SetOutwardLink(std::move(new_router_link));
     if (descriptor.proxy_peer_node_name.is_valid()) {
       // The predecessor is already a half-proxy and has given us the means to
       // initiate its own bypass.
       new_router->InitiateProxyBypass(
           *this, descriptor.new_routing_id, descriptor.proxy_peer_node_name,
-          descriptor.next_outgoing_sequence_number, descriptor.bypass_key);
+          descriptor.proxy_peer_routing_id, descriptor.bypass_key);
     }
     portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }

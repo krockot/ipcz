@@ -17,9 +17,15 @@ class NodeLink;
 
 class RemoteRouterLink : public RouterLink {
  public:
+  enum class Type {
+    kToSameSide,
+    kToOtherSide,
+  };
+
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
-                   uint32_t link_state_index);
+                   uint32_t link_state_index,
+                   Type type);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
@@ -29,6 +35,7 @@ class RemoteRouterLink : public RouterLink {
   RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
+  bool IsLinkToOtherSide() override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
@@ -42,6 +49,7 @@ class RemoteRouterLink : public RouterLink {
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
   const uint32_t link_state_index_;
+  const Type type_;
 };
 
 }  // namespace core

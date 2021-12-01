@@ -160,44 +160,30 @@ void Router::CloseRoute() {
   forwarding_link->AcceptRouteClosure(side_, final_sequence_length);
 }
 
-void Router::SetOutwardLink(mem::Ref<RouterLink> link) {
+SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
+  SequenceNumber first_sequence_number_on_new_link;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!outward_.link);
     outward_.link = std::move(link);
+    if (outward_.decaying_proxy_link) {
+      ABSL_ASSERT(outward_.sequence_length_to_decaying_link);
+      first_sequence_number_on_new_link =
+          *outward_.sequence_length_to_decaying_link;
+    } else if (!outward_.parcels.IsEmpty()) {
+      first_sequence_number_on_new_link =
+          outward_.parcels.current_sequence_number();
+    } else {
+      first_sequence_number_on_new_link = outbound_sequence_length_;
+    }
+
     if (outbound_transmission_paused_) {
-      return;
+      return first_sequence_number_on_new_link;
     }
   }
 
   Flush();
-}
-
-SequenceNumber Router::ReplaceProxyingOutwardLink(
-    mem::Ref<RouterLink> new_link) {
-  SequenceNumber outbound_sequence_length;
-  {
-    absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(outward_.link);
-    ABSL_ASSERT(!outward_.decaying_proxy_link);
-    ABSL_ASSERT(!outward_.sequence_length_from_decaying_link);
-    ABSL_ASSERT(!outward_.sequence_length_to_decaying_link);
-
-    // Note that we don't yet know the inbound sequence length to expect *from*
-    // the proxy, so we leave it undefined. This link will not fully decay until
-    // we know that length and confirm our receipt of all parcels covered by it.
-    outward_.decaying_proxy_link = std::move(outward_.link);
-    outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
-    outward_.link = std::move(new_link);
-    if (outbound_transmission_paused_) {
-      return outbound_sequence_length_;
-    }
-
-    outbound_sequence_length = outbound_sequence_length_;
-  }
-
-  Flush();
-  return outbound_sequence_length;
+  return first_sequence_number_on_new_link;
 }
 
 void Router::BeginProxying(const PortalDescriptor& descriptor,
@@ -641,8 +627,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
           *inward_.parcels.peer_sequence_length();
       inward_.closure_propagated = true;
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
-               !inward_.link && !outward_.decaying_proxy_link &&
-               !inward_.decaying_proxy_link) {
+               outward_.link->IsLinkToOtherSide() && !inward_.link &&
+               !outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
       // If we're becoming a proxy under some common special conditions, we can
       // actually roll the first step of the proxy bypass procedure into this
       // serialized transmission. If all such conditions are met, we'll set
@@ -656,7 +642,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       bypass_key = RandomUint128();
       RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
       if (!locked.other_side().is_decaying) {
-        //immediate_bypass = true;  TODO
+        immediate_bypass = true;
         locked.this_side().is_decaying = true;
         locked.this_side().bypass_key = bypass_key;
       }
@@ -728,6 +714,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
         requesting_node_link.GetRouter(proxy_peer_routing_id);
     SequenceNumber proxied_inbound_sequence_length;
     SequenceNumber proxied_outbound_sequence_length;
+    ABSL_ASSERT(new_local_peer);
     ABSL_ASSERT(new_local_peer->side_ == Opposite(side_));
     {
       TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
@@ -780,6 +767,12 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     return true;
   }
 
+  {
+    // Ensure no more parcels get sent to the current outward link.
+    absl::MutexLock lock(&mutex_);
+    outward_.decaying_proxy_link = std::move(outward_.link);
+    outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
+  }
   mem::Ref<NodeLink> new_peer_node =
       requesting_node_link.node()->GetLink(proxy_peer_node_name);
   if (new_peer_node) {
@@ -917,10 +910,11 @@ void Router::Flush() {
             *inward_.sequence_length_from_decaying_link;
     if (decaying_inward_proxy && !still_sending_to_inward_proxy &&
         !still_receiving_from_inward_proxy) {
-      inward_proxy_decayed = true;
-      inward_.decaying_proxy_link.reset();
-      inward_.sequence_length_to_decaying_link.reset();
-      inward_.sequence_length_from_decaying_link.reset();
+      // TODO: this can decay too soon, breaking BypassProxy link resolution
+      // inward_proxy_decayed = true;
+      // inward_.decaying_proxy_link.reset();
+      // inward_.sequence_length_to_decaying_link.reset();
+      // inward_.sequence_length_from_decaying_link.reset();
     }
 
     // Finally, although we may or may not still have a decaying inward link, if

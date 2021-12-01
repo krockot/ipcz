@@ -30,10 +30,12 @@ namespace core {
 
 RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
                                    RoutingId routing_id,
-                                   uint32_t link_state_index)
+                                   uint32_t link_state_index,
+                                   Type type)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
-      link_state_index_(link_state_index) {}
+      link_state_index_(link_state_index),
+      type_(type) {}
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 
@@ -52,6 +54,10 @@ mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
 bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
                                       RoutingId routing_id) {
   return node_link_.get() == &node_link && routing_id_ == routing_id;
+}
+
+bool RemoteRouterLink::IsLinkToOtherSide() {
+  return type_ == Type::kToOtherSide;
 }
 
 bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
@@ -98,8 +104,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     descriptors[i].new_routing_id = routing_id;
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener = routers[i]->Serialize(descriptors[i]);
-    new_links[i] = node_link()->AddRoute(routing_id, routing_id,
-                                         std::move(route_listener));
+    new_links[i] = node_link()->AddRoute(
+        routing_id, routing_id, std::move(route_listener),
+        descriptors[i].route_is_peer ? RemoteRouterLink::Type::kToOtherSide
+                                     : RemoteRouterLink::Type::kToSameSide);
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),

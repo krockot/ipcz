@@ -12,6 +12,7 @@
 #include "core/node.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
+#include "core/remote_router_link.h"
 #include "core/routing_id.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -49,7 +50,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
                                 size_t link_state_index,
-                                mem::Ref<Router> router);
+                                mem::Ref<Router> router,
+                                RemoteRouterLink::Type link_type);
   bool RemoveRoute(RoutingId routing_id);
   mem::Ref<Router> GetRouter(RoutingId routing_id);
 
