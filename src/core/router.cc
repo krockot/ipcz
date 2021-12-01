@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "debug/log.h"
 #include "core/local_router_link.h"
 #include "core/node.h"
 #include "core/node_link.h"
@@ -864,25 +865,25 @@ void Router::Flush() {
 
     // Check now if we can wipe out our decaying outward link.
     const bool still_sending_to_outward_proxy =
-        outward_.decaying_proxy_link &&
+        decaying_outward_proxy &&
         outward_.parcels.current_sequence_number() <
             *outward_.sequence_length_to_decaying_link;
-    const bool still_receiving_from_outward_proxy =
-        outward_.decaying_proxy_link &&
-        (!outward_.sequence_length_from_decaying_link ||
-         inward_.parcels.GetAvailableSequenceLength() <
-             *outward_.sequence_length_from_decaying_link);
-    if (decaying_outward_proxy && !still_sending_to_outward_proxy &&
-        !still_receiving_from_outward_proxy) {
-      outward_proxy_decayed = true;
-      outward_.decaying_proxy_link.reset();
-      outward_.sequence_length_to_decaying_link.reset();
-      outward_.sequence_length_from_decaying_link.reset();
+    if (decaying_outward_proxy && !still_sending_to_outward_proxy) {
+      const bool still_receiving_from_outward_proxy =
+          (!outward_.sequence_length_from_decaying_link ||
+           inward_.parcels.GetAvailableSequenceLength() <
+               *outward_.sequence_length_from_decaying_link);
+      if (!still_receiving_from_outward_proxy) {
+        outward_proxy_decayed = true;
+        outward_.decaying_proxy_link.reset();
+        outward_.sequence_length_to_decaying_link.reset();
+        outward_.sequence_length_from_decaying_link.reset();
+      }
     }
 
     // Though we may or may not still have a decaying outward link, if our
     // outbound parcel queue is no longer routing parcels there, we may proceed
-    // to forward outbound parcels to our current outward link,.
+    // to forward outbound parcels to our current outward link.
     if (outward_link && !outbound_transmission_paused_ &&
         (!decaying_outward_proxy || !still_sending_to_outward_proxy)) {
       while (outward_.parcels.Pop(parcel)) {
@@ -901,20 +902,19 @@ void Router::Flush() {
 
     // Check now if we can wipe out our decaying inward link.
     const bool still_sending_to_inward_proxy =
-        inward_.decaying_proxy_link &&
+        decaying_inward_proxy &&
         inward_.parcels.current_sequence_number() <
             *inward_.sequence_length_to_decaying_link;
-    const bool still_receiving_from_inward_proxy =
-        inward_.decaying_proxy_link &&
-        outward_.parcels.GetAvailableSequenceLength() <
-            *inward_.sequence_length_from_decaying_link;
-    if (decaying_inward_proxy && !still_sending_to_inward_proxy &&
-        !still_receiving_from_inward_proxy) {
-      // TODO: this can decay too soon, breaking BypassProxy link resolution
-      // inward_proxy_decayed = true;
-      // inward_.decaying_proxy_link.reset();
-      // inward_.sequence_length_to_decaying_link.reset();
-      // inward_.sequence_length_from_decaying_link.reset();
+    if (decaying_inward_proxy && !still_sending_to_inward_proxy) {
+      const bool still_receiving_from_inward_proxy =
+          outward_.parcels.GetAvailableSequenceLength() <
+              *inward_.sequence_length_from_decaying_link;
+      if (!still_receiving_from_inward_proxy) {
+        inward_proxy_decayed = true;
+        inward_.decaying_proxy_link.reset();
+        inward_.sequence_length_to_decaying_link.reset();
+        inward_.sequence_length_from_decaying_link.reset();
+      }
     }
 
     // Finally, although we may or may not still have a decaying inward link, if
