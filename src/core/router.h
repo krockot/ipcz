@@ -36,6 +36,8 @@ class Router : public mem::RefCounted {
  public:
   explicit Router(Side side);
 
+  Side side() const { return side_; }
+
   // Pauses or unpauses outbound parcel transmission.
   void PauseOutboundTransmission(bool paused);
 
