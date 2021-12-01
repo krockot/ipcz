@@ -4,6 +4,7 @@
 
 #include "debug/log.h"
 
+#include <atomic>
 #include <iostream>
 
 #include "build/build_config.h"
@@ -16,6 +17,12 @@
 
 namespace ipcz {
 namespace debug {
+
+namespace {
+
+std::atomic_int g_verbosity_level{0};
+
+}  // namespace
 
 LogMessage::LogMessage(const char* file, int line, Level level) {
   stream_ << "[";
@@ -31,6 +38,14 @@ LogMessage::LogMessage(const char* file, int line, Level level) {
 
 LogMessage::~LogMessage() {
   std::cerr << stream_.str() << std::endl;
+}
+
+void SetVerbosityLevel(int level) {
+  g_verbosity_level.store(level, std::memory_order_relaxed);
+}
+
+int GetVerbosityLevel() {
+  return g_verbosity_level.load(std::memory_order_relaxed);
 }
 
 }  // namespace debug

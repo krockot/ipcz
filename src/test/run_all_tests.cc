@@ -8,6 +8,7 @@
 #include "debug/stack_trace.h"
 #endif
 
+#include "debug/log.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/flags/flag.h"
@@ -15,6 +16,7 @@
 
 ABSL_FLAG(std::string, run_test_client, "", "test client entry point name");
 ABSL_FLAG(uint64_t, client_channel_handle, 0, "client channel handle");
+ABSL_FLAG(int, verbosity, 0, "debug log verbosity level (0-3)");
 
 int main(int argc, char** argv) {
 #ifndef NDEBUG
@@ -23,6 +25,8 @@ int main(int argc, char** argv) {
 
   testing::InitGoogleTest(&argc, argv);
   absl::ParseCommandLine(argc, argv);
+
+  ipcz::debug::SetVerbosityLevel(absl::GetFlag(FLAGS_verbosity));
 
   ipcz::test::internal::TestClientSupport::SetCurrentProgram(argv[0]);
   std::string client_entry_point = absl::GetFlag(FLAGS_run_test_client);

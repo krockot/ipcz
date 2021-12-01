@@ -10,15 +10,18 @@
 
 #include "third_party/abseil-cpp/absl/base/log_severity.h"
 
-#define LOG(level)                                                 \
-  ipcz::debug::LogMessage(__FILE__, __LINE__,                      \
-                          ipcz::debug::LogMessage::kLevel_##level) \
+#define LOG(level)                                                     \
+  ::ipcz::debug::LogMessage(__FILE__, __LINE__,                        \
+                            ::ipcz::debug::LogMessage::kLevel_##level) \
       .stream()
 
 #ifdef NDEBUG
 #define DLOG(level) true ? (void)0 : std::ostream(nullptr)
+#define DVLOG(verbosity) true ? (void)0 : std::ostream(nullptr)
 #else
 #define DLOG(level) LOG(level)
+#define DVLOG(verbosity) \
+    if (::ipcz::debug::GetVerbosityLevel() >= verbosity) DLOG(INFO)
 #endif
 
 namespace ipcz {
@@ -40,6 +43,9 @@ class LogMessage {
  private:
   std::stringstream stream_;
 };
+
+void SetVerbosityLevel(int level);
+int GetVerbosityLevel();
 
 }  // namespace debug
 }  // namespace ipcz

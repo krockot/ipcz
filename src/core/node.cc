@@ -110,7 +110,10 @@ class ConnectListener : public DriverTransport::Listener,
 }  // namespace
 
 Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
-    : type_(type), driver_(driver), driver_node_(driver_node) {}
+    : type_(type), driver_(driver), driver_node_(driver_node) {
+  DVLOG(4) << "Created new node named " << name_.ToString() << " [type="
+           << static_cast<int>(type_) << "]";
+}
 
 Node::~Node() = default;
 
