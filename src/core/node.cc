@@ -234,6 +234,8 @@ void Node::EstablishLink(const NodeName& name, EstablishLinkCallback callback) {
   }
 
   if (request_intro) {
+    DVLOG(4) << "Node " << name_.ToString() << " requesting introduction to "
+             << name.ToString();
     broker->RequestIntroduction(name);
   }
 }
@@ -281,6 +283,9 @@ bool Node::OnIntroduceNode(
   mem::Ref<DriverTransport> transport;
   mem::Ref<NodeLink> new_link;
   if (known) {
+    DVLOG(1) << "Node " << name_.ToString() << " received introduction to "
+             << name.ToString();
+
     transport = DriverTransport::Deserialize(driver_, driver_node_,
                                              serialized_transport_data,
                                              serialized_transport_handles);

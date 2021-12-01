@@ -25,6 +25,7 @@
 #include "core/sequence_number.h"
 #include "core/trap.h"
 #include "core/trap_event_dispatcher.h"
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -282,19 +283,39 @@ bool Router::AcceptParcelFrom(NodeLink& link,
   bool is_inbound;
   {
     absl::MutexLock lock(&mutex_);
-    if ((outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) ||
-        (outward_.decaying_proxy_link &&
-         outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id))) {
-      // Inbound parcels arrive from outward links.
+    // Inbound parcels arrive from outward links and outbound parcels arrive
+    // from inward links.
+    if (outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) {
+      DVLOG(4) << "Inbound parcel received by "
+               << link.node()->name().ToString() << " on outward route "
+               << routing_id << " to " << link.remote_node_name().ToString();
+
       is_inbound = true;
-    } else if ((inward_.link &&
-                inward_.link->IsRemoteLinkTo(link, routing_id)) ||
-               (inward_.decaying_proxy_link &&
-                inward_.decaying_proxy_link->IsRemoteLinkTo(link,
-                                                            routing_id))) {
-      // Outbound parcels arrive from inward links.
+    } else if (outward_.decaying_proxy_link &&
+               outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
+      DVLOG(4) << "Inbound parcel received by "
+               << link.node()->name().ToString()
+               << " on decaying outward route " << routing_id << " to "
+               << link.remote_node_name().ToString();
+
+      is_inbound = true;
+    } else if (inward_.link && inward_.link->IsRemoteLinkTo(link, routing_id)) {
+      DVLOG(4) << "Outbound parcel received by "
+               << link.node()->name().ToString() << " on inward route "
+               << routing_id << " to " << link.remote_node_name().ToString();
+
+      is_inbound = false;
+    } else if (inward_.decaying_proxy_link &&
+               inward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
+      DVLOG(4) << "Outbound parcel received by "
+               << link.node()->name().ToString() << " on decaying inward route "
+               << routing_id << " to " << link.remote_node_name().ToString();
+
       is_inbound = false;
     } else {
+      DVLOG(4) << "Rejecting unexpected parcel at "
+               << link.node()->name().ToString() << " from route " << routing_id
+               << " to " << link.remote_node_name().ToString();
       return false;
     }
   }
@@ -701,6 +722,19 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
       // remote counterpair, this proxy will decay.
       router->outward_.sequence_length_from_decaying_link =
           descriptor.next_incoming_sequence_number;
+
+      DVLOG(4) << "Route side " << static_cast<int>(router->side_)
+               << " moved from split pair on "
+               << from_node_link.remote_node_name().ToString() << " to "
+               << from_node_link.node()->name().ToString() << " via routing ID "
+               << descriptor.new_routing_id << " and decaying routing ID "
+               << descriptor.new_decaying_routing_id;
+    } else {
+      DVLOG(4) << "Route side " << static_cast<int>(router->side_)
+               << " extended from "
+               << from_node_link.remote_node_name().ToString() << " to "
+               << from_node_link.node()->name().ToString() << " via routing ID "
+               << descriptor.new_routing_id;
     }
   }
 
@@ -757,11 +791,18 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     ABSL_ASSERT(new_local_peer->side_ == Opposite(side_));
     {
       TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
+
       proxied_inbound_sequence_length =
           new_local_peer->outbound_sequence_length_;
       proxied_outbound_sequence_length = outbound_sequence_length_;
       previous_outward_link_from_new_local_peer =
           std::move(new_local_peer->outward_.link);
+
+      DVLOG(4) << "Initiating proxy bypass with new local peer on "
+               << proxy_peer_node_name.ToString() << " and proxy links to "
+               << requesting_node_link.remote_node_name().ToString()
+               << " on routing IDs" << proxy_peer_routing_id << " and "
+               << requesting_routing_id;
 
       // We get a decaying outward link to the proxy, only to accept inbound
       // parcels already sent to it by our new local peer.
