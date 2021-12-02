@@ -229,6 +229,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::InitiateProxyBypass::kId: {
+      msg::InitiateProxyBypass request;
+      if (request.Deserialize(message) && OnInitiateProxyBypass(request)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     default:
       break;
   }
@@ -329,6 +337,17 @@ bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
 
   return router->StopProxying(stop.params.inbound_sequence_length,
                               stop.params.outbound_sequence_length);
+}
+
+bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
+  mem::Ref<Router> router = GetRouter(request.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  return router->InitiateProxyBypass(
+      *this, request.params.routing_id, request.params.proxy_peer_name,
+      request.params.proxy_peer_routing_id, request.params.bypass_key);
 }
 
 }  // namespace core

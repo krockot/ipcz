@@ -7,8 +7,10 @@
 #include <cstdint>
 #include <utility>
 
+#include "core/portal.h"
 #include "core/router.h"
 #include "ipcz/ipcz.h"
+#include "mem/ref_counted.h"
 #include "os/event.h"
 #include "os/handle.h"
 #include "os/process.h"
@@ -155,24 +157,27 @@ TestBase::Parcel TestBase::Get(IpczHandle portal) {
   return parcel;
 }
 
-void TestBase::VerifyEndToEnd(IpczHandle a,
-                              IpczHandle b,
-                              size_t num_iterations) {
+void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
   Parcel p;
   const std::string kMessage1 = "psssst";
   const std::string kMessage2 = "ssshhh";
-  for (size_t i = 0; i < num_iterations; ++i) {
-    Put(a, kMessage1, {}, {});
-    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-    EXPECT_EQ(kMessage1, p.message);
 
-    Put(b, kMessage2, {}, {});
-    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-    EXPECT_EQ(kMessage2, p.message);
-  }
+  Put(a, kMessage1, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ(kMessage1, p.message);
+
+  Put(b, kMessage2, {}, {});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  EXPECT_EQ(kMessage2, p.message);
 }
 
-void TestBase::WaitForProxyDecay(IpczHandle a, IpczHandle b) {}
+bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
+  mem::Ref<core::Router> router_a =
+      reinterpret_cast<core::Portal*>(a)->router();
+  mem::Ref<core::Router> router_b =
+      reinterpret_cast<core::Portal*>(b)->router();
+  return router_a->HasLocalPeer(router_b);
+}
 
 }  // namespace test
 }  // namespace ipcz

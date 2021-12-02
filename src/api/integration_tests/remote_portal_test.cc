@@ -252,9 +252,10 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
-  VerifyEndToEnd(c, d, 100);
-  WaitForProxyDecay(c, d);
-  VerifyEndToEnd(c, d, 100);
+  while (!PortalsAreLocalPeers(c, d)) {
+    VerifyEndToEnd(c, d);
+  }
+  VerifyEndToEnd(c, d);
 
   ClosePortals({a, b, c, d});
   DestroyNodes({node, other_node});
@@ -305,9 +306,10 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
     b = p.portals[0];
   }
 
-  VerifyEndToEnd(a, b, 100);
-  WaitForProxyDecay(a, b);
-  VerifyEndToEnd(a, b, 100);
+  while (!PortalsAreLocalPeers(a, b)) {
+    VerifyEndToEnd(a, b);
+  }
+  VerifyEndToEnd(a, b);
 
   ClosePortals({a, b});
   for (size_t i = 0; i < kNumHops; ++i) {

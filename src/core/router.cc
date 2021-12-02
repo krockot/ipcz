@@ -894,7 +894,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       DVLOG(4) << "Initiating proxy bypass with new local peer on "
                << proxy_peer_node_name.ToString() << " and proxy links to "
                << requesting_node_link.remote_node_name().ToString()
-               << " on routing IDs" << proxy_peer_routing_id << " and "
+               << " on routing IDs " << proxy_peer_routing_id << " and "
                << requesting_routing_id;
 
       // We get a decaying outward link to the proxy, only to accept inbound
@@ -1004,6 +1004,7 @@ bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
 
   decaying_outward_link_to_proxy->StopProxying(proxy_inbound_sequence_length,
                                                proxy_outbound_sequence_length);
+  Flush();
   return true;
 }
 
@@ -1244,6 +1245,13 @@ void Router::MaybeInitiateSelfRemoval() {
     peer_node_name = remote_peer.node_link()->remote_node_name();
     routing_id_to_peer = remote_peer.routing_id();
   }
+
+  DVLOG(4) << "Proxy initiating its own bypass from "
+           << static_cast<RemoteRouterLink&>(*successor)
+                  .node_link()
+                  ->remote_node_name()
+                  .ToString()
+           << " to " << peer_node_name.ToString();
 
   successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer,
                                           bypass_key);

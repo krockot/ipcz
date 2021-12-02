@@ -74,8 +74,8 @@ class TestBase : public testing::Test {
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);
 
-  void VerifyEndToEnd(IpczHandle a, IpczHandle b, size_t num_iterations);
-  void WaitForProxyDecay(IpczHandle a, IpczHandle b);
+  void VerifyEndToEnd(IpczHandle a, IpczHandle b);
+  bool PortalsAreLocalPeers(IpczHandle a, IpczHandle b);
 };
 
 }  // namespace test

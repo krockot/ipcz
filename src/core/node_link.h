@@ -102,6 +102,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnSideClosed(const msg::SideClosed& side_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);
   bool OnStopProxying(const msg::StopProxying& stop);
+  bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);
 
   const mem::Ref<Node> node_;
   const NodeName remote_node_name_;
