@@ -88,11 +88,22 @@ std::string DescribeParcel(Parcel& parcel) {
   return ss.str();
 }
 
+std::atomic<size_t> g_num_routers{0};
+
 }  // namespace
 
-Router::Router(Side side) : side_(side) {}
+Router::Router(Side side) : side_(side) {
+  ++g_num_routers;
+}
 
-Router::~Router() = default;
+Router::~Router() {
+  --g_num_routers;
+}
+
+// static
+size_t Router::GetNumRoutersForTesting() {
+  return g_num_routers;
+}
 
 void Router::PauseOutboundTransmission(bool paused) {
   {

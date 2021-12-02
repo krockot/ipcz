@@ -38,6 +38,9 @@ class Router : public mem::RefCounted {
 
   Side side() const { return side_; }
 
+  // Returns the total number of Routers living in the calling process.
+  static size_t GetNumRoutersForTesting();
+
   // Pauses or unpauses outbound parcel transmission.
   void PauseOutboundTransmission(bool paused);
 

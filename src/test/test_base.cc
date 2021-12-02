@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "core/router.h"
 #include "ipcz/ipcz.h"
 #include "os/event.h"
 #include "os/handle.h"
@@ -29,7 +30,9 @@ TestBase::TestBase() {
   IpczGetAPI(&ipcz);
 }
 
-TestBase::~TestBase() = default;
+TestBase::~TestBase() {
+  ABSL_ASSERT(core::Router::GetNumRoutersForTesting() == 0);
+}
 
 IpczHandle TestBase::ConnectNode(IpczHandle node,
                                  IpczDriverHandle driver_transport,
