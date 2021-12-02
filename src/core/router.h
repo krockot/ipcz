@@ -166,6 +166,10 @@ class Router : public mem::RefCounted {
   bool BypassProxyTo(mem::Ref<RouterLink> new_peer,
                      absl::uint128 bypass_key,
                      SequenceNumber proxy_outbound_sequence_length);
+  bool BypassProxyWithNewLinkToSameNode(
+      mem::Ref<RouterLink> new_peer,
+      SequenceNumber sequence_length_from_proxy);
+  bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
 
  private:
   friend class LocalRouterLink;

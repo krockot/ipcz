@@ -237,6 +237,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::BypassProxyToSameNode::kId: {
+      msg::BypassProxyToSameNode bypass;
+      if (bypass.Deserialize(message) && OnBypassProxyToSameNode(bypass)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     default:
       break;
   }
@@ -348,6 +356,29 @@ bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
   return router->InitiateProxyBypass(
       *this, request.params.routing_id, request.params.proxy_peer_name,
       request.params.proxy_peer_routing_id, request.params.bypass_key);
+}
+
+bool NodeLink::OnBypassProxyToSameNode(
+    const msg::BypassProxyToSameNode& bypass) {
+  mem::Ref<Router> router = GetRouter(bypass.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  mem::Ref<RouterLink> new_link =
+      AddRoute(bypass.params.new_routing_id, bypass.params.new_routing_id,
+               router, RemoteRouterLink::Type::kToOtherSide);
+  return router->BypassProxyWithNewLinkToSameNode(
+      std::move(new_link), bypass.params.sequence_length);
+}
+
+bool NodeLink::OnStopProxyingToLocalPeer(
+    const msg::StopProxyingToLocalPeer& stop) {
+  mem::Ref<Router> router = GetRouter(stop.params.routing_id);
+  if (!router) {
+    return true;
+  }
+  return router->StopProxyingToLocalPeer(stop.params.sequence_length);
 }
 
 }  // namespace core

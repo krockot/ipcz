@@ -161,5 +161,21 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
   node_link()->Transmit(request);
 }
 
+void RemoteRouterLink::BypassProxyToSameNode(RoutingId new_routing_id,
+                                             SequenceNumber sequence_length) {
+  msg::BypassProxyToSameNode bypass;
+  bypass.params.routing_id = routing_id_;
+  bypass.params.new_routing_id = new_routing_id;
+  bypass.params.sequence_length = sequence_length;
+  node_link()->Transmit(bypass);
+}
+
+void RemoteRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+  msg::StopProxyingToLocalPeer stop;
+  stop.params.routing_id = routing_id_;
+  stop.params.sequence_length = sequence_length;
+  node_link()->Transmit(stop);
+}
+
 }  // namespace core
 }  // namespace ipcz

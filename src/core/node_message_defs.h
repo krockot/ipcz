@@ -130,12 +130,36 @@ IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SequenceNumber, proxied_outbound_sequence_length)
 IPCZ_MSG_END()
 
+// Equivalent to BypassProxy, but used only when the requesting proxy and its
+// bypass target live on the same node. In this case there's no need for the
+// bypasser to authenticate any request to the target, because the target is
+// made aware of the bypass as soon as its local peer initiates it. The bypasser
+// receiving this message need only decay its link over `routing_id` and replace
+// it with a link over `new_routing_id`. `sequence_length` indicates the length
+// of the sequence already sent or in-flight over `routing_id` from the proxy,
+// and the bypasser must send a StopProxyingToLocalPeer back to the proxy with
+// this length and the length of its own outbound sequence just before switching
+// to the new link.
+IPCZ_MSG_NO_REPLY(BypassProxyToSameNode, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(RoutingId, new_routing_id)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+IPCZ_MSG_END()
+
 // Informs the recipient that the portal on `routing_id` for this NodeLink can
 // cease to exist once it has received and forwarded to its successor every
 // in-flight parcel with a SequenceNumber up to but not including
 // `sequence_length`.
-IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(8), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(SequenceNumber, inbound_sequence_length)
   IPCZ_MSG_PARAM(SequenceNumber, outbound_sequence_length)
+IPCZ_MSG_END()
+
+// Informs the recipient that it has been bypassed by the sender in favor of a
+// direct route to the recipient's local peer. This is essentially a reply to
+// BypassProxyToSameNode.
+IPCZ_MSG_NO_REPLY(StopProxyingToLocalPeer, IPCZ_MSG_ID(9), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()

@@ -105,5 +105,14 @@ void LocalRouterLink::RequestProxyBypassInitiation(
   ABSL_ASSERT(false);
 }
 
+void LocalRouterLink::BypassProxyToSameNode(RoutingId new_routing_id,
+                                            SequenceNumber sequence_length) {
+  ABSL_ASSERT(false);
+}
+
+void LocalRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+  ABSL_ASSERT(false);
+}
+
 }  // namespace core
 }  // namespace ipcz

@@ -875,12 +875,16 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // transmitted to Q: note that P itself may be a proxy, so there's no
     // guarantee that it's transmitting outbound parcels to Q in strict sequence
     // order.
+
     mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
     mem::Ref<Router> new_local_peer =
         requesting_node_link.GetRouter(proxy_peer_routing_id);
     SequenceNumber proxied_inbound_sequence_length;
     SequenceNumber proxied_outbound_sequence_length;
-    ABSL_ASSERT(new_local_peer);
+    if (!new_local_peer) {
+      return false;
+    }
+
     ABSL_ASSERT(new_local_peer->side_ == Opposite(side_));
     {
       TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
@@ -1005,6 +1009,81 @@ bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
   decaying_outward_link_to_proxy->StopProxying(proxy_inbound_sequence_length,
                                                proxy_outbound_sequence_length);
   Flush();
+  return true;
+}
+
+bool Router::BypassProxyWithNewLinkToSameNode(
+    mem::Ref<RouterLink> new_peer,
+    SequenceNumber sequence_length_from_proxy) {
+  mem::Ref<RouterLink> decaying_proxy;
+  SequenceNumber sequence_length_to_proxy;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!outward_.link) {
+      return false;
+    }
+
+    if (outward_.link->GetLocalTarget()) {
+      // Bogus request, we obviously don't have a link to a proxy on `new_peer`s
+      // node, because our outward link is local.
+      return false;
+    }
+
+    const mem::Ref<NodeLink> outward_node_link =
+        static_cast<RemoteRouterLink&>(*outward_.link).node_link();
+    const mem::Ref<NodeLink> peer_node_link =
+        static_cast<RemoteRouterLink&>(*new_peer).node_link();
+    if (outward_node_link != peer_node_link) {
+      // Bogus request: our outward link does not go to the same node as
+      // `new_peer`.
+      return false;
+    }
+
+    if (outward_.decaying_proxy_link) {
+      return false;
+    }
+
+    decaying_proxy = std::move(outward_.link);
+    outward_.link = std::move(new_peer);
+
+    outward_.decaying_proxy_link = decaying_proxy;
+    outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
+    outward_.sequence_length_from_decaying_link = sequence_length_from_proxy;
+
+    sequence_length_to_proxy = outbound_sequence_length_;
+  }
+
+  ABSL_ASSERT(decaying_proxy);
+  decaying_proxy->StopProxyingToLocalPeer(sequence_length_to_proxy);
+  return true;
+}
+
+bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+  mem::Ref<Router> local_peer;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!outward_.decaying_proxy_link) {
+      return false;
+    }
+
+    local_peer = outward_.decaying_proxy_link->GetLocalTarget();
+  }
+
+  if (!local_peer) {
+    return false;
+  }
+
+  TwoMutexLock lock(&mutex_, &local_peer->mutex_);
+  if (!local_peer->outward_.decaying_proxy_link ||
+      !outward_.decaying_proxy_link || !inward_.decaying_proxy_link) {
+    return false;
+  }
+
+  // Update all locally decaying links regarding the sequence length from the
+  // remote peer to us, the decaying proxy, so that they can all fully decay.
+  local_peer->outward_.sequence_length_from_decaying_link = sequence_length;
+  outward_.sequence_length_to_decaying_link = sequence_length;
+  inward_.sequence_length_from_decaying_link = sequence_length;
   return true;
 }
 
@@ -1198,6 +1277,7 @@ void Router::MaybeInitiateSelfRemoval() {
   RoutingId routing_id_to_peer;
   absl::uint128 bypass_key;
   mem::Ref<RouterLink> successor;
+  mem::Ref<Router> local_peer;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_.decaying_proxy_link);
@@ -1213,8 +1293,7 @@ void Router::MaybeInitiateSelfRemoval() {
       return;
     }
 
-    if (!outward_.link->IsLinkToOtherSide() ||
-        outward_.link->GetLocalTarget()) {
+    if (!outward_.link->IsLinkToOtherSide()) {
       // Only the the middle router on either side of a route is a candidate for
       // self-removal. This is the only left-sided Router whose outward link
       // goes to a right-sided Router; or conversely the only right-sided Router
@@ -1223,8 +1302,10 @@ void Router::MaybeInitiateSelfRemoval() {
     }
 
     // Note: there's a chance we won't use this key if we lose the race to decay
-    // below. However, generating this while holding the state's spinlock is
-    // undesirable and this path is rarely hit, so wasting the key is fine.
+    // below or if we end up decaying in favor of a local peer who needs no key
+    // to authenticate. However, generating this while holding the state's
+    // spinlock is undesirable, and acquiring the spinlock multiple times is
+    // undesirable. This path is rarely hit, so wasting the key should be fine.
     bypass_key = RandomUint128();
 
     {
@@ -1241,20 +1322,64 @@ void Router::MaybeInitiateSelfRemoval() {
 
     successor = inward_.link;
 
-    auto& remote_peer = static_cast<RemoteRouterLink&>(*outward_.link);
-    peer_node_name = remote_peer.node_link()->remote_node_name();
-    routing_id_to_peer = remote_peer.routing_id();
+    local_peer = outward_.link->GetLocalTarget();
+    if (!local_peer) {
+      auto& remote_peer = static_cast<RemoteRouterLink&>(*outward_.link);
+      peer_node_name = remote_peer.node_link()->remote_node_name();
+      routing_id_to_peer = remote_peer.routing_id();
+    }
   }
 
-  DVLOG(4) << "Proxy initiating its own bypass from "
-           << static_cast<RemoteRouterLink&>(*successor)
-                  .node_link()
-                  ->remote_node_name()
-                  .ToString()
-           << " to " << peer_node_name.ToString();
+  const mem::Ref<NodeLink> node_link_to_successor =
+      static_cast<RemoteRouterLink&>(*successor).node_link();
+  if (!local_peer) {
+    DVLOG(4) << "Proxy initiating its own bypass from "
+             << node_link_to_successor->remote_node_name().ToString() << " to "
+             << peer_node_name.ToString();
 
-  successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer,
-                                          bypass_key);
+    successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer,
+                                            bypass_key);
+    return;
+  }
+
+  const RoutingId new_routing_id =
+      node_link_to_successor->AllocateRoutingIds(1);
+  mem::Ref<RouterLink> new_link = node_link_to_successor->AddRoute(
+      new_routing_id, new_routing_id, local_peer,
+      RemoteRouterLink::Type::kToOtherSide);
+  {
+    TwoMutexLock lock(&mutex_, &local_peer->mutex_);
+
+    // It's possible that the local peer has been closed, in which case its
+    // closure will have already propagated to us and there's no bypass work to
+    // be done.
+    if (!local_peer->outward_.link) {
+      ABSL_ASSERT(status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED);
+      return;
+    }
+
+    DVLOG(4) << "Proxy initiating its own bypass from "
+             << node_link_to_successor->remote_node_name().ToString() << " to "
+             << "a local peer.";
+
+    // Otherwise it should definitely still be linked to us, because we locked
+    // in our own decaying state above.
+    ABSL_ASSERT(local_peer->outward_.link->GetLocalTarget() == this);
+    ABSL_ASSERT(outward_.link->GetLocalTarget() == local_peer);
+
+    local_peer->outward_.decaying_proxy_link =
+        std::move(local_peer->outward_.link);
+    local_peer->outward_.sequence_length_to_decaying_link =
+        local_peer->outbound_sequence_length_;
+
+    outward_.decaying_proxy_link = std::move(outward_.link);
+    outward_.sequence_length_from_decaying_link =
+        local_peer->outbound_sequence_length_;
+
+    inward_.decaying_proxy_link = std::move(inward_.link);
+    inward_.sequence_length_to_decaying_link =
+        local_peer->outbound_sequence_length_;
+  }
 }
 
 Router::RouterSide::RouterSide() = default;

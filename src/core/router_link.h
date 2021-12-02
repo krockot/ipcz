@@ -41,6 +41,9 @@ class RouterLink : public mem::RefCounted {
       const NodeName& to_new_peer,
       RoutingId proxy_peer_routing_id,
       const absl::uint128& bypass_key) = 0;
+  virtual void BypassProxyToSameNode(RoutingId new_routing_id,
+                                     SequenceNumber sequence_length) = 0;
+  virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
 
  protected:
   ~RouterLink() override = default;
