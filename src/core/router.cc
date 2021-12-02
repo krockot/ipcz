@@ -665,6 +665,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
         descriptor.next_incoming_sequence_number =
             inward_.parcels.current_sequence_number();
+        descriptor.decaying_incoming_sequence_length =
+            local_peer->outbound_sequence_length_;
 
         DVLOG(4) << "Splitting local pair to move side "
                  << static_cast<int>(side_) << " with outbound sequence length "
@@ -783,7 +785,9 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
       // As soon as we have every parcel that had been sent locally to our
       // remote counterpair, this proxy will decay.
       router->outward_.sequence_length_from_decaying_link =
-          descriptor.next_incoming_sequence_number;
+          descriptor.decaying_incoming_sequence_length > 0
+              ? descriptor.decaying_incoming_sequence_length
+              : descriptor.next_incoming_sequence_number;
 
       DVLOG(4) << "Route side " << static_cast<int>(router->side_)
                << " moved from split pair on "
