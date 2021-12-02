@@ -196,6 +196,7 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
 void Router::CloseRoute() {
   SequenceNumber final_sequence_length;
   mem::Ref<RouterLink> forwarding_link;
+  mem::Ref<RouterLink> dead_outward_link;
   {
     absl::MutexLock lock(&mutex_);
 
@@ -203,18 +204,26 @@ void Router::CloseRoute() {
     // a terminal Router; that is, a Router directly controlled by a Portal.
     ABSL_ASSERT(!inward_.link);
 
-    // The final outbound sequence length is the current outbound sequence
-    // length.
-    outward_.parcels.SetPeerSequenceLength(outbound_sequence_length_);
+    side_closed_ = true;
     if (!outward_.link || outbound_transmission_paused_) {
       return;
     }
 
     forwarding_link = outward_.link;
+
+    if (outward_.parcels.IsEmpty()) {
+      std::swap(dead_outward_link, outward_.link);
+    }
+
     final_sequence_length = outbound_sequence_length_;
   }
 
   forwarding_link->AcceptRouteClosure(side_, final_sequence_length);
+
+  if (dead_outward_link) {
+    // May delete `this`.
+    dead_outward_link->Deactivate();
+  }
 }
 
 SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
@@ -286,12 +295,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
       inward_.sequence_length_from_decaying_link = outbound_sequence_length_;
     }
 
-    // Safeguard: this router should no longer deal with outbound parcels. It
-    // has no outward link, and this ensures that any attempt to queue an
-    // outbound parcel for later transmission will fail.
     ABSL_ASSERT(outward_.parcels.IsEmpty());
-    outward_.parcels.SetPeerSequenceLength(0);
-
     local_peer->outward_.link = std::move(link);
   } else {
     absl::MutexLock lock(&mutex_);
@@ -390,7 +394,6 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
       status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
       status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
       traps_.MaybeNotify(dispatcher, status_);
-      return true;
     }
   }
 
@@ -426,19 +429,20 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
 void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
   mem::Ref<RouterLink> forwarding_link;
+  mem::Ref<RouterLink> dead_outward_link;
   if (side == side_) {
     // If we're being notified of our own side's closure, we want to propagate
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
+    side_closed_ = true;
     ABSL_ASSERT(inward_.link);
-    outward_.parcels.SetPeerSequenceLength(sequence_length);
     if (!outward_.closure_propagated && !outbound_transmission_paused_ &&
         outward_.link) {
       forwarding_link = outward_.link;
       outward_.closure_propagated = true;
     }
   } else {
-    // We're being notified of the other side's clsoure, so we want to propagate
+    // We're being notified of the other side's closure, so we want to propagate
     // this inward toward our own terminal router. If that's us, update portal
     // status and traps.
     absl::MutexLock lock(&mutex_);
@@ -452,11 +456,23 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
         status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
       traps_.MaybeNotify(dispatcher, status_);
+
+      if (!inward_.parcels.IsExpectingMoreParcels()) {
+        // We can drop our outward link if we know there are no more in-flight
+        // parcels coming our way. Otherwise it'll be dropped as soon as that's
+        // the case.
+        std::swap(dead_outward_link, outward_.link);
+      }
     }
   }
 
   if (forwarding_link) {
     forwarding_link->AcceptRouteClosure(side, sequence_length);
+  }
+
+  if (dead_outward_link) {
+    // May delete `this`.
+    dead_outward_link->Deactivate();
   }
 }
 
@@ -983,6 +999,7 @@ bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
 void Router::Flush() {
   mem::Ref<RouterLink> inward_link;
   mem::Ref<RouterLink> outward_link;
+  mem::Ref<RouterLink> dead_outward_link;
   mem::Ref<RouterLink> decaying_inward_proxy;
   mem::Ref<RouterLink> decaying_outward_proxy;
   absl::InlinedVector<Parcel, 2> outbound_parcels;
@@ -991,6 +1008,8 @@ void Router::Flush() {
   absl::InlinedVector<Parcel, 2> inbound_parcels_to_proxy;
   bool inward_proxy_decayed = false;
   bool outward_proxy_decayed = false;
+  bool notify_closure_outward = false;
+  SequenceNumber final_sequence_length;
   {
     Parcel parcel;
     absl::MutexLock lock(&mutex_);
@@ -1060,8 +1079,10 @@ void Router::Flush() {
 
     // Check now if we can wipe out our decaying inward link.
     const bool still_sending_to_inward_proxy =
-        decaying_inward_proxy && inward_.parcels.current_sequence_number() <
-                                     *inward_.sequence_length_to_decaying_link;
+        decaying_inward_proxy &&
+        (!inward_.sequence_length_from_decaying_link ||
+         inward_.parcels.current_sequence_number() <
+             *inward_.sequence_length_to_decaying_link);
     if (decaying_inward_proxy && !still_sending_to_inward_proxy) {
       const bool still_receiving_from_inward_proxy =
           outward_.parcels.GetAvailableSequenceLength() <
@@ -1085,6 +1106,25 @@ void Router::Flush() {
 
         inbound_parcels.push_back(std::move(parcel));
       }
+    }
+
+    // If the inbound sequence is dead, the other side of the route is gone and
+    // we have received all the parcels it sent. We can drop the outward link.
+    if (inward_.parcels.IsDead()) {
+      std::swap(dead_outward_link, outward_.link);
+    }
+
+    if (side_closed_ && !outward_.closure_propagated && outward_.link &&
+        !outbound_transmission_paused_) {
+      notify_closure_outward = true;
+      final_sequence_length = outbound_sequence_length_;
+
+      // If we're closed and have an outward link, our outbound queue should
+      // definitely be empty now. This means it's safe to deactivate our outward
+      // link: we don't care about inbound parcels if we're closed, and all
+      // outbound parcels have been flushed out.
+      ABSL_ASSERT(outward_.parcels.IsEmpty());
+      std::swap(dead_outward_link, outward_.link);
     }
   }
 
@@ -1111,6 +1151,7 @@ void Router::Flush() {
     // May delete `this`, as the route binding for `decaying_outward_proxy` may
     // constitute the last reference to this Router.
     decaying_outward_proxy->Deactivate();
+    decaying_outward_proxy.reset();
   }
 
   if (inward_proxy_decayed) {
@@ -1120,7 +1161,81 @@ void Router::Flush() {
     // May delete `this`, as the route binding for `decaying_inward_proxy` may
     // constitute the last reference to this Router.
     decaying_inward_proxy->Deactivate();
+    decaying_inward_proxy.reset();
   }
+
+  if (outward_link && (inward_proxy_decayed || outward_proxy_decayed) &&
+      (!decaying_inward_proxy && !decaying_outward_proxy)) {
+    // Just decayed our last link. We may attempt to remove ourself if other
+    // conditions apply.
+    MaybeInitiateSelfRemoval();
+  }
+
+  if (notify_closure_outward) {
+    outward_link->AcceptRouteClosure(side_, final_sequence_length);
+  }
+
+  if (dead_outward_link) {
+    // May delete `this`.
+    dead_outward_link->Deactivate();
+  }
+}
+
+void Router::MaybeInitiateSelfRemoval() {
+  NodeName peer_node_name;
+  RoutingId routing_id_to_peer;
+  absl::uint128 bypass_key;
+  mem::Ref<RouterLink> successor;
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(!inward_.decaying_proxy_link);
+    if (!inward_.link) {
+      // Terminal routers cannot self-remove, as they're controlled by a Portal.
+      return;
+    }
+
+    if (outward_.decaying_proxy_link || !outward_.link) {
+      // Peer must have already started decaying, or we're in some other
+      // transitional state (e.g. bypassing a proxy to a peer to whom we're
+      // awaiting an introduction). Not a good time to start decaying.
+      return;
+    }
+
+    if (!outward_.link->IsLinkToOtherSide() ||
+        outward_.link->GetLocalTarget()) {
+      // Only the the middle router on either side of a route is a candidate for
+      // self-removal. This is the only left-sided Router whose outward link
+      // goes to a right-sided Router; or conversely the only right-sided Router
+      // whose outward link goes to a left-sided Router.
+      return;
+    }
+
+    // Note: there's a chance we won't use this key if we lose the race to decay
+    // below. However, generating this while holding the state's spinlock is
+    // undesirable and this path is rarely hit, so wasting the key is fine.
+    bypass_key = RandomUint128();
+
+    {
+      // Finally we can only begin to decay if our peer hasn't ready begun
+      // decaying itself.
+      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
+      if (state.other_side().is_decaying) {
+        return;
+      }
+
+      state.this_side().is_decaying = true;
+      state.this_side().bypass_key = bypass_key;
+    }
+
+    successor = inward_.link;
+
+    auto& remote_peer = static_cast<RemoteRouterLink&>(*outward_.link);
+    peer_node_name = remote_peer.node_link()->remote_node_name();
+    routing_id_to_peer = remote_peer.routing_id();
+  }
+
+  successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer,
+                                          bypass_key);
 }
 
 Router::RouterSide::RouterSide() = default;

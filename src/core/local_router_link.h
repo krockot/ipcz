@@ -36,6 +36,9 @@ class LocalRouterLink : public RouterLink {
   void AcceptRouteClosure(Side side, SequenceNumber sequence_length) override;
   void StopProxying(SequenceNumber inbound_sequence_length,
                     SequenceNumber outbound_sequence_length) override;
+  void RequestProxyBypassInitiation(const NodeName& to_new_peer,
+                                    RoutingId proxy_peer_routing_id,
+                                    const absl::uint128& bypass_key) override;
 
  private:
   class SharedState;

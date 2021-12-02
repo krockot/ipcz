@@ -190,12 +190,17 @@ class Router : public mem::RefCounted {
   // reference to be dropped.
   void Flush();
 
+  // Attempts to mark this side of the outward link as decaying and asks the
+  // inward peer to initiate proxy bypass.
+  void MaybeInitiateSelfRemoval();
+
   const Side side_;
 
   absl::Mutex mutex_;
   RouterSide inward_ ABSL_GUARDED_BY(mutex_);
   RouterSide outward_ ABSL_GUARDED_BY(mutex_);
   bool outbound_transmission_paused_ = false;
+  bool side_closed_ = false;
   SequenceNumber outbound_sequence_length_ = 0;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);

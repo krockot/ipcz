@@ -7,11 +7,13 @@
 
 #include <cstddef>
 
+#include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -35,6 +37,10 @@ class RouterLink : public mem::RefCounted {
                                   SequenceNumber sequence_length) = 0;
   virtual void StopProxying(SequenceNumber inbound_sequence_length,
                             SequenceNumber outbound_sequence_length) = 0;
+  virtual void RequestProxyBypassInitiation(
+      const NodeName& to_new_peer,
+      RoutingId proxy_peer_routing_id,
+      const absl::uint128& bypass_key) = 0;
 
  protected:
   ~RouterLink() override = default;

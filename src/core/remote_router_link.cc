@@ -149,5 +149,17 @@ void RemoteRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
   node_link()->Transmit(stop);
 }
 
+void RemoteRouterLink::RequestProxyBypassInitiation(
+    const NodeName& to_new_peer,
+    RoutingId proxy_peer_routing_id,
+    const absl::uint128& bypass_key) {
+  msg::InitiateProxyBypass request;
+  request.params.routing_id = routing_id_;
+  request.params.proxy_peer_name = to_new_peer;
+  request.params.proxy_peer_routing_id = proxy_peer_routing_id;
+  request.params.bypass_key = bypass_key;
+  node_link()->Transmit(request);
+}
+
 }  // namespace core
 }  // namespace ipcz
