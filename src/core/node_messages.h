@@ -51,7 +51,7 @@ namespace msg {
 #pragma pack(pop)
 
 // hacks
-struct IPCZ_ALIGN(8) AcceptParcel {
+struct IPCZ_ALIGN(16) AcceptParcel {
   static constexpr uint8_t kId = 1;
   internal::MessageHeader message_header;
   RoutingId routing_id;

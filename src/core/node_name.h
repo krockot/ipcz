@@ -18,7 +18,7 @@ class NodeName {
  public:
   enum { kRandom };
 
-  constexpr NodeName() = default;
+  constexpr NodeName() : value_(0) {}
   explicit NodeName(decltype(kRandom));
   constexpr NodeName(absl::uint128 value) : value_(value) {}
   ~NodeName();

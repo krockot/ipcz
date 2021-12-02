@@ -283,7 +283,7 @@ bool Node::OnIntroduceNode(
   mem::Ref<DriverTransport> transport;
   mem::Ref<NodeLink> new_link;
   if (known) {
-    DVLOG(1) << "Node " << name_.ToString() << " received introduction to "
+    DVLOG(3) << "Node " << name_.ToString() << " received introduction to "
              << name.ToString();
 
     transport = DriverTransport::Deserialize(driver_, driver_node_,

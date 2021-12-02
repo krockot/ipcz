@@ -12,13 +12,13 @@ IPCZ_PROTOCOL_VERSION(0)
 
 // Initial greeting sent by every node via the ConnectNode() API.
 IPCZ_MSG_NO_REPLY(Connect, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
-  // The highest protocol version known and desired by the sender.
-  IPCZ_MSG_PARAM(uint32_t, protocol_version)
-
   // The name of the sending node. Names should be randomly generated once at
   // the start of a node's lifetime. They are large and random for global
   // uniqueness, not for security reasons.
   IPCZ_MSG_PARAM(NodeName, name)
+
+  // The highest protocol version known and desired by the sender.
+  IPCZ_MSG_PARAM(uint32_t, protocol_version)
 
   // The number of initial portals assumed on the sender's end of the
   // connection. If there is a mismatch between the number sent by each node on
@@ -46,26 +46,6 @@ IPCZ_MSG_NO_REPLY(Connect, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
   // immediately.
   IPCZ_MSG_HANDLE_OPTIONAL(link_state_memory)
 IPCZ_MSG_END()
-
-// Message sent by the broker on any transport given to ConnectNode(). This
-// establishes an initial set of portals between the two nodes. The other node
-// must also call ConnectNode() on a correpsonding peer transport with
-// IPCZ_CONNECT_NODE_TO_BROKER so that it handles and replies to this message.
-// IPCZ_MSG_WITH_REPLY(InviteNode, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
-//  IPCZ_MSG_PARAM(uint32_t, protocol_version)
-//  IPCZ_MSG_PARAM(NodeName, source_name)
-//  IPCZ_MSG_PARAM(NodeName, target_name)
-//  IPCZ_MSG_PARAM(RoutingId, first_portal_routing_id)
-//  IPCZ_MSG_PARAM(uint32_t, num_portal_routing_ids)
-//  IPCZ_MSG_HANDLE_REQUIRED(node_link_state_memory)
-//  IPCZ_MSG_HANDLE_REQUIRED(router_link_state_memory)
-// IPCZ_MSG_END()
-
-// // Reply sent by ConnectNode() with IPCZ_CONNECT_NODE_TO_BROKER.
-// IPCZ_MSG_REPLY(InviteNode, IPCZ_MSG_VERSION(0))
-//   IPCZ_MSG_PARAM(uint32_t, protocol_version)
-//   IPCZ_MSG_PARAM(bool, accepted : 1)
-// IPCZ_MSG_END()
 
 // Notifies a node that the side of the route which contains a link bound to
 // `routing_id` on this NodeLink has been closed. `sequence_length` is the total
@@ -110,6 +90,7 @@ IPCZ_MSG_END()
 // named peer.
 IPCZ_MSG_NO_REPLY(InitiateProxyBypass, IPCZ_MSG_ID(5), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(uint64_t, reserved0)
   IPCZ_MSG_PARAM(NodeName, proxy_peer_name)
   IPCZ_MSG_PARAM(RoutingId, proxy_peer_routing_id)
   IPCZ_MSG_PARAM(absl::uint128, bypass_key)

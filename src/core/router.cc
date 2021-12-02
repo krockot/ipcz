@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <forward_list>
@@ -18,6 +19,7 @@
 #include "core/node_link.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
+#include "core/portal.h"
 #include "core/portal_descriptor.h"
 #include "core/remote_router_link.h"
 #include "core/router_link.h"
@@ -46,13 +48,43 @@ std::string DescribeLink(const mem::Ref<RouterLink>& link) {
   std::stringstream ss;
   mem::Ref<Router> local_target = link->GetLocalTarget();
   if (local_target) {
-    ss << "local peer on side " << static_cast<int>(local_target->side());
+    ss << "link to local peer on side "
+       << static_cast<int>(local_target->side());
   } else {
     auto& remote_link = static_cast<RemoteRouterLink&>(*link);
-    ss << remote_link.node_link()->remote_node_name().ToString()
-       << " on route #" << remote_link.routing_id() << " from "
-       << remote_link.node_link()->node()->name().ToString();
+    ss << "link on " << remote_link.node_link()->node()->name().ToString()
+       << " to " << remote_link.node_link()->remote_node_name().ToString()
+       << " via routing ID " << remote_link.routing_id();
   }
+  return ss.str();
+}
+
+std::string DescribeParcel(Parcel& parcel) {
+  std::stringstream ss;
+  ss << parcel.sequence_number() << " (";
+  if (!parcel.data_view().empty()) {
+    // Cheesy heuristic: if the first character is an ASCII letter or number,
+    // assume the parcel data is human-readable and print a few characters.
+    if (std::isalnum(parcel.data_view()[0])) {
+      const absl::Span<const uint8_t> preview =
+          parcel.data_view().subspan(0, 8);
+      ss << "\"" << std::string(preview.begin(), preview.end());
+      if (preview.size() < parcel.data_view().size()) {
+        ss << "...\", " << parcel.data_view().size() << " bytes";
+      } else {
+        ss << '"';
+      }
+    }
+  } else {
+    ss << "no data";
+  }
+  if (!parcel.portals_view().empty()) {
+    ss << ", " << parcel.portals_view().size() << " portals";
+  }
+  if (!parcel.os_handles_view().empty()) {
+    ss << ", " << parcel.os_handles_view().size() << " handles";
+  }
+  ss << ")";
   return ss.str();
 }
 
@@ -147,13 +179,13 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
     parcel.set_sequence_number(outbound_sequence_length_++);
     link = outward_.link;
     if (!link || outbound_transmission_paused_) {
-      DVLOG(4) << "Buffering parcel " << parcel.sequence_number();
+      DVLOG(4) << "Buffering parcel " << DescribeParcel(parcel);
       const bool ok = outward_.parcels.Push(std::move(parcel));
       ABSL_ASSERT(ok);
       return IPCZ_RESULT_OK;
     }
 
-    DVLOG(4) << "Sending parcel " << parcel.sequence_number() << " to "
+    DVLOG(4) << "Sending parcel " << DescribeParcel(parcel) << " over "
              << DescribeLink(link);
   }
 
@@ -310,33 +342,25 @@ bool Router::AcceptParcelFrom(NodeLink& link,
     // Inbound parcels arrive from outward links and outbound parcels arrive
     // from inward links.
     if (outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << parcel.sequence_number()
-               << " received by " << link.node()->name().ToString()
-               << " from outward route " << routing_id << " to "
-               << link.remote_node_name().ToString();
+      DVLOG(4) << "Inbound parcel " << DescribeParcel(parcel) << " received by "
+               << DescribeLink(outward_.link);
 
       is_inbound = true;
     } else if (outward_.decaying_proxy_link &&
                outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << parcel.sequence_number()
-               << " received by " << link.node()->name().ToString()
-               << " on decaying outward route " << routing_id << " to "
-               << link.remote_node_name().ToString();
+      DVLOG(4) << "Inbound parcel " << DescribeParcel(parcel) << " received by "
+               << DescribeLink(outward_.decaying_proxy_link);
 
       is_inbound = true;
     } else if (inward_.link && inward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << parcel.sequence_number()
-               << " received by " << link.node()->name().ToString()
-               << " on inward route " << routing_id << " to "
-               << link.remote_node_name().ToString();
+      DVLOG(4) << "Outbound parcel " << DescribeParcel(parcel)
+               << " received by " << DescribeLink(inward_.link);
 
       is_inbound = false;
     } else if (inward_.decaying_proxy_link &&
                inward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << parcel.sequence_number()
-               << " received by " << link.node()->name().ToString()
-               << " on decaying inward route " << routing_id << " to "
-               << link.remote_node_name().ToString();
+      DVLOG(4) << "Outbound parcel " << DescribeParcel(parcel)
+               << " received by " << DescribeLink(inward_.decaying_proxy_link);
 
       is_inbound = false;
     } else {
@@ -642,6 +666,11 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         descriptor.next_incoming_sequence_number =
             inward_.parcels.current_sequence_number();
 
+        DVLOG(4) << "Splitting local pair to move side "
+                 << static_cast<int>(side_) << " with outbound sequence length "
+                 << outbound_sequence_length_ << " and current inbound sequence"
+                 << " number " << descriptor.next_incoming_sequence_number;
+
         // The local peer will listen on the new link, rather than this router.
         // This router will only persist to forward its queued inbound parcels
         // on to the new remote router.
@@ -661,6 +690,12 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
     descriptor.next_incoming_sequence_number =
         inward_.parcels.current_sequence_number();
+
+    DVLOG(4) << "Extending route on side " << static_cast<int>(side_)
+             << " with outbound sequence length " << outbound_sequence_length_
+             << " and current inbound sequence number "
+             << descriptor.next_incoming_sequence_number;
+
     bool immediate_bypass = false;
     NodeName proxy_peer_node_name;
     RoutingId proxy_peer_routing_id;
@@ -693,6 +728,11 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     }
 
     if (immediate_bypass) {
+      DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
+               << "with peer at " << proxy_peer_node_name.ToString() << " and "
+               << "peer route to proxy on routing ID " << proxy_peer_routing_id
+               << " using " << bypass_key;
+
       descriptor.proxy_peer_node_name = proxy_peer_node_name;
       descriptor.proxy_peer_routing_id = proxy_peer_routing_id;
       descriptor.bypass_key = bypass_key;
@@ -962,8 +1002,8 @@ void Router::Flush() {
       bool ok = outward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding outbound parcel " << parcel.sequence_number()
-               << " on decaying outward link to "
+      DVLOG(4) << "Forwarding outbound parcel " << DescribeParcel(parcel)
+               << " over outward decaying "
                << DescribeLink(decaying_outward_proxy);
 
       outbound_parcels_to_proxy.push_back(std::move(parcel));
@@ -993,8 +1033,8 @@ void Router::Flush() {
     if (outward_link && !outbound_transmission_paused_ &&
         (!decaying_outward_proxy || !still_sending_to_outward_proxy)) {
       while (outward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding outbound parcel " << parcel.sequence_number()
-                 << " on outward link to " << DescribeLink(outward_link);
+        DVLOG(4) << "Forwarding outbound parcel " << DescribeParcel(parcel)
+                 << " over outward " << DescribeLink(outward_link);
 
         outbound_parcels.push_back(std::move(parcel));
       }
@@ -1007,8 +1047,8 @@ void Router::Flush() {
       bool ok = inward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding inbound parcel " << parcel.sequence_number()
-               << " on decaying inward link to "
+      DVLOG(4) << "Forwarding inbound parcel " << DescribeParcel(parcel)
+               << " over inward decaying "
                << DescribeLink(decaying_inward_proxy);
 
       inbound_parcels_to_proxy.push_back(std::move(parcel));
@@ -1036,8 +1076,8 @@ void Router::Flush() {
     if (inward_link &&
         (!decaying_inward_proxy || !still_sending_to_inward_proxy)) {
       while (inward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding inbound parcel " << parcel.sequence_number()
-                 << " on inward link to " << DescribeLink(inward_link);
+        DVLOG(4) << "Forwarding inbound parcel " << DescribeParcel(parcel)
+                 << " over inward " << DescribeLink(inward_link);
 
         inbound_parcels.push_back(std::move(parcel));
       }
@@ -1061,7 +1101,7 @@ void Router::Flush() {
   }
 
   if (outward_proxy_decayed) {
-    DVLOG(4) << "Outward link to " << DescribeLink(decaying_outward_proxy)
+    DVLOG(4) << "Outward " << DescribeLink(decaying_outward_proxy)
              << " has fully decayed.";
 
     // May delete `this`, as the route binding for `decaying_outward_proxy` may
@@ -1070,7 +1110,7 @@ void Router::Flush() {
   }
 
   if (inward_proxy_decayed) {
-    DVLOG(4) << "Inward link to " << DescribeLink(decaying_inward_proxy)
+    DVLOG(4) << "Inward " << DescribeLink(decaying_inward_proxy)
              << " has fully decayed.";
 
     // May delete `this`, as the route binding for `decaying_inward_proxy` may

@@ -57,6 +57,11 @@ typedef uint32_t IpczResult;
 #error "IPCZ_ALIGN() is not defined for your compiler."
 #endif
 
+// Helper to generate the smallest constant value which is aligned with
+// `alignment` and at least as large as `value`.
+#define IPCZ_ALIGNED(value, alignment) \
+  ((((value) + ((alignment)-1)) / (alignment)) * (alignment))
+
 // Enumeration which specifies the kind of value held by an IpczOSHandle struct.
 // These refer to handles allocated by the application through OS APIs, not
 // objects created by ipcz.

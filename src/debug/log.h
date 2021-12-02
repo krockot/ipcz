@@ -16,12 +16,16 @@
       .stream()
 
 #ifdef NDEBUG
-#define DLOG(level) true ? (void)0 : std::ostream(nullptr)
-#define DVLOG(verbosity) true ? (void)0 : std::ostream(nullptr)
+#define DLOG_IF(level, condition) \
+  true ? (void)0 : ::ipcz::debug::LogMessageVoidify() & LOG(level)
+#define DLOG(level) DLOG_IF(level, true)
+#define DVLOG(verbosity) DLOG_IF(INFO, true)
 #else
-#define DLOG(level) LOG(level)
+#define DLOG_IF(level, condition) \
+  !(condition) ? (void)0 : ::ipcz::debug::LogMessageVoidify() & LOG(level)
+#define DLOG(level) DLOG_IF(level, true)
 #define DVLOG(verbosity) \
-    if (::ipcz::debug::GetVerbosityLevel() >= verbosity) DLOG(INFO)
+  DLOG_IF(INFO, ::ipcz::debug::GetVerbosityLevel() >= verbosity)
 #endif
 
 namespace ipcz {
@@ -42,6 +46,15 @@ class LogMessage {
 
  private:
   std::stringstream stream_;
+};
+
+class LogMessageVoidify {
+ public:
+  LogMessageVoidify() = default;
+
+  // Operator & is chosen because its precedence is lower than << but higher
+  // than ?:. See usage in conditional log macros.
+  void operator&(std::ostream&) {}
 };
 
 void SetVerbosityLevel(int level);

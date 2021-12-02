@@ -15,7 +15,7 @@
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
 #define IPCZ_MSG_BEGIN(name, id_decl, version_decl, reply_decl) \
-  struct IPCZ_ALIGN(8) name {                                   \
+  struct IPCZ_ALIGN(16) name {                                  \
     using HandlesType = name##_Handles;                         \
     id_decl;                                                    \
     version_decl;                                               \

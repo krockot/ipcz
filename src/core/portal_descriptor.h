@@ -22,17 +22,17 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   PortalDescriptor& operator=(const PortalDescriptor&);
   ~PortalDescriptor();
 
-  Side side;
-  bool route_is_peer : 1;
-  bool peer_closed : 1;
+  absl::uint128 bypass_key;
+  NodeName proxy_peer_node_name;
+  RoutingId proxy_peer_routing_id;
   SequenceNumber closed_peer_sequence_length;
   RoutingId new_routing_id;
   RoutingId new_decaying_routing_id;
   SequenceNumber next_outgoing_sequence_number;
   SequenceNumber next_incoming_sequence_number;
-  NodeName proxy_peer_node_name;
-  RoutingId proxy_peer_routing_id;
-  absl::uint128 bypass_key;
+  Side side;
+  bool route_is_peer : 1;
+  bool peer_closed : 1;
 };
 
 }  // namespace core

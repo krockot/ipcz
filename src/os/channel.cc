@@ -156,11 +156,13 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
     }
   }
 
-  uint32_t header[2];
-  header[0] = static_cast<uint32_t>(message.data.size() + 8);
+  uint32_t header[4];
+  header[0] = static_cast<uint32_t>(message.data.size() + 16);
   header[1] = static_cast<uint32_t>(message.handles.size());
+  header[2] = 0;
+  header[3] = 0;
   iovec iovs[] = {
-      {reinterpret_cast<uint8_t*>(&header[0]), 8},
+      {reinterpret_cast<uint8_t*>(&header[0]), 16},
       {const_cast<uint8_t*>(message.data.data()), message.data.size()},
   };
 
@@ -305,7 +307,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
     }
 
-    while (unread_data_.size() >= 8) {
+    while (unread_data_.size() >= 16) {
       uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
       if (unread_data_.size() < header_data[0] ||
           unread_handles_.size() < header_data[1]) {
@@ -313,7 +315,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       }
 
       auto data_view =
-          absl::MakeSpan(unread_data_.data() + 8, header_data[0] - 8);
+          absl::MakeSpan(unread_data_.data() + 16, header_data[0] - 16);
       auto handle_view = absl::MakeSpan(unread_handles_.data(), header_data[1]);
       unread_data_ = unread_data_.subspan(header_data[0]);
       unread_handles_ = unread_handles_.subspan(header_data[1]);

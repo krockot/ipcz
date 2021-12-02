@@ -39,7 +39,7 @@ struct NodeLinkBuffer {
   // TODO: this is quite a hack - implement a pool of NodeLinkBuffers and
   // allocate RouterLinkStates dynamically
   std::atomic<uint32_t> next_router_link_index_{0};
-  std::array<RouterLinkState, 2048> router_link_states_;
+  std::array<RouterLinkState, 2047> router_link_states_;
 };
 
 }  // namespace core

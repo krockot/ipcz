@@ -71,7 +71,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const size_t num_portals = parcel.portals_view().size();
   const size_t num_os_handles = parcel.os_handles_view().size();
   const size_t serialized_size =
-      sizeof(msg::AcceptParcel) + parcel.data_view().size() +
+      sizeof(msg::AcceptParcel) + IPCZ_ALIGNED(parcel.data_view().size(), 16) +
       num_portals * sizeof(PortalDescriptor) +
       num_os_handles * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
@@ -86,8 +86,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   accept.num_os_handles = static_cast<uint32_t>(num_os_handles);
   auto* data = reinterpret_cast<uint8_t*>(&accept + 1);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  auto* descriptors =
-      reinterpret_cast<PortalDescriptor*>(data + accept.num_bytes);
+  auto* descriptors = reinterpret_cast<PortalDescriptor*>(
+      data + IPCZ_ALIGNED(accept.num_bytes, 16));
 
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
   const RoutingId first_routing_id =

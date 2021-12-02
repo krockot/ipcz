@@ -248,8 +248,8 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   const uint32_t num_portals = accept.num_portals;
   const uint32_t num_os_handles = accept.num_os_handles;
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&accept + 1);
-  const auto* descriptors =
-      reinterpret_cast<const PortalDescriptor*>(bytes + num_bytes);
+  const auto* descriptors = reinterpret_cast<const PortalDescriptor*>(
+      bytes + IPCZ_ALIGNED(num_bytes, 16));
 
   if (message.handles.size() != num_os_handles) {
     return false;
