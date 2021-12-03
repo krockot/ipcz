@@ -1051,11 +1051,13 @@ bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
     outward_.sequence_length_to_decaying_link = proxy_inbound_sequence_length;
     outward_.sequence_length_from_decaying_link =
         proxy_outbound_sequence_length;
-    outward_.link = std::move(new_peer);
+    outward_.link = new_peer;
   }
 
   decaying_outward_link_to_proxy->StopProxying(proxy_inbound_sequence_length,
                                                proxy_outbound_sequence_length);
+  new_peer->ProxyWillStop(proxy_inbound_sequence_length);
+
   Flush();
   return true;
 }
@@ -1137,9 +1139,31 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   // Update all locally decaying links regarding the sequence length from the
   // remote peer to this router -- the decaying proxy -- so that those links may
   // eventually decay.
-  // local_peer->outward_.sequence_length_from_decaying_link = sequence_length;
-  // outward_.sequence_length_to_decaying_link = sequence_length;
-  // inward_.sequence_length_from_decaying_link = sequence_length;
+  local_peer->outward_.sequence_length_from_decaying_link = sequence_length;
+  outward_.sequence_length_to_decaying_link = sequence_length;
+  inward_.sequence_length_from_decaying_link = sequence_length;
+  return true;
+}
+
+bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!outward_.decaying_proxy_link ||
+        outward_.sequence_length_from_decaying_link) {
+      return true;
+    }
+
+    DVLOG(4) << "Bypassed proxy has finalized its inbound sequence length at "
+             << sequence_length << " for "
+             << DescribeLink(outward_.decaying_proxy_link)
+             << " with inward parcel queue currently at "
+             << inward_.parcels.current_sequence_number()
+             << inward_.parcels.HasNextParcel();
+
+    outward_.sequence_length_from_decaying_link = sequence_length;
+  }
+
+  Flush();
   return true;
 }
 
@@ -1243,7 +1267,7 @@ void Router::Flush() {
 
     // Check now if we can wipe out our decaying outward link.
     const bool still_sending_to_outward_proxy =
-        decaying_outward_proxy &&
+        decaying_outward_proxy && inward_.link &&
         outward_.parcels.current_sequence_number() <
             *outward_.sequence_length_to_decaying_link;
     if (decaying_outward_proxy && !still_sending_to_outward_proxy) {
@@ -1451,7 +1475,6 @@ void Router::MaybeInitiateSelfRemoval() {
     }
 
     local_peer = outward_.link->GetLocalTarget();
-    ABSL_ASSERT(!local_peer);
     if (!local_peer) {
       auto& remote_peer = static_cast<RemoteRouterLink&>(*outward_.link);
       peer_node_name = remote_peer.node_link()->remote_node_name();
@@ -1521,13 +1544,15 @@ void Router::MaybeInitiateSelfRemoval() {
         local_peer->outbound_sequence_length_;
 
     local_peer->outward_.link = new_link;
+    local_peer->outbound_transmission_paused_ = true;
 
     RouterLinkState& state = new_link->GetLinkState();
     state.unsafe_sides()[Side::kLeft].is_blocking_decay = true;
     state.unsafe_sides()[Side::kRight].is_blocking_decay = true;
   }
 
-  new_link->BypassProxyToSameNode(new_routing_id, sequence_length);
+  successor->BypassProxyToSameNode(new_routing_id, sequence_length);
+  local_peer->PauseOutboundTransmission(false);
 }
 
 Router::RouterSide::RouterSide() = default;

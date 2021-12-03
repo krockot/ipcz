@@ -177,6 +177,13 @@ void RemoteRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   node_link()->Transmit(stop);
 }
 
+void RemoteRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
+  msg::ProxyWillStop will_stop;
+  will_stop.params.routing_id = routing_id_;
+  will_stop.params.sequence_length = sequence_length;
+  node_link()->Transmit(will_stop);
+}
+
 void RemoteRouterLink::LogRouteTrace(Side toward_side) {
   msg::LogRouteTrace log_request;
   log_request.params.routing_id = routing_id_;

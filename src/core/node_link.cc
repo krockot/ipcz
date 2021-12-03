@@ -252,6 +252,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::ProxyWillStop::kId: {
+      msg::ProxyWillStop will_stop;
+      if (will_stop.Deserialize(message) && OnProxyWillStop(will_stop)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     case msg::LogRouteTrace::kId: {
       msg::LogRouteTrace log_request;
       if (log_request.Deserialize(message) && OnLogRouteTrace(log_request)) {
@@ -400,6 +408,15 @@ bool NodeLink::OnStopProxyingToLocalPeer(
     return true;
   }
   return router->StopProxyingToLocalPeer(stop.params.sequence_length);
+}
+
+bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
+  mem::Ref<Router> router = GetRouter(will_stop.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  return router->OnProxyWillStop(will_stop.params.sequence_length);
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {

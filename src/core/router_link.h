@@ -44,6 +44,7 @@ class RouterLink : public mem::RefCounted {
   virtual void BypassProxyToSameNode(RoutingId new_routing_id,
                                      SequenceNumber sequence_length) = 0;
   virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
+  virtual void ProxyWillStop(SequenceNumber sequence_length) = 0;
   virtual void LogRouteTrace(Side toward_side) = 0;
 
  protected:

@@ -170,6 +170,7 @@ class Router : public mem::RefCounted {
       mem::Ref<RouterLink> new_peer,
       SequenceNumber sequence_length_from_proxy);
   bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
+  bool OnProxyWillStop(SequenceNumber sequence_length);
 
   // Logs a detailed description of this router for debugging.
   void LogDescription();

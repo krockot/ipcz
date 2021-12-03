@@ -163,9 +163,17 @@ IPCZ_MSG_NO_REPLY(StopProxyingToLocalPeer, IPCZ_MSG_ID(9), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 
+// Informs the recipient that its decaying outward link (implicitly going to a
+// decaying proxy) will only receive inbound parcels up to but not including the
+// given `sequence_length`.
+IPCZ_MSG_NO_REPLY(ProxyWillStop, IPCZ_MSG_ID(10), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+IPCZ_MSG_END()
+
 // Requests that the receiving Router log a description of itself and forward
 // this request the next link along the route in the direction of `toward_side`.
-IPCZ_MSG_NO_REPLY(LogRouteTrace, IPCZ_MSG_ID(10), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_NO_REPLY(LogRouteTrace, IPCZ_MSG_ID(11), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(Side, toward_side)
 IPCZ_MSG_END()
