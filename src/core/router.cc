@@ -749,9 +749,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       proxy_peer_routing_id = remote_link.routing_id();
       bypass_key = RandomUint128();
       RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
-      if (!locked.other_side().is_decaying) {
+      if (!locked.other_side().is_blocking_decay) {
         immediate_bypass = true;
-        locked.this_side().is_decaying = true;
+        locked.this_side().is_blocking_decay = true;
         locked.this_side().bypass_key = bypass_key;
       }
     }
@@ -996,7 +996,7 @@ bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
 
     RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
     if (state.other_side().bypass_key != bypass_key ||
-        !state.other_side().is_decaying) {
+        !state.other_side().is_blocking_decay) {
       return false;
     }
 
@@ -1354,12 +1354,12 @@ void Router::MaybeInitiateSelfRemoval() {
       // Finally we can only begin to decay if our peer hasn't already begun
       // decaying itself.
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.other_side().is_decaying) {
+      if (state.other_side().is_blocking_decay) {
         DVLOG(4) << "Not self-terminating: peer is in decay.";
         return;
       }
 
-      state.this_side().is_decaying = true;
+      state.this_side().is_blocking_decay = true;
       state.this_side().bypass_key = bypass_key;
     }
 

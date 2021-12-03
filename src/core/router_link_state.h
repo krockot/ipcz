@@ -27,12 +27,18 @@ struct IPCZ_ALIGN(16) RouterLinkState {
     SideState();
     ~SideState();
 
-    // A key, set only if `is_decaying` is true, which can be used to validate
-    // another node's request to replace this link with a link to itself.
+    // A key, set only if `is_blocking_decay` is true, which can be used to
+    // validate another node's request to replace this link with a link to
+    // itself.
+    //
+    // TODO: this is a lot of wasted space - SideState could probably just be
+    // a busy-bit and a key index, with a small reusable pool of key storage on
+    // each side of a NodeLink.
     absl::uint128 bypass_key;
 
-    // Indicates whether the router on this side of the link is decaying.
-    bool is_decaying;
+    // Indicates whether the router on this side of the link is blocking any
+    // further decay along the route.
+    bool is_blocking_decay;
   };
 
   // Provides guarded access to this RouterLinkState's data. Note that access is
