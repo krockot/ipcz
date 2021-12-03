@@ -42,6 +42,7 @@ class LocalRouterLink : public RouterLink {
   void BypassProxyToSameNode(RoutingId new_routing_id,
                              SequenceNumber sequence_length) override;
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
+  void LogRouteTrace(Side toward_side) override;
 
  private:
   class SharedState;

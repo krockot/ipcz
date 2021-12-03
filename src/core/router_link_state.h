@@ -34,11 +34,11 @@ struct IPCZ_ALIGN(16) RouterLinkState {
     // TODO: this is a lot of wasted space - SideState could probably just be
     // a busy-bit and a key index, with a small reusable pool of key storage on
     // each side of a NodeLink.
-    absl::uint128 bypass_key;
+    absl::uint128 bypass_key = 0;
 
     // Indicates whether the router on this side of the link is blocking any
     // further decay along the route.
-    bool is_blocking_decay;
+    bool is_blocking_decay = false;
   };
 
   // Provides guarded access to this RouterLinkState's data. Note that access is
@@ -63,6 +63,8 @@ struct IPCZ_ALIGN(16) RouterLinkState {
   // reference to it.
   static RouterLinkState& Initialize(void* where);
 
+  TwoSided<SideState>& unsafe_sides() { return sides_; }
+
  private:
   void Lock();
   void Unlock();
@@ -73,7 +75,7 @@ struct IPCZ_ALIGN(16) RouterLinkState {
   TwoSided<SideState> sides_;
 
   // Guards access to `sides_`.
-  std::atomic<bool> locked_;
+  std::atomic<bool> locked_{0};
 };
 
 static_assert(sizeof(RouterLinkState::SideState) == 32,

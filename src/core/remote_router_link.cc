@@ -177,5 +177,12 @@ void RemoteRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   node_link()->Transmit(stop);
 }
 
+void RemoteRouterLink::LogRouteTrace(Side toward_side) {
+  msg::LogRouteTrace log_request;
+  log_request.params.routing_id = routing_id_;
+  log_request.params.toward_side = toward_side;
+  node_link()->Transmit(log_request);
+}
+
 }  // namespace core
 }  // namespace ipcz

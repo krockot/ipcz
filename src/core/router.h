@@ -171,8 +171,17 @@ class Router : public mem::RefCounted {
       SequenceNumber sequence_length_from_proxy);
   bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
 
+  // Logs a detailed description of this router for debugging.
+  void LogDescription();
+
+  // Logs a detailed description of this router and every router along the
+  // route from this one, in the direction of the terminal router on
+  // `toward_side`.
+  void LogRouteTrace(Side toward_side);
+
  private:
   friend class LocalRouterLink;
+  friend class NodeLink;
 
   struct RouterSide {
     RouterSide();

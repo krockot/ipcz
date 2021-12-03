@@ -159,6 +159,12 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
       AddRoute(new_routing_id, new_routing_id, new_peer,
                RemoteRouterLink::Type::kToOtherSide);
 
+  // The receiver using the other side of this link will always start with a
+  // decaying link, so we preemptively mark their side as busy. If our side is
+  // busy, the bit will be set in SetOutwardLink() below when we adopt the link.
+  RouterLinkState& state = new_link->GetLinkState();
+  state.unsafe_sides()[Opposite(new_peer->side())].is_blocking_decay = true;
+
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the new route may not be
   // recognized by the remote node and any parcels may be dropped.
@@ -241,6 +247,14 @@ IpczResult NodeLink::OnTransportMessage(
     case msg::BypassProxyToSameNode::kId: {
       msg::BypassProxyToSameNode bypass;
       if (bypass.Deserialize(message) && OnBypassProxyToSameNode(bypass)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::LogRouteTrace::kId: {
+      msg::LogRouteTrace log_request;
+      if (log_request.Deserialize(message) && OnLogRouteTrace(log_request)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -386,6 +400,16 @@ bool NodeLink::OnStopProxyingToLocalPeer(
     return true;
   }
   return router->StopProxyingToLocalPeer(stop.params.sequence_length);
+}
+
+bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
+  mem::Ref<Router> router = GetRouter(log_request.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  router->LogRouteTrace(log_request.params.toward_side);
+  return true;
 }
 
 }  // namespace core

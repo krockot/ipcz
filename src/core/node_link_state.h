@@ -22,7 +22,7 @@ struct NodeLinkState {
   RoutingId AllocateRoutingIds(size_t count);
 
  private:
-  std::atomic<RoutingId> next_routing_id_;
+  std::atomic<RoutingId> next_routing_id_{0};
 };
 
 }  // namespace core

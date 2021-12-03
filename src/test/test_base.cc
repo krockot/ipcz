@@ -9,6 +9,7 @@
 
 #include "core/portal.h"
 #include "core/router.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/event.h"
@@ -177,6 +178,11 @@ bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
   mem::Ref<core::Router> router_b =
       reinterpret_cast<core::Portal*>(b)->router();
   return router_a->HasLocalPeer(router_b);
+}
+
+void TestBase::LogPortalRoute(IpczHandle a) {
+  mem::Ref<core::Router> router = reinterpret_cast<core::Portal*>(a)->router();
+  router->LogRouteTrace(core::Opposite(router->side()));
 }
 
 }  // namespace test
