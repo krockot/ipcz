@@ -17,6 +17,7 @@
 #include "core/remote_router_link.h"
 #include "core/router.h"
 #include "core/router_link.h"
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -340,8 +341,14 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
   mem::Ref<Router> router = GetRouter(stop.params.routing_id);
   if (!router) {
+    DVLOG(4) << "Received StopProxying for unknown route";
     return true;
   }
+
+  DVLOG(4) << "Received StopProxying on " << node_->name().ToString()
+           << " routing ID " << stop.params.routing_id << " with inbound"
+           << " length " << stop.params.inbound_sequence_length
+           << " and outbound length " << stop.params.outbound_sequence_length;
 
   return router->StopProxying(stop.params.inbound_sequence_length,
                               stop.params.outbound_sequence_length);

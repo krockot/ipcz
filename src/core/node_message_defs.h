@@ -147,9 +147,8 @@ IPCZ_MSG_NO_REPLY(BypassProxyToSameNode, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 // Informs the recipient that the portal on `routing_id` for this NodeLink can
-// cease to exist once it has received and forwarded to its successor every
-// in-flight parcel with a SequenceNumber up to but not including
-// `sequence_length`.
+// cease to exist once it has received and forwarded parcels up to the
+// specified sequence length in each direction.
 IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(8), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(SequenceNumber, inbound_sequence_length)

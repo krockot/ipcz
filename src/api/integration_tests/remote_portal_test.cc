@@ -321,6 +321,93 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
   DestroyNodes({broker});
 }
 
+TEST_P(RemotePortalTest, LocalProxyBypass) {
+  // Tests an edge case where bypassing a proxy results in the creation of a
+  // local proxying link between routers on the same node, and further route
+  // contraction requires this link to decay in turn. Getting into this scenario
+  // is racy, so the test will not always cover the intended path.
+
+  // The idea here is to start with a portal pair between two nodes. We send
+  // each end off to two different nodes, from which they're both immediately
+  // sent back to the original node. This can fairly often land us in a
+  // configuration like:
+  //
+  //   A   B   C
+  //
+  //       L2
+  //     /
+  //   L1--L0--R1
+  //          /
+  //       R2
+  //
+  // Where columns A, B, and C represent distinct nodes. If L0 is chosen to
+  // decay first, the scenario is not interesting yet. But if R1 is chosen
+  // first, node B will end up with a local peer link between L0 and R2:
+  //
+  //      L2
+  //    /
+  //  L1--L0
+  //       |
+  //      R2
+  //
+  // This link itself then requires special care to decay, and L0 will directly
+  // provide L1 with a new route to R2 and tell it to bypass L0. This will
+  // finally result in:
+  //
+  //      L2
+  //    /
+  //   L1 . . . L0
+  //    \     .
+  //      R2 .
+  //
+  // And once L0 fully decays, L1 will initiate its own bypass resulting in the
+  // direct link between L2 and R2 on the same node B.
+
+  IpczHandle node_0 = CreateNonBrokerNode();
+  IpczHandle node_1 = CreateBrokerNode();
+  IpczHandle node_2 = CreateNonBrokerNode();
+
+  IpczHandle a, b;
+  Connect(node_1, node_0, &a, &b);
+
+  IpczHandle c, d;
+  Connect(node_1, node_2, &c, &d);
+
+  IpczHandle q, p;
+  OpenPortals(node_1, &q, &p);
+
+  Put(a, "", {&q, 1}, {});
+  Put(c, "", {&p, 1}, {});
+
+  Parcel parcel;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, parcel));
+  ASSERT_EQ(1u, parcel.portals.size());
+  q = parcel.portals[0];
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, parcel));
+  ASSERT_EQ(1u, parcel.portals.size());
+  p = parcel.portals[0];
+
+  Put(b, "", {&q, 1}, {});
+  Put(d, "", {&p, 1}, {});
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, parcel));
+  ASSERT_EQ(1u, parcel.portals.size());
+  q = parcel.portals[0];
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(c, parcel));
+  ASSERT_EQ(1u, parcel.portals.size());
+  p = parcel.portals[0];
+
+  Put(q, "hello");
+  Put(p, "goodbye");
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(q, parcel));
+  EXPECT_EQ("goodbye", parcel.message);
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(p, parcel));
+  EXPECT_EQ("hello", parcel.message);
+
+  ClosePortals({q, p, a, b, c, d});
+  DestroyNodes({node_0, node_1, node_2});
+}
+
 using MultiprocessRemotePortalTest = test::MultiprocessTest;
 
 const std::string kMultiprocessMessageFromA = "hello!";
