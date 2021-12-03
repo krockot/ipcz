@@ -118,6 +118,10 @@ void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
   ABSL_ASSERT(false);
 }
 
+void LocalRouterLink::DecayUnblocked() {
+  state_->side(Opposite(side_))->OnDecayUnblocked();
+}
+
 void LocalRouterLink::LogRouteTrace(Side toward_side) {
   state_->side(toward_side)->LogRouteTrace(toward_side);
 }

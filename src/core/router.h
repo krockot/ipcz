@@ -171,6 +171,7 @@ class Router : public mem::RefCounted {
       SequenceNumber sequence_length_from_proxy);
   bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
   bool OnProxyWillStop(SequenceNumber sequence_length);
+  bool OnDecayUnblocked();
 
   // Logs a detailed description of this router for debugging.
   void LogDescription();
@@ -208,8 +209,10 @@ class Router : public mem::RefCounted {
   void Flush();
 
   // Attempts to mark this side of the outward link as decaying and asks the
-  // inward peer to initiate proxy bypass.
-  void MaybeInitiateSelfRemoval();
+  // inward peer to initiate proxy bypass. Returns true if initiated. When
+  // returning false, `was_blocked_by_other_side` conveys whether the other side
+  // if this router's outward link is still blocking decay.
+  bool MaybeInitiateSelfRemoval();
 
   const Side side_;
 

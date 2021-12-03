@@ -260,6 +260,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::DecayUnblocked::kId: {
+      msg::DecayUnblocked unblocked;
+      if (unblocked.Deserialize(message) && OnDecayUnblocked(unblocked)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     case msg::LogRouteTrace::kId: {
       msg::LogRouteTrace log_request;
       if (log_request.Deserialize(message) && OnLogRouteTrace(log_request)) {
@@ -417,6 +425,15 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
   }
 
   return router->OnProxyWillStop(will_stop.params.sequence_length);
+}
+
+bool NodeLink::OnDecayUnblocked(const msg::DecayUnblocked& unblocked) {
+  mem::Ref<Router> router = GetRouter(unblocked.params.routing_id);
+  if (!router) {
+    return true;
+  }
+
+  return router->OnDecayUnblocked();
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {

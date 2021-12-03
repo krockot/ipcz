@@ -45,6 +45,7 @@ class RouterLink : public mem::RefCounted {
                                      SequenceNumber sequence_length) = 0;
   virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
   virtual void ProxyWillStop(SequenceNumber sequence_length) = 0;
+  virtual void DecayUnblocked() = 0;
   virtual void LogRouteTrace(Side toward_side) = 0;
 
  protected:

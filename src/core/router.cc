@@ -92,6 +92,15 @@ std::string DescribeParcel(Parcel& parcel) {
   return ss.str();
 }
 
+std::string DescribeOptionalLength(absl::optional<SequenceNumber> length) {
+  std::stringstream ss;
+  if (length) {
+    ss << *length;
+    return ss.str();
+  }
+  return "none";
+}
+
 std::atomic<size_t> g_num_routers{0};
 
 }  // namespace
@@ -966,6 +975,9 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       previous_outward_link_from_new_local_peer->StopProxying(
           proxied_inbound_sequence_length, proxied_outbound_sequence_length);
     }
+
+    Flush();
+    new_local_peer->Flush();
     return true;
   }
 
@@ -1167,18 +1179,13 @@ bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
   return true;
 }
 
+bool Router::OnDecayUnblocked() {
+  MaybeInitiateSelfRemoval();
+  return true;
+}
+
 void Router::LogDescription() {
   absl::MutexLock lock(&mutex_);
-
-  auto show_length = [](absl::optional<SequenceNumber> length) -> std::string {
-    std::stringstream ss;
-    if (length) {
-      ss << *length;
-      return ss.str();
-    }
-    return "none";
-  };
-
   bool outward_this_side_busy = false;
   bool outward_other_side_busy = false;
   if (outward_.link) {
@@ -1196,9 +1203,11 @@ void Router::LogDescription() {
   DLOG(INFO) << " - outward decaying "
              << DescribeLink(outward_.decaying_proxy_link);
   DLOG(INFO) << " - outward length to decaying link: "
-             << show_length(outward_.sequence_length_to_decaying_link);
+             << DescribeOptionalLength(
+                    outward_.sequence_length_to_decaying_link);
   DLOG(INFO) << " - outward length from decaying link: "
-             << show_length(outward_.sequence_length_from_decaying_link);
+             << DescribeOptionalLength(
+                    outward_.sequence_length_from_decaying_link);
   DLOG(INFO) << " - outward busy bits " << outward_this_side_busy << ":"
              << outward_other_side_busy;
 
@@ -1206,9 +1215,11 @@ void Router::LogDescription() {
   DLOG(INFO) << " - inward decaying "
              << DescribeLink(inward_.decaying_proxy_link);
   DLOG(INFO) << " - inward length to decaying link: "
-             << show_length(inward_.sequence_length_to_decaying_link);
+             << DescribeOptionalLength(
+                    inward_.sequence_length_to_decaying_link);
   DLOG(INFO) << " - inward length from decaying link: "
-             << show_length(inward_.sequence_length_from_decaying_link);
+             << DescribeOptionalLength(
+                    inward_.sequence_length_from_decaying_link);
 }
 
 void Router::LogRouteTrace(Side toward_side) {
@@ -1278,7 +1289,8 @@ void Router::Flush() {
       if (!still_receiving_from_outward_proxy) {
         DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_proxy_link)
                  << " fully decayed at outbound length "
-                 << *outward_.sequence_length_to_decaying_link
+                 << DescribeOptionalLength(
+                        outward_.sequence_length_to_decaying_link)
                  << " and inbound length "
                  << *outward_.sequence_length_from_decaying_link;
         outward_proxy_decayed = true;
@@ -1328,7 +1340,8 @@ void Router::Flush() {
       if (!still_receiving_from_inward_proxy) {
         DVLOG(4) << "Inward " << DescribeLink(inward_.decaying_proxy_link)
                  << " fully decayed at inbound length "
-                 << *inward_.sequence_length_to_decaying_link
+                 << DescribeOptionalLength(
+                        inward_.sequence_length_to_decaying_link)
                  << " and outbound length "
                  << *inward_.sequence_length_from_decaying_link;
 
@@ -1404,17 +1417,23 @@ void Router::Flush() {
 
   if (outward_link && (inward_proxy_decayed || outward_proxy_decayed) &&
       (!decaying_inward_proxy && !decaying_outward_proxy)) {
-    DVLOG(4) << "Proxy with fully decayed links may be eligible for "
+    DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
 
     // Just decayed our last link. We may attempt to remove ourself below if
     // other conditions apply, but for now ensure we no longer block decay.
+    bool is_other_side_blocking;
     {
       RouterLinkState::Locked state(outward_link->GetLinkState(), side_);
       state.this_side().is_blocking_decay = false;
+      is_other_side_blocking = state.other_side().is_blocking_decay;
     }
 
-    MaybeInitiateSelfRemoval();
+    if (!MaybeInitiateSelfRemoval() && !is_other_side_blocking) {
+      // Ping the other side in case it might want to decay. If it doesn't, this
+      // message is a harmless no-op.
+      outward_link->DecayUnblocked();
+    }
   }
 
   if (notify_closure_outward) {
@@ -1427,7 +1446,7 @@ void Router::Flush() {
   }
 }
 
-void Router::MaybeInitiateSelfRemoval() {
+bool Router::MaybeInitiateSelfRemoval() {
   NodeName peer_node_name;
   RoutingId routing_id_to_peer;
   absl::uint128 bypass_key;
@@ -1436,19 +1455,10 @@ void Router::MaybeInitiateSelfRemoval() {
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_.decaying_proxy_link);
-    if (!inward_.link) {
+    if (!outward_.link || !inward_.link || outward_.decaying_proxy_link ||
+        inward_.decaying_proxy_link || !outward_.link->IsLinkToOtherSide()) {
       // Terminal routers cannot self-remove, as they're controlled by a Portal.
-      return;
-    }
-
-    if (!outward_.link || !outward_.link->IsLinkToOtherSide()) {
-      return;
-    }
-
-    if (outward_.decaying_proxy_link) {
-      DVLOG(4) << "Proxy self-removal blocked by decaying outward "
-               << DescribeLink(outward_.decaying_proxy_link);
-      return;
+      return false;
     }
 
     successor = inward_.link;
@@ -1467,7 +1477,7 @@ void Router::MaybeInitiateSelfRemoval() {
       if (state.other_side().is_blocking_decay) {
         DVLOG(4) << "Proxy self-removal blocked by busy "
                  << DescribeLink(outward_.link);
-        return;
+        return false;
       }
 
       state.this_side().is_blocking_decay = true;
@@ -1496,7 +1506,7 @@ void Router::MaybeInitiateSelfRemoval() {
 
     successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer,
                                             bypass_key);
-    return;
+    return true;
   }
 
   SequenceNumber sequence_length;
@@ -1514,7 +1524,7 @@ void Router::MaybeInitiateSelfRemoval() {
     if (!local_peer->outward_.link) {
       ABSL_ASSERT(status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED);
       DVLOG(4) << "Proxy self-removal blocked by peer closure.";
-      return;
+      return false;
     }
 
     DVLOG(4) << "Proxy initiating its own bypass from "
@@ -1553,6 +1563,7 @@ void Router::MaybeInitiateSelfRemoval() {
 
   successor->BypassProxyToSameNode(new_routing_id, sequence_length);
   local_peer->PauseOutboundTransmission(false);
+  return true;
 }
 
 Router::RouterSide::RouterSide() = default;

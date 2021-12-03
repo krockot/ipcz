@@ -106,6 +106,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);
   bool OnStopProxyingToLocalPeer(const msg::StopProxyingToLocalPeer& stop);
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
+  bool OnDecayUnblocked(const msg::DecayUnblocked& unblocked);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
 
   const mem::Ref<Node> node_;

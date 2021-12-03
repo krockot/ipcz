@@ -43,6 +43,7 @@ class LocalRouterLink : public RouterLink {
                              SequenceNumber sequence_length) override;
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
   void ProxyWillStop(SequenceNumber sequence_length) override;
+  void DecayUnblocked() override;
   void LogRouteTrace(Side toward_side) override;
 
  private:

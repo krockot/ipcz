@@ -184,6 +184,12 @@ void RemoteRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
   node_link()->Transmit(will_stop);
 }
 
+void RemoteRouterLink::DecayUnblocked() {
+  msg::DecayUnblocked unblocked;
+  unblocked.params.routing_id = routing_id_;
+  node_link()->Transmit(unblocked);
+}
+
 void RemoteRouterLink::LogRouteTrace(Side toward_side) {
   msg::LogRouteTrace log_request;
   log_request.params.routing_id = routing_id_;
