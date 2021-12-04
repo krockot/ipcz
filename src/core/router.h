@@ -180,7 +180,7 @@ class Router : public mem::RefCounted {
                            const NodeName& proxy_peer_node_name,
                            RoutingId proxy_peer_routing_id,
                            absl::uint128 bypass_key);
-  bool BypassProxyTo(mem::Ref<RouterLink> new_peer,
+  bool BypassProxyWithNewLink(mem::Ref<RouterLink> new_peer,
                      absl::uint128 bypass_key,
                      SequenceNumber proxy_outbound_sequence_length);
   bool BypassProxyWithNewLinkToSameNode(

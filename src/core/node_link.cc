@@ -166,8 +166,8 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   state.unsafe_sides()[Opposite(new_peer->side())].is_blocking_decay = true;
 
   // We don't want `new_peer` transmitting any outgoing parcels until we've
-  // transmitted the BypassProxy message; otherwise the new route may not be
-  // recognized by the remote node and any parcels may be dropped.
+  // transmitted the BypassProxy message; otherwise the parcels would arrive on
+  // an unrecognized route and be rejected.
   new_peer->PauseOutboundTransmission(true);
   const SequenceNumber proxied_outbound_sequence_length =
       new_peer->SetOutwardLink(new_link);

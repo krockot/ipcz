@@ -129,6 +129,9 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     }
     routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
                               std::move(decaying_link));
+
+    // It's important to reset references to any transferred portals, because
+    // darcels when destroyed will close any non-null attached portals.
     portals[i].reset();
   }
 }

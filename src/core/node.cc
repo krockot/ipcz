@@ -338,7 +338,7 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
       bypass.params.new_routing_id, bypass.params.new_routing_id, proxy_peer,
       RemoteRouterLink::Type::kToOtherSide);
-  return proxy_peer->BypassProxyTo(
+  return proxy_peer->BypassProxyWithNewLink(
       new_peer_link, bypass.params.bypass_key,
       bypass.params.proxied_outbound_sequence_length);
 }

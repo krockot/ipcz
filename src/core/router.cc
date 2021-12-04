@@ -949,7 +949,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   }
 
   if (!previous_outward_link_from_new_local_peer) {
-    // The local peer must have been closed.
+    // TODO: The local peer must have been closed. Tear down the route.
   } else {
     previous_outward_link_from_new_local_peer->StopProxying(
         proxied_inbound_sequence_length, proxied_outbound_sequence_length);
@@ -960,9 +960,10 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   return true;
 }
 
-bool Router::BypassProxyTo(mem::Ref<RouterLink> new_peer,
-                           absl::uint128 bypass_key,
-                           SequenceNumber proxy_outbound_sequence_length) {
+bool Router::BypassProxyWithNewLink(
+    mem::Ref<RouterLink> new_peer,
+    absl::uint128 bypass_key,
+    SequenceNumber proxy_outbound_sequence_length) {
   SequenceNumber proxy_inbound_sequence_length;
   mem::Ref<RouterLink> decaying_outward_link_to_proxy;
   {
@@ -1112,10 +1113,7 @@ bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
 
     DVLOG(4) << "Bypassed proxy has finalized its inbound sequence length at "
              << sequence_length << " for "
-             << DescribeLink(outward_.decaying_proxy_link)
-             << " with inward parcel queue currently at "
-             << inward_.parcels.current_sequence_number()
-             << inward_.parcels.HasNextParcel();
+             << DescribeLink(outward_.decaying_proxy_link);
 
     outward_.sequence_length_from_decaying_link = sequence_length;
   }
