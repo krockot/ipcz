@@ -316,6 +316,10 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
                           SequenceNumber outbound_sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
+    if (inward_.decaying_proxy_link || outward_.decaying_proxy_link) {
+      return false;
+    }
+
     inward_.decaying_proxy_link = std::move(inward_.link);
     inward_.sequence_length_to_decaying_link = inbound_sequence_length;
     inward_.sequence_length_from_decaying_link = outbound_sequence_length;
