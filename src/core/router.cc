@@ -340,29 +340,29 @@ bool Router::AcceptParcelFrom(NodeLink& link,
     // Inbound parcels arrive from outward links and outbound parcels arrive
     // from inward links.
     if (outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << parcel.Describe() << " received by "
+      DVLOG(4) << "Inbound " << parcel.Describe() << " received by "
                << DescribeLink(outward_.link);
 
       is_inbound = true;
     } else if (outward_.decaying_proxy_link &&
                outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << parcel.Describe() << " received by "
+      DVLOG(4) << "Inbound " << parcel.Describe() << " received by "
                << DescribeLink(outward_.decaying_proxy_link);
 
       is_inbound = true;
     } else if (inward_.link && inward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << parcel.Describe() << " received by "
+      DVLOG(4) << "Outbound " << parcel.Describe() << " received by "
                << DescribeLink(inward_.link);
 
       is_inbound = false;
     } else if (inward_.decaying_proxy_link &&
                inward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << parcel.Describe() << " received by "
+      DVLOG(4) << "Outbound " << parcel.Describe() << " received by "
                << DescribeLink(inward_.decaying_proxy_link);
 
       is_inbound = false;
     } else {
-      DVLOG(4) << "Rejecting unexpected parcel at "
+      DVLOG(4) << "Rejecting unexpected " << parcel.Describe() << " at "
                << link.node()->name().ToString() << " from route " << routing_id
                << " to " << link.remote_node_name().ToString();
       return false;
@@ -1230,7 +1230,7 @@ void Router::Flush() {
       bool ok = outward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding outbound parcel " << parcel.Describe()
+      DVLOG(4) << "Forwarding outbound " << parcel.Describe()
                << " over outward decaying "
                << DescribeLink(decaying_outward_proxy);
 
@@ -1267,7 +1267,7 @@ void Router::Flush() {
     if (outward_link && !outbound_transmission_paused_ &&
         (!decaying_outward_proxy || !still_sending_to_outward_proxy)) {
       while (outward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding outbound parcel " << parcel.Describe()
+        DVLOG(4) << "Forwarding outbound " << parcel.Describe()
                  << " over outward " << DescribeLink(outward_link);
 
         outbound_parcels.push_back(std::move(parcel));
@@ -1281,7 +1281,7 @@ void Router::Flush() {
       bool ok = inward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding inbound parcel " << parcel.Describe()
+      DVLOG(4) << "Forwarding inbound " << parcel.Describe()
                << " over inward decaying "
                << DescribeLink(decaying_inward_proxy);
 
@@ -1319,7 +1319,7 @@ void Router::Flush() {
     if (inward_link &&
         (!decaying_inward_proxy || !still_sending_to_inward_proxy)) {
       while (inward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding inbound parcel " << parcel.Describe()
+        DVLOG(4) << "Forwarding inbound " << parcel.Describe()
                  << " over inward " << DescribeLink(inward_link);
 
         inbound_parcels.push_back(std::move(parcel));
