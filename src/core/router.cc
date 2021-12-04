@@ -237,10 +237,6 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
       state.this_side().is_blocking_decay =
           outward_.decaying_proxy_link != nullptr;
     }
-
-    if (outbound_transmission_paused_) {
-      return first_sequence_number_on_new_link;
-    }
   }
 
   Flush();
