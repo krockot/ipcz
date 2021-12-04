@@ -823,6 +823,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
                                 descriptor.bypass_key);
   }
 
+  router->Flush();
   return router;
 }
 

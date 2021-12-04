@@ -95,12 +95,20 @@ class Router : public mem::RefCounted {
   // within this call.
   SequenceNumber SetOutwardLink(mem::Ref<RouterLink> link);
 
-  // Provides the Router with a new inward link to which it should forward all
-  // inbound parcels received from its outward link. The Router may also forward
+  // Provides the Router with a new link to which it should forward all inbound
+  // parcels received from its outward link. The Router may also forward
   // outbound parcels received from the new inward link to the outward link. If
   // `decaying_link` is non-null, it is adopted as the router's decaying inward
-  // link and will be used to transmit any parcels up to the current
+  // link and will be accept any outbound parcels up to the current
   // `outbound_sequence_length_`.
+  //
+  // TODO: This should be split into separate methods: one for BeginProxying
+  // which takes only an inward link; and one for e.g. RerouteLocalPair which
+  // takes a decaying inward link for this router and a new outward link for
+  // this router's former local peer (which at the time of the call is still
+  // linked via this router's outward link.) Right now this method does one or
+  // the other based on `descriptor.route_is_peer`, and there is very little
+  // overlap in behavior between the two cases.
   void BeginProxying(const PortalDescriptor& descriptor,
                      mem::Ref<RouterLink> link,
                      mem::Ref<RouterLink> decaying_link);
