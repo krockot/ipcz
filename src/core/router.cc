@@ -424,6 +424,7 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
     side_closed_ = true;
+    outbound_sequence_length_ = sequence_length;
     if (!outward_.closure_propagated && !outbound_transmission_paused_ &&
         outward_.link) {
       forwarding_link = outward_.link;
@@ -459,7 +460,6 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
   }
 
   if (dead_outward_link) {
-    // May delete `this`.
     dead_outward_link->Deactivate();
   }
 }
@@ -1037,7 +1037,11 @@ bool Router::BypassProxyWithNewLinkToSameNode(
   {
     absl::MutexLock lock(&mutex_);
     if (!outward_.link) {
-      return false;
+      // Not necessarily a validation failure if the link was severed due to a
+      // remote crash.
+      //
+      // TODO: propagate route teardown?
+      return true;
     }
 
     if (outward_.link->GetLocalTarget()) {
@@ -1070,7 +1074,11 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     decaying_proxy = std::move(outward_.link);
     outward_.link = std::move(new_peer);
 
-    sequence_length_to_proxy = outbound_sequence_length_;
+    if (inward_.link || !outward_.parcels.IsEmpty()) {
+      sequence_length_to_proxy = outward_.parcels.current_sequence_number();
+    } else {
+      sequence_length_to_proxy = outbound_sequence_length_;
+    }
 
     outward_.decaying_proxy_link = decaying_proxy;
     outward_.sequence_length_to_decaying_link = sequence_length_to_proxy;
@@ -1214,7 +1222,7 @@ void Router::Flush() {
     decaying_inward_proxy = inward_.decaying_proxy_link;
     decaying_outward_proxy = outward_.decaying_proxy_link;
 
-    // Flush any outbound parcels destined for a decaying proxy.
+    // Flush any outbound parcels destined for a decaying outward link.
     while (outward_.parcels.HasNextParcel() && outward_.decaying_proxy_link &&
            outward_.parcels.current_sequence_number() <
                *outward_.sequence_length_to_decaying_link) {
@@ -1229,9 +1237,13 @@ void Router::Flush() {
     }
 
     // Check now if we can wipe out our decaying outward link.
+    const SequenceNumber next_outbound_sequence_number =
+        (inward_.link || !outward_.parcels.IsEmpty())
+            ? outward_.parcels.current_sequence_number()
+            : outbound_sequence_length_;
     const bool still_sending_to_outward_proxy =
-        decaying_outward_proxy && inward_.link &&
-        outward_.parcels.current_sequence_number() <
+        decaying_outward_proxy &&
+        next_outbound_sequence_number <
             *outward_.sequence_length_to_decaying_link;
     if (decaying_outward_proxy && !still_sending_to_outward_proxy) {
       const bool still_receiving_from_outward_proxy =
@@ -1256,7 +1268,7 @@ void Router::Flush() {
     // outbound parcel queue is no longer routing parcels there, we may proceed
     // to forward outbound parcels to our current outward link.
     if (outward_link && !outbound_transmission_paused_ &&
-        (!decaying_outward_proxy || !still_sending_to_outward_proxy)) {
+        !still_sending_to_outward_proxy) {
       while (outward_.parcels.Pop(parcel)) {
         DVLOG(4) << "Forwarding outbound " << parcel.Describe()
                  << " over outward " << DescribeLink(outward_link);
@@ -1265,7 +1277,7 @@ void Router::Flush() {
       }
     }
 
-    // Now flush any outbound parcels destined for a decaying proxy.
+    // Now flush any inbound parcels destined for a decaying inward link.
     while (inward_.parcels.HasNextParcel() && inward_.decaying_proxy_link &&
            inward_.parcels.current_sequence_number() <
                *inward_.sequence_length_to_decaying_link) {
@@ -1281,14 +1293,13 @@ void Router::Flush() {
 
     // Check now if we can wipe out our decaying inward link.
     const bool still_sending_to_inward_proxy =
-        decaying_inward_proxy &&
-        (!inward_.sequence_length_from_decaying_link ||
-         inward_.parcels.current_sequence_number() <
-             *inward_.sequence_length_to_decaying_link);
+        decaying_inward_proxy && inward_.parcels.current_sequence_number() <
+                                     *inward_.sequence_length_to_decaying_link;
     if (decaying_inward_proxy && !still_sending_to_inward_proxy) {
       const bool still_receiving_from_inward_proxy =
-          outward_.parcels.GetAvailableSequenceLength() <
-          *inward_.sequence_length_from_decaying_link;
+          !inward_.sequence_length_from_decaying_link ||
+          (outward_.parcels.GetAvailableSequenceLength() <
+           *inward_.sequence_length_from_decaying_link);
       if (!still_receiving_from_inward_proxy) {
         DVLOG(4) << "Inward " << DescribeLink(inward_.decaying_proxy_link)
                  << " fully decayed at inbound length "
@@ -1307,8 +1318,7 @@ void Router::Flush() {
     // Finally, although we may or may not still have a decaying inward link, if
     // our inbound parcel queue is no longer routing parcels there we may
     // proceed to forward inbound parcels to our current inward link.
-    if (inward_link &&
-        (!decaying_inward_proxy || !still_sending_to_inward_proxy)) {
+    if (inward_link && !still_sending_to_inward_proxy) {
       while (inward_.parcels.Pop(parcel)) {
         DVLOG(4) << "Forwarding inbound " << parcel.Describe()
                  << " over inward " << DescribeLink(inward_link);
@@ -1354,15 +1364,11 @@ void Router::Flush() {
   }
 
   if (outward_proxy_decayed) {
-    // May delete `this`, as the route binding for `decaying_outward_proxy` may
-    // constitute the last reference to this Router.
     decaying_outward_proxy->Deactivate();
     decaying_outward_proxy.reset();
   }
 
   if (inward_proxy_decayed) {
-    // May delete `this`, as the route binding for `decaying_inward_proxy` may
-    // constitute the last reference to this Router.
     decaying_inward_proxy->Deactivate();
     decaying_inward_proxy.reset();
   }
@@ -1372,8 +1378,6 @@ void Router::Flush() {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
 
-    // Just decayed our last link. We may attempt to remove ourself below if
-    // other conditions apply, but for now ensure we no longer block decay.
     bool is_other_side_blocking;
     {
       RouterLinkState::Locked state(outward_link->GetLinkState(), side_);
@@ -1381,9 +1385,9 @@ void Router::Flush() {
       is_other_side_blocking = state.other_side().is_blocking_decay;
     }
 
-    if (!MaybeInitiateSelfRemoval() && !is_other_side_blocking) {
-      // Ping the other side in case it might want to decay. If it doesn't, this
-      // message is a harmless no-op.
+    if (!is_other_side_blocking && !MaybeInitiateSelfRemoval()) {
+      // Ping the other side in case it might want to decay. If it doesn't, or
+      // if it already starts to before this message arrives, that's OK.
       outward_link->DecayUnblocked();
     }
   }
@@ -1393,7 +1397,6 @@ void Router::Flush() {
   }
 
   if (dead_outward_link) {
-    // May delete `this`.
     dead_outward_link->Deactivate();
   }
 }
