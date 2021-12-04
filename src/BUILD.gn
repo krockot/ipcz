@@ -126,6 +126,7 @@ source_set("core") {
     "core/router_link_state.h",
     "core/routing_id.h",
     "core/sequence_number.h",
+    "core/side.cc",
     "core/side.h",
     "core/trap.cc",
     "core/trap.h",
