@@ -620,6 +620,7 @@ IpczResult Router::ArmTrap(Trap& trap,
                            IpczTrapConditionFlags& satistfied_conditions,
                            IpczPortalStatus* status) {
   absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(traps_.Contains(trap));
   IpczResult result = trap.Arm(status_, satistfied_conditions);
   if (result != IPCZ_RESULT_OK && status) {
     const size_t size = std::min(status_.size, status->size);

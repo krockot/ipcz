@@ -64,6 +64,7 @@ class TrapSet {
   TrapSet& operator=(TrapSet&&);
   ~TrapSet();
 
+  bool Contains(Trap& trap) const;
   IpczResult Add(std::unique_ptr<Trap> trap);
   IpczResult Remove(Trap& trap);
   void MaybeNotify(TrapEventDispatcher& dispatcher,

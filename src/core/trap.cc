@@ -99,6 +99,10 @@ TrapSet& TrapSet::operator=(TrapSet&&) = default;
 
 TrapSet::~TrapSet() = default;
 
+bool TrapSet::Contains(Trap& trap) const {
+  return traps_.find(&trap) != traps_.end();
+}
+
 IpczResult TrapSet::Add(std::unique_ptr<Trap> trap) {
   traps_.insert(std::move(trap));
   return IPCZ_RESULT_OK;
