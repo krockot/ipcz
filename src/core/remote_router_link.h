@@ -50,6 +50,7 @@ class RemoteRouterLink : public RouterLink {
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
   void ProxyWillStop(SequenceNumber sequence_length) override;
   void DecayUnblocked() override;
+  std::string Describe() const override;
   void LogRouteTrace(Side toward_side) override;
 
  private:

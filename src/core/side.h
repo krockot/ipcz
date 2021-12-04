@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
 
 namespace ipcz {
 namespace core {
@@ -15,14 +16,9 @@ namespace core {
 // PortalLink. There's no special meaning or difference in behavior between the
 // "left" or "right" side, they're merely monikers used to differentiate between
 // one side and the other wherever we need to index any two-sided shared state.
-// kPredecessor and kSuccessor are aliases for kLeft and kRight, as successor
-// and predecessor links are always two sides of the same route and always exist
-// on the same side (left or right) of a portal pair.
 enum class Side : uint8_t {
   kLeft = 0,
-  kPredecessor = 0,
   kRight = 1,
-  kSuccessor = 1,
 };
 
 inline Side Opposite(Side side) {
@@ -31,6 +27,10 @@ inline Side Opposite(Side side) {
 
 inline uint8_t SideIndex(Side side) {
   return static_cast<uint8_t>(side);
+}
+
+inline std::string DescribeSide(Side side) {
+  return side == Side::kLeft ? "left" : "right";
 }
 
 // Helper for a fixed array type that can be indexed by a Side. Useful in common

@@ -6,6 +6,7 @@
 #define IPCZ_SRC_CORE_ROUTER_LINK_H_
 
 #include <cstddef>
+#include <string>
 
 #include "core/node_name.h"
 #include "core/routing_id.h"
@@ -46,6 +47,8 @@ class RouterLink : public mem::RefCounted {
   virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
   virtual void ProxyWillStop(SequenceNumber sequence_length) = 0;
   virtual void DecayUnblocked() = 0;
+
+  virtual std::string Describe() const = 0;
   virtual void LogRouteTrace(Side toward_side) = 0;
 
  protected:

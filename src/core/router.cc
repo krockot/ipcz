@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <forward_list>
@@ -45,51 +44,11 @@ namespace core {
 namespace {
 
 std::string DescribeLink(const mem::Ref<RouterLink>& link) {
-  std::stringstream ss;
   if (!link) {
     return "no link";
   }
 
-  mem::Ref<Router> local_target = link->GetLocalTarget();
-  if (local_target) {
-    ss << "link to local peer on side "
-       << static_cast<int>(local_target->side());
-  } else {
-    auto& remote_link = static_cast<RemoteRouterLink&>(*link);
-    ss << "link on " << remote_link.node_link()->node()->name().ToString()
-       << " to " << remote_link.node_link()->remote_node_name().ToString()
-       << " via routing ID " << remote_link.routing_id();
-  }
-  return ss.str();
-}
-
-std::string DescribeParcel(Parcel& parcel) {
-  std::stringstream ss;
-  ss << parcel.sequence_number() << " (";
-  if (!parcel.data_view().empty()) {
-    // Cheesy heuristic: if the first character is an ASCII letter or number,
-    // assume the parcel data is human-readable and print a few characters.
-    if (std::isalnum(parcel.data_view()[0])) {
-      const absl::Span<const uint8_t> preview =
-          parcel.data_view().subspan(0, 8);
-      ss << "\"" << std::string(preview.begin(), preview.end());
-      if (preview.size() < parcel.data_view().size()) {
-        ss << "...\", " << parcel.data_view().size() << " bytes";
-      } else {
-        ss << '"';
-      }
-    }
-  } else {
-    ss << "no data";
-  }
-  if (!parcel.portals_view().empty()) {
-    ss << ", " << parcel.portals_view().size() << " portals";
-  }
-  if (!parcel.os_handles_view().empty()) {
-    ss << ", " << parcel.os_handles_view().size() << " handles";
-  }
-  ss << ")";
-  return ss.str();
+  return link->Describe();
 }
 
 std::string DescribeOptionalLength(absl::optional<SequenceNumber> length) {
@@ -207,13 +166,13 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
     parcel.set_sequence_number(outbound_sequence_length_++);
     link = outward_.link;
     if (!link || outbound_transmission_paused_) {
-      DVLOG(4) << "Buffering parcel " << DescribeParcel(parcel);
+      DVLOG(4) << "Buffering " << parcel.Describe();
       const bool ok = outward_.parcels.Push(std::move(parcel));
       ABSL_ASSERT(ok);
       return IPCZ_RESULT_OK;
     }
 
-    DVLOG(4) << "Sending parcel " << DescribeParcel(parcel) << " over "
+    DVLOG(4) << "Sending " << parcel.Describe() << " over "
              << DescribeLink(link);
   }
 
@@ -380,25 +339,25 @@ bool Router::AcceptParcelFrom(NodeLink& link,
     // Inbound parcels arrive from outward links and outbound parcels arrive
     // from inward links.
     if (outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << DescribeParcel(parcel) << " received by "
+      DVLOG(4) << "Inbound parcel " << parcel.Describe() << " received by "
                << DescribeLink(outward_.link);
 
       is_inbound = true;
     } else if (outward_.decaying_proxy_link &&
                outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound parcel " << DescribeParcel(parcel) << " received by "
+      DVLOG(4) << "Inbound parcel " << parcel.Describe() << " received by "
                << DescribeLink(outward_.decaying_proxy_link);
 
       is_inbound = true;
     } else if (inward_.link && inward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << DescribeParcel(parcel)
-               << " received by " << DescribeLink(inward_.link);
+      DVLOG(4) << "Outbound parcel " << parcel.Describe() << " received by "
+               << DescribeLink(inward_.link);
 
       is_inbound = false;
     } else if (inward_.decaying_proxy_link &&
                inward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound parcel " << DescribeParcel(parcel)
-               << " received by " << DescribeLink(inward_.decaying_proxy_link);
+      DVLOG(4) << "Outbound parcel " << parcel.Describe() << " received by "
+               << DescribeLink(inward_.decaying_proxy_link);
 
       is_inbound = false;
     } else {
@@ -1269,7 +1228,7 @@ void Router::Flush() {
       bool ok = outward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding outbound parcel " << DescribeParcel(parcel)
+      DVLOG(4) << "Forwarding outbound parcel " << parcel.Describe()
                << " over outward decaying "
                << DescribeLink(decaying_outward_proxy);
 
@@ -1306,7 +1265,7 @@ void Router::Flush() {
     if (outward_link && !outbound_transmission_paused_ &&
         (!decaying_outward_proxy || !still_sending_to_outward_proxy)) {
       while (outward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding outbound parcel " << DescribeParcel(parcel)
+        DVLOG(4) << "Forwarding outbound parcel " << parcel.Describe()
                  << " over outward " << DescribeLink(outward_link);
 
         outbound_parcels.push_back(std::move(parcel));
@@ -1320,7 +1279,7 @@ void Router::Flush() {
       bool ok = inward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
-      DVLOG(4) << "Forwarding inbound parcel " << DescribeParcel(parcel)
+      DVLOG(4) << "Forwarding inbound parcel " << parcel.Describe()
                << " over inward decaying "
                << DescribeLink(decaying_inward_proxy);
 
@@ -1358,7 +1317,7 @@ void Router::Flush() {
     if (inward_link &&
         (!decaying_inward_proxy || !still_sending_to_inward_proxy)) {
       while (inward_.parcels.Pop(parcel)) {
-        DVLOG(4) << "Forwarding inbound parcel " << DescribeParcel(parcel)
+        DVLOG(4) << "Forwarding inbound parcel " << parcel.Describe()
                  << " over inward " << DescribeLink(inward_link);
 
         inbound_parcels.push_back(std::move(parcel));
@@ -1474,7 +1433,8 @@ bool Router::MaybeInitiateSelfRemoval() {
       // Finally we can only begin to decay if our peer hasn't already begun
       // decaying itself.
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.other_side().is_blocking_decay) {
+      if (state.this_side().is_blocking_decay ||
+          state.other_side().is_blocking_decay) {
         DVLOG(4) << "Proxy self-removal blocked by busy "
                  << DescribeLink(outward_.link);
         return false;

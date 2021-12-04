@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "core/sequence_number.h"
@@ -55,7 +56,15 @@ class Parcel {
     return absl::MakeSpan(portals_);
   }
 
+  absl::Span<const mem::Ref<Portal>> portals_view() const {
+    return absl::MakeSpan(portals_);
+  }
+
   absl::Span<os::Handle> os_handles_view() {
+    return absl::MakeSpan(os_handles_);
+  }
+
+  absl::Span<const os::Handle> os_handles_view() const {
     return absl::MakeSpan(os_handles_);
   }
 
@@ -65,6 +74,10 @@ class Parcel {
                       IpczOSHandle* os_handles);
 
   PortalVector TakePortals();
+
+  // Produces a log-friendly description of the Parcel, useful for various
+  // debugging log messages.
+  std::string Describe() const;
 
  private:
   void ConsumePortalsAndHandles(IpczHandle* portals, IpczOSHandle* os_handles);

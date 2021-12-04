@@ -4,6 +4,7 @@
 
 #include "core/local_router_link.h"
 
+#include <string>
 #include <utility>
 
 #include "core/router.h"
@@ -120,6 +121,11 @@ void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
 
 void LocalRouterLink::DecayUnblocked() {
   state_->side(Opposite(side_))->OnDecayUnblocked();
+}
+
+std::string LocalRouterLink::Describe() const {
+  return DescribeSide(side_) + "-side link to local peer on " +
+         DescribeSide(Opposite(side_)) + " side";
 }
 
 void LocalRouterLink::LogRouteTrace(Side toward_side) {

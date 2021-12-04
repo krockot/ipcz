@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <sstream>
 #include <utility>
 #include <vector>
 
@@ -188,6 +189,14 @@ void RemoteRouterLink::DecayUnblocked() {
   msg::DecayUnblocked unblocked;
   unblocked.params.routing_id = routing_id_;
   node_link()->Transmit(unblocked);
+}
+
+std::string RemoteRouterLink::Describe() const {
+  std::stringstream ss;
+  ss << "link on " << node_link_->node()->name().ToString() << " to "
+     << node_link_->remote_node_name().ToString() << " via routing ID "
+     << routing_id_;
+  return ss.str();
 }
 
 void RemoteRouterLink::LogRouteTrace(Side toward_side) {
