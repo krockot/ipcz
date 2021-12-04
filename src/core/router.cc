@@ -1224,8 +1224,9 @@ void Router::Flush() {
 
     // Flush any outbound parcels destined for a decaying outward link.
     while (outward_.parcels.HasNextParcel() && outward_.decaying_proxy_link &&
-           outward_.parcels.current_sequence_number() <
-               *outward_.sequence_length_to_decaying_link) {
+           (!outward_.sequence_length_to_decaying_link ||
+            outward_.parcels.current_sequence_number() <
+                *outward_.sequence_length_to_decaying_link)) {
       bool ok = outward_.parcels.Pop(parcel);
       ABSL_ASSERT(ok);
 
@@ -1243,8 +1244,9 @@ void Router::Flush() {
             : outbound_sequence_length_;
     const bool still_sending_to_outward_proxy =
         decaying_outward_proxy &&
-        next_outbound_sequence_number <
-            *outward_.sequence_length_to_decaying_link;
+        (!outward_.sequence_length_to_decaying_link ||
+         next_outbound_sequence_number <
+             *outward_.sequence_length_to_decaying_link);
     if (decaying_outward_proxy && !still_sending_to_outward_proxy) {
       const bool still_receiving_from_outward_proxy =
           (!outward_.sequence_length_from_decaying_link ||
