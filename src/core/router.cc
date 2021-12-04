@@ -427,7 +427,6 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
     side_closed_ = true;
-    ABSL_ASSERT(inward_.link);
     if (!outward_.closure_propagated && !outbound_transmission_paused_ &&
         outward_.link) {
       forwarding_link = outward_.link;
