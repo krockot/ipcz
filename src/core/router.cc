@@ -476,6 +476,10 @@ IpczResult Router::GetNextIncomingParcel(void* data,
                                          uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
   absl::MutexLock lock(&mutex_);
+  if (inward_.link) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
   if (!inward_.parcels.HasNextParcel()) {
     if (inward_.parcels.IsDead()) {
       return IPCZ_RESULT_NOT_FOUND;
@@ -525,6 +529,10 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
                                               uint32_t* num_portals,
                                               uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
+  if (inward_.link) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
   if (!inward_.parcels.HasNextParcel()) {
     return IPCZ_RESULT_UNAVAILABLE;
   }
@@ -558,6 +566,9 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
                                                uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
   absl::MutexLock lock(&mutex_);
+  if (inward_.link) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
   if (!inward_.parcels.HasNextParcel()) {
     // If ipcz is used correctly this is impossible.
     return IPCZ_RESULT_INVALID_ARGUMENT;
