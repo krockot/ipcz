@@ -297,14 +297,11 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     // bidirectional proxy. We need to set its inward link accordingly.
     inward_.link = std::move(link);
 
-    // We must also configure its outward ParcelQueue. Note that this Router
-    // has definitely never been a proxy until now, so it either remains
-    // without an outward link (e.g. because it's still waiting for a Node
-    // connection or introduction) and is already queueing outbound parcels,
-    // or it has already transmitted some parcels and we must configure the
-    // outward queue to begin queueing at the next outbound SequenceNumber.
-    ABSL_ASSERT(!outward_.link || outward_.parcels.IsEmpty());
-    if (!outward_.link) {
+    // We must also configure its outward ParcelQueue. Note that if the Router
+    // has no outward link or outbound transmission is paused, the queue may
+    // be in use and non-empty already. Otherwise its base SequenceNumber should
+    // start at the Router's next outbound SequenceNumber.
+    if (!outward_.parcels.IsEmpty()) {
       outward_.parcels.ResetBaseSequenceNumber(outbound_sequence_length_);
     }
   }
