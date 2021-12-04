@@ -400,20 +400,17 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
   {
     absl::MutexLock lock(&mutex_);
 
-    // We must have an inward link if we're accepting an outbound parcel,
-    // because we only accept outbound parcels from inward links.
-    ABSL_ASSERT(inward_.link || inward_.decaying_proxy_link);
-
     // Proxied outbound parcels are always queued in a ParcelQueue even if they
-    // will be immediately forwarded. This allows us to track the full sequence
+    // will be forwarded immediately. This allows us to track the full sequence
     // of forwarded parcels so we can know with certainty when we're done
     // forwarding.
+    //
+    // TODO: Using a queue here may increase latency along the route, because it
+    // it unnecessarily forces in-order forwarding. We could use an unordered
+    // queue for forwarding, but we'd still need some lighter-weight abstraction
+    // that tracks complete sequences from potentially fragmented contributions.
     if (!outward_.parcels.Push(std::move(parcel))) {
       return false;
-    }
-
-    if (!outward_.link || outbound_transmission_paused_) {
-      return true;
     }
   }
 
