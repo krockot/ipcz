@@ -9,6 +9,7 @@
 
 #include "core/router_link.h"
 #include "core/side.h"
+#include "core/two_sided.h"
 #include "mem/ref_counted.h"
 
 namespace ipcz {

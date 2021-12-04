@@ -10,7 +10,7 @@
 
 #include "core/node_messages.h"
 #include "core/node_name.h"
-#include "core/side.h"
+#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"

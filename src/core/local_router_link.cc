@@ -63,7 +63,7 @@ RouterLinkState& LocalRouterLink::GetLinkState() {
 }
 
 mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
-  return state_->side(Opposite(side_));
+  return state_->side(side_.opposite());
 }
 
 bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
@@ -77,17 +77,17 @@ bool LocalRouterLink::IsLinkToOtherSide() {
 
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
                                               const IpczPutLimits& limits) {
-  return state_->side(Opposite(side_))
+  return state_->side(side_.opposite())
       ->WouldInboundParcelExceedLimits(data_size, limits);
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  state_->side(Opposite(side_))->AcceptInboundParcel(parcel);
+  state_->side(side_.opposite())->AcceptInboundParcel(parcel);
 }
 
 void LocalRouterLink::AcceptRouteClosure(Side side,
                                          SequenceNumber sequence_length) {
-  state_->side(Opposite(side_))->AcceptRouteClosure(side, sequence_length);
+  state_->side(side_.opposite())->AcceptRouteClosure(side, sequence_length);
 }
 
 void LocalRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
@@ -117,12 +117,12 @@ void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
 }
 
 void LocalRouterLink::DecayUnblocked() {
-  state_->side(Opposite(side_))->OnDecayUnblocked();
+  state_->side(side_.opposite())->OnDecayUnblocked();
 }
 
 std::string LocalRouterLink::Describe() const {
-  return DescribeSide(side_) + "-side link to local peer on " +
-         DescribeSide(Opposite(side_)) + " side";
+  return side_.ToString() + "-side link to local peer on " +
+         side_.opposite().ToString() + " side";
 }
 
 void LocalRouterLink::LogRouteTrace(Side toward_side) {

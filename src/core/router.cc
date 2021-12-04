@@ -27,6 +27,7 @@
 #include "core/sequence_number.h"
 #include "core/trap.h"
 #include "core/trap_event_dispatcher.h"
+#include "core/two_sided.h"
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -678,8 +679,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       descriptor.decaying_incoming_sequence_length =
           local_peer->outbound_sequence_length_;
 
-      DVLOG(4) << "Splitting local pair to move side "
-               << static_cast<int>(side_) << " with outbound sequence length "
+      DVLOG(4) << "Splitting local pair to move " << side_.ToString()
+               << " side with outbound sequence length "
                << outbound_sequence_length_ << " and current inbound sequence"
                << " number " << descriptor.next_incoming_sequence_number;
 
@@ -699,8 +700,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     descriptor.next_incoming_sequence_number =
         inward_.parcels.current_sequence_number();
 
-    DVLOG(4) << "Extending route on side " << static_cast<int>(side_)
-             << " with outbound sequence length " << outbound_sequence_length_
+    DVLOG(4) << "Extending route on " << side_.ToString() << " side with "
+             << " outbound sequence length " << outbound_sequence_length_
              << " and current inbound sequence number "
              << descriptor.next_incoming_sequence_number;
 
@@ -792,15 +793,14 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
               ? descriptor.decaying_incoming_sequence_length
               : descriptor.next_incoming_sequence_number;
 
-      DVLOG(4) << "Route side " << static_cast<int>(router->side_)
-               << " moved from split pair on "
+      DVLOG(4) << "Route " << router->side_.ToString() << " side moved from "
+               << "split pair on "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.node()->name().ToString() << " via routing ID "
                << descriptor.new_routing_id << " and decaying routing ID "
                << descriptor.new_decaying_routing_id;
     } else {
-      DVLOG(4) << "Route side " << static_cast<int>(router->side_)
-               << " extended from "
+      DVLOG(4) << "Route " << router->side_.ToString() << " side extended from "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.node()->name().ToString() << " via routing ID "
                << descriptor.new_routing_id;
@@ -887,7 +887,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       requesting_node_link.GetRouter(proxy_peer_routing_id);
   SequenceNumber proxied_inbound_sequence_length;
   SequenceNumber proxied_outbound_sequence_length;
-  if (!new_local_peer || new_local_peer->side_ != Opposite(side_)) {
+  if (!new_local_peer || new_local_peer->side_ != side_.opposite()) {
     return false;
   }
 
@@ -929,7 +929,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // own outward link and our new local peer's outward link.
     TwoSided<mem::Ref<Router>> routers;
     routers[side_] = mem::WrapRefCounted(this);
-    routers[Opposite(side_)] = new_local_peer;
+    routers[side_.opposite()] = new_local_peer;
     TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
 
     // Block any further decay until both sides of the bypass route are

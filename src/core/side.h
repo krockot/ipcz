@@ -5,55 +5,36 @@
 #ifndef IPCZ_SRC_CORE_SIDE_H_
 #define IPCZ_SRC_CORE_SIDE_H_
 
-#include <array>
 #include <cstdint>
 #include <string>
 
 namespace ipcz {
 namespace core {
 
-// Typesafe enumeration for identifying two distinct sides of a portal pair or
-// PortalLink. There's no special meaning or difference in behavior between the
-// "left" or "right" side, they're merely monikers used to differentiate between
-// one side and the other wherever we need to index any two-sided shared state.
-enum class Side : uint8_t {
-  kLeft = 0,
-  kRight = 1,
-};
+// A simple wrapper around a left/right enum, with some convenience methods.
+// Used to label routers along a route as left- or right-sided, and also
+// generally used to index TwoSided object pairs.
+struct Side {
+  enum Value : uint8_t {
+    kLeft = 0,
+    kRight = 1,
+  };
 
-inline Side Opposite(Side side) {
-  return side == Side::kLeft ? Side::kRight : Side::kLeft;
-}
+  constexpr Side() = default;
+  constexpr Side(Value value) : value_(value) {}
 
-inline uint8_t SideIndex(Side side) {
-  return static_cast<uint8_t>(side);
-}
+  bool is_left() const { return value_ == kLeft; }
+  bool is_right() const { return value_ == kRight; }
 
-inline std::string DescribeSide(Side side) {
-  return side == Side::kLeft ? "left" : "right";
-}
+  Value value() const { return value_; }
+  Side opposite() const { return is_left() ? kRight : kLeft; }
 
-// Helper for a fixed array type that can be indexed by a Side. Useful in common
-// shared state structures.
-template <typename T>
-struct TwoSided : public std::array<T, 2> {
-  TwoSided() = default;
-  TwoSided(T&& left, T&& right)
-      : std::array<T, 2>({std::move(left), std::move(right)}) {}
+  operator Value() const { return value_; }
 
-  T& operator[](Side side) {
-    return static_cast<std::array<T, 2>&>(*this)[SideIndex(side)];
-  }
+  std::string ToString() const { return value_ == kLeft ? "left" : "right"; }
 
-  const T& operator[](Side side) const {
-    return static_cast<const std::array<T, 2>&>(*this)[SideIndex(side)];
-  }
-
-  T& left() { return (*this)[Side::kLeft]; }
-  const T& left() const { return (*this)[Side::kLeft]; }
-
-  T& right() { return (*this)[Side::kRight]; }
-  const T& right() const { return (*this)[Side::kRight]; }
+ private:
+  Value value_ = kLeft;
 };
 
 }  // namespace core

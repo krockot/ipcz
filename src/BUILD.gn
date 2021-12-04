@@ -131,6 +131,7 @@ source_set("core") {
     "core/trap.h",
     "core/trap_event_dispatcher.cc",
     "core/trap_event_dispatcher.h",
+    "core/two_sided.h",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]

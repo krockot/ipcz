@@ -163,7 +163,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // decaying link, so we preemptively mark their side as busy. If our side is
   // busy, the bit will be set in SetOutwardLink() below when we adopt the link.
   RouterLinkState& state = new_link->GetLinkState();
-  state.unsafe_sides()[Opposite(new_peer->side())].is_blocking_decay = true;
+  state.unsafe_sides()[new_peer->side().opposite()].is_blocking_decay = true;
 
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the parcels would arrive on

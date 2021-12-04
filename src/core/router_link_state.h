@@ -10,6 +10,7 @@
 #include "core/node_name.h"
 #include "core/sequence_number.h"
 #include "core/side.h"
+#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
@@ -49,7 +50,7 @@ struct IPCZ_ALIGN(16) RouterLinkState {
     ~Locked();
 
     SideState& this_side() { return state_.sides_[side_]; }
-    SideState& other_side() { return state_.sides_[Opposite(side_)]; }
+    SideState& other_side() { return state_.sides_[side_.opposite()]; }
 
    private:
     const Side side_;

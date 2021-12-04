@@ -9,7 +9,7 @@
 #include <utility>
 
 #include "core/parcel.h"
-#include "core/side.h"
+#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"

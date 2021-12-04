@@ -181,8 +181,8 @@ class Router : public mem::RefCounted {
                            RoutingId proxy_peer_routing_id,
                            absl::uint128 bypass_key);
   bool BypassProxyWithNewLink(mem::Ref<RouterLink> new_peer,
-                     absl::uint128 bypass_key,
-                     SequenceNumber proxy_outbound_sequence_length);
+                              absl::uint128 bypass_key,
+                              SequenceNumber proxy_outbound_sequence_length);
   bool BypassProxyWithNewLinkToSameNode(
       mem::Ref<RouterLink> new_peer,
       SequenceNumber sequence_length_from_proxy);

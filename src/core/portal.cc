@@ -19,6 +19,7 @@
 #include "core/router.h"
 #include "core/side.h"
 #include "core/trap.h"
+#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"

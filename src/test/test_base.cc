@@ -182,7 +182,7 @@ bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
 
 void TestBase::LogPortalRoute(IpczHandle a) {
   mem::Ref<core::Router> router = reinterpret_cast<core::Portal*>(a)->router();
-  router->LogRouteTrace(core::Opposite(router->side()));
+  router->LogRouteTrace(router->side().opposite());
 }
 
 }  // namespace test
