@@ -890,9 +890,9 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   // The proxy's outward peer lives on the same node as this router, so we can
   // skip some messaging and locally link the two routers together right now.
 
-  mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
   mem::Ref<Router> new_local_peer =
       requesting_node_link.GetRouter(proxy_peer_routing_id);
+  mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
   SequenceNumber proxied_inbound_sequence_length;
   SequenceNumber proxied_outbound_sequence_length;
   if (!new_local_peer || new_local_peer->side_ != side_.opposite()) {
@@ -946,6 +946,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // Note that the use of the left link is arbitrary here: both the left and
     // right links share the same RouterLinkState.
     RouterLinkState& state = links.left()->GetLinkState();
+    ABSL_ASSERT(&state == &links.right()->GetLinkState());
     state.unsafe_sides().left().is_blocking_decay = true;
     state.unsafe_sides().right().is_blocking_decay = true;
 
@@ -956,11 +957,11 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     routers.right()->outward_.link = std::move(links.right());
   }
 
-  if (!previous_outward_link_from_new_local_peer) {
-    // TODO: The local peer must have been closed. Tear down the route.
-  } else {
+  if (previous_outward_link_from_new_local_peer) {
     previous_outward_link_from_new_local_peer->StopProxying(
         proxied_inbound_sequence_length, proxied_outbound_sequence_length);
+  } else {
+    // TODO: The local peer must have been closed. Tear down the route.
   }
 
   Flush();
@@ -1069,11 +1070,11 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     decaying_proxy = std::move(outward_.link);
     outward_.link = std::move(new_peer);
 
-    outward_.decaying_proxy_link = decaying_proxy;
-    outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
-    outward_.sequence_length_from_decaying_link = sequence_length_from_proxy;
-
     sequence_length_to_proxy = outbound_sequence_length_;
+
+    outward_.decaying_proxy_link = decaying_proxy;
+    outward_.sequence_length_to_decaying_link = sequence_length_to_proxy;
+    outward_.sequence_length_from_decaying_link = sequence_length_from_proxy;
   }
 
   ABSL_ASSERT(decaying_proxy);
