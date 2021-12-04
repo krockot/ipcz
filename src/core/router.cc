@@ -198,6 +198,8 @@ void Router::CloseRoute() {
 
     forwarding_link = outward_.link;
 
+    // If we're paused we may have some outbound parcels buffered. Don't drop
+    // the outward link yet in that case.
     if (outward_.parcels.IsEmpty()) {
       std::swap(dead_outward_link, outward_.link);
     }
@@ -208,7 +210,6 @@ void Router::CloseRoute() {
   forwarding_link->AcceptRouteClosure(side_, final_sequence_length);
 
   if (dead_outward_link) {
-    // May delete `this`.
     dead_outward_link->Deactivate();
   }
 }

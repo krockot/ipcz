@@ -88,6 +88,11 @@ class Router : public mem::RefCounted {
   //
   // Returns the SequenceNumber of the first parcel that will be sent over that
   // link if any parcels are sent over it.
+  //
+  // NOTE: This is NOT safe to call when the other side of the link is already
+  // in active use by another Router, as `this` Router may already be in a
+  // transitional state and must be able to block decay around `link` from
+  // within this call.
   SequenceNumber SetOutwardLink(mem::Ref<RouterLink> link);
 
   // Provides the Router with a new inward link to which it should forward all
