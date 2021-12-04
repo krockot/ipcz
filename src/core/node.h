@@ -10,6 +10,7 @@
 
 #include "core/node_messages.h"
 #include "core/node_name.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/memory.h"
@@ -42,7 +43,7 @@ class Node : public mem::RefCounted {
                          Type remote_node_type,
                          os::Process remote_process,
                          absl::Span<IpczHandle> initial_portals);
-  std::pair<mem::Ref<Portal>, mem::Ref<Portal>> OpenPortals();
+  TwoSided<mem::Ref<Portal>> OpenPortals();
 
   mem::Ref<NodeLink> GetLink(const NodeName& name);
 

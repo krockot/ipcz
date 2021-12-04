@@ -48,6 +48,12 @@ struct TwoSided : public std::array<T, 2> {
   const T& operator[](Side side) const {
     return static_cast<const std::array<T, 2>&>(*this)[SideIndex(side)];
   }
+
+  T& left() { return (*this)[Side::kLeft]; }
+  const T& left() const { return (*this)[Side::kLeft]; }
+
+  T& right() { return (*this)[Side::kRight]; }
+  const T& right() const { return (*this)[Side::kRight]; }
 };
 
 }  // namespace core

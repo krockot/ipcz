@@ -808,8 +808,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
   }
 
   if (descriptor.proxy_peer_node_name.is_valid()) {
-    // The predecessor is already a half-proxy and has given us the means to
-    // initiate its own bypass.
+    // Our predecessor has given us the means to initiate its own bypass.
     router->InitiateProxyBypass(from_node_link, descriptor.new_routing_id,
                                 descriptor.proxy_peer_node_name,
                                 descriptor.proxy_peer_routing_id,
@@ -840,132 +839,124 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     }
   }
 
-  if (proxy_peer_node_name == requesting_node_link.node()->name()) {
-    // A special case where we have 3 portals P Q and R, with Q proxying between
-    // P and R, and with P and R living on the same node. In this case,
-    // bypassing Q will result in P and R becoming directly linked local peers.
-    // In this case we set up R with a decaying outward proxy link to Q, from
-    // whom R may receive inbound parcels already sent by P to Q. R will not use
-    // this link to convey any proxied parcels to R. P also temporarily retains
-    // its its outward link to Q as a decaying link until P has forwarded to Q
-    // any parcels up to and including the highest sequence number already
-    // transmitted to Q: note that P itself may be a proxy, so there's no
-    // guarantee that it's transmitting outbound parcels to Q in strict sequence
-    // order.
-
-    mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
-    mem::Ref<Router> new_local_peer =
-        requesting_node_link.GetRouter(proxy_peer_routing_id);
-    SequenceNumber proxied_inbound_sequence_length;
-    SequenceNumber proxied_outbound_sequence_length;
-    if (!new_local_peer) {
-      return false;
-    }
-
-    ABSL_ASSERT(new_local_peer->side_ == Opposite(side_));
+  if (proxy_peer_node_name != requesting_node_link.node()->name()) {
+    // Common case: the proxy's outward peer is NOT on the same node as we are.
+    // In this case we send a BypassProxy request to that node, which may
+    // require an introduction first.
     {
-      TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
-
-      proxied_inbound_sequence_length =
-          new_local_peer->outbound_sequence_length_;
-      proxied_outbound_sequence_length = outbound_sequence_length_;
-      previous_outward_link_from_new_local_peer =
-          std::move(new_local_peer->outward_.link);
-
-      DVLOG(4) << "Initiating proxy bypass with new local peer on "
-               << proxy_peer_node_name.ToString() << " and proxy links to "
-               << requesting_node_link.remote_node_name().ToString()
-               << " on routing IDs " << proxy_peer_routing_id << " and "
-               << requesting_routing_id << "; inbound length "
-               << proxied_inbound_sequence_length << " and outbound length "
-               << proxied_outbound_sequence_length;
-
-      // We get a decaying outward link to the proxy, only to accept inbound
-      // parcels already sent to it by our new local peer.
-      ABSL_ASSERT(!outward_.decaying_proxy_link);
+      // Begin decaying our outward link. We don't know the sequence length
+      // coming from it yet, but that will be revealed by a subsequent
+      // ProxyWillStop message back to us.
+      absl::MutexLock lock(&mutex_);
       outward_.decaying_proxy_link = std::move(outward_.link);
-      outward_.sequence_length_from_decaying_link =
-          proxied_inbound_sequence_length;
-      outward_.sequence_length_to_decaying_link =
-          proxied_outbound_sequence_length;
-
-      // Our new local peer gets a decaying outward link to the proxy, only to
-      // forward outbound parcels already expected by the proxy.
-      ABSL_ASSERT(!new_local_peer->outward_.decaying_proxy_link);
-      new_local_peer->outward_.decaying_proxy_link =
-          previous_outward_link_from_new_local_peer;
-      new_local_peer->outward_.sequence_length_to_decaying_link =
-          proxied_inbound_sequence_length;
-      new_local_peer->outward_.sequence_length_from_decaying_link =
-          proxied_outbound_sequence_length;
-
-      // Finally, create a new LocalRouterLink and use it to replace both our
-      // own outward link and our new local peer's outward link.
-      mem::Ref<Router> left =
-          side_ == Side::kLeft ? mem::WrapRefCounted(this) : new_local_peer;
-      mem::Ref<Router> right =
-          side_ == Side::kLeft ? new_local_peer : mem::WrapRefCounted(this);
-      ABSL_ASSERT(right->side() == Side::kRight);
-      left->mutex_.AssertHeld();
-      right->mutex_.AssertHeld();
-      mem::Ref<RouterLink> left_link;
-      mem::Ref<RouterLink> right_link;
-      std::tie(left_link, right_link) =
-          LocalRouterLink::CreatePair(left, right);
-
-      // Block any further decay until both sides of the bypass route are
-      // finished with the proxy.
-      RouterLinkState& state = left_link->GetLinkState();
-      state.unsafe_sides()[Side::kLeft].is_blocking_decay = true;
-      state.unsafe_sides()[Side::kRight].is_blocking_decay = true;
-
-      left->outward_.link = std::move(left_link);
-      right->outward_.link = std::move(right_link);
+      outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
     }
 
-    if (!previous_outward_link_from_new_local_peer) {
-      // The local peer must have been closed.
-    } else {
-      previous_outward_link_from_new_local_peer->StopProxying(
-          proxied_inbound_sequence_length, proxied_outbound_sequence_length);
+    mem::Ref<NodeLink> new_peer_node =
+        requesting_node_link.node()->GetLink(proxy_peer_node_name);
+    if (new_peer_node) {
+      new_peer_node->BypassProxy(requesting_node_link.remote_node_name(),
+                                 proxy_peer_routing_id, bypass_key,
+                                 mem::WrapRefCounted(this));
+      return true;
     }
 
-    Flush();
-    new_local_peer->Flush();
+    requesting_node_link.node()->EstablishLink(
+        proxy_peer_node_name,
+        [requesting_node_name = requesting_node_link.remote_node_name(),
+         proxy_peer_routing_id, bypass_key,
+         self = mem::WrapRefCounted(this)](NodeLink* new_link) {
+          if (!new_link) {
+            // TODO: failure to connect to a node here should result in route
+            // destruction. This is not the same as closure since we can't
+            // guarantee any sequence length.
+            return;
+          }
+
+          new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
+                                bypass_key, self);
+        });
     return true;
+  }
+
+  // The proxy's outward peer lives on the same node as this router, so we can
+  // skip some messaging and locally link the two routers together right now.
+
+  mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
+  mem::Ref<Router> new_local_peer =
+      requesting_node_link.GetRouter(proxy_peer_routing_id);
+  SequenceNumber proxied_inbound_sequence_length;
+  SequenceNumber proxied_outbound_sequence_length;
+  if (!new_local_peer || new_local_peer->side_ != Opposite(side_)) {
+    return false;
   }
 
   {
-    // Ensure no more parcels get sent to the current outward link.
-    absl::MutexLock lock(&mutex_);
+    TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
+    proxied_inbound_sequence_length = new_local_peer->outbound_sequence_length_;
+    proxied_outbound_sequence_length = outbound_sequence_length_;
+    previous_outward_link_from_new_local_peer =
+        std::move(new_local_peer->outward_.link);
+
+    DVLOG(4) << "Initiating proxy bypass with new local peer on "
+             << proxy_peer_node_name.ToString() << " and proxy links to "
+             << requesting_node_link.remote_node_name().ToString()
+             << " on routing IDs " << proxy_peer_routing_id << " and "
+             << requesting_routing_id << "; inbound length "
+             << proxied_inbound_sequence_length << " and outbound length "
+             << proxied_outbound_sequence_length;
+
+    // We get a decaying outward link to the proxy, only to accept inbound
+    // parcels already sent to it by our new local peer.
+    ABSL_ASSERT(!outward_.decaying_proxy_link);
     outward_.decaying_proxy_link = std::move(outward_.link);
-    outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
-  }
-  mem::Ref<NodeLink> new_peer_node =
-      requesting_node_link.node()->GetLink(proxy_peer_node_name);
-  if (new_peer_node) {
-    new_peer_node->BypassProxy(requesting_node_link.remote_node_name(),
-                               proxy_peer_routing_id, bypass_key,
-                               mem::WrapRefCounted(this));
-    return true;
+    outward_.sequence_length_from_decaying_link =
+        proxied_inbound_sequence_length;
+    outward_.sequence_length_to_decaying_link =
+        proxied_outbound_sequence_length;
+
+    // Our new local peer gets a decaying outward link to the proxy, only to
+    // forward outbound parcels already expected by the proxy.
+    ABSL_ASSERT(!new_local_peer->outward_.decaying_proxy_link);
+    new_local_peer->outward_.decaying_proxy_link =
+        previous_outward_link_from_new_local_peer;
+    new_local_peer->outward_.sequence_length_to_decaying_link =
+        proxied_inbound_sequence_length;
+    new_local_peer->outward_.sequence_length_from_decaying_link =
+        proxied_outbound_sequence_length;
+
+    // Finally, create a new LocalRouterLink and use it to replace both our
+    // own outward link and our new local peer's outward link.
+    TwoSided<mem::Ref<Router>> routers;
+    routers[side_] = mem::WrapRefCounted(this);
+    routers[Opposite(side_)] = new_local_peer;
+    TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
+
+    // Block any further decay until both sides of the bypass route are
+    // finished with the proxy.
+    //
+    // Note that the use of the left link is arbitrary here: both the left and
+    // right links share the same RouterLinkState.
+    RouterLinkState& state = links.left()->GetLinkState();
+    state.unsafe_sides().left().is_blocking_decay = true;
+    state.unsafe_sides().right().is_blocking_decay = true;
+
+    routers.left()->mutex_.AssertHeld();
+    routers.left()->outward_.link = std::move(links.left());
+
+    routers.right()->mutex_.AssertHeld();
+    routers.right()->outward_.link = std::move(links.right());
   }
 
-  requesting_node_link.node()->EstablishLink(
-      proxy_peer_node_name,
-      [requesting_node_name = requesting_node_link.remote_node_name(),
-       proxy_peer_routing_id, bypass_key,
-       self = mem::WrapRefCounted(this)](NodeLink* new_link) {
-        if (!new_link) {
-          // TODO: failure to connect to a node here should result in route
-          // destruction. This is not the same as closure since we can't make
-          // any guarantees about parcel delivery up to the last transmitted
-          // sequence number.
-          return;
-        }
+  if (!previous_outward_link_from_new_local_peer) {
+    // The local peer must have been closed.
+  } else {
+    previous_outward_link_from_new_local_peer->StopProxying(
+        proxied_inbound_sequence_length, proxied_outbound_sequence_length);
+  }
 
-        new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
-                              bypass_key, self);
-      });
+  Flush();
+  new_local_peer->Flush();
   return true;
 }
 
@@ -1512,8 +1503,8 @@ bool Router::MaybeInitiateSelfRemoval() {
     local_peer->outbound_transmission_paused_ = true;
 
     RouterLinkState& state = new_link->GetLinkState();
-    state.unsafe_sides()[Side::kLeft].is_blocking_decay = true;
-    state.unsafe_sides()[Side::kRight].is_blocking_decay = true;
+    state.unsafe_sides().left().is_blocking_decay = true;
+    state.unsafe_sides().right().is_blocking_decay = true;
   }
 
   successor->BypassProxyToSameNode(new_routing_id, sequence_length);

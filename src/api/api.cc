@@ -9,6 +9,7 @@
 
 #include "core/node.h"
 #include "core/portal.h"
+#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/process.h"
@@ -117,8 +118,8 @@ IpczResult OpenPortals(IpczHandle node,
   }
 
   auto portals = ToRef<core::Node>(node).OpenPortals();
-  *portal0 = ToHandle(portals.first.release());
-  *portal1 = ToHandle(portals.second.release());
+  *portal0 = ToHandle(portals.left().release());
+  *portal1 = ToHandle(portals.right().release());
   return IPCZ_RESULT_OK;
 }
 

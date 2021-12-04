@@ -21,8 +21,8 @@ class Router;
 // across a NodeLink, which means they are always RemoteRouterLinks.
 class LocalRouterLink : public RouterLink {
  public:
-  static std::pair<mem::Ref<LocalRouterLink>, mem::Ref<LocalRouterLink>>
-  CreatePair(mem::Ref<Router> left_router, mem::Ref<Router> right_router);
+  static TwoSided<mem::Ref<RouterLink>> CreatePair(
+      const TwoSided<mem::Ref<Router>>& routers);
 
   // RouterLink:
   void Deactivate() override;

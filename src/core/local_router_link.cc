@@ -32,15 +32,12 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
 };
 
 // static
-std::pair<mem::Ref<LocalRouterLink>, mem::Ref<LocalRouterLink>>
-LocalRouterLink::CreatePair(mem::Ref<Router> left_router,
-                            mem::Ref<Router> right_router) {
-  auto state = mem::MakeRefCounted<SharedState>(std::move(left_router),
-                                                std::move(right_router));
-  auto left = mem::WrapRefCounted(new LocalRouterLink(Side::kLeft, state));
-  auto right =
-      mem::WrapRefCounted(new LocalRouterLink(Side::kRight, std::move(state)));
-  return {std::move(left), std::move(right)};
+TwoSided<mem::Ref<RouterLink>> LocalRouterLink::CreatePair(
+    const TwoSided<mem::Ref<Router>>& routers) {
+  auto state =
+      mem::MakeRefCounted<SharedState>(routers.left(), routers.right());
+  return {mem::WrapRefCounted(new LocalRouterLink(Side::kLeft, state)),
+          mem::WrapRefCounted(new LocalRouterLink(Side::kRight, state))};
 }
 
 LocalRouterLink::LocalRouterLink(Side side, mem::Ref<SharedState> state)

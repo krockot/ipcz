@@ -178,7 +178,7 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
   return IPCZ_RESULT_OK;
 }
 
-std::pair<mem::Ref<Portal>, mem::Ref<Portal>> Node::OpenPortals() {
+TwoSided<mem::Ref<Portal>> Node::OpenPortals() {
   return Portal::CreatePair(mem::WrapRefCounted(this));
 }
 
