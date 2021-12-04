@@ -628,7 +628,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
   for (;;) {
     // The fast path for a local pair being split is to directly establish a new
     // outward link to the destination, rather than proxying. First we acquire a
-    // ref to the local peer Router, if there is one.
+    // ref to the local peer Router if there is one.
     mem::Ref<Router> local_peer;
     {
       absl::MutexLock lock(&mutex_);
@@ -638,63 +638,62 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       }
     }
 
+    // Now we reacquire the lock, along with the local peer's lock if we have a
+    // local peer. In the rare event that our link state changed since we held
+    // the lock above, we'll loop back and try again.
     TwoMutexLock lock(&mutex_, local_peer ? &local_peer->mutex_ : nullptr);
-    if (local_peer) {
-      // The outward link has already changed. Loop back and try again,
-      if (!outward_.link || outward_.link->GetLocalTarget() != local_peer) {
+    if (!local_peer && outward_.link && outward_.link->GetLocalTarget()) {
+      // We didn't have a local peer before, but now we do.
+      continue;
+    } else if (local_peer) {
+      local_peer->mutex_.AssertHeld();
+      if (!outward_.link || outward_.link->GetLocalTarget() != local_peer ||
+          !local_peer->outward_.link ||
+          local_peer->outward_.link->GetLocalTarget() != this) {
+        // We're no longer part of the same (or likely any) local pair.
         continue;
       }
 
-      local_peer->mutex_.AssertHeld();
+      // We remove the peer's outward link so that it doesn't transmit more
+      // parcels directly to us and so that it doesn't behave as if it still
+      // has a local peer. It will be given a link to its new remote peer
+      // via BeginProxying(), immediately after this descriptor is sent.
+      ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
+      local_peer->outward_.parcels.ResetBaseSequenceNumber(
+          local_peer->outbound_sequence_length_);
+      local_peer->outward_.link.reset();
 
-      // Note that by the time we acquire both locks above, the pair may have
-      // been split by another thread serializing the peer for transmission
-      // elsewhere, so we need to first verify that the pair is still intact. If
-      // it's not we fall back to the normal proxying path below.
-      if (local_peer->outward_.link &&
-          local_peer->outward_.link->GetLocalTarget() == this) {
-        // Remove the peer's outward link so that it doesn't transmit more
-        // parcels directly to us. It will instead queue them for later
-        // transmission.
-        ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
-        local_peer->outward_.parcels.ResetBaseSequenceNumber(
-            local_peer->outbound_sequence_length_);
-        local_peer->outward_.link.reset();
-
-        if (inward_.parcels.peer_sequence_length()) {
-          descriptor.peer_closed = true;
-          descriptor.closed_peer_sequence_length =
-              *inward_.parcels.peer_sequence_length();
-          inward_.closure_propagated = true;
-        }
-
-        descriptor.route_is_peer = true;
-        descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
-        descriptor.next_incoming_sequence_number =
-            inward_.parcels.current_sequence_number();
-        descriptor.decaying_incoming_sequence_length =
-            local_peer->outbound_sequence_length_;
-
-        DVLOG(4) << "Splitting local pair to move side "
-                 << static_cast<int>(side_) << " with outbound sequence length "
-                 << outbound_sequence_length_ << " and current inbound sequence"
-                 << " number " << descriptor.next_incoming_sequence_number;
-
-        // The local peer will listen on the new link, rather than this router.
-        // This router will only persist to forward its queued inbound parcels
-        // on to the new remote router.
-        return local_peer;
+      if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
+        ABSL_ASSERT(inward_.parcels.peer_sequence_length());
+        descriptor.peer_closed = true;
+        descriptor.closed_peer_sequence_length =
+            *inward_.parcels.peer_sequence_length();
+        inward_.closure_propagated = true;
       }
-    } else if (outward_.link && outward_.link->GetLocalTarget()) {
-      // We didn't have a local peer before, but now we do. Try again.
-      continue;
+
+      descriptor.route_is_peer = true;
+      descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
+      descriptor.next_incoming_sequence_number =
+          inward_.parcels.current_sequence_number();
+      descriptor.decaying_incoming_sequence_length =
+          local_peer->outbound_sequence_length_;
+
+      DVLOG(4) << "Splitting local pair to move side "
+               << static_cast<int>(side_) << " with outbound sequence length "
+               << outbound_sequence_length_ << " and current inbound sequence"
+               << " number " << descriptor.next_incoming_sequence_number;
+
+      // The local peer will listen on the new link, rather than this router.
+      // This router will only persist to forward its queued inbound parcels
+      // on to the new remote router.
+      return local_peer;
     }
 
-    // In this case, we're not splitting a local pair, but merely extending this
-    // Router's side of the route to another node. This Router will become a
-    // proxy, forwarding inbound parcels across its new inward link (to the
-    // new Router we're currently serializing) and forwarding outbound parcels
-    // from its inward link to its outward link.
+    // In this case, we're not splitting a local pair, but extending route on
+    // this side. This router will become a proxy to the Router serialized here,
+    // and will forward inbound parcels to it over a new inward link. Similarly
+    // this router will forward outbound parcels from the new Router, to our own
+    // outward peer.
     descriptor.route_is_peer = false;
     descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
     descriptor.next_incoming_sequence_number =
@@ -709,7 +708,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     NodeName proxy_peer_node_name;
     RoutingId proxy_peer_routing_id;
     absl::uint128 bypass_key;
-    if (inward_.parcels.peer_sequence_length()) {
+    if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       descriptor.peer_closed = true;
       descriptor.closed_peer_sequence_length =
           *inward_.parcels.peer_sequence_length();
@@ -717,12 +716,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
                outward_.link->IsLinkToOtherSide() && !inward_.link &&
                !outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
-      // If we're becoming a proxy under some common special conditions, we can
-      // actually roll the first step of the proxy bypass procedure into this
-      // serialized transmission. If all such conditions are met, we'll set
-      // `immediate_bypass` to true and include extra data in the descriptor
-      // below. This tells the new Router on deserialization to immediately
-      // initiate our bypass.
+      // If we're becoming a proxy under some common special conditions --
+      // namely that no other part of the route is currently decaying -- we can
+      // roll the first step of our own decay into this descriptor transmission.
       RemoteRouterLink& remote_link =
           *static_cast<RemoteRouterLink*>(outward_.link.get());
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
