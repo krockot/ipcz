@@ -332,6 +332,10 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   mem::Ref<Router> proxy_peer =
       proxy_node_link->GetRouter(bypass.params.proxy_routing_id);
   if (!proxy_peer) {
+    DLOG(ERROR) << "Invalid BypassProxy request for unknown link from "
+                << proxy_node_link->node()->name().ToString() << " to "
+                << proxy_node_link->remote_node_name().ToString()
+                << " on routing ID " << bypass.params.proxy_routing_id;
     return false;
   }
 

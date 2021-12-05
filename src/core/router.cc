@@ -221,8 +221,7 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!outward_.link);
     outward_.link = std::move(link);
-    if (outward_.decaying_proxy_link) {
-      ABSL_ASSERT(outward_.sequence_length_to_decaying_link);
+    if (outward_.sequence_length_to_decaying_link) {
       first_sequence_number_on_new_link =
           *outward_.sequence_length_to_decaying_link;
     } else if (!outward_.parcels.IsEmpty()) {
@@ -235,7 +234,8 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
     {
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
       state.this_side().is_blocking_decay =
-          outward_.decaying_proxy_link != nullptr;
+          outward_.decaying_proxy_link != nullptr ||
+          inward_.decaying_proxy_link != nullptr;
     }
   }
 
@@ -298,7 +298,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     // has no outward link or outbound transmission is paused, the queue may
     // be in use and non-empty already. Otherwise its base SequenceNumber should
     // start at the Router's next outbound SequenceNumber.
-    if (!outward_.parcels.IsEmpty()) {
+    if (outward_.parcels.IsEmpty()) {
       outward_.parcels.ResetBaseSequenceNumber(outbound_sequence_length_);
     }
   }
@@ -638,12 +638,20 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     // The fast path for a local pair being split is to directly establish a new
     // outward link to the destination, rather than proxying. First we acquire a
     // ref to the local peer Router if there is one.
+    //
+    // Note that if this local link is busy -- i.e. one of the routers is
+    // already decaying or is adjacent to a decaying router -- we cannot take
+    // the optimized path and must proxy instead.
+    bool was_link_busy = false;
     mem::Ref<Router> local_peer;
     {
       absl::MutexLock lock(&mutex_);
       traps_.Clear();
       if (outward_.link) {
         local_peer = outward_.link->GetLocalTarget();
+        RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
+        was_link_busy = state.this_side().is_blocking_decay ||
+            state.other_side().is_blocking_decay;
       }
     }
 
@@ -654,19 +662,30 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     if (!local_peer && outward_.link && outward_.link->GetLocalTarget()) {
       // We didn't have a local peer before, but now we do.
       continue;
-    } else if (local_peer) {
+    }
+
+    if (local_peer && !was_link_busy) {
       local_peer->mutex_.AssertHeld();
-      if (!outward_.link || outward_.link->GetLocalTarget() != local_peer ||
-          !local_peer->outward_.link ||
+
+      // Links may have changed between lock acquisitions above.
+      if (!outward_.link || !local_peer->outward_.link ||
+          outward_.link->GetLocalTarget() != local_peer ||
           local_peer->outward_.link->GetLocalTarget() != this) {
-        // We're no longer part of the same (or likely any) local pair.
         continue;
       }
 
-      // We remove the peer's outward link so that it doesn't transmit more
-      // parcels directly to us and so that it doesn't behave as if it still
-      // has a local peer. It will be given a link to its new remote peer
-      // via BeginProxying(), immediately after this descriptor is sent.
+      {
+        // The other side blocked decay since we checked above. Restart since it
+        // is no longer safe to take the optimized path.
+        RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
+        if (state.other_side().is_blocking_decay) {
+          continue;
+        }
+
+        // We don't need to set any bits on the link because once we release our
+        // locks, neither router will be using the link anymore.
+      }
+
       ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
       local_peer->outward_.parcels.ResetBaseSequenceNumber(
           local_peer->outbound_sequence_length_);
@@ -734,7 +753,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       proxy_peer_routing_id = remote_link.routing_id();
       bypass_key = RandomUint128();
       RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
-      if (!locked.other_side().is_blocking_decay) {
+      if (!locked.this_side().is_blocking_decay &&
+          !locked.other_side().is_blocking_decay) {
         immediate_bypass = true;
         locked.this_side().is_blocking_decay = true;
         locked.this_side().bypass_key = bypass_key;
@@ -986,11 +1006,13 @@ bool Router::BypassProxyWithNewLink(
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
       if (state.other_side().bypass_key != bypass_key ||
           !state.other_side().is_blocking_decay) {
+        DLOG(ERROR) << "Proxy bypass rejecting due to key mismatch: "
+                    << state.other_side().bypass_key << " != " << bypass_key;
         return false;
       }
     }
 
-    if (inward_.link) {
+    if (inward_.link || !outward_.parcels.IsEmpty()) {
       proxy_inbound_sequence_length =
           outward_.parcels.current_sequence_number();
     } else {
@@ -1473,6 +1495,11 @@ bool Router::MaybeInitiateSelfRemoval() {
   mem::Ref<RouterLink> new_link = node_link_to_successor->AddRoute(
       new_routing_id, new_routing_id, local_peer,
       RemoteRouterLink::Type::kToOtherSide);
+
+  RouterLinkState& state = new_link->GetLinkState();
+  state.unsafe_sides().left().is_blocking_decay = true;
+  state.unsafe_sides().right().is_blocking_decay = true;
+
   {
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
 
@@ -1513,10 +1540,6 @@ bool Router::MaybeInitiateSelfRemoval() {
 
     local_peer->outward_.link = new_link;
     local_peer->outbound_transmission_paused_ = true;
-
-    RouterLinkState& state = new_link->GetLinkState();
-    state.unsafe_sides().left().is_blocking_decay = true;
-    state.unsafe_sides().right().is_blocking_decay = true;
   }
 
   successor->BypassProxyToSameNode(new_routing_id, sequence_length);

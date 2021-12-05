@@ -9,6 +9,9 @@
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include <chrono>
+#include <thread>
+
 namespace ipcz {
 namespace {
 
@@ -252,7 +255,15 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
+  size_t count = 0;
   while (!PortalsAreLocalPeers(c, d)) {
+    ++count;
+    if (count == 10) {
+      using namespace std::chrono_literals;
+      std::this_thread::sleep_for(1s);
+      LogPortalRoute(c);
+      std::this_thread::sleep_for(1s);
+    }
     VerifyEndToEnd(c, d);
   }
   VerifyEndToEnd(c, d);
