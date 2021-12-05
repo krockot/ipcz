@@ -285,6 +285,8 @@ IpczResult NodeLink::OnTransportMessage(
     }
 
     default:
+      DLOG(WARNING) << "Ignoring unknown transport message with ID "
+                    << static_cast<int>(header.message_id);
       break;
   }
 

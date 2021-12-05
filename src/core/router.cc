@@ -1422,6 +1422,9 @@ void Router::Flush() {
     }
 
     if (!is_other_side_blocking && !MaybeInitiateSelfRemoval()) {
+      DVLOG(4) << "Cannot remove self, but pinging peer on "
+               << DescribeLink(outward_link);
+
       // Ping the other side in case it might want to decay. If it doesn't, or
       // if it already starts to before this message arrives, that's OK.
       outward_link->DecayUnblocked();

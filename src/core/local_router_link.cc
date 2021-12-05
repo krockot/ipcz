@@ -10,6 +10,7 @@
 #include "core/router.h"
 #include "core/router_link_state.h"
 #include "core/side.h"
+#include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "util/two_mutex_lock.h"
 
@@ -82,7 +83,10 @@ bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  state_->side(side_.opposite())->AcceptInboundParcel(parcel);
+  if (!state_->side(side_.opposite())->AcceptInboundParcel(parcel)) {
+    DLOG(ERROR) << "Rejecting unexpected " << parcel.Describe() << " on "
+                << Describe();
+  }
 }
 
 void LocalRouterLink::AcceptRouteClosure(Side side,
