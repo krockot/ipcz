@@ -651,7 +651,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         local_peer = outward_.link->GetLocalTarget();
         RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
         was_link_busy = state.this_side().is_blocking_decay ||
-            state.other_side().is_blocking_decay;
+                        state.other_side().is_blocking_decay;
       }
     }
 
@@ -675,15 +675,16 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       }
 
       {
-        // The other side blocked decay since we checked above. Restart since it
-        // is no longer safe to take the optimized path.
+        // Decay has been blocked since we checked above. Restart since it is no
+        // longer safe to take the optimized path.
         RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-        if (state.other_side().is_blocking_decay) {
+        if (state.this_side().is_blocking_decay ||
+            state.other_side().is_blocking_decay) {
           continue;
         }
 
-        // We don't need to set any bits on the link because once we release our
-        // locks, neither router will be using the link anymore.
+        // Make sure other threads can't race
+        state.this_side().is_blocking_decay = true;
       }
 
       ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
@@ -755,6 +756,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
       if (!locked.this_side().is_blocking_decay &&
           !locked.other_side().is_blocking_decay) {
+        DVLOG(4) << "Setting bypass key " << bypass_key << " for "
+                 << side_.ToString() << " side of "
+                 << DescribeLink(outward_.link);
         immediate_bypass = true;
         locked.this_side().is_blocking_decay = true;
         locked.this_side().bypass_key = bypass_key;
@@ -863,6 +867,10 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
                                        requesting_routing_id)) {
       // Authenticate that the request to bypass our outward peer is actually
       // coming from our outward peer.
+      DLOG(ERROR) << "Rejecting InitiateProxyBypass from "
+                  << requesting_node_link.remote_node_name().ToString()
+                  << " on routing ID " << requesting_routing_id
+                  << " with existing outward " << DescribeLink(outward_.link);
       return false;
     }
   }
@@ -1133,6 +1141,10 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
     return false;
   }
 
+  DVLOG(4) << "Stopping proxy with inward decaying "
+           << DescribeLink(inward_.decaying_proxy_link) << " and outward "
+           << "decaying " << DescribeLink(outward_.decaying_proxy_link);
+
   // Update all locally decaying links regarding the sequence length from the
   // remote peer to this router -- the decaying proxy -- so that those links may
   // eventually decay.
@@ -1397,8 +1409,7 @@ void Router::Flush() {
     decaying_inward_proxy.reset();
   }
 
-  if (outward_link &&
-      (inward_link || inward_proxy_decayed || outward_proxy_decayed) &&
+  if (outward_link && (inward_proxy_decayed || outward_proxy_decayed) &&
       (!decaying_inward_proxy && !decaying_outward_proxy)) {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
@@ -1441,23 +1452,29 @@ bool Router::MaybeInitiateSelfRemoval() {
 
     successor = inward_.link;
 
-    // There's a chance we won't use this key if we lose the race to decay below
-    // or if we end up decaying in favor of a local peer who needs no key to
-    // authenticate. However, generating this while holding the state's spinlock
-    // is undesirable, and acquiring the spinlock multiple times is undesirable.
-    // This path is rarely hit, so wasting the key should be fine.
-    bypass_key = RandomUint128();
-
     {
-      // We can only decay if our peer hasn't already started decaying itself.
+      // We can only start decaying if neither we nor our outward peer is
+      // already decaying.
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.other_side().is_blocking_decay) {
+      if (state.this_side().is_blocking_decay ||
+          state.other_side().is_blocking_decay) {
         DVLOG(4) << "Proxy self-removal blocked by busy "
                  << DescribeLink(outward_.link);
         return false;
       }
 
+      DVLOG(4) << "Setting bypass key " << bypass_key << " for "
+               << side_.ToString() << " side of "
+               << DescribeLink(outward_.link);
+
       state.this_side().is_blocking_decay = true;
+      state.other_side().is_blocking_decay = true;
+      state.this_side().bypass_key = bypass_key;
+    }
+
+    bypass_key = RandomUint128();
+    {
+      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
       state.this_side().bypass_key = bypass_key;
     }
 

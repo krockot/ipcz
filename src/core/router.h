@@ -225,10 +225,8 @@ class Router : public mem::RefCounted {
   // reference to be dropped.
   void Flush();
 
-  // Attempts to mark this side of the outward link as decaying and asks the
-  // inward peer to initiate proxy bypass. Returns true if initiated. When
-  // returning false, `was_blocked_by_other_side` conveys whether the other side
-  // if this router's outward link is still blocking decay.
+  // Attempts to mark this side of the outward link as decaying and, if
+  // successful, asks its inward peer to initiate our bypass along the route.
   bool MaybeInitiateSelfRemoval();
 
   const Side side_;
