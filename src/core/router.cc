@@ -1397,7 +1397,8 @@ void Router::Flush() {
     decaying_inward_proxy.reset();
   }
 
-  if (outward_link && (inward_proxy_decayed || outward_proxy_decayed) &&
+  if (outward_link &&
+      (inward_link || inward_proxy_decayed || outward_proxy_decayed) &&
       (!decaying_inward_proxy && !decaying_outward_proxy)) {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
@@ -1433,28 +1434,24 @@ bool Router::MaybeInitiateSelfRemoval() {
   mem::Ref<Router> local_peer;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(!inward_.decaying_proxy_link);
     if (!outward_.link || !inward_.link || outward_.decaying_proxy_link ||
         inward_.decaying_proxy_link || !outward_.link->IsLinkToOtherSide()) {
-      // Terminal routers cannot self-remove, as they're controlled by a Portal.
       return false;
     }
 
     successor = inward_.link;
 
-    // Note: there's a chance we won't use this key if we lose the race to decay
-    // below or if we end up decaying in favor of a local peer who needs no key
-    // to authenticate. However, generating this while holding the state's
-    // spinlock is undesirable, and acquiring the spinlock multiple times is
-    // undesirable. This path is rarely hit, so wasting the key should be fine.
+    // There's a chance we won't use this key if we lose the race to decay below
+    // or if we end up decaying in favor of a local peer who needs no key to
+    // authenticate. However, generating this while holding the state's spinlock
+    // is undesirable, and acquiring the spinlock multiple times is undesirable.
+    // This path is rarely hit, so wasting the key should be fine.
     bypass_key = RandomUint128();
 
     {
-      // Finally we can only begin to decay if our peer hasn't already begun
-      // decaying itself.
+      // We can only decay if our peer hasn't already started decaying itself.
       RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.this_side().is_blocking_decay ||
-          state.other_side().is_blocking_decay) {
+      if (state.other_side().is_blocking_decay) {
         DVLOG(4) << "Proxy self-removal blocked by busy "
                  << DescribeLink(outward_.link);
         return false;

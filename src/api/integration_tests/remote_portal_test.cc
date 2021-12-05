@@ -258,7 +258,7 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
   size_t count = 0;
   while (!PortalsAreLocalPeers(c, d)) {
     ++count;
-    if (count == 10) {
+    if (count % 10 == 0) {
       using namespace std::chrono_literals;
       std::this_thread::sleep_for(1s);
       LogPortalRoute(c);
