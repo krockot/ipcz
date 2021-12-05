@@ -236,6 +236,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::StopProxyingToLocalPeer::kId: {
+      msg::StopProxyingToLocalPeer stop;
+      if (stop.Deserialize(message) && OnStopProxyingToLocalPeer(stop)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     case msg::InitiateProxyBypass::kId: {
       msg::InitiateProxyBypass request;
       if (request.Deserialize(message) && OnInitiateProxyBypass(request)) {
