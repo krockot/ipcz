@@ -6,23 +6,9 @@
 
 #include <cstring>
 #include <new>
-#include <thread>
 
 namespace ipcz {
 namespace core {
-
-RouterLinkState::SideState::SideState() = default;
-
-RouterLinkState::SideState::~SideState() = default;
-
-RouterLinkState::Locked::Locked(RouterLinkState& state, Side side)
-    : side_(side), state_(state) {
-  state_.Lock();
-}
-
-RouterLinkState::Locked::~Locked() {
-  state_.Unlock();
-}
 
 RouterLinkState::RouterLinkState() = default;
 
@@ -34,26 +20,28 @@ RouterLinkState& RouterLinkState::Initialize(void* where) {
   return *(new (where) RouterLinkState());
 }
 
-void RouterLinkState::Lock() {
-  for (;;) {
-    size_t num_attempts_before_yield = 10;
-    while (num_attempts_before_yield--) {
-      bool expected = false;
-      if (locked_.compare_exchange_weak(expected, true,
-                                        std::memory_order_acquire,
-                                        std::memory_order_relaxed)) {
-        return;
-      }
-    }
+bool RouterLinkState::SetSideReady(Side side) {
+  const Status kThisSideReady = side == Side::kLeft ? kLeftReady : kRightReady;
+  const Status kOtherSideReady = side == Side::kLeft ? kRightReady : kLeftReady;
 
-    // TODO: instrument this path
-
-    std::this_thread::yield();
+  Status expected = Status::kNotReady;
+  if (status.compare_exchange_strong(expected, kThisSideReady,
+                                     std::memory_order_relaxed)) {
+    return true;
   }
+  if (expected != kOtherSideReady) {
+    return false;
+  }
+  return status.compare_exchange_strong(expected, kReady,
+                                        std::memory_order_relaxed);
 }
 
-void RouterLinkState::Unlock() {
-  locked_.store(false, std::memory_order_release);
+bool RouterLinkState::TryToDecay(Side side) {
+  const Status kThisSideDecaying =
+      side == Side::kLeft ? kLeftDecaying : kRightDecaying;
+  Status expected = Status::kReady;
+  return status.compare_exchange_strong(expected, kThisSideDecaying,
+                                        std::memory_order_relaxed);
 }
 
 }  // namespace core

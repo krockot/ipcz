@@ -106,7 +106,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener = routers[i]->Serialize(descriptors[i]);
     if (descriptors[i].route_is_peer) {
-      state.unsafe_sides()[descriptors[i].side].is_blocking_decay = true;
+      bool ok = state.SetSideReady(descriptors[i].side.opposite());
+      ABSL_ASSERT(ok);
       descriptors[i].new_decaying_routing_id =
           node_link()->AllocateRoutingIds(1);
     }

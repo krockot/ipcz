@@ -17,6 +17,7 @@
 #include "core/parcel.h"
 #include "core/portal_descriptor.h"
 #include "core/router.h"
+#include "core/router_link_state.h"
 #include "core/side.h"
 #include "core/trap.h"
 #include "core/two_sided.h"
@@ -61,6 +62,7 @@ TwoSided<mem::Ref<Portal>> Portal::CreatePair(mem::Ref<Node> node) {
   TwoSided<mem::Ref<Router>> routers{mem::MakeRefCounted<Router>(Side::kLeft),
                                      mem::MakeRefCounted<Router>(Side::kRight)};
   TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
+  links.left()->GetLinkState().status = RouterLinkState::Status::kReady;
   routers.left()->SetOutwardLink(std::move(links.left()));
   routers.right()->SetOutwardLink(std::move(links.right()));
   return {mem::MakeRefCounted<Portal>(node, std::move(routers.left())),

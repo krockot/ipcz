@@ -231,11 +231,8 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
       first_sequence_number_on_new_link = outbound_sequence_length_;
     }
 
-    {
-      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      state.this_side().is_blocking_decay =
-          outward_.decaying_proxy_link != nullptr ||
-          inward_.decaying_proxy_link != nullptr;
+    if (!outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
+      outward_.link->GetLinkState().SetSideReady(side_);
     }
   }
 
@@ -649,9 +646,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       traps_.Clear();
       if (outward_.link) {
         local_peer = outward_.link->GetLocalTarget();
-        RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-        was_link_busy = state.this_side().is_blocking_decay ||
-                        state.other_side().is_blocking_decay;
+        was_link_busy = !outward_.link->GetLinkState().is_link_ready();
       }
     }
 
@@ -674,17 +669,10 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         continue;
       }
 
-      {
+      if (!outward_.link->GetLinkState().TryToDecay(side_)) {
         // Decay has been blocked since we checked above. Restart since it is no
         // longer safe to take the optimized path.
-        RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-        if (state.this_side().is_blocking_decay ||
-            state.other_side().is_blocking_decay) {
-          continue;
-        }
-
-        // Make sure other threads can't race
-        state.this_side().is_blocking_decay = true;
+        continue;
       }
 
       ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
@@ -733,10 +721,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
              << " and current inbound sequence number "
              << descriptor.next_incoming_sequence_number;
 
-    bool immediate_bypass = false;
     NodeName proxy_peer_node_name;
     RoutingId proxy_peer_routing_id;
-    absl::uint128 bypass_key;
     if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       descriptor.peer_closed = true;
       descriptor.closed_peer_sequence_length =
@@ -752,28 +738,21 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
           *static_cast<RemoteRouterLink*>(outward_.link.get());
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
       proxy_peer_routing_id = remote_link.routing_id();
-      bypass_key = RandomUint128();
-      RouterLinkState::Locked locked(outward_.link->GetLinkState(), side_);
-      if (!locked.this_side().is_blocking_decay &&
-          !locked.other_side().is_blocking_decay) {
-        DVLOG(4) << "Setting bypass key " << bypass_key << " for "
-                 << side_.ToString() << " side of "
-                 << DescribeLink(outward_.link);
-        immediate_bypass = true;
-        locked.this_side().is_blocking_decay = true;
-        locked.this_side().bypass_key = bypass_key;
+
+      RouterLinkState& state = outward_.link->GetLinkState();
+      if (state.TryToDecay(side_)) {
+        DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
+                 << "with peer at " << proxy_peer_node_name.ToString()
+                 << " and "
+                 << "peer route to proxy on routing ID "
+                 << proxy_peer_routing_id << " using " << state.bypass_key;
+
+        state.bypass_key = RandomUint128();
+        descriptor.bypass_key = state.bypass_key;
+        descriptor.proxy_peer_node_name =
+            remote_link.node_link()->remote_node_name();
+        descriptor.proxy_peer_routing_id = remote_link.routing_id();
       }
-    }
-
-    if (immediate_bypass) {
-      DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
-               << "with peer at " << proxy_peer_node_name.ToString() << " and "
-               << "peer route to proxy on routing ID " << proxy_peer_routing_id
-               << " using " << bypass_key;
-
-      descriptor.proxy_peer_node_name = proxy_peer_node_name;
-      descriptor.proxy_peer_routing_id = proxy_peer_routing_id;
-      descriptor.bypass_key = bypass_key;
     }
 
     return mem::WrapRefCounted(this);
@@ -968,16 +947,6 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     routers[side_.opposite()] = new_local_peer;
     TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
 
-    // Block any further decay until both sides of the bypass route are
-    // finished with the proxy.
-    //
-    // Note that the use of the left link is arbitrary here: both the left and
-    // right links share the same RouterLinkState.
-    RouterLinkState& state = links.left()->GetLinkState();
-    ABSL_ASSERT(&state == &links.right()->GetLinkState());
-    state.unsafe_sides().left().is_blocking_decay = true;
-    state.unsafe_sides().right().is_blocking_decay = true;
-
     routers.left()->mutex_.AssertHeld();
     routers.left()->outward_.link = std::move(links.left());
 
@@ -1010,14 +979,12 @@ bool Router::BypassProxyWithNewLink(
       return true;
     }
 
-    {
-      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.other_side().bypass_key != bypass_key ||
-          !state.other_side().is_blocking_decay) {
-        DLOG(ERROR) << "Proxy bypass rejecting due to key mismatch: "
-                    << state.other_side().bypass_key << " != " << bypass_key;
-        return false;
-      }
+    RouterLinkState& state = outward_.link->GetLinkState();
+    if (state.bypass_key != bypass_key ||
+        !state.is_decaying(side_.opposite())) {
+      DLOG(ERROR) << "Proxy bypass rejecting due to key mismatch: "
+                  << state.bypass_key << " != " << bypass_key;
+      return false;
     }
 
     if (inward_.link || !outward_.parcels.IsEmpty()) {
@@ -1180,14 +1147,6 @@ bool Router::OnDecayUnblocked() {
 
 void Router::LogDescription() {
   absl::MutexLock lock(&mutex_);
-  bool outward_this_side_busy = false;
-  bool outward_other_side_busy = false;
-  if (outward_.link) {
-    RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-    outward_this_side_busy = state.this_side().is_blocking_decay;
-    outward_other_side_busy = state.other_side().is_blocking_decay;
-  }
-
   DLOG(INFO) << "## router [" << this << "]";
   DLOG(INFO) << " - side: " << (side_ == Side::kLeft ? "left" : "right");
   DLOG(INFO) << " - paused: " << (outbound_transmission_paused_ ? "yes" : "no");
@@ -1202,8 +1161,8 @@ void Router::LogDescription() {
   DLOG(INFO) << " - outward length from decaying link: "
              << DescribeOptionalLength(
                     outward_.sequence_length_from_decaying_link);
-  DLOG(INFO) << " - outward busy bits " << outward_this_side_busy << ":"
-             << outward_other_side_busy;
+  DLOG(INFO) << " - outward link status  "
+             << outward_.link->GetLinkState().status;
 
   DLOG(INFO) << " - inward " << DescribeLink(inward_.link);
   DLOG(INFO) << " - inward decaying "
@@ -1414,14 +1373,9 @@ void Router::Flush() {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
 
-    bool is_other_side_blocking;
-    {
-      RouterLinkState::Locked state(outward_link->GetLinkState(), side_);
-      state.this_side().is_blocking_decay = false;
-      is_other_side_blocking = state.other_side().is_blocking_decay;
-    }
-
-    if (!is_other_side_blocking && !MaybeInitiateSelfRemoval()) {
+    outward_link->GetLinkState().SetSideReady(side_);
+    if (!MaybeInitiateSelfRemoval() &&
+        outward_link->GetLinkState().is_link_ready()) {
       DVLOG(4) << "Cannot remove self, but pinging peer on "
                << DescribeLink(outward_link);
 
@@ -1455,31 +1409,16 @@ bool Router::MaybeInitiateSelfRemoval() {
 
     successor = inward_.link;
 
-    {
-      // We can only start decaying if neither we nor our outward peer is
-      // already decaying.
-      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      if (state.this_side().is_blocking_decay ||
-          state.other_side().is_blocking_decay) {
-        DVLOG(4) << "Proxy self-removal blocked by busy "
-                 << DescribeLink(outward_.link);
-        return false;
-      }
-
-      DVLOG(4) << "Setting bypass key " << bypass_key << " for "
-               << side_.ToString() << " side of "
+    RouterLinkState& state = outward_.link->GetLinkState();
+    if (!state.TryToDecay(side_)) {
+      DVLOG(4) << "Proxy self-removal blocked by busy "
                << DescribeLink(outward_.link);
-
-      state.this_side().is_blocking_decay = true;
-      state.other_side().is_blocking_decay = true;
-      state.this_side().bypass_key = bypass_key;
+      return false;
     }
 
-    bypass_key = RandomUint128();
-    {
-      RouterLinkState::Locked state(outward_.link->GetLinkState(), side_);
-      state.this_side().bypass_key = bypass_key;
-    }
+    state.bypass_key = RandomUint128();
+    DVLOG(4) << "Setting bypass key " << state.bypass_key << " for "
+             << DescribeLink(outward_.link);
 
     local_peer = outward_.link->GetLocalTarget();
     if (!local_peer) {
@@ -1512,10 +1451,6 @@ bool Router::MaybeInitiateSelfRemoval() {
   mem::Ref<RouterLink> new_link = node_link_to_successor->AddRoute(
       new_routing_id, new_routing_id, local_peer,
       RemoteRouterLink::Type::kToOtherSide);
-
-  RouterLinkState& state = new_link->GetLinkState();
-  state.unsafe_sides().left().is_blocking_decay = true;
-  state.unsafe_sides().right().is_blocking_decay = true;
 
   {
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
