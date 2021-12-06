@@ -945,7 +945,8 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     TwoSided<mem::Ref<Router>> routers;
     routers[side_] = mem::WrapRefCounted(this);
     routers[side_.opposite()] = new_local_peer;
-    TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
+    TwoSided<mem::Ref<RouterLink>> links =
+        LocalRouterLink::CreatePair(RouterLinkState::kNotReady, routers);
 
     routers.left()->mutex_.AssertHeld();
     routers.left()->outward_.link = std::move(links.left());

@@ -19,8 +19,12 @@ namespace core {
 
 class LocalRouterLink::SharedState : public mem::RefCounted {
  public:
-  SharedState(mem::Ref<Router> left, mem::Ref<Router> right)
-      : sides_(std::move(left), std::move(right)) {}
+  SharedState(RouterLinkState::Status initial_link_status,
+              mem::Ref<Router> left,
+              mem::Ref<Router> right)
+      : sides_(std::move(left), std::move(right)) {
+    state_.status = initial_link_status;
+  }
 
   RouterLinkState& state() { return state_; }
   const mem::Ref<Router>& side(Side side) const { return sides_[side]; }
@@ -34,9 +38,10 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
 
 // static
 TwoSided<mem::Ref<RouterLink>> LocalRouterLink::CreatePair(
+    RouterLinkState::Status initial_link_status,
     const TwoSided<mem::Ref<Router>>& routers) {
-  auto state =
-      mem::MakeRefCounted<SharedState>(routers.left(), routers.right());
+  auto state = mem::MakeRefCounted<SharedState>(
+      initial_link_status, routers.left(), routers.right());
   return {mem::WrapRefCounted(new LocalRouterLink(Side::kLeft, state)),
           mem::WrapRefCounted(new LocalRouterLink(Side::kRight, state))};
 }

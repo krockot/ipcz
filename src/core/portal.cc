@@ -61,8 +61,8 @@ Portal::~Portal() = default;
 TwoSided<mem::Ref<Portal>> Portal::CreatePair(mem::Ref<Node> node) {
   TwoSided<mem::Ref<Router>> routers{mem::MakeRefCounted<Router>(Side::kLeft),
                                      mem::MakeRefCounted<Router>(Side::kRight)};
-  TwoSided<mem::Ref<RouterLink>> links = LocalRouterLink::CreatePair(routers);
-  links.left()->GetLinkState().status = RouterLinkState::Status::kReady;
+  TwoSided<mem::Ref<RouterLink>> links =
+      LocalRouterLink::CreatePair(RouterLinkState::kReady, routers);
   routers.left()->SetOutwardLink(std::move(links.left()));
   routers.right()->SetOutwardLink(std::move(links.right()));
   return {mem::MakeRefCounted<Portal>(node, std::move(routers.left())),

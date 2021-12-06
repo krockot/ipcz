@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "core/router_link.h"
+#include "core/router_link_state.h"
 #include "core/side.h"
 #include "core/two_sided.h"
 #include "mem/ref_counted.h"
@@ -23,6 +24,7 @@ class Router;
 class LocalRouterLink : public RouterLink {
  public:
   static TwoSided<mem::Ref<RouterLink>> CreatePair(
+      RouterLinkState::Status initial_link_status,
       const TwoSided<mem::Ref<Router>>& routers);
 
   // RouterLink:
