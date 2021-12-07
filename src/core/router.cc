@@ -257,6 +257,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     }
   }
 
+  bool attempt_self_removal = false;
   mem::Ref<Router> local_peer;
   if (descriptor.route_is_peer) {
     ABSL_ASSERT(outward_link);
@@ -279,6 +280,11 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     // In the case where `route_is_peer` is false, this Router is becoming a
     // bidirectional proxy. We need to set its inward link accordingly.
     inward_.link = std::move(link);
+
+    // Our outward link may be ready for decay by the time we hit this path.
+    // Removal is deferred until we have an inward link in that case, so we'll
+    // try again now.
+    attempt_self_removal = true;
   }
 
   Flush();
@@ -286,10 +292,8 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     local_peer->Flush();
   }
 
-  if (outward_link) {
-    // Ensure any refs held by the now-dead link are dropped.
-    ABSL_ASSERT(outward_link->GetLocalTarget());
-    outward_link->Deactivate();
+  if (attempt_self_removal) {
+    MaybeInitiateSelfRemoval();
   }
 }
 
