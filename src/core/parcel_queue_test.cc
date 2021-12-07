@@ -28,9 +28,9 @@ TEST(ParcelQueueTest, Empty) {
   EXPECT_FALSE(q.Pop(p));
 }
 
-TEST(ParcelQueueTest, SetPeerSequenceLength) {
+TEST(ParcelQueueTest, SetFinalSequenceLength) {
   ParcelQueue q;
-  q.SetPeerSequenceLength(3);
+  q.SetFinalSequenceLength(3);
   EXPECT_TRUE(q.IsExpectingMoreParcels());
   EXPECT_FALSE(q.HasNextParcel());
 
@@ -91,7 +91,7 @@ TEST(ParcelQueueTest, SequenceTooLow) {
 
 TEST(ParcelQueueTest, SequenceTooHigh) {
   ParcelQueue q;
-  q.SetPeerSequenceLength(5);
+  q.SetFinalSequenceLength(5);
 
   EXPECT_FALSE(q.Push(Parcel(5)));
 }

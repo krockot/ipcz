@@ -29,66 +29,65 @@ namespace core {
 // Based on the assumption that temporary sequence gaps are common but tend to
 // be small, this retains at least enough linear storage to hold every parcel
 // between the last popped sequence number (exclusive) and the highest received
-// sequence number so far (inclusive). This storage may only be sparsely
-// populated at times, but as parcels are consumed from the queue, storage is
-// compacted to reduce waste.
+// or known sequence number so far (inclusive). This storage may only be
+// sparsely populated at times, but as parcels are consumed from the queue,
+// storage is compacted to reduce waste.
 class ParcelQueue {
  public:
   ParcelQueue();
-  ParcelQueue(SequenceNumber current_sequence_number);
+  ParcelQueue(SequenceNumber initial_sequence_number);
   ParcelQueue(ParcelQueue&& other);
   ParcelQueue& operator=(ParcelQueue&& other);
   ~ParcelQueue();
 
-  // The next sequence number in queue. This starts at the constructor's
-  // `current_sequence_number` and increments any time a parcel is successfully
-  // popped from the queue.
+  // The next sequence number that is or will be available from the queue. This
+  // starts at the constructor's `initial_sequence_number` and increments any
+  // time a parcel is successfully popped from the queue.
   SequenceNumber current_sequence_number() const {
     return base_sequence_number_;
   }
 
-  // The final length of the peer's parcel sequence which we're receiving. Null
-  // if the peer isn't closed yet.
-  const absl::optional<SequenceNumber>& peer_sequence_length() const {
-    return peer_sequence_length_;
+  // The final length of the parcel sequence which we're receiving. Null if the
+  // final length is not yet known. If this is N, then the last parcel that can
+  // be pushed to or popped from the ParcelQueue is parcel N-1.
+  const absl::optional<SequenceNumber>& final_sequence_length() const {
+    return final_sequence_length_;
   }
 
   // Returns the number of parcels currently ready for popping at the front of
-  // the queue. This is the number of *contiguous* sequenced parcels available
+  // the queue. This is the number of *contiguously* sequenced parcels available
   // starting from `current_sequence_number()`.
   size_t GetNumAvailableParcels() const;
 
   // Returns the sum of the number of data bytes in each currently available
-  // parcel (the same parcels counted by GetNumAvailableParcels()).
+  // parcel; that is, the sum of byte sizes of the parcels counted by
+  // GetNumAvailableParcels().
   size_t GetNumAvailableBytes() const;
 
-  // Returns the length of the contiguous Parcel sequence seen so far by this
-  // queue. This is essentially `current_sequence_number()` plus
-  // `GetNumAvailableParcels()`. For example if `current_sequence_number()` is
-  // 5 and `GetNumAvailableParcels()` is 3, then parcels 5, 6, and 7 are
-  // available for retrieval and the total length of the available sequence so
-  // far is 8; so this method would return 8.
-  SequenceNumber GetAvailableSequenceLength() const;
+  // Returns the length of the Parcel sequence seen so far by this queue. This
+  // is essentially `current_sequence_number()` plus `GetNumAvailableParcels()`.
+  // For example if `current_sequence_number()` is 5 and
+  // `GetNumAvailableParcels()` is 3, then parcels 5, 6, and 7 are available
+  // for retrieval and the total length of the sequence so far is  8; so this
+  // method would return 8.
+  SequenceNumber GetCurrentSequenceLength() const;
 
   // Sets the known final length of the incoming parcel sequence. This is the
-  // sequence number of the peer side's last outgoing parcel, plus 1; or it's 0
-  // if the peer side was closed without sending any parcels.
+  // sequence number of the last parcel that can be pushed, plus 1; or 0 if no
+  // parcels can be pushed.
   //
   // May fail and return false if the queue already has parcels with a sequence
-  // number higher than or equal to `length`, or if it had already set a
-  // peer sequence length before this call. Either case is likely the result of
-  // a misbehaving node and should be treated as a validation failure.
-  bool SetPeerSequenceLength(SequenceNumber length);
+  // number greater than or equal to `length`, or if a the final sequence length
+  // had already been set prior to this call.
+  bool SetFinalSequenceLength(SequenceNumber length);
 
-  // Indicates whether this queue is still waiting for someone to push more
-  // parcels. This is always true if SetPeerSequenceLength(n) has not been
-  // called. Once that has been called, this remains true only until ALL
-  // parcels up to and including sequence number `n` have been pushed. From that
-  // point onward, this will always return false.
+  // Indicates whether this queue is still waiting to have more parcels pushed.
+  // This is always true if the final sequence length has not been set yet. Once
+  // the final sequence length is set, this remains true only until all parcels
+  // between the initial sequence number (inclusive) and the final sequence
+  // length (exclusive) have been pushed into (and optionally popped from) the
+  // queue.
   bool IsExpectingMoreParcels() const;
-
-  // The next sequence number expected by this queue, if any.
-  absl::optional<SequenceNumber> GetNextExpectedSequenceNumber() const;
 
   // Indicates whether the next parcel (in sequence order) is available to pop.
   bool HasNextParcel() const;
@@ -97,15 +96,18 @@ class ParcelQueue {
   // the current sequence number that are merely inaccessible.
   bool IsEmpty() const;
 
-  // Indicates whether this incoming queue is "dead," meaning it will no longer
-  // accept new incoming messages and there will never be another parcel to pop.
+  // Indicates whether this queue is "dead," meaning it will no longer accept
+  // new parcels and there are no more parcels left pop. This occurs iff the
+  // final sequence length is known, and all parcels from the initial sequence
+  // number up to the final sequence length have been pushed into and then
+  // popped from this queue.
   bool IsDead() const;
 
-  // Resets this ParcelQueue to start at the base SequenceNumber `n`. Must only
-  // be called on an empty ParcelQueue (IsEmpty() == true) and only when the
-  // caller can be sure they don't want to push any parcels with a
+  // Resets this ParcelQueue to start at the initial SequenceNumber `n`. Must
+  // only be called on an empty ParcelQueue (IsEmpty() == true) and only when
+  // the caller can be sure they don't want to push any parcels with a
   // SequenceNumber below `n`.
-  void ResetBaseSequenceNumber(SequenceNumber n);
+  void ResetInitialSequenceNumber(SequenceNumber n);
 
   // This may fail if `n` falls below the minimum or maximum (when applicable)
   // expected sequence number for parcels in this queue.
@@ -117,7 +119,7 @@ class ParcelQueue {
   bool Pop(Parcel& parcel);
 
   // Gets a reference to the next parcel. This reference is NOT stable across
-  // ANY non-const methods on this object.
+  // ANY non-const ParcelQueue methods.
   Parcel& NextParcel();
 
  private:
@@ -246,7 +248,7 @@ class ParcelQueue {
 
   // The known final length of the sequence of parcels sent to us. Set only if
   // known, and known only once the peer is closed.
-  absl::optional<SequenceNumber> peer_sequence_length_;
+  absl::optional<SequenceNumber> final_sequence_length_;
 };
 
 }  // namespace core

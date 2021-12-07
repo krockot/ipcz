@@ -92,7 +92,7 @@ void Router::PauseOutboundTransmission(bool paused) {
       // begin queuing outbound parcels there while paused, update its base
       // SequenceNumber with that of the next expected parcel.
       ABSL_ASSERT(outward_.parcels.IsEmpty());
-      outward_.parcels.ResetBaseSequenceNumber(outbound_sequence_length_);
+      outward_.parcels.ResetInitialSequenceNumber(outbound_sequence_length_);
     }
     outbound_transmission_paused_ = paused;
   }
@@ -232,7 +232,8 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
     }
 
     if (!outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
-      outward_.link->GetLinkState().SetSideReady(side_);
+      bool ok = outward_.link->GetLinkState().SetSideReady(side_);
+      ABSL_ASSERT(ok);
     }
   }
 
@@ -257,14 +258,14 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
       // its own outward link.
       //
       // We set up Q with an inward link here to `link` so it can forward any
-      // incoming parcels -- already received from or in flight from P -- to the
-      // new router. Below we will fix up P with the new outward link to `link`
-      // as well.
+      // incoming parcels -- already received or in flight from P -- to the new
+      // router. Below we will fix up P with the new outward link to `link` as
+      // well.
       //
       // This is an optimization for the common case of a local pair being split
-      // across nodes, where we have enough information at serialiation and
-      // deserialiation time to avoid all of overhead of the usual asynchronous
-      // procedure for bypassing a proxy.
+      // across nodes, where we have enough information at serialization and
+      // deserialization time to avoid the overhead of the usual asynchronous
+      // proxy bypass procedure.
       std::swap(outward_.link, outward_link);
     }
   }
@@ -276,10 +277,19 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     ABSL_ASSERT(local_peer);
 
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
+    ABSL_ASSERT(!local_peer->outward_.link);
+
+    SequenceNumber peer_sequence_length;
+    if (local_peer->inward_.link || !local_peer->outward_.parcels.IsEmpty()) {
+      peer_sequence_length =
+          local_peer->outward_.parcels.current_sequence_number();
+    } else {
+      peer_sequence_length = local_peer->outbound_sequence_length_;
+    }
+
     if (decaying_link) {
       inward_.decaying_proxy_link = std::move(decaying_link);
-      inward_.sequence_length_to_decaying_link =
-          local_peer->outbound_sequence_length_;
+      inward_.sequence_length_to_decaying_link = peer_sequence_length;
       inward_.sequence_length_from_decaying_link = outbound_sequence_length_;
     }
 
@@ -296,7 +306,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     // be in use and non-empty already. Otherwise its base SequenceNumber should
     // start at the Router's next outbound SequenceNumber.
     if (outward_.parcels.IsEmpty()) {
-      outward_.parcels.ResetBaseSequenceNumber(outbound_sequence_length_);
+      outward_.parcels.ResetInitialSequenceNumber(outbound_sequence_length_);
     }
   }
 
@@ -432,7 +442,7 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
     // this inward toward our own terminal router. If that's us, update portal
     // status and traps.
     absl::MutexLock lock(&mutex_);
-    inward_.parcels.SetPeerSequenceLength(sequence_length);
+    inward_.parcels.SetFinalSequenceLength(sequence_length);
     if (!inward_.closure_propagated && inward_.link) {
       forwarding_link = inward_.link;
       inward_.closure_propagated = true;
@@ -676,15 +686,15 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       }
 
       ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
-      local_peer->outward_.parcels.ResetBaseSequenceNumber(
+      local_peer->outward_.parcels.ResetInitialSequenceNumber(
           local_peer->outbound_sequence_length_);
       local_peer->outward_.link.reset();
 
       if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
-        ABSL_ASSERT(inward_.parcels.peer_sequence_length());
+        ABSL_ASSERT(inward_.parcels.final_sequence_length());
         descriptor.peer_closed = true;
         descriptor.closed_peer_sequence_length =
-            *inward_.parcels.peer_sequence_length();
+            *inward_.parcels.final_sequence_length();
         inward_.closure_propagated = true;
       }
 
@@ -706,11 +716,11 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       return local_peer;
     }
 
-    // In this case, we're not splitting a local pair, but extending route on
-    // this side. This router will become a proxy to the Router serialized here,
-    // and will forward inbound parcels to it over a new inward link. Similarly
-    // this router will forward outbound parcels from the new Router, to our own
-    // outward peer.
+    // In this case, we're not splitting a local pair, but extending the route
+    // on this side. This router will become a proxy to the new Router which is
+    // being serialized here, and it will forward inbound parcels to that Router
+    // over a new inward link. Similarly it router will forward outbound parcels
+    // from the new Router to our own outward peer.
     descriptor.route_is_peer = false;
     descriptor.next_outgoing_sequence_number = outbound_sequence_length_;
     descriptor.next_incoming_sequence_number =
@@ -726,7 +736,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       descriptor.peer_closed = true;
       descriptor.closed_peer_sequence_length =
-          *inward_.parcels.peer_sequence_length();
+          *inward_.parcels.final_sequence_length();
       inward_.closure_propagated = true;
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
                outward_.link->IsLinkToOtherSide() && !inward_.link &&
@@ -767,11 +777,11 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
     absl::MutexLock lock(&router->mutex_);
     router->outbound_sequence_length_ =
         descriptor.next_outgoing_sequence_number;
-    router->inward_.parcels.ResetBaseSequenceNumber(
+    router->inward_.parcels.ResetInitialSequenceNumber(
         descriptor.next_incoming_sequence_number);
     if (descriptor.peer_closed) {
       router->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-      router->inward_.parcels.SetPeerSequenceLength(
+      router->inward_.parcels.SetFinalSequenceLength(
           descriptor.closed_peer_sequence_length);
       if (router->inward_.parcels.IsDead()) {
         router->status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
@@ -798,7 +808,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
           router->outbound_sequence_length_;
 
       // As soon as we have every parcel that had been sent locally to our
-      // remote counterpair, this proxy will decay.
+      // remote counterpart, this proxy will decay.
       router->outward_.sequence_length_from_decaying_link =
           descriptor.decaying_incoming_sequence_length > 0
               ? descriptor.decaying_incoming_sequence_length
@@ -852,6 +862,12 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
                   << " with existing outward " << DescribeLink(outward_.link);
       return false;
     }
+
+    // The link must already be prepped for decay from this side by the time
+    // InitiateProxyBypass is called.
+    if (!outward_.link->GetLinkState().is_decaying(side_)) {
+      return false;
+    }
   }
 
   if (proxy_peer_node_name != requesting_node_link.node()->name()) {
@@ -860,8 +876,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // require an introduction first.
     {
       // Begin decaying our outward link. We don't know the sequence length
-      // coming from it yet, but that will be revealed by a subsequent
-      // ProxyWillStop message back to us.
+      // coming from it yet, but that will be determined eventually.
       absl::MutexLock lock(&mutex_);
       outward_.decaying_proxy_link = std::move(outward_.link);
       outward_.sequence_length_to_decaying_link = outbound_sequence_length_;
@@ -941,7 +956,9 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
         proxied_outbound_sequence_length;
 
     // Finally, create a new LocalRouterLink and use it to replace both our
-    // own outward link and our new local peer's outward link.
+    // own outward link and our new local peer's outward link. The new link is
+    // not ready for further decay until the above established decaying links
+    // have fully decayed.
     TwoSided<mem::Ref<Router>> routers;
     routers[side_] = mem::WrapRefCounted(this);
     routers[side_.opposite()] = new_local_peer;
@@ -1244,7 +1261,7 @@ void Router::Flush() {
     if (decaying_outward_proxy && !still_sending_to_outward_proxy) {
       const bool still_receiving_from_outward_proxy =
           (!outward_.sequence_length_from_decaying_link ||
-           inward_.parcels.GetAvailableSequenceLength() <
+           inward_.parcels.GetCurrentSequenceLength() <
                *outward_.sequence_length_from_decaying_link);
       if (!still_receiving_from_outward_proxy) {
         DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_proxy_link)
@@ -1294,7 +1311,7 @@ void Router::Flush() {
     if (decaying_inward_proxy && !still_sending_to_inward_proxy) {
       const bool still_receiving_from_inward_proxy =
           !inward_.sequence_length_from_decaying_link ||
-          (outward_.parcels.GetAvailableSequenceLength() <
+          (outward_.parcels.GetCurrentSequenceLength() <
            *inward_.sequence_length_from_decaying_link);
       if (!still_receiving_from_inward_proxy) {
         DVLOG(4) << "Inward " << DescribeLink(inward_.decaying_proxy_link)

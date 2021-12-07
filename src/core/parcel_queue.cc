@@ -14,13 +14,13 @@ namespace core {
 
 ParcelQueue::ParcelQueue() = default;
 
-ParcelQueue::ParcelQueue(SequenceNumber current_sequence_number)
-    : base_sequence_number_(current_sequence_number) {}
+ParcelQueue::ParcelQueue(SequenceNumber initial_sequence_number)
+    : base_sequence_number_(initial_sequence_number) {}
 
 ParcelQueue::ParcelQueue(ParcelQueue&& other)
     : base_sequence_number_(other.base_sequence_number_),
       num_parcels_(other.num_parcels_),
-      peer_sequence_length_(other.peer_sequence_length_) {
+      final_sequence_length_(other.final_sequence_length_) {
   if (!other.storage_.empty()) {
     size_t parcels_offset = other.parcels_.data() - storage_.data();
     storage_ = std::move(other.storage_);
@@ -32,7 +32,7 @@ ParcelQueue::ParcelQueue(ParcelQueue&& other)
 ParcelQueue& ParcelQueue::operator=(ParcelQueue&& other) {
   base_sequence_number_ = other.base_sequence_number_;
   num_parcels_ = other.num_parcels_;
-  peer_sequence_length_ = other.peer_sequence_length_;
+  final_sequence_length_ = other.final_sequence_length_;
   if (!other.storage_.empty()) {
     size_t parcels_offset = other.parcels_.data() - storage_.data();
     storage_ = std::move(other.storage_);
@@ -63,12 +63,12 @@ size_t ParcelQueue::GetNumAvailableBytes() const {
   return parcels_[0]->num_bytes_in_span;
 }
 
-SequenceNumber ParcelQueue::GetAvailableSequenceLength() const {
+SequenceNumber ParcelQueue::GetCurrentSequenceLength() const {
   return current_sequence_number() + GetNumAvailableParcels();
 }
 
-bool ParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
-  if (peer_sequence_length_) {
+bool ParcelQueue::SetFinalSequenceLength(SequenceNumber length) {
+  if (final_sequence_length_) {
     return false;
   }
 
@@ -76,31 +76,23 @@ bool ParcelQueue::SetPeerSequenceLength(SequenceNumber length) {
     return false;
   }
 
-  peer_sequence_length_ = length;
+  final_sequence_length_ = length;
   Reallocate(length);
   return true;
 }
 
 bool ParcelQueue::IsExpectingMoreParcels() const {
-  if (!peer_sequence_length_) {
+  if (!final_sequence_length_) {
     return true;
   }
 
-  if (base_sequence_number_ >= *peer_sequence_length_) {
+  if (base_sequence_number_ >= *final_sequence_length_) {
     return false;
   }
 
   const size_t num_parcels_remaining =
-      *peer_sequence_length_ - base_sequence_number_;
+      *final_sequence_length_ - base_sequence_number_;
   return num_parcels_ < num_parcels_remaining;
-}
-
-absl::optional<SequenceNumber> ParcelQueue::GetNextExpectedSequenceNumber()
-    const {
-  if (!IsExpectingMoreParcels()) {
-    return absl::nullopt;
-  }
-  return base_sequence_number_ + parcels_.size();
 }
 
 bool ParcelQueue::HasNextParcel() const {
@@ -115,7 +107,7 @@ bool ParcelQueue::IsDead() const {
   return !HasNextParcel() && !IsExpectingMoreParcels();
 }
 
-void ParcelQueue::ResetBaseSequenceNumber(SequenceNumber n) {
+void ParcelQueue::ResetInitialSequenceNumber(SequenceNumber n) {
   ABSL_ASSERT(IsEmpty());
   base_sequence_number_ = n;
 }
@@ -127,7 +119,7 @@ bool ParcelQueue::Push(Parcel parcel) {
   }
 
   size_t index = n - base_sequence_number_;
-  if (peer_sequence_length_) {
+  if (final_sequence_length_) {
     if (index >= parcels_.size() || parcels_[index].has_value()) {
       return false;
     }
