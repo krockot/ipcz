@@ -99,8 +99,8 @@ class Router : public mem::RefCounted {
   // parcels received from its outward link. The Router may also forward
   // outbound parcels received from the new inward link to the outward link. If
   // `decaying_link` is non-null, it is adopted as the router's decaying inward
-  // link and will be accept any outbound parcels up to the current
-  // `outbound_sequence_length_`.
+  // link and will be used to accept any outbound parcels up to the current
+  // outbound sequence length.
   //
   // TODO: This should be split into separate methods: one for BeginProxying
   // which takes only an inward link; and one for e.g. RerouteLocalPair which
@@ -116,8 +116,8 @@ class Router : public mem::RefCounted {
   // Finalizes this Router's proxying responsibilities in either direction. Once
   // the proxy has forwarded any inbound parcels up to (but not including)
   // `inbound_sequence_length` over to its inward link, and it has forwarded any
-  // outbound parcels up to but not including `outbound_sequence_length` to its
-  // outward link, it will destroy itself.
+  // outbound parcels up to the current outbound sequence length to its outward
+  // link, it will destroy itself.
   bool StopProxying(SequenceNumber inbound_sequence_length,
                     SequenceNumber outbound_sequence_length);
 
@@ -234,9 +234,7 @@ class Router : public mem::RefCounted {
   absl::Mutex mutex_;
   RouterSide inward_ ABSL_GUARDED_BY(mutex_);
   RouterSide outward_ ABSL_GUARDED_BY(mutex_);
-  bool outbound_transmission_paused_ = false;
-  bool side_closed_ = false;
-  SequenceNumber outbound_sequence_length_ = 0;
+  bool outbound_transmission_paused_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 };
