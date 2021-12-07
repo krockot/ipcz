@@ -73,11 +73,30 @@ struct IPCZ_ALIGN(16) RouterLinkState {
   // either kLeftDecaying or kRightDecaying, which will be the final status
   // change for the link as it's forgotten and replaced with a new link.
   enum Status : uint8_t {
+    // This is a new link which was created to bypass a proxy. Both ends of the
+    // link still have additional decaying links to the bypassed proxy. As those
+    // links fully decay, each side will upgrade the status to kLeftReady or
+    // kRightReady and eventually to kReady when both sides are ready.
     kNotReady = 0,
+
+    // The left side of this link has no decaying links, but the right side
+    // still has at least one.
     kLeftReady = 1,
+
+    // The right side of this link has no decaying links, but the left side
+    // still has at least one.
     kRightReady = 2,
+
+    // Neither side of this link has any decaying links. Decay of either side is
+    // possible if other conditions apply.
     kReady = 3,
+
+    // The left side has locked itself in as the next decaying proxy. This link
+    // will soon be obsoleted.
     kLeftDecaying = 4,
+
+    // The right side has locked itself in as the next decaying proxy. This link
+    // will soon be obsoleted.
     kRightDecaying = 5,
   };
 
