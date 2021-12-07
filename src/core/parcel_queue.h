@@ -24,7 +24,7 @@ namespace core {
 // across nodes and because some parcels may be relayed through the broker on
 // some platforms, it is prohibitively difficult to ensure that parcels always
 // arrive at their destination in the same order in which they were sent. In
-// light of this, portals place incoming parcels into a ParcelQueue.
+// light of this, routers place incoming parcels into a ParcelQueue.
 //
 // Based on the assumption that temporary sequence gaps are common but tend to
 // be small, this retains at least enough linear storage to hold every parcel
