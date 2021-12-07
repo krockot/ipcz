@@ -158,24 +158,16 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
     const SequenceNumber next_sequence_number =
         outward_.parcels.GetCurrentSequenceLength();
     parcel.set_sequence_number(next_sequence_number);
-    const bool push_ok = outward_.parcels.Push(std::move(parcel));
-    ABSL_ASSERT(push_ok);
-    link = outward_.link;
-    if (!link || outbound_transmission_paused_) {
-      DVLOG(4) << "Buffering " << parcel.Describe();
-      return IPCZ_RESULT_OK;
-    }
 
     // TODO: pushing and then immediately popping a parcel is a waste of time.
     // optimize this out when we know we're a terminal router.
-    DVLOG(4) << "Sending " << parcel.Describe() << " over "
-             << DescribeLink(link);
-    const bool pop_ok = outward_.parcels.Pop(parcel);
-    ABSL_ASSERT(pop_ok);
-    ABSL_ASSERT(parcel.sequence_number() == next_sequence_number);
+    DVLOG(4) << "Queuing outbound " << parcel.Describe();
+
+    const bool push_ok = outward_.parcels.Push(std::move(parcel));
+    ABSL_ASSERT(push_ok);
   }
 
-  link->AcceptParcel(parcel);
+  Flush();
   return IPCZ_RESULT_OK;
 }
 
@@ -292,6 +284,12 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
   Flush();
   if (local_peer) {
     local_peer->Flush();
+  }
+
+  if (outward_link) {
+    // Ensure any refs held by the now-dead link are dropped.
+    ABSL_ASSERT(outward_link->GetLocalTarget());
+    outward_link->Deactivate();
   }
 }
 
@@ -663,7 +661,6 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         continue;
       }
 
-      ABSL_ASSERT(local_peer->outward_.parcels.IsEmpty());
       local_peer->outward_.link.reset();
 
       if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
@@ -840,12 +837,6 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
                   << requesting_node_link.remote_node_name().ToString()
                   << " on routing ID " << requesting_routing_id
                   << " with existing outward " << DescribeLink(outward_.link);
-      return false;
-    }
-
-    // The link must already be prepped for decay from this side by the time
-    // InitiateProxyBypass is called.
-    if (!outward_.link->GetLinkState().is_decaying(side_)) {
       return false;
     }
   }
@@ -1406,8 +1397,9 @@ bool Router::MaybeInitiateSelfRemoval() {
       return false;
     }
 
-    state.bypass_key = RandomUint128();
-    DVLOG(4) << "Setting bypass key " << state.bypass_key << " for "
+    bypass_key = RandomUint128();
+    state.bypass_key = bypass_key;
+    DVLOG(4) << "Setting bypass key " << bypass_key << " for "
              << DescribeLink(outward_.link);
 
     local_peer = outward_.link->GetLocalTarget();
