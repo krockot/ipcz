@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
-#include <forward_list>
 #include <sstream>
 #include <utility>
 #include <vector>
@@ -67,14 +66,10 @@ std::atomic<size_t> g_num_routers{0};
 
 Router::Router(Side side) : side_(side) {
   ++g_num_routers;
-
-  DVLOG(5) << "There are " << g_num_routers << " living Routers.";
 }
 
 Router::~Router() {
   --g_num_routers;
-
-  DVLOG(5) << "There are " << g_num_routers << " living Routers.";
 }
 
 // static
@@ -1088,22 +1083,27 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
     return false;
   }
 
-  TwoMutexLock lock(&mutex_, &local_peer->mutex_);
-  if (!local_peer->outward_.decaying_proxy_link ||
-      !outward_.decaying_proxy_link || !inward_.decaying_proxy_link) {
-    return false;
+  {
+    TwoMutexLock lock(&mutex_, &local_peer->mutex_);
+    if (!local_peer->outward_.decaying_proxy_link ||
+        !outward_.decaying_proxy_link || !inward_.decaying_proxy_link) {
+      return false;
+    }
+
+    DVLOG(4) << "Stopping proxy with inward decaying "
+             << DescribeLink(inward_.decaying_proxy_link) << " and outward "
+             << "decaying " << DescribeLink(outward_.decaying_proxy_link);
+
+    // Update all locally decaying links regarding the sequence length from the
+    // remote peer to this router -- the decaying proxy -- so that those links
+    // may eventually decay.
+    local_peer->outward_.sequence_length_from_decaying_link = sequence_length;
+    outward_.sequence_length_to_decaying_link = sequence_length;
+    inward_.sequence_length_from_decaying_link = sequence_length;
   }
 
-  DVLOG(4) << "Stopping proxy with inward decaying "
-           << DescribeLink(inward_.decaying_proxy_link) << " and outward "
-           << "decaying " << DescribeLink(outward_.decaying_proxy_link);
-
-  // Update all locally decaying links regarding the sequence length from the
-  // remote peer to this router -- the decaying proxy -- so that those links may
-  // eventually decay.
-  local_peer->outward_.sequence_length_from_decaying_link = sequence_length;
-  outward_.sequence_length_to_decaying_link = sequence_length;
-  inward_.sequence_length_from_decaying_link = sequence_length;
+  Flush();
+  local_peer->Flush();
   return true;
 }
 
@@ -1149,8 +1149,10 @@ void Router::LogDescription() {
   DLOG(INFO) << " - outward length from decaying link: "
              << DescribeOptionalLength(
                     outward_.sequence_length_from_decaying_link);
-  DLOG(INFO) << " - outward link status  "
-             << outward_.link->GetLinkState().status;
+  if (outward_.link) {
+    DLOG(INFO) << " - outward link status  "
+               << outward_.link->GetLinkState().status;
+  }
 
   DLOG(INFO) << " - inward " << DescribeLink(inward_.link);
   DLOG(INFO) << " - inward decaying "

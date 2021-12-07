@@ -34,7 +34,7 @@ TestBase::TestBase() {
 }
 
 TestBase::~TestBase() {
-  // ABSL_ASSERT(core::Router::GetNumRoutersForTesting() == 0);
+  ABSL_ASSERT(core::Router::GetNumRoutersForTesting() == 0);
 }
 
 IpczHandle TestBase::ConnectNode(IpczHandle node,
