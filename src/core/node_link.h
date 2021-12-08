@@ -46,17 +46,36 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   const mem::Ref<DriverTransport>& transport() const { return transport_; }
   NodeLinkBuffer& buffer() const { return *link_memory_.As<NodeLinkBuffer>(); }
 
+  // Allocates a routing ID from the NodeLink's shared state. This atomically
+  // increments the shared routing ID counter shared by both ends of the link by
+  // `count` and returns the value it had just before incrementing. The caller
+  // can assume succesful allocation of routing IDs from the returned value N
+  // (inclusive) up to `N + count` (exclusive).
   RoutingId AllocateRoutingIds(size_t count);
 
+  // Binds `routing_id` on this NodeLink to the given `router`. `link_side`
+  // specifies which side of the link this end identifies as (A or B), and
+  // `route_side` specifies whether the link connects `router` to a remote
+  // router on the same side of the route, or on the other side of the route.
   mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
                                 size_t link_state_index,
-                                mem::Ref<Router> router,
-                                RemoteRouterLink::Type link_type);
+                                LinkSide link_side,
+                                RouteSide route_side,
+                                mem::Ref<Router> router);
+
+  // Removes the route specified by `routing_id`. Once removed, any messages
+  // received for that routing ID are ignored.
   bool RemoveRoute(RoutingId routing_id);
+
+  // Retrieves the Router currently bound to `routing_id` on this NodeLink.
   mem::Ref<Router> GetRouter(RoutingId routing_id);
 
+  // Permanently deactivates this NodeLink. Once this call returns the NodeLink
+  // will no longer receive transport messages. It may still be used to transmit
+  // outgoing messages, but it cannot be reactivated.
   void Deactivate();
 
+  // Transmits a transport message to the other end of this NodeLink.
   void Transmit(absl::Span<const uint8_t> data, absl::Span<os::Handle> handles);
 
   template <typename T>
@@ -98,6 +117,9 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
       const DriverTransport::Message& message) override;
   void OnTransportError() override;
 
+  // All of these methods correspond directly to remote calls from another node,
+  // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
+  // everything else).
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnSideClosed(const msg::SideClosed& side_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);

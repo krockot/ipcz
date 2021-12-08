@@ -7,56 +7,60 @@
 
 #include <utility>
 
+#include "core/link_side.h"
+#include "core/router.h"
 #include "core/router_link.h"
 #include "core/router_link_state.h"
-#include "core/side.h"
-#include "core/two_sided.h"
 #include "mem/ref_counted.h"
 
 namespace ipcz {
 namespace core {
 
-class Router;
-
-// Local link between routers. A LocalRouterLink can only ever serve as a peer
-// link. Predecessor and successor links are only created when extending a route
-// across a NodeLink, which means they are always RemoteRouterLinks.
+// Local link between two Routers on the same node. A LocalRouterLink is always
+// connected to the other side of the route. Several RouterLink overrides are
+// unimplemented by LocalRouterLink as they are unnecessary and unused for local
+// links.
 class LocalRouterLink : public RouterLink {
  public:
-  static TwoSided<mem::Ref<RouterLink>> CreatePair(
+  // Creates a new pair of LocalRouterLinks with the given initial link status
+  // and linking the given pair of Routers together. The Routers must not
+  // currently have outward links.
+  static RouterLink::Pair CreatePair(
       RouterLinkState::Status initial_link_status,
-      const TwoSided<mem::Ref<Router>>& routers);
+      const Router::Pair& routers);
 
   // RouterLink:
-  void Deactivate() override;
+  LinkSide GetLinkSide() const override;
+  RouteSide GetTargetRouteSide() const override;
   RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
-  bool IsLinkToOtherSide() override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
-  void AcceptRouteClosure(Side side, SequenceNumber sequence_length) override;
-  void StopProxying(SequenceNumber inbound_sequence_length,
-                    SequenceNumber outbound_sequence_length) override;
+  void AcceptRouteClosure(RouteSide route_side,
+                          SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     RoutingId proxy_peer_routing_id,
                                     const absl::uint128& bypass_key) override;
+  void StopProxying(SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length) override;
+  void ProxyWillStop(SequenceNumber sequence_length) override;
   void BypassProxyToSameNode(RoutingId new_routing_id,
                              SequenceNumber sequence_length) override;
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
-  void ProxyWillStop(SequenceNumber sequence_length) override;
   void DecayUnblocked() override;
+  void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace(Side toward_side) override;
+  void LogRouteTrace(RouteSide toward_route_side) override;
 
  private:
   class SharedState;
 
-  LocalRouterLink(Side side, mem::Ref<SharedState> state);
+  LocalRouterLink(LinkSide link_side, mem::Ref<SharedState> state);
   ~LocalRouterLink() override;
 
-  const Side side_;
+  const LinkSide link_side_;
   const mem::Ref<SharedState> state_;
 };
 

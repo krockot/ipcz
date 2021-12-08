@@ -48,11 +48,12 @@ IPCZ_MSG_NO_REPLY(Connect, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 // Notifies a node that the side of the route which contains a link bound to
-// `routing_id` on this NodeLink has been closed. `sequence_length` is the total
-// number of parcels transmitted from that side before closing.
+// `routing_id` on this NodeLink has been closed. `side` is relative to the
+// receiving router, and `sequence_length` is the total number of parcels
+// transmitted from that side before closing.
 IPCZ_MSG_NO_REPLY(SideClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(Side, side)
+  IPCZ_MSG_PARAM(RouteSide, route_side)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 
@@ -176,8 +177,9 @@ IPCZ_MSG_NO_REPLY(DecayUnblocked, IPCZ_MSG_ID(11), IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 // Requests that the receiving Router log a description of itself and forward
-// this request the next link along the route in the direction of `toward_side`.
+// this request the next link along the route in the direction of
+// `toward_route_side`, relative to the receiving router.
 IPCZ_MSG_NO_REPLY(LogRouteTrace, IPCZ_MSG_ID(12), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(Side, toward_side)
+  IPCZ_MSG_PARAM(RouteSide, toward_route_side)
 IPCZ_MSG_END()

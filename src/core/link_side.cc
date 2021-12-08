@@ -2,13 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/side.h"
+#include "core/link_side.h"
 
 namespace ipcz {
 namespace core {
 
-constexpr Side::Value Side::kLeft;
-constexpr Side::Value Side::kRight;
+// static
+constexpr LinkSide::Value LinkSide::kA;
+
+// static
+constexpr LinkSide::Value LinkSide::kB;
 
 }  // namespace core
 }  // namespace ipcz

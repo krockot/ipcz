@@ -104,9 +104,9 @@ DriverTransport::~DriverTransport() {
 }
 
 // static
-std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
-DriverTransport::CreatePair(const IpczDriver& driver,
-                            IpczDriverHandle driver_node) {
+DriverTransport::Pair DriverTransport::CreatePair(
+    const IpczDriver& driver,
+    IpczDriverHandle driver_node) {
   IpczDriverHandle transport0;
   IpczDriverHandle transport1;
   IpczResult result = driver.CreateTransports(

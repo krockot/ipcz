@@ -20,30 +20,29 @@ RouterLinkState& RouterLinkState::Initialize(void* where) {
   return *(new (where) RouterLinkState());
 }
 
-bool RouterLinkState::SetSideReady(Side side) {
-  const Status kThisSideReady = side == Side::kLeft ? kLeftReady : kRightReady;
-  const Status kOtherSideReady = side == Side::kLeft ? kRightReady : kLeftReady;
+bool RouterLinkState::SetSideReady(LinkSide side) {
+  const Status kReadyOnThisSide = side == LinkSide::kA ? kReadyOnA : kReadyOnB;
+  const Status kReadyOnOtherSide = side == LinkSide::kA ? kReadyOnB : kReadyOnA;
 
   Status expected = Status::kNotReady;
-  if (status.compare_exchange_strong(expected, kThisSideReady,
+  if (status.compare_exchange_strong(expected, kReadyOnThisSide,
                                      std::memory_order_relaxed)) {
     return true;
   }
   if (expected == kReady) {
     return true;
   }
-  if (expected != kOtherSideReady) {
+  if (expected != kReadyOnOtherSide) {
     return false;
   }
   return status.compare_exchange_strong(expected, kReady,
                                         std::memory_order_relaxed);
 }
 
-bool RouterLinkState::TryToDecay(Side side) {
-  const Status kThisSideDecaying =
-      side == Side::kLeft ? kLeftDecaying : kRightDecaying;
+bool RouterLinkState::TryToDecay(LinkSide side) {
+  const Status kDecayOnThisSide = side == LinkSide::kA ? kDecayOnA : kDecayOnB;
   Status expected = Status::kReady;
-  return status.compare_exchange_strong(expected, kThisSideDecaying,
+  return status.compare_exchange_strong(expected, kDecayOnThisSide,
                                         std::memory_order_relaxed);
 }
 

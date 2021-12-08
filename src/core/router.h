@@ -8,14 +8,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
+#include "core/route_side.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
-#include "core/side.h"
 #include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -34,9 +35,9 @@ class RouterLink;
 
 class Router : public mem::RefCounted {
  public:
-  explicit Router(Side side);
+  using Pair = std::pair<mem::Ref<Router>, mem::Ref<Router>>;
 
-  Side side() const { return side_; }
+  Router();
 
   // Returns the total number of Routers living in the calling process.
   static size_t GetNumRoutersForTesting();
@@ -137,10 +138,11 @@ class Router : public mem::RefCounted {
   // outward link.
   bool AcceptOutboundParcel(Parcel& parcel);
 
-  // Accepts notification that one `side` of this route has been closed.
-  // The closed side of the route has transmitted all parcels up to but not
-  // including the sequence number `sequence_length`.
-  void AcceptRouteClosure(Side side, SequenceNumber sequence_length);
+  // Accepts notification that `route_side` of this route (relative to this
+  // Router's own side) has been closed. The closed side of the route has
+  // transmitted all parcels up to but not including the sequence number
+  // `sequence_length`.
+  void AcceptRouteClosure(RouteSide route_side, SequenceNumber sequence_length);
 
   // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,
@@ -195,18 +197,18 @@ class Router : public mem::RefCounted {
 
   // Logs a detailed description of this router and every router along the
   // route from this one, in the direction of the terminal router on
-  // `toward_side`.
-  void LogRouteTrace(Side toward_side);
+  // `toward_route_side`.
+  void LogRouteTrace(RouteSide toward_route_side);
 
  private:
   friend class LocalRouterLink;
   friend class NodeLink;
 
-  struct RouterSide {
-    RouterSide();
-    RouterSide(const RouterSide&) = delete;
-    RouterSide& operator=(const RouterSide&) = delete;
-    ~RouterSide();
+  struct IoState {
+    IoState();
+    IoState(const IoState&) = delete;
+    IoState& operator=(const IoState&) = delete;
+    ~IoState();
 
     ParcelQueue parcels;
     mem::Ref<RouterLink> link;
@@ -229,11 +231,9 @@ class Router : public mem::RefCounted {
   // successful, asks its inward peer to initiate our bypass along the route.
   bool MaybeInitiateSelfRemoval();
 
-  const Side side_;
-
   absl::Mutex mutex_;
-  RouterSide inward_ ABSL_GUARDED_BY(mutex_);
-  RouterSide outward_ ABSL_GUARDED_BY(mutex_);
+  IoState inward_ ABSL_GUARDED_BY(mutex_);
+  IoState outward_ ABSL_GUARDED_BY(mutex_);
   bool outbound_transmission_paused_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);

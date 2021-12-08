@@ -7,6 +7,8 @@
 
 #include <cstdint>
 
+#include "core/link_side.h"
+#include "core/route_side.h"
 #include "core/router_link.h"
 #include "core/routing_id.h"
 
@@ -15,43 +17,55 @@ namespace core {
 
 class NodeLink;
 
+// One side of a link between two Routers living on different nodes. A
+// RemoteRouterLink uses a NodeLink plus a RoutingId as its transport between
+// the routers. On the other end (on another node) is another RemoteRouterLink
+// using a NodeLink back to this node, with the same RoutingId.
+//
+// As with other RouterLink instances, each RemoteRouterLink is assigned a
+// LinkSide at construction time. This assignment is arbitrary but will always
+// be the opposite of the LinkSide assigned to the RemoteRouteLink on the other
+// end.
 class RemoteRouterLink : public RouterLink {
  public:
-  enum class Type {
-    kToSameSide,
-    kToOtherSide,
-  };
-
+  // Constructs a new RemoteRouterLink which sends messages over `node_link`
+  // using `routing_id` specifically. `link_side` is the side of this link on
+  // which this RemoteRouterLink falls (side A or B), and `target_route_side`
+  // indicates whether the remote Router is on the same side or the other side
+  // of the overall route.
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
                    uint32_t link_state_index,
-                   Type type);
+                   LinkSide link_side,
+                   RouteSide target_route_side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
 
   // RouterLink:
-  void Deactivate() override;
+  LinkSide GetLinkSide() const override;
+  RouteSide GetTargetRouteSide() const override;
   RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
-  bool IsLinkToOtherSide() override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
-  void AcceptRouteClosure(Side side, SequenceNumber sequence_length) override;
-  void StopProxying(SequenceNumber inbound_sequence_length,
-                    SequenceNumber outbound_sequence_length) override;
+  void AcceptRouteClosure(RouteSide side,
+                          SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     RoutingId proxy_peer_routing_id,
                                     const absl::uint128& bypass_key) override;
+  void StopProxying(SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length) override;
+  void ProxyWillStop(SequenceNumber sequence_length) override;
   void BypassProxyToSameNode(RoutingId new_routing_id,
                              SequenceNumber sequence_length) override;
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
-  void ProxyWillStop(SequenceNumber sequence_length) override;
   void DecayUnblocked() override;
+  void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace(Side toward_side) override;
+  void LogRouteTrace(RouteSide toward_side) override;
 
  private:
   ~RemoteRouterLink() override;
@@ -59,7 +73,8 @@ class RemoteRouterLink : public RouterLink {
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
   const uint32_t link_state_index_;
-  const Type type_;
+  const LinkSide link_side_;
+  const RouteSide target_route_side_;
 };
 
 }  // namespace core

@@ -32,20 +32,26 @@ namespace core {
 RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
                                    RoutingId routing_id,
                                    uint32_t link_state_index,
-                                   Type type)
+                                   LinkSide link_side,
+                                   RouteSide target_route_side)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
       link_state_index_(link_state_index),
-      type_(type) {}
+      link_side_(link_side),
+      target_route_side_(target_route_side) {}
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 
-void RemoteRouterLink::Deactivate() {
-  node_link_->RemoveRoute(routing_id_);
+LinkSide RemoteRouterLink::GetLinkSide() const {
+  return link_side_;
 }
 
 RouterLinkState& RemoteRouterLink::GetLinkState() {
   return node_link_->buffer().router_link_state(link_state_index_);
+}
+
+RouteSide RemoteRouterLink::GetTargetRouteSide() const {
+  return target_route_side_;
 }
 
 mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
@@ -55,10 +61,6 @@ mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
 bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
                                       RoutingId routing_id) {
   return node_link_.get() == &node_link && routing_id_ == routing_id;
-}
-
-bool RemoteRouterLink::IsLinkToOtherSide() {
-  return type_ == Type::kToOtherSide;
 }
 
 bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
@@ -106,15 +108,15 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener = routers[i]->Serialize(descriptors[i]);
     if (descriptors[i].route_is_peer) {
-      bool ok = state.SetSideReady(descriptors[i].side.opposite());
+      bool ok = state.SetSideReady(LinkSide::kA);
       ABSL_ASSERT(ok);
       descriptors[i].new_decaying_routing_id =
           node_link()->AllocateRoutingIds(1);
     }
     new_links[i] = node_link()->AddRoute(
-        routing_id, routing_id, std::move(route_listener),
-        descriptors[i].route_is_peer ? RemoteRouterLink::Type::kToOtherSide
-                                     : RemoteRouterLink::Type::kToSameSide);
+        routing_id, routing_id, LinkSide::kA,
+        descriptors[i].route_is_peer ? RouteSide::kOther : RouteSide::kSame,
+        std::move(route_listener));
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
@@ -123,10 +125,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     mem::Ref<RouterLink> decaying_link;
     if (descriptors[i].route_is_peer) {
-      decaying_link = node_link()->AddRoute(
-          descriptors[i].new_decaying_routing_id,
-          descriptors[i].new_decaying_routing_id, routers[i],
-          RemoteRouterLink::Type::kToSameSide);
+      decaying_link =
+          node_link()->AddRoute(descriptors[i].new_decaying_routing_id,
+                                descriptors[i].new_decaying_routing_id,
+                                LinkSide::kA, RouteSide::kSame, routers[i]);
     }
     routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
                               std::move(decaying_link));
@@ -137,11 +139,12 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   }
 }
 
-void RemoteRouterLink::AcceptRouteClosure(Side side,
+void RemoteRouterLink::AcceptRouteClosure(RouteSide route_side,
                                           SequenceNumber sequence_length) {
   msg::SideClosed side_closed;
   side_closed.params.routing_id = routing_id_;
-  side_closed.params.side = side;
+  side_closed.params.route_side =
+      target_route_side_.is_same_side() ? route_side : route_side.opposite();
   side_closed.params.sequence_length = sequence_length;
   node_link()->Transmit(side_closed);
 }
@@ -196,6 +199,10 @@ void RemoteRouterLink::DecayUnblocked() {
   node_link()->Transmit(unblocked);
 }
 
+void RemoteRouterLink::Deactivate() {
+  node_link_->RemoveRoute(routing_id_);
+}
+
 std::string RemoteRouterLink::Describe() const {
   std::stringstream ss;
   ss << "link on " << node_link_->node()->name().ToString() << " to "
@@ -204,10 +211,12 @@ std::string RemoteRouterLink::Describe() const {
   return ss.str();
 }
 
-void RemoteRouterLink::LogRouteTrace(Side toward_side) {
+void RemoteRouterLink::LogRouteTrace(RouteSide toward_route_side) {
   msg::LogRouteTrace log_request;
   log_request.params.routing_id = routing_id_;
-  log_request.params.toward_side = toward_side;
+  log_request.params.toward_route_side = target_route_side_.is_same_side()
+                                             ? toward_route_side
+                                             : toward_route_side.opposite();
   node_link()->Transmit(log_request);
 }
 

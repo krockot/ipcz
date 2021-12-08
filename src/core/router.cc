@@ -26,7 +26,6 @@
 #include "core/sequence_number.h"
 #include "core/trap.h"
 #include "core/trap_event_dispatcher.h"
-#include "core/two_sided.h"
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -64,7 +63,7 @@ std::atomic<size_t> g_num_routers{0};
 
 }  // namespace
 
-Router::Router(Side side) : side_(side) {
+Router::Router() {
   ++g_num_routers;
 }
 
@@ -192,7 +191,7 @@ void Router::CloseRoute() {
     outward_.parcels.SetFinalSequenceLength(final_sequence_length);
   }
 
-  forwarding_link->AcceptRouteClosure(side_, final_sequence_length);
+  forwarding_link->AcceptRouteClosure(RouteSide::kSame, final_sequence_length);
 
   if (dead_outward_link) {
     dead_outward_link->Deactivate();
@@ -214,7 +213,8 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
     }
 
     if (!outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
-      bool ok = outward_.link->GetLinkState().SetSideReady(side_);
+      bool ok = outward_.link->GetLinkState().SetSideReady(
+          outward_.link->GetLinkSide());
       ABSL_ASSERT(ok);
     }
   }
@@ -398,11 +398,12 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
   return true;
 }
 
-void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
+void Router::AcceptRouteClosure(RouteSide route_side,
+                                SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
   mem::Ref<RouterLink> forwarding_link;
   mem::Ref<RouterLink> dead_outward_link;
-  if (side == side_) {
+  if (route_side == RouteSide::kSame) {
     // If we're being notified of our own side's closure, we want to propagate
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
@@ -438,7 +439,12 @@ void Router::AcceptRouteClosure(Side side, SequenceNumber sequence_length) {
   }
 
   if (forwarding_link) {
-    forwarding_link->AcceptRouteClosure(side, sequence_length);
+    if (forwarding_link->GetTargetRouteSide().is_other_side()) {
+      ABSL_ASSERT(route_side == RouteSide::kSame);
+      forwarding_link->AcceptRouteClosure(RouteSide::kOther, sequence_length);
+    } else {
+      forwarding_link->AcceptRouteClosure(route_side, sequence_length);
+    }
   }
 
   if (dead_outward_link) {
@@ -614,8 +620,6 @@ IpczResult Router::RemoveTrap(Trap& trap) {
 }
 
 mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
-  descriptor.side = side_;
-
   for (;;) {
     // The fast path for a local pair being split is to directly establish a new
     // outward link to the destination, rather than proxying. First we acquire a
@@ -654,7 +658,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         continue;
       }
 
-      if (!outward_.link->GetLinkState().TryToDecay(side_)) {
+      if (!outward_.link->GetLinkState().TryToDecay(
+              outward_.link->GetLinkSide())) {
         // Decay has been blocked since we checked above. Restart since it is no
         // longer safe to take the optimized path.
         continue;
@@ -678,9 +683,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       descriptor.decaying_incoming_sequence_length =
           local_peer->outward_.parcels.current_sequence_number();
 
-      DVLOG(4) << "Splitting local pair to move " << side_.ToString()
-               << " side with outbound sequence length "
-               << outward_.parcels.current_sequence_number()
+      DVLOG(4) << "Splitting local pair to move router with outbound sequence "
+               << "length " << outward_.parcels.current_sequence_number()
                << " and current inbound sequence number "
                << descriptor.next_incoming_sequence_number;
 
@@ -701,8 +705,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     descriptor.next_incoming_sequence_number =
         inward_.parcels.current_sequence_number();
 
-    DVLOG(4) << "Extending route on " << side_.ToString() << " side with "
-             << " outbound sequence length "
+    DVLOG(4) << "Extending route on new router with outbound sequence length "
              << outward_.parcels.current_sequence_number()
              << " and current inbound sequence number "
              << descriptor.next_incoming_sequence_number;
@@ -715,8 +718,9 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
           *inward_.parcels.final_sequence_length();
       inward_.closure_propagated = true;
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
-               outward_.link->IsLinkToOtherSide() && !inward_.link &&
-               !outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
+               outward_.link->GetTargetRouteSide().is_other_side() &&
+               !inward_.link && !outward_.decaying_proxy_link &&
+               !inward_.decaying_proxy_link) {
       // If we're becoming a proxy under some common special conditions --
       // namely that no other part of the route is currently decaying -- we can
       // roll the first step of our own decay into this descriptor transmission.
@@ -726,7 +730,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       proxy_peer_routing_id = remote_link.routing_id();
 
       RouterLinkState& state = outward_.link->GetLinkState();
-      if (state.TryToDecay(side_)) {
+      if (state.TryToDecay(outward_.link->GetLinkSide())) {
         DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
                  << "with peer at " << proxy_peer_node_name.ToString()
                  << " and "
@@ -748,7 +752,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
 // static
 mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
                                      NodeLink& from_node_link) {
-  auto router = mem::MakeRefCounted<Router>(descriptor.side);
+  auto router = mem::MakeRefCounted<Router>();
   {
     absl::MutexLock lock(&router->mutex_);
     router->outward_.parcels.ResetInitialSequenceNumber(
@@ -765,9 +769,9 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
     }
 
     router->outward_.link = from_node_link.AddRoute(
-        descriptor.new_routing_id, descriptor.new_routing_id, router,
-        descriptor.route_is_peer ? RemoteRouterLink::Type::kToOtherSide
-                                 : RemoteRouterLink::Type::kToSameSide);
+        descriptor.new_routing_id, descriptor.new_routing_id, LinkSide::kB,
+        descriptor.route_is_peer ? RouteSide::kOther : RouteSide::kSame,
+        router);
     if (descriptor.route_is_peer) {
       // When split from a local peer, our remote counterpart (our remote peer's
       // former local peer) will use this link to forward parcels it already
@@ -775,8 +779,8 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
       // once its usefulness has expired.
       router->outward_.decaying_proxy_link =
           from_node_link.AddRoute(descriptor.new_decaying_routing_id,
-                                  descriptor.new_decaying_routing_id, router,
-                                  RemoteRouterLink::Type::kToSameSide);
+                                  descriptor.new_decaying_routing_id,
+                                  LinkSide::kB, RouteSide::kSame, router);
 
       // The sequence length toward this link is the current outbound sequence
       // length, which is to say, we will not be sending any parcels that way.
@@ -790,14 +794,13 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
               ? descriptor.decaying_incoming_sequence_length
               : descriptor.next_incoming_sequence_number;
 
-      DVLOG(4) << "Route " << router->side_.ToString() << " side moved from "
-               << "split pair on "
+      DVLOG(4) << "Route moved from split pair on "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.node()->name().ToString() << " via routing ID "
                << descriptor.new_routing_id << " and decaying routing ID "
                << descriptor.new_decaying_routing_id;
     } else {
-      DVLOG(4) << "Route " << router->side_.ToString() << " side extended from "
+      DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.node()->name().ToString() << " via routing ID "
                << descriptor.new_routing_id;
@@ -888,7 +891,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
   SequenceNumber proxied_inbound_sequence_length;
   SequenceNumber proxied_outbound_sequence_length;
-  if (!new_local_peer || new_local_peer->side_ != side_.opposite()) {
+  if (!new_local_peer) {
     return false;
   }
 
@@ -932,17 +935,13 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // own outward link and our new local peer's outward link. The new link is
     // not ready for further decay until the above established decaying links
     // have fully decayed.
-    TwoSided<mem::Ref<Router>> routers;
-    routers[side_] = mem::WrapRefCounted(this);
-    routers[side_.opposite()] = new_local_peer;
-    TwoSided<mem::Ref<RouterLink>> links =
+    Router::Pair routers{mem::WrapRefCounted(this), new_local_peer};
+    RouterLink::Pair links =
         LocalRouterLink::CreatePair(RouterLinkState::kNotReady, routers);
-
-    routers.left()->mutex_.AssertHeld();
-    routers.left()->outward_.link = std::move(links.left());
-
-    routers.right()->mutex_.AssertHeld();
-    routers.right()->outward_.link = std::move(links.right());
+    routers.first->mutex_.AssertHeld();
+    routers.first->outward_.link = std::move(links.first);
+    routers.second->mutex_.AssertHeld();
+    routers.second->outward_.link = std::move(links.second);
   }
 
   if (previous_outward_link_from_new_local_peer) {
@@ -972,7 +971,7 @@ bool Router::BypassProxyWithNewLink(
 
     RouterLinkState& state = outward_.link->GetLinkState();
     if (state.bypass_key != bypass_key ||
-        !state.is_decaying(side_.opposite())) {
+        !state.is_decaying(outward_.link->GetLinkSide().opposite())) {
       DLOG(ERROR) << "Proxy bypass rejecting due to key mismatch: "
                   << state.bypass_key << " != " << bypass_key;
       return false;
@@ -1134,7 +1133,6 @@ bool Router::OnDecayUnblocked() {
 void Router::LogDescription() {
   absl::MutexLock lock(&mutex_);
   DLOG(INFO) << "## router [" << this << "]";
-  DLOG(INFO) << " - side: " << (side_ == Side::kLeft ? "left" : "right");
   DLOG(INFO) << " - paused: " << (outbound_transmission_paused_ ? "yes" : "no");
   DLOG(INFO) << " - status flags: " << status_.flags;
   DLOG(INFO) << " - side closed: "
@@ -1165,13 +1163,13 @@ void Router::LogDescription() {
                     inward_.sequence_length_from_decaying_link);
 }
 
-void Router::LogRouteTrace(Side toward_side) {
+void Router::LogRouteTrace(RouteSide toward_route_side) {
   LogDescription();
 
   mem::Ref<RouterLink> next_link;
   {
     absl::MutexLock lock(&mutex_);
-    if (toward_side == side_) {
+    if (toward_route_side == RouteSide::kSame) {
       next_link = inward_.link;
     } else {
       next_link = outward_.link;
@@ -1179,7 +1177,12 @@ void Router::LogRouteTrace(Side toward_side) {
   }
 
   if (next_link) {
-    next_link->LogRouteTrace(toward_side);
+    if (next_link->GetTargetRouteSide().is_other_side()) {
+      ABSL_ASSERT(toward_route_side == RouteSide::kOther);
+      next_link->LogRouteTrace(RouteSide::kSame);
+    } else {
+      next_link->LogRouteTrace(toward_route_side);
+    }
   }
 }
 
@@ -1360,7 +1363,7 @@ void Router::Flush() {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
 
-    outward_link->GetLinkState().SetSideReady(side_);
+    outward_link->GetLinkState().SetSideReady(outward_link->GetLinkSide());
     if (!MaybeInitiateSelfRemoval() &&
         outward_link->GetLinkState().is_link_ready()) {
       DVLOG(4) << "Cannot remove self, but pinging peer on "
@@ -1373,7 +1376,8 @@ void Router::Flush() {
   }
 
   if (notify_closure_outward) {
-    outward_link->AcceptRouteClosure(side_, final_sequence_length);
+    outward_link->AcceptRouteClosure(outward_link->GetTargetRouteSide(),
+                                     final_sequence_length);
   }
 
   if (dead_outward_link) {
@@ -1390,14 +1394,15 @@ bool Router::MaybeInitiateSelfRemoval() {
   {
     absl::MutexLock lock(&mutex_);
     if (!outward_.link || !inward_.link || outward_.decaying_proxy_link ||
-        inward_.decaying_proxy_link || !outward_.link->IsLinkToOtherSide()) {
+        inward_.decaying_proxy_link ||
+        outward_.link->GetTargetRouteSide().is_same_side()) {
       return false;
     }
 
     successor = inward_.link;
 
     RouterLinkState& state = outward_.link->GetLinkState();
-    if (!state.TryToDecay(side_)) {
+    if (!state.TryToDecay(outward_.link->GetLinkSide())) {
       DVLOG(4) << "Proxy self-removal blocked by busy "
                << DescribeLink(outward_.link);
       return false;
@@ -1437,8 +1442,8 @@ bool Router::MaybeInitiateSelfRemoval() {
   const RoutingId new_routing_id =
       node_link_to_successor->AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link = node_link_to_successor->AddRoute(
-      new_routing_id, new_routing_id, local_peer,
-      RemoteRouterLink::Type::kToOtherSide);
+      new_routing_id, new_routing_id, LinkSide::kA, RouteSide::kOther,
+      local_peer);
 
   {
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
@@ -1487,9 +1492,9 @@ bool Router::MaybeInitiateSelfRemoval() {
   return true;
 }
 
-Router::RouterSide::RouterSide() = default;
+Router::IoState::IoState() = default;
 
-Router::RouterSide::~RouterSide() = default;
+Router::IoState::~IoState() = default;
 
 }  // namespace core
 }  // namespace ipcz

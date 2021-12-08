@@ -18,9 +18,7 @@
 #include "core/portal_descriptor.h"
 #include "core/router.h"
 #include "core/router_link_state.h"
-#include "core/side.h"
 #include "core/trap.h"
-#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -58,15 +56,15 @@ Portal::Portal(mem::Ref<Node> node, mem::Ref<Router> router)
 Portal::~Portal() = default;
 
 // static
-TwoSided<mem::Ref<Portal>> Portal::CreatePair(mem::Ref<Node> node) {
-  TwoSided<mem::Ref<Router>> routers{mem::MakeRefCounted<Router>(Side::kLeft),
-                                     mem::MakeRefCounted<Router>(Side::kRight)};
-  TwoSided<mem::Ref<RouterLink>> links =
+Portal::Pair Portal::CreatePair(mem::Ref<Node> node) {
+  Router::Pair routers{mem::MakeRefCounted<Router>(),
+                       mem::MakeRefCounted<Router>()};
+  RouterLink::Pair links =
       LocalRouterLink::CreatePair(RouterLinkState::kReady, routers);
-  routers.left()->SetOutwardLink(std::move(links.left()));
-  routers.right()->SetOutwardLink(std::move(links.right()));
-  return {mem::MakeRefCounted<Portal>(node, std::move(routers.left())),
-          mem::MakeRefCounted<Portal>(node, std::move(routers.right()))};
+  routers.first->SetOutwardLink(std::move(links.first));
+  routers.second->SetOutwardLink(std::move(links.second));
+  return {mem::MakeRefCounted<Portal>(node, std::move(routers.first)),
+          mem::MakeRefCounted<Portal>(node, std::move(routers.second))};
 }
 
 IpczResult Portal::Close() {

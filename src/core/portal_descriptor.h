@@ -8,7 +8,6 @@
 #include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
-#include "core/side.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 
@@ -31,7 +30,6 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
   SequenceNumber next_outgoing_sequence_number;
   SequenceNumber next_incoming_sequence_number;
   SequenceNumber decaying_incoming_sequence_length;
-  Side side;
   bool route_is_peer : 1;
   bool peer_closed : 1;
 };

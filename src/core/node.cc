@@ -11,11 +11,13 @@
 #include <vector>
 
 #include "core/driver_transport.h"
+#include "core/link_side.h"
 #include "core/message_internal.h"
 #include "core/node_link.h"
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
+#include "core/route_side.h"
 #include "core/router.h"
 #include "core/routing_id.h"
 #include "debug/log.h"
@@ -81,11 +83,15 @@ class ConnectListener : public DriverTransport::Listener,
 
     ConnectHandler handler = std::move(handler_);
     handler(node_link);
+
+    // By convention, bootstrapped router links use side A on the node with the
+    // the numerically lesser NodeName, and side B on the other node.
+    const LinkSide link_side =
+        node_->name() < connect.params.name ? LinkSide::kA : LinkSide::kB;
     for (size_t i = 0; i < waiting_portals_.size(); ++i) {
       const mem::Ref<Router>& router = waiting_portals_[i]->router();
-      router->SetOutwardLink(
-          node_link->AddRoute(static_cast<RoutingId>(i), i, router,
-                              RemoteRouterLink::Type::kToOtherSide));
+      router->SetOutwardLink(node_link->AddRoute(
+          static_cast<RoutingId>(i), i, link_side, RouteSide::kOther, router));
     }
     return IPCZ_RESULT_OK;
   }
@@ -135,10 +141,9 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
                              os::Process remote_process,
                              absl::Span<IpczHandle> initial_portals) {
   std::vector<mem::Ref<Portal>> buffering_portals(initial_portals.size());
-  const Side side = type_ == Type::kBroker ? Side::kLeft : Side::kRight;
   for (size_t i = 0; i < initial_portals.size(); ++i) {
-    auto portal = mem::MakeRefCounted<Portal>(
-        mem::WrapRefCounted(this), mem::MakeRefCounted<Router>(side));
+    auto portal = mem::MakeRefCounted<Portal>(mem::WrapRefCounted(this),
+                                              mem::MakeRefCounted<Router>());
     buffering_portals[i] = portal;
     initial_portals[i] = ToHandle(portal.release());
   }
@@ -178,7 +183,7 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
   return IPCZ_RESULT_OK;
 }
 
-TwoSided<mem::Ref<Portal>> Node::OpenPortals() {
+Portal::Pair Node::OpenPortals() {
   return Portal::CreatePair(mem::WrapRefCounted(this));
 }
 
@@ -339,9 +344,12 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
     return false;
   }
 
+  // By convention, the initiator of a bypass uses the side A of the bypass
+  // link. The receiver of the bypass request uses side B. Bypass links always
+  // connect one half of their route to the other.
   mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
-      bypass.params.new_routing_id, bypass.params.new_routing_id, proxy_peer,
-      RemoteRouterLink::Type::kToOtherSide);
+      bypass.params.new_routing_id, bypass.params.new_routing_id, LinkSide::kB,
+      RouteSide::kOther, proxy_peer);
   return proxy_peer->BypassProxyWithNewLink(
       new_peer_link, bypass.params.bypass_key,
       bypass.params.proxied_outbound_sequence_length);

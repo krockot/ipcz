@@ -51,13 +51,15 @@ RoutingId NodeLink::AllocateRoutingIds(size_t count) {
 
 mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
                                         size_t link_state_index,
-                                        mem::Ref<Router> router,
-                                        RemoteRouterLink::Type link_type) {
+                                        LinkSide link_side,
+                                        RouteSide route_side,
+                                        mem::Ref<Router> router) {
   absl::MutexLock lock(&mutex_);
   auto result = routes_.try_emplace(routing_id, router);
   ABSL_ASSERT(result.second);
-  return mem::MakeRefCounted<RemoteRouterLink>(
-      mem::WrapRefCounted(this), routing_id, link_state_index, link_type);
+  return mem::MakeRefCounted<RemoteRouterLink>(mem::WrapRefCounted(this),
+                                               routing_id, link_state_index,
+                                               link_side, route_side);
 }
 
 bool NodeLink::RemoveRoute(RoutingId routing_id) {
@@ -154,10 +156,13 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
                            absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
+  // Note that by convention the side which initiates a bypass (this side)
+  // adopts side A of the new bypass link. The other end will adopt side B by
+  // convention.
   RoutingId new_routing_id = AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link =
-      AddRoute(new_routing_id, new_routing_id, new_peer,
-               RemoteRouterLink::Type::kToOtherSide);
+      AddRoute(new_routing_id, new_routing_id, LinkSide::kA, RouteSide::kOther,
+               new_peer);
 
   // We don't want `new_peer` transmitting any outgoing parcels until we've
   // transmitted the BypassProxy message; otherwise the parcels would arrive on
@@ -335,7 +340,7 @@ bool NodeLink::OnSideClosed(const msg::SideClosed& side_closed) {
     return true;
   }
 
-  receiver->AcceptRouteClosure(side_closed.params.side,
+  receiver->AcceptRouteClosure(side_closed.params.route_side,
                                side_closed.params.sequence_length);
   return true;
 }
@@ -408,7 +413,7 @@ bool NodeLink::OnBypassProxyToSameNode(
 
   mem::Ref<RouterLink> new_link =
       AddRoute(bypass.params.new_routing_id, bypass.params.new_routing_id,
-               router, RemoteRouterLink::Type::kToOtherSide);
+               LinkSide::kB, RouteSide::kOther, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params.sequence_length);
 }
@@ -446,7 +451,7 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
     return true;
   }
 
-  router->LogRouteTrace(log_request.params.toward_side);
+  router->LogRouteTrace(log_request.params.toward_route_side);
   return true;
 }
 

@@ -7,9 +7,9 @@
 #include <string>
 #include <utility>
 
+#include "core/link_side.h"
 #include "core/router.h"
 #include "core/router_link_state.h"
-#include "core/side.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "util/two_mutex_lock.h"
@@ -20,48 +20,50 @@ namespace core {
 class LocalRouterLink::SharedState : public mem::RefCounted {
  public:
   SharedState(RouterLinkState::Status initial_link_status,
-              mem::Ref<Router> left,
-              mem::Ref<Router> right)
-      : sides_(std::move(left), std::move(right)) {
+              mem::Ref<Router> router_a,
+              mem::Ref<Router> router_b)
+      : router_a_(std::move(router_a)), router_b_(std::move(router_b)) {
     state_.status = initial_link_status;
   }
 
   RouterLinkState& state() { return state_; }
-  const mem::Ref<Router>& side(Side side) const { return sides_[side]; }
+  const mem::Ref<Router>& side(LinkSide side) const {
+    if (side == LinkSide::kA) {
+      return router_a_;
+    }
+    return router_b_;
+  }
 
  private:
   ~SharedState() override = default;
 
   RouterLinkState state_;
-  const TwoSided<mem::Ref<Router>> sides_;
+  const mem::Ref<Router> router_a_;
+  const mem::Ref<Router> router_b_;
 };
 
 // static
-TwoSided<mem::Ref<RouterLink>> LocalRouterLink::CreatePair(
+RouterLink::Pair LocalRouterLink::CreatePair(
     RouterLinkState::Status initial_link_status,
-    const TwoSided<mem::Ref<Router>>& routers) {
-  auto state = mem::MakeRefCounted<SharedState>(
-      initial_link_status, routers.left(), routers.right());
-  return {mem::WrapRefCounted(new LocalRouterLink(Side::kLeft, state)),
-          mem::WrapRefCounted(new LocalRouterLink(Side::kRight, state))};
+    const Router::Pair& routers) {
+  auto state = mem::MakeRefCounted<SharedState>(initial_link_status,
+                                                routers.first, routers.second);
+  return {mem::WrapRefCounted(new LocalRouterLink(LinkSide::kA, state)),
+          mem::WrapRefCounted(new LocalRouterLink(LinkSide::kB, state))};
 }
 
-LocalRouterLink::LocalRouterLink(Side side, mem::Ref<SharedState> state)
-    : side_(side), state_(std::move(state)) {}
+LocalRouterLink::LocalRouterLink(LinkSide link_side,
+                                 mem::Ref<SharedState> state)
+    : link_side_(link_side), state_(std::move(state)) {}
 
 LocalRouterLink::~LocalRouterLink() = default;
 
-void LocalRouterLink::Deactivate() {
-  mem::Ref<Router> left = state_->side(Side::kLeft);
-  mem::Ref<Router> right = state_->side(Side::kRight);
-  TwoMutexLock lock(&left->mutex_, &right->mutex_);
-  if (!left->outward_.link || left->outward_.link->GetLocalTarget() != right ||
-      !right->outward_.link || right->outward_.link->GetLocalTarget() != left) {
-    return;
-  }
+LinkSide LocalRouterLink::GetLinkSide() const {
+  return link_side_;
+}
 
-  left->outward_.link = nullptr;
-  right->outward_.link = nullptr;
+RouteSide LocalRouterLink::GetTargetRouteSide() const {
+  return RouteSide::kOther;
 }
 
 RouterLinkState& LocalRouterLink::GetLinkState() {
@@ -69,7 +71,7 @@ RouterLinkState& LocalRouterLink::GetLinkState() {
 }
 
 mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
-  return state_->side(side_.opposite());
+  return state_->side(link_side_.opposite());
 }
 
 bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
@@ -77,26 +79,31 @@ bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
   return false;
 }
 
-bool LocalRouterLink::IsLinkToOtherSide() {
-  return true;
-}
-
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
                                               const IpczPutLimits& limits) {
-  return state_->side(side_.opposite())
+  return state_->side(link_side_.opposite())
       ->WouldInboundParcelExceedLimits(data_size, limits);
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  if (!state_->side(side_.opposite())->AcceptInboundParcel(parcel)) {
+  if (!state_->side(link_side_.opposite())->AcceptInboundParcel(parcel)) {
     DLOG(ERROR) << "Rejecting unexpected " << parcel.Describe() << " on "
                 << Describe();
   }
 }
 
-void LocalRouterLink::AcceptRouteClosure(Side side,
+void LocalRouterLink::AcceptRouteClosure(RouteSide route_side,
                                          SequenceNumber sequence_length) {
-  state_->side(side_.opposite())->AcceptRouteClosure(side, sequence_length);
+  // We flip `route_side` because we're a transverse link.
+  state_->side(link_side_.opposite())
+      ->AcceptRouteClosure(route_side.opposite(), sequence_length);
+}
+
+void LocalRouterLink::RequestProxyBypassInitiation(
+    const NodeName& to_new_peer,
+    RoutingId proxy_peer_routing_id,
+    const absl::uint128& bypass_key) {
+  ABSL_ASSERT(false);
 }
 
 void LocalRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
@@ -105,10 +112,7 @@ void LocalRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::RequestProxyBypassInitiation(
-    const NodeName& to_new_peer,
-    RoutingId proxy_peer_routing_id,
-    const absl::uint128& bypass_key) {
+void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
   ABSL_ASSERT(false);
 }
 
@@ -121,21 +125,32 @@ void LocalRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
-  ABSL_ASSERT(false);
+void LocalRouterLink::DecayUnblocked() {
+  state_->side(link_side_.opposite())->OnDecayUnblocked();
 }
 
-void LocalRouterLink::DecayUnblocked() {
-  state_->side(side_.opposite())->OnDecayUnblocked();
+void LocalRouterLink::Deactivate() {
+  mem::Ref<Router> left = state_->side(LinkSide::kA);
+  mem::Ref<Router> right = state_->side(LinkSide::kB);
+  TwoMutexLock lock(&left->mutex_, &right->mutex_);
+  if (!left->outward_.link || left->outward_.link->GetLocalTarget() != right ||
+      !right->outward_.link || right->outward_.link->GetLocalTarget() != left) {
+    return;
+  }
+
+  left->outward_.link = nullptr;
+  right->outward_.link = nullptr;
 }
 
 std::string LocalRouterLink::Describe() const {
-  return side_.ToString() + "-side link to local peer on " +
-         side_.opposite().ToString() + " side";
+  return link_side_.ToString() + "-side link to local peer on " +
+         link_side_.opposite().ToString() + " side";
 }
 
-void LocalRouterLink::LogRouteTrace(Side toward_side) {
-  state_->side(toward_side)->LogRouteTrace(toward_side);
+void LocalRouterLink::LogRouteTrace(RouteSide toward_route_side) {
+  // We flip `toward_route_side` because we're a transverse link.
+  state_->side(link_side_.opposite())
+      ->LogRouteTrace(toward_route_side.opposite());
 }
 
 }  // namespace core

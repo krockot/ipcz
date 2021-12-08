@@ -81,6 +81,8 @@ source_set("core") {
   sources = [
     "core/driver_transport.cc",
     "core/driver_transport.h",
+    "core/link_side.cc",
+    "core/link_side.h",
     "core/local_router_link.cc",
     "core/local_router_link.h",
     "core/message_internal.cc",
@@ -119,6 +121,8 @@ source_set("core") {
     "core/portal_descriptor.h",
     "core/remote_router_link.cc",
     "core/remote_router_link.h",
+    "core/route_side.cc",
+    "core/route_side.h",
     "core/router.cc",
     "core/router.h",
     "core/router_link.h",
@@ -126,13 +130,10 @@ source_set("core") {
     "core/router_link_state.h",
     "core/routing_id.h",
     "core/sequence_number.h",
-    "core/side.cc",
-    "core/side.h",
     "core/trap.cc",
     "core/trap.h",
     "core/trap_event_dispatcher.cc",
     "core/trap_event_dispatcher.h",
-    "core/two_sided.h",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]

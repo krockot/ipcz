@@ -17,6 +17,8 @@ namespace core {
 
 class DriverTransport : public mem::RefCounted {
  public:
+  using Pair = std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>;
+
   struct Descriptor {
     Descriptor();
     Descriptor(Descriptor&&);
@@ -59,8 +61,8 @@ class DriverTransport : public mem::RefCounted {
 
   DriverTransport(const IpczDriver& driver, IpczDriverHandle driver_transport);
 
-  static std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
-  CreatePair(const IpczDriver& driver, IpczDriverHandle driver_node);
+  static DriverTransport::Pair CreatePair(const IpczDriver& driver,
+                                          IpczDriverHandle driver_node);
 
   // Set the object handling any incoming message or error notifications. This
   // is only safe to set before Activate() is called, or from within one of the

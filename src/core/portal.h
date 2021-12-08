@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "core/parcel.h"
-#include "core/two_sided.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -24,12 +23,14 @@ class Router;
 
 class Portal : public mem::RefCounted {
  public:
+  using Pair = std::pair<mem::Ref<Portal>, mem::Ref<Portal>>;
+
   Portal(mem::Ref<Node> node, mem::Ref<Router> router);
 
   const mem::Ref<Node>& node() const { return node_; }
   const mem::Ref<Router>& router() const { return router_; }
 
-  static TwoSided<mem::Ref<Portal>> CreatePair(mem::Ref<Node> node);
+  static Pair CreatePair(mem::Ref<Node> node);
 
   // ipcz portal API implementation:
   IpczResult Close();
