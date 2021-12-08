@@ -86,7 +86,8 @@ bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  if (!state_->side(link_side_.opposite())->AcceptInboundParcel(parcel)) {
+  if (!state_->side(link_side_.opposite())
+           ->AcceptLocalParcelFrom(state_->side(link_side_), parcel)) {
     DLOG(ERROR) << "Rejecting unexpected " << parcel.Describe() << " on "
                 << Describe();
   }

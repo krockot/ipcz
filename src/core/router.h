@@ -29,6 +29,7 @@
 namespace ipcz {
 namespace core {
 
+class LocalRouterLink;
 class NodeLink;
 struct PortalDescriptor;
 class RouterLink;
@@ -134,6 +135,10 @@ class Router : public mem::RefCounted {
   // determined to be either an inbound or outbound parcel based on the active
   // links this Router has at its disposal.
   bool AcceptParcelFrom(NodeLink& link, RoutingId routing_id, Parcel& parcel);
+
+  // Accepts a parcel router here from a LocalRouterLink, which may be this
+  // router's outward link or a bridge link.
+  bool AcceptLocalParcelFrom(const mem::Ref<Router>& router, Parcel& parcel);
 
   // Accepts an inbound parcel routed here from some other Router. The parcel
   // is queued here and may either be made available for retrieval by a portal,
@@ -247,7 +252,9 @@ class Router : public mem::RefCounted {
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 
   // IO state used only if this router has been merged with another, which is
-  // a relatively rare operation.
+  // a relatively rare operation. This uses a local outward link to proxy
+  // parcels between two separate routes, and uses a specialized bypass
+  // operation to eliminate itself over time.
   std::unique_ptr<IoState> bridge_ ABSL_GUARDED_BY(mutex_);
 };
 

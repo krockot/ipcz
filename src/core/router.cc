@@ -212,8 +212,15 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
 
     bridge_ = std::make_unique<IoState>();
     other->bridge_ = std::make_unique<IoState>();
+
+    RouterLink::Pair links = LocalRouterLink::CreatePair(
+        RouterLinkState::kReady,
+        Router::Pair(mem::WrapRefCounted(this), other));
+    bridge_->link = std::move(links.first);
+    other->bridge_->link = std::move(links.second);
   }
 
+  Flush();
   return IPCZ_RESULT_OK;
 }
 
@@ -376,6 +383,25 @@ bool Router::AcceptParcelFrom(NodeLink& link,
   return AcceptOutboundParcel(parcel);
 }
 
+bool Router::AcceptLocalParcelFrom(const mem::Ref<Router>& router,
+                                   Parcel& parcel) {
+  bool is_inbound;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (bridge_ && router == bridge_->link->GetLocalTarget()) {
+      is_inbound = false;
+    } else {
+      is_inbound = true;
+    }
+  }
+
+  if (is_inbound) {
+    return AcceptInboundParcel(parcel);
+  }
+
+  return AcceptOutboundParcel(parcel);
+}
+
 bool Router::AcceptInboundParcel(Parcel& parcel) {
   TrapEventDispatcher dispatcher;
   {
@@ -422,6 +448,7 @@ void Router::AcceptRouteClosure(RouteSide route_side,
   TrapEventDispatcher dispatcher;
   mem::Ref<RouterLink> forwarding_link;
   mem::Ref<RouterLink> dead_outward_link;
+  mem::Ref<RouterLink> bridge_link;
   if (route_side == RouteSide::kSame) {
     // If we're being notified of our own side's closure, we want to propagate
     // this outward toward the other side.
@@ -432,6 +459,10 @@ void Router::AcceptRouteClosure(RouteSide route_side,
       forwarding_link = outward_.link;
       outward_.closure_propagated = true;
     }
+
+    // If we're receiving this, it's coming from the other side of the bridge
+    // which is already reset by now.
+    bridge_.reset();
   } else {
     // We're being notified of the other side's closure, so we want to propagate
     // this inward toward our own terminal router. If that's us, update portal
@@ -441,6 +472,9 @@ void Router::AcceptRouteClosure(RouteSide route_side,
     if (!inward_.closure_propagated && inward_.link) {
       forwarding_link = inward_.link;
       inward_.closure_propagated = true;
+    } else if (bridge_) {
+      std::swap(bridge_link, bridge_->link);
+      std::swap(dead_outward_link, outward_.link);
     } else if (!inward_.link) {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       if (inward_.parcels.IsDead()) {
@@ -468,6 +502,15 @@ void Router::AcceptRouteClosure(RouteSide route_side,
 
   if (dead_outward_link) {
     dead_outward_link->Deactivate();
+  }
+
+  if (bridge_link) {
+    ABSL_ASSERT(route_side == RouteSide::kOther);
+
+    // Bridge links are local links and so they'll invert the RouteSide. We
+    // want the other bridge router to receive kSame so it will behave as if
+    // its own side has closed and forward that to its own other side.
+    bridge_link->AcceptRouteClosure(route_side, sequence_length);
   }
 }
 
@@ -954,13 +997,11 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // own outward link and our new local peer's outward link. The new link is
     // not ready for further decay until the above established decaying links
     // have fully decayed.
-    Router::Pair routers{mem::WrapRefCounted(this), new_local_peer};
-    RouterLink::Pair links =
-        LocalRouterLink::CreatePair(RouterLinkState::kNotReady, routers);
-    routers.first->mutex_.AssertHeld();
-    routers.first->outward_.link = std::move(links.first);
-    routers.second->mutex_.AssertHeld();
-    routers.second->outward_.link = std::move(links.second);
+    RouterLink::Pair links = LocalRouterLink::CreatePair(
+        RouterLinkState::kNotReady,
+        Router::Pair(mem::WrapRefCounted(this), new_local_peer));
+    outward_.link = std::move(links.first);
+    new_local_peer->outward_.link = std::move(links.second);
   }
 
   if (previous_outward_link_from_new_local_peer) {
@@ -1211,10 +1252,12 @@ void Router::Flush() {
   mem::Ref<RouterLink> dead_outward_link;
   mem::Ref<RouterLink> decaying_inward_proxy;
   mem::Ref<RouterLink> decaying_outward_proxy;
+  mem::Ref<RouterLink> bridge_link;
   absl::InlinedVector<Parcel, 2> outbound_parcels;
   absl::InlinedVector<Parcel, 2> outbound_parcels_to_proxy;
   absl::InlinedVector<Parcel, 2> inbound_parcels;
   absl::InlinedVector<Parcel, 2> inbound_parcels_to_proxy;
+  absl::InlinedVector<Parcel, 2> bridge_parcels;
   bool inward_proxy_decayed = false;
   bool outward_proxy_decayed = false;
   bool notify_closure_outward = false;
@@ -1226,6 +1269,9 @@ void Router::Flush() {
     outward_link = outward_.link;
     decaying_inward_proxy = inward_.decaying_proxy_link;
     decaying_outward_proxy = outward_.decaying_proxy_link;
+    if (bridge_) {
+      bridge_link = bridge_->link;
+    }
 
     // Flush any outbound parcels destined for a decaying outward link.
     while (outward_.parcels.HasNextParcel() && outward_.decaying_proxy_link &&
@@ -1330,6 +1376,12 @@ void Router::Flush() {
       }
     }
 
+    while (bridge_link && inward_.parcels.Pop(parcel)) {
+      DVLOG(4) << "Forwarding inbound " << parcel.Describe() << " over bridge "
+               << DescribeLink(bridge_link);
+      bridge_parcels.push_back(std::move(parcel));
+    }
+
     // If the inbound sequence is dead, the other side of the route is gone and
     // we have received all the parcels it sent. We can drop the outward link.
     if (inward_.parcels.IsDead()) {
@@ -1365,6 +1417,10 @@ void Router::Flush() {
 
   for (Parcel& parcel : inbound_parcels) {
     inward_link->AcceptParcel(parcel);
+  }
+
+  for (Parcel& parcel : bridge_parcels) {
+    bridge_link->AcceptParcel(parcel);
   }
 
   if (outward_proxy_decayed) {
