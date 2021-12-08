@@ -198,6 +198,25 @@ void Router::CloseRoute() {
   }
 }
 
+IpczResult Router::Merge(mem::Ref<Router> other) {
+  if (HasLocalPeer(other)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  {
+    TwoMutexLock lock(&mutex_, &other->mutex_);
+    if (inward_.link || other->inward_.link || bridge_ || other->bridge_) {
+      // It's not legit to call this on non-terminal routers.
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    bridge_ = std::make_unique<IoState>();
+    other->bridge_ = std::make_unique<IoState>();
+  }
+
+  return IPCZ_RESULT_OK;
+}
+
 SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
   SequenceNumber first_sequence_number_on_new_link;
   {

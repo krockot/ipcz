@@ -737,6 +737,45 @@ struct IPCZ_ALIGN(8) IpczAPI {
                             uint32_t flags,
                             const void* options);
 
+  // Merges two portals into each other, effectively destroying both while
+  // linking their respective peer portals with each other. A portal cannot
+  // merge with its own peer, and a portal cannot be merged into another if one
+  // or more parcels have already been put into or taken out of it. There are
+  // however no restrictions on what can be done to the portal's peer prior to
+  // merging the portal with another.
+  //
+  // If we have two portal pairs:
+  //
+  //    A ---- B     and    C ---- D
+  //
+  // some parcels are placed into A, and some parcels are placed into D, and
+  // then we merge B with C, the net result will be a single portal pair:
+  //
+  //    A ---- D
+  //
+  // All past and future parcels placed into A will arrive at D, and vice versa.
+  //
+  // `flags` is ignored and must be 0.
+  //
+  // `options` is ignored and must be null.
+  //
+  // Returns:
+  //
+  //    IPCZ_RESULT_OK if the two portals were merged successfully. Neither
+  //        handle is valid past this point. Parcels now travel between the
+  //        merged portals' respective peers, including any parcels that were
+  //        in flight or queued at the time of this merge.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `first` or `second` is invalid, or if
+  //        `first` and `second` are each others' peer.
+  //
+  //    IPCZ_RESULT_FAILED_PRECONDITION if either `first` or `second` has
+  //        already had one or more parcels put into or gotten out of them.
+  IpczResult (*MergePortals)(IpczHandle first,
+                             IpczHandle second,
+                             uint32_t flags,
+                             const void* options);
+
   // Queries specific details regarding the status of a portal, such as the
   // number of unread parcels or data bytes available on the portal or its
   // opposite, or whether the opposite portal has already been closed.

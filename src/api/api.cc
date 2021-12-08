@@ -122,6 +122,28 @@ IpczResult OpenPortals(IpczHandle node,
   return IPCZ_RESULT_OK;
 }
 
+IpczResult MergePortals(IpczHandle first,
+                        IpczHandle second,
+                        uint32_t flags,
+                        const void* options) {
+  if (first == IPCZ_INVALID_HANDLE || second == IPCZ_INVALID_HANDLE) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  mem::Ref<core::Portal> one(mem::RefCounted::kAdoptExistingRef,
+                             ToPtr<core::Portal>(first));
+  mem::Ref<core::Portal> two(mem::RefCounted::kAdoptExistingRef,
+                             ToPtr<core::Portal>(second));
+  IpczResult result = one->Merge(*two);
+  if (result != IPCZ_RESULT_OK) {
+    one.release();
+    two.release();
+    return result;
+  }
+
+  return IPCZ_RESULT_OK;
+}
+
 IpczResult ClosePortal(IpczHandle portal, uint32_t flags, const void* options) {
   if (portal == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -360,6 +382,7 @@ constexpr IpczAPI kCurrentAPI = {
     ConnectNode,
     OpenPortals,
     ClosePortal,
+    MergePortals,
     QueryPortalStatus,
     Put,
     BeginPut,

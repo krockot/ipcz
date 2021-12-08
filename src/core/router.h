@@ -82,6 +82,14 @@ class Router : public mem::RefCounted {
   // which a Portal is currently attached, and only by that Portal.
   void CloseRoute();
 
+  // Attempts to merge this terminal Router with another. Merged Routers coexist
+  // as local peers which forward parcels between each other, effectively
+  // bridging two independent routes. Once both routers have an outward link to
+  // the other side of their route, we decay the pair into a single bypass link
+  // between each router's outward peer and eventually phase out the local link
+  // and the merged routers altogether.
+  IpczResult Merge(mem::Ref<Router> other);
+
   // Uses `link` as this Router's new outward link. This is the primary link on
   // which the router transmits parcels and control messages directed toward the
   // other side of its route. Must only be called on a Router which has no
@@ -237,6 +245,10 @@ class Router : public mem::RefCounted {
   bool outbound_transmission_paused_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
+
+  // IO state used only if this router has been merged with another, which is
+  // a relatively rare operation.
+  std::unique_ptr<IoState> bridge_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

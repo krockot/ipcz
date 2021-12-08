@@ -34,6 +34,7 @@ class Portal : public mem::RefCounted {
 
   // ipcz portal API implementation:
   IpczResult Close();
+  IpczResult Merge(Portal& other);
   IpczResult QueryStatus(IpczPortalStatus& status);
 
   IpczResult Put(absl::Span<const uint8_t> data,

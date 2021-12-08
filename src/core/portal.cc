@@ -72,6 +72,10 @@ IpczResult Portal::Close() {
   return IPCZ_RESULT_OK;
 }
 
+IpczResult Portal::Merge(Portal& other) {
+  return router_->Merge(other.router());
+}
+
 IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
   router_->QueryStatus(status);
   return IPCZ_RESULT_OK;
