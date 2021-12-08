@@ -34,8 +34,8 @@
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "util/mutex_locks.h"
 #include "util/random.h"
-#include "util/two_mutex_lock.h"
 
 namespace ipcz {
 namespace core {

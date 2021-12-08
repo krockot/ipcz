@@ -12,7 +12,7 @@
 #include "core/router_link_state.h"
 #include "debug/log.h"
 #include "mem/ref_counted.h"
-#include "util/two_mutex_lock.h"
+#include "util/mutex_locks.h"
 
 namespace ipcz {
 namespace core {
