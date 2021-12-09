@@ -25,26 +25,35 @@ API surface to manipulate shared memory objects as first-class primitives.
 Project Structure & API
 ----
 
-Mojo has been frequently considered as an option for IPC in external projects,
-but its dependence on unstable and non-exported Chromium APIs makes it an
-exceptionally difficult dependency to integrate into another project. In light
-of this, it is an explicit goal to build and maintain ipcz as a standalone
-project outside of the Chromium tree.
+Mojo has been frequently considered as an option for IPC in projects external to
+Chromium, but its dependence on unstable and non-exported Chromium APIs makes it
+an exceptionally difficult dependency to integrate into another project. In
+light of this, it is an explicit goal to build and maintain ipcz as a viable
+standalone library project outside of the Chromium tree.
 
-With abseil as a dependency for common non-STL primitives, there is little
-redundancy between ipcz code and Chromium code (most redundancy is due to ipcz'
-internal shared memory management code), and the lack of dependencies on
-Chromium itself makes ipcz much easier for external projects to consume.
+There is very little redundancy between ipcz code and Chromium code, and no
+dependencies on Chromium code. In fact there are no large external dependencies
+of any kind, making ipcz relatively easy for external projects to consume.
 
 ipcz is designed to be consumed interchangeably as either a static library or a
-shared library, with careful versioning considerations built into all of its
-internal communications. The C ABI exported by ipcz is intended to be extremely
-stable and extensible, so integration into a large project like Chromium is not
-burdened by frequent refactorings or superficial churn.
+shared library, with versioning considerations built into all of its internal
+communications. The C ABI exported by ipcz is designed to remain stable and
+extensible so integration into a large project like Chromium is not burdened by
+frequent refactorings or superficial churn.
 
 ipcz does NOT define any kind of structured messaging protocol. Any RPC, IDL, or
 related code-generation business is fundamentally out of scope for ipcz, but
 ipcz is a perfectly suitable medium through which to transmit such protocols.
+
+Finally, ipcz itself does not do any actual I/O! Its interaction with
+platform-specific APIs is generally limited to internal shared memory allocation
+and manipulation, and simple synchronization primitives. In order for ipcz to
+perform I/O between processes, it relies on the embedding application to provide
+a lightweight driver implementation. Two reference drivers are provided in
+`src/drivers`: one for real IPC which supports interconnection of ipcz nodes
+living in different processes, and a single-process driver which performs all
+communication synchronously (and re-entrantly) between nodes in the same
+process. Both reference driver implementations are relatively simple.
 
 Why Exist?
 ----
@@ -52,16 +61,16 @@ Why Exist?
 Mostly for Chromium. Most applications probably don't need or want the massive
 number of independent and transferrable communication endpoints that Chromium is
 built with and which ipcz is designed to facilitate. For simpler applications
-it's sufficient to simply use sockets or some other equivalent for your favorite
+it may be sufficient to use sockets or some other equivalent for your favorite
 platform.
 
-However, many applications (e.g. on Chrome OS) need to communicate with Chrome
-or with other applications built upon the Chromium project, and having one way
-to do IPC across such applications has plenty of security and code health
-benefits.
+However, many applications (particularly on Chrome OS) need to communicate with
+Chrome or with other applications built upon the Chromium project, and having
+one way to do IPC across such applications has plenty of security and code
+health benefits.
 
-Additionally, ipcz should still be fine for smaller use cases, so its seamless
-scalability to larger and more complex cases along with its uniform API across
-platforms may render it a suitable standard for entire ecosystems of
+Of course ipcz is also just fine for smaller use cases, so its seamless
+scalability to larger and more complex systems along with its uniform API across
+platforms may render it a suitable standard for large collections of
 interconnected software.
 
