@@ -185,5 +185,10 @@ void TestBase::LogPortalRoute(IpczHandle a) {
   router->LogRouteTrace(core::RouteSide::kOther);
 }
 
+// static
+size_t TestBase::GetNumRouters() {
+  return core::Router::GetNumRoutersForTesting();
+}
+
 }  // namespace test
 }  // namespace ipcz

@@ -244,6 +244,12 @@ class Router : public mem::RefCounted {
   // successful, asks its inward peer to initiate our bypass along the route.
   bool MaybeInitiateSelfRemoval();
 
+  // Attempts to mark both sides of the bridge (this router's outward link and
+  // it the local bridge peer's outward link) as decaying and, if successful,
+  // initiates creation of a direct bypass link between each bridge router's
+  // outward peer.
+  void MaybeInitiateBridgeBypass();
+
   absl::Mutex mutex_;
   IoState inward_ ABSL_GUARDED_BY(mutex_);
   IoState outward_ ABSL_GUARDED_BY(mutex_);

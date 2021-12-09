@@ -77,6 +77,7 @@ class TestBase : public testing::Test {
   void VerifyEndToEnd(IpczHandle a, IpczHandle b);
   bool PortalsAreLocalPeers(IpczHandle a, IpczHandle b);
   void LogPortalRoute(IpczHandle a);
+  static size_t GetNumRouters();
 };
 
 }  // namespace test
