@@ -9,6 +9,8 @@
 
 #include "core/node.h"
 #include "core/portal.h"
+#include "core/router.h"
+#include "core/trap.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/process.h"
@@ -331,7 +333,7 @@ IpczResult EndGet(IpczHandle portal,
 IpczResult CreateTrap(IpczHandle portal,
                       const IpczTrapConditions* conditions,
                       IpczTrapEventHandler handler,
-                      uintptr_t context,
+                      uint64_t context,
                       uint32_t flags,
                       const void* options,
                       IpczHandle* trap) {
@@ -346,13 +348,12 @@ IpczResult CreateTrap(IpczHandle portal,
                                                 *trap);
 }
 
-IpczResult ArmTrap(IpczHandle portal,
-                   IpczHandle trap,
+IpczResult ArmTrap(IpczHandle trap,
                    uint32_t flags,
                    const void* options,
                    IpczTrapConditionFlags* satisfied_condition_flags,
                    IpczPortalStatus* status) {
-  if (portal == IPCZ_INVALID_HANDLE || trap == IPCZ_INVALID_HANDLE) {
+  if (trap == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -360,19 +361,21 @@ IpczResult ArmTrap(IpczHandle portal,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).ArmTrap(trap, satisfied_condition_flags,
-                                             status);
+  return ToRef<core::Trap>(trap).Arm(satisfied_condition_flags, status);
 }
 
-IpczResult DestroyTrap(IpczHandle portal,
-                       IpczHandle trap,
-                       uint32_t flags,
+IpczResult DestroyTrap(IpczHandle trap,
+                       IpczDestroyTrapFlags flags,
                        const void* options) {
-  if (portal == IPCZ_INVALID_HANDLE || trap == IPCZ_INVALID_HANDLE) {
+  if (trap == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<core::Portal>(portal).DestroyTrap(trap);
+  mem::Ref<core::Trap> doomed_trap(mem::RefCounted::kAdoptExistingRef,
+                                   ToPtr<core::Trap>(trap));
+  doomed_trap->portal()->router()->RemoveTrap(*doomed_trap);
+  doomed_trap->Disable(flags);
+  return IPCZ_RESULT_OK;
 }
 
 constexpr IpczAPI kCurrentAPI = {

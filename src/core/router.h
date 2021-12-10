@@ -18,6 +18,7 @@
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/trap.h"
+#include "core/trap_set.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -37,6 +38,27 @@ class RouterLink;
 class Router : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<Router>, mem::Ref<Router>>;
+
+  // Helper to provide limited access to the Router's state while holding its
+  // internal lock. Used by traps to keep the router's `status_` stable briefly
+  // while deciding whether to trigger an event.
+  class ABSL_SCOPED_LOCKABLE Locked {
+   public:
+    explicit Locked(Router& router) ABSL_EXCLUSIVE_LOCK_FUNCTION(router.mutex_)
+        : router_(router) {
+      router_.mutex_.Lock();
+    }
+
+    ~Locked() ABSL_UNLOCK_FUNCTION() { router_.mutex_.Unlock(); }
+
+    const IpczPortalStatus& status() const {
+      router_.mutex_.AssertHeld();
+      return router_.status_;
+    }
+
+   private:
+    Router& router_;
+  };
 
   Router();
 
@@ -174,11 +196,8 @@ class Router : public mem::RefCounted {
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles);
 
-  IpczResult AddTrap(std::unique_ptr<Trap> trap);
-  IpczResult ArmTrap(Trap& trap,
-                     IpczTrapConditionFlags& satistfied_conditions,
-                     IpczPortalStatus* status);
-  IpczResult RemoveTrap(Trap& trap);
+  void AddTrap(mem::Ref<Trap> trap);
+  void RemoveTrap(Trap& trap);
 
   // Serializes a description of a new Router to be introduced on a receiving
   // node as the successor to this Router along the same side of this route.

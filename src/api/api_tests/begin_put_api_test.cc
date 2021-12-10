@@ -54,9 +54,6 @@ TEST_F(BeginPutAPITest, NoOverlap) {
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, &num_bytes, &data));
   EXPECT_EQ(IPCZ_RESULT_ALREADY_EXISTS,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, &num_bytes, &data));
-  EXPECT_EQ(
-      IPCZ_RESULT_ALREADY_EXISTS,
-      ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));

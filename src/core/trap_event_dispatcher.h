@@ -5,16 +5,17 @@
 #ifndef IPCZ_SRC_CORE_TRAP_EVENT_DISPATCHER_H_
 #define IPCZ_SRC_CORE_TRAP_EVENT_DISPATCHER_H_
 
-#include <atomic>
 #include <cstdint>
-#include <memory>
 
 #include "core/trap.h"
 #include "ipcz/ipcz.h"
+#include "mem/ref_counted.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 
 namespace ipcz {
 namespace core {
+
+class Trap;
 
 // Accumulates IpczTrapEvent dispatches to specific handlers. Handler invocation
 // is deferred until DispatchAll() is called or the TrapEventDispatcher is
@@ -28,31 +29,27 @@ class TrapEventDispatcher {
   TrapEventDispatcher();
   ~TrapEventDispatcher();
 
-  void DeferEvent(IpczTrapEventHandler handler,
-                  uintptr_t context,
+  void DeferEvent(mem::Ref<Trap> trap,
                   const IpczTrapConditionFlags condition_flags,
-                  const IpczPortalStatus& status,
-                  Trap::SharedState& trap_state);
+                  const IpczPortalStatus& status);
 
   void DispatchAll();
 
  private:
   struct Event {
     Event();
-    Event(const Event&) = delete;
-    Event(Event&&);
-    Event& operator=(const Event&) = delete;
-    Event& operator=(Event&&);
+    Event(const Event&);
+    Event& operator=(const Event&);
     ~Event();
 
-    mem::Ref<Trap::SharedState> trap_state;
-    IpczTrapEventHandler handler;
-    uintptr_t context;
+    mem::Ref<Trap> trap;
     IpczTrapConditionFlags condition_flags;
     IpczPortalStatus status;
   };
 
-  absl::InlinedVector<Event, 8> events_;
+  using DeferredEventQueue = absl::InlinedVector<Event, 4>;
+
+  DeferredEventQueue events_;
 };
 
 }  // namespace core

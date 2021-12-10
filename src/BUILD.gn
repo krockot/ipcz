@@ -134,6 +134,8 @@ source_set("core") {
     "core/trap.h",
     "core/trap_event_dispatcher.cc",
     "core/trap_event_dispatcher.h",
+    "core/trap_set.cc",
+    "core/trap_set.h",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]
@@ -204,6 +206,7 @@ test("ipcz_tests") {
     "api/integration_tests/node_test.cc",
     "api/integration_tests/portal_transfer_test.cc",
     "api/integration_tests/remote_portal_test.cc",
+    "api/integration_tests/trap_test.cc",
     "core/parcel_queue_test.cc",
     "mem/mpmc_queue_test.cc",
     "mem/mpsc_queue_test.cc",

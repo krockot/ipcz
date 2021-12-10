@@ -13,10 +13,7 @@ using ArmTrapAPITest = test::APITest;
 
 TEST_F(ArmTrapAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ArmTrap(p, IPCZ_INVALID_HANDLE, 0, nullptr, nullptr, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ArmTrap(IPCZ_INVALID_HANDLE, IPCZ_INVALID_HANDLE, 0, nullptr,
-                         nullptr, nullptr));
+            ipcz.ArmTrap(IPCZ_INVALID_HANDLE, 0, nullptr, nullptr, nullptr));
 }
 
 }  // namespace

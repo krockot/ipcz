@@ -100,11 +100,6 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  absl::MutexLock lock(&mutex_);
-  if (in_two_phase_put_) {
-    return IPCZ_RESULT_ALREADY_EXISTS;
-  }
-
   std::vector<os::Handle> handles(os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
     handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
@@ -285,30 +280,13 @@ IpczResult Portal::AbortGet() {
 
 IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
                               IpczTrapEventHandler handler,
-                              uintptr_t context,
+                              uint64_t context,
                               IpczHandle& trap) {
-  auto new_trap = std::make_unique<Trap>(conditions, handler, context);
-  trap = ToHandle(new_trap.get());
-  return router_->AddTrap(std::move(new_trap));
-}
-
-IpczResult Portal::ArmTrap(IpczHandle trap,
-                           IpczTrapConditionFlags* satisfied_condition_flags,
-                           IpczPortalStatus* status) {
-  IpczTrapConditionFlags flags = 0;
-  IpczResult result = router_->ArmTrap(ToRef<Trap>(trap), flags, status);
-  if (result == IPCZ_RESULT_OK) {
-    return IPCZ_RESULT_OK;
-  }
-
-  if (satisfied_condition_flags) {
-    *satisfied_condition_flags = flags;
-  }
-  return result;
-}
-
-IpczResult Portal::DestroyTrap(IpczHandle trap) {
-  return router_->RemoveTrap(ToRef<Trap>(trap));
+  auto new_trap = mem::MakeRefCounted<Trap>(mem::WrapRefCounted(this),
+                                            conditions, handler, context);
+  router_->AddTrap(new_trap);
+  trap = ToHandle(new_trap.release());
+  return IPCZ_RESULT_OK;
 }
 
 }  // namespace core

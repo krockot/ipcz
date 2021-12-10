@@ -172,6 +172,8 @@ void Router::CloseRoute() {
   {
     absl::MutexLock lock(&mutex_);
 
+    traps_.DisableAllAndClear();
+
     // We can't have an inward link, because CloseRoute() must only be called on
     // a terminal Router; that is, a Router directly controlled by a Portal.
     ABSL_ASSERT(!inward_.link);
@@ -463,7 +465,7 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
     if (!inward_.link && !inward_.decaying_proxy_link) {
       status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
       status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
-      traps_.MaybeNotify(dispatcher, status_);
+      traps_.UpdatePortalStatus(status_, dispatcher);
     }
   }
 
@@ -530,7 +532,7 @@ void Router::AcceptRouteClosure(RouteSide route_side,
       if (inward_.parcels.IsDead()) {
         status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
-      traps_.MaybeNotify(dispatcher, status_);
+      traps_.UpdatePortalStatus(status_, dispatcher);
 
       if (!inward_.parcels.IsExpectingMoreParcels()) {
         // We can drop our outward link if we know there are no more in-flight
@@ -614,7 +616,7 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
   if (inward_.parcels.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.MaybeNotify(dispatcher, status_);
+    traps_.UpdatePortalStatus(status_, dispatcher);
   }
 
   return IPCZ_RESULT_OK;
@@ -702,33 +704,19 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
   if (inward_.parcels.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.MaybeNotify(dispatcher, status_);
+    traps_.UpdatePortalStatus(status_, dispatcher);
   }
   return IPCZ_RESULT_OK;
 }
 
-IpczResult Router::AddTrap(std::unique_ptr<Trap> trap) {
+void Router::AddTrap(mem::Ref<Trap> trap) {
   absl::MutexLock lock(&mutex_);
-  return traps_.Add(std::move(trap));
+  traps_.Add(std::move(trap));
 }
 
-IpczResult Router::ArmTrap(Trap& trap,
-                           IpczTrapConditionFlags& satistfied_conditions,
-                           IpczPortalStatus* status) {
+void Router::RemoveTrap(Trap& trap) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(traps_.Contains(trap));
-  IpczResult result = trap.Arm(status_, satistfied_conditions);
-  if (result != IPCZ_RESULT_OK && status) {
-    const size_t size = std::min(status_.size, status->size);
-    memcpy(status, &status_, size);
-    status->size = size;
-  }
-  return result;
-}
-
-IpczResult Router::RemoveTrap(Trap& trap) {
-  absl::MutexLock lock(&mutex_);
-  return traps_.Remove(trap);
+  traps_.Remove(trap);
 }
 
 mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
@@ -744,7 +732,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
     mem::Ref<Router> local_peer;
     {
       absl::MutexLock lock(&mutex_);
-      traps_.Clear();
+      traps_.DisableAllAndClear();
       if (outward_.link) {
         local_peer = outward_.link->GetLocalTarget();
         was_link_busy = !outward_.link->GetLinkState().is_link_ready();

@@ -133,20 +133,20 @@ IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
   const auto handler = [](const IpczTrapEvent* event) {
     reinterpret_cast<os::Event::Notifier*>(event->context)->Notify();
   };
-  const auto context = reinterpret_cast<uintptr_t>(&notifier);
+  const auto context =
+      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&notifier));
   IpczHandle trap;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.CreateTrap(portal, &conditions, handler, context,
                             IPCZ_NO_FLAGS, nullptr, &trap));
   IpczResult result =
-      ipcz.ArmTrap(portal, trap, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr);
+      ipcz.ArmTrap(trap, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr);
   if (result == IPCZ_RESULT_OK) {
     event.Wait();
   } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {
     return result;
   }
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.DestroyTrap(portal, trap, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyTrap(trap, IPCZ_NO_FLAGS, nullptr));
 
   return MaybeGet(portal, parcel);
 }

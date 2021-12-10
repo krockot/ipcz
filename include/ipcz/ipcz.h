@@ -423,6 +423,14 @@ typedef uint32_t IpczEndGetFlags;
 // aborted without consuming any data from the portal.
 #define IPCZ_END_GET_ABORT IPCZ_FLAG_BIT(0)
 
+// See DestroyTrap() and the IPCZ_DESTROY_TRAP_* flags described below.
+typedef uint32_t IpczDestroyTrapFlags;
+
+// If this flag is given to DestroyTrap(), the call will block until any
+// concurrently executing invocation of the trap's event handler are finished.
+// See notes on DestroyTrap().
+#define IPCZ_DESTROY_TRAP_BLOCKING IPCZ_FLAG_BIT(0)
+
 // Flags given by the `flags` field in IpczPortalStatus.
 typedef uint32_t IpczPortalStatusFlags;
 
@@ -466,13 +474,6 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
 // Flags given to IpczTrapConditions to indicate which types of conditions a
 // trap should observe.
 typedef uint32_t IpczTrapConditionFlags;
-
-// Triggers a trap event just before the trap itself is destroyed, either
-// explicitly via DestroyTrap() or implicitly by closing its portal. This is the
-// only condition which can cause a trap to fire an event while disarmed, and
-// this flag will always be set on last event fired by any trap which specifies
-// it as a condition.
-#define IPCZ_TRAP_CONDITION_DESTROYED IPCZ_FLAG_BIT(0)
 
 // Triggers a trap event whenever the opposite portal is closed. Typically
 // applications are interested in the more specific IPCZ_TRAP_CONDITION_DEAD.
@@ -539,7 +540,7 @@ struct IPCZ_ALIGN(8) IpczTrapEvent {
 
   // The context value originally given to CreateTrap() when creating the trap
   // which fired this event.
-  uintptr_t context;
+  uint64_t context;
 
   // Flags indicating which condition(s) triggered this event.
   IpczTrapConditionFlags condition_flags;
@@ -837,10 +838,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
   //        least one of the specified limits would be violated by the
   //        successful completion of this call.
-  //
-  //    IPCZ_RESULT_ALREADY_EXISTS there is a two-phase put operation in
-  //        progress on `portal`, meaning BeginPut() has been called without a
-  //        corresponding EndPut().
   //
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
@@ -1159,12 +1156,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // handler. It's also passed an IpczPortalStatus structure indicating details
   // about the portal's state at the time of the invocation.
   //
-  // A disarmed trap will never invoke its handler, with one exception: traps
-  // watching IPCZ_TRAP_CONDITION_DESTROYED can fire an event even while
-  // disarmed to indicate that the trap has been destroyed. This is always the
-  // last event fired by such traps, and it is fired whether the trap is
-  // destroyed explicitly by a call to DestroyTrap() or implicitly by closing
-  // the portal itself.
+  // A disarmed trap will never invoke its handler.
   //
   // Note that a portal's state may be changed by any thread, including an
   // internal ipcz thread observing incoming parcels from out-of-process.
@@ -1186,7 +1178,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   IpczResult (*CreateTrap)(IpczHandle portal,
                            const struct IpczTrapConditions* conditions,
                            IpczTrapEventHandler handler,
-                           uintptr_t context,
+                           uint64_t context,
                            uint32_t flags,
                            const void* options,
                            IpczHandle* trap);
@@ -1202,13 +1194,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // the call fails with IPCZ_RESULT_FAILED_PRECONDITION. See below for
   // additional details.
   //
-  // As noted in the CreateTrap() description above, a trap may also be tripped
-  // while unarmed, if and only if it's trapping IPCZ_TRAP_CONDITION_DESTROYED.
-  //
   // Returns:
   //
   //    IPCZ_RESULT_OK if the trap was successfully armed. In this case the
   //        `conditions` and `status` arguments ignored.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `trap` is invalid,
+  //        `satisfied_condition_flags` is non-null but invalid, or `status` is
+  //        non-null but invalid.
   //
   //    IPCZ_RESULT_ALREADY_EXISTS if the trap was already armed. In this case
   //        the `conditions` and `status` arguments ignored.
@@ -1219,30 +1212,26 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        it will be populated to indicate which satisfied condition(s)
   //        blocked the arming of the trap, and if `status` is not null it will
   //        be populated with details about the portal's current status.
-  IpczResult (*ArmTrap)(IpczHandle portal,
-                        IpczHandle trap,
+  IpczResult (*ArmTrap)(IpczHandle trap,
                         uint32_t flags,
                         const void* options,
                         IpczTrapConditionFlags* satisfied_condition_flags,
                         struct IpczPortalStatus* status);
 
-  // Destroys a trap on `portal`.
+  // Destroys a trap.
   //
-  // Upon success the specified trap will no longer exist on `portal` and it is
-  // guaranteed to never invoke its handler again.
+  // Upon success the specified trap will no longer exist and it is guaranteed
+  // to never invoke its handler again.
   //
   // Note that an event may occur on another thread which trips the trap and
   // invokes its handler immediately before or during this call, so applications
   // must take care to synchronize access to any state shared between the trap
   // handler and whatever logic manages the trap's lifecycle.
   //
-  // If the trap trips on another thread concurrently during this call, behavior
-  // is non-deterministic but well defined: either the handler will be invoked
-  // and this call will block until it completes, or the trap will be destroyed
-  // before the handler is invoked, and the handler will then never be invoked.
-  //
-  // If the trap is watching for IPCZ_TRAP_CONDITION_DESTROYED, its handler will
-  // be invoked by DestroyTrap() to indicate that condition before returning.
+  // If IPCZ_DESTROY_TRAP_BLOCKING is specified, DestroyTrap() blocks until any
+  // currently running event handler for this trap is finished executing on any
+  // thread. As a consequence if this flag is given to a call made within the
+  // destroyed trap's own event handler, the call is guaranteed to deadlock.
   //
   // `flags` is ignored and must be 0.
   //
@@ -1253,11 +1242,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if the trap was successfully destroyed. The trap's
   //        handler will never be invoked after this result is returned.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid`, or if `trap` is
-  //        invalid or doesn't name an existing trap on `portal`.
-  IpczResult (*DestroyTrap)(IpczHandle portal,
-                            IpczHandle trap,
-                            uint32_t flags,
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `trap` is invalid.
+  IpczResult (*DestroyTrap)(IpczHandle trap,
+                            IpczDestroyTrapFlags flags,
                             const void* options);
 };
 

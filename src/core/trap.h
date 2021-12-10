@@ -6,73 +6,53 @@
 #define IPCZ_SRC_CORE_TRAP_H_
 
 #include <cstdint>
-#include <memory>
 
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 
 namespace ipcz {
 namespace core {
 
+class Portal;
 class TrapEventDispatcher;
 
-class Trap {
+class Trap : public mem::RefCounted {
  public:
-  struct SharedState final : mem::RefCounted {
-    SharedState();
-
-   private:
-    friend class Trap;
-
-    ~SharedState() final;
-
-    absl::Mutex mutex_;
-    bool is_armed_ ABSL_GUARDED_BY(mutex_) = false;
-  };
-
-  Trap(const IpczTrapConditions& conditions,
+  Trap(mem::Ref<Portal> portal,
+       const IpczTrapConditions& conditions,
        IpczTrapEventHandler handler,
-       uintptr_t context);
-  ~Trap();
+       uint64_t context);
 
-  IpczResult Arm(const IpczPortalStatus& status, IpczTrapConditionFlags& flags);
+  const mem::Ref<Portal>& portal() const { return portal_; }
 
-  const IpczTrapConditions& conditions() const { return conditions_; }
-  IpczTrapEventHandler handler() const { return handler_; }
-  uintptr_t context() const { return context_; }
+  IpczResult Arm(IpczTrapConditionFlags* satisfied_condition_flags,
+                 IpczPortalStatus* status);
+  void Disable(IpczDestroyTrapFlags flags);
 
-  void MaybeNotify(TrapEventDispatcher& dispatcher,
-                   const IpczPortalStatus& status);
-  void MaybeNotifyDestroyed(TrapEventDispatcher& dispatcher,
-                            const IpczPortalStatus& status);
+  void UpdatePortalStatus(const IpczPortalStatus& status,
+                          TrapEventDispatcher& dispatcher);
 
  private:
-  IpczTrapConditionFlags GetEventFlags(const IpczPortalStatus& status);
+  friend class TrapEventDispatcher;
 
+  ~Trap() override;
+
+  IpczTrapConditionFlags GetEventFlags(const IpczPortalStatus& status);
+  void MaybeDispatchEvent(IpczTrapConditionFlags condition_flags,
+                          const IpczPortalStatus& status);
+  bool HasNoCurrentDispatches() const;
+
+  const mem::Ref<Portal> portal_;
   const IpczTrapConditions conditions_;
   const IpczTrapEventHandler handler_;
-  const uintptr_t context_;
-  const mem::Ref<SharedState> state_{mem::MakeRefCounted<SharedState>()};
-};
+  const uint64_t context_;
 
-class TrapSet {
- public:
-  TrapSet();
-  TrapSet(TrapSet&&);
-  TrapSet& operator=(TrapSet&&);
-  ~TrapSet();
-
-  bool Contains(Trap& trap) const;
-  IpczResult Add(std::unique_ptr<Trap> trap);
-  IpczResult Remove(Trap& trap);
-  void MaybeNotify(TrapEventDispatcher& dispatcher,
-                   const IpczPortalStatus& status);
-  void Clear();
-
- private:
-  absl::flat_hash_set<std::unique_ptr<Trap>> traps_;
+  absl::Mutex mutex_;
+  bool is_enabled_ ABSL_GUARDED_BY(mutex_) = true;
+  bool is_armed_ ABSL_GUARDED_BY(mutex_) = false;
+  size_t num_current_dispatches_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace core

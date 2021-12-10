@@ -69,7 +69,7 @@ class Portal : public mem::RefCounted {
 
   IpczResult CreateTrap(const IpczTrapConditions& conditions,
                         IpczTrapEventHandler handler,
-                        uintptr_t context,
+                        uint64_t context,
                         IpczHandle& trap);
   IpczResult ArmTrap(IpczHandle trap,
                      IpczTrapConditionFlags* satisfied_condition_flags,
