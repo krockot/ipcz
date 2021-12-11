@@ -177,7 +177,7 @@ bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
       reinterpret_cast<core::Portal*>(a)->router();
   mem::Ref<core::Router> router_b =
       reinterpret_cast<core::Portal*>(b)->router();
-  return router_a->HasLocalPeer(router_b);
+  return router_a->HasStableLocalPeer(router_b);
 }
 
 void TestBase::LogPortalRoute(IpczHandle a) {

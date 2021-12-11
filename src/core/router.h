@@ -82,8 +82,12 @@ class Router : public mem::RefCounted {
   void QueryStatus(IpczPortalStatus& status);
 
   // Returns true iff this Router's outward link is a LocalRouterLink between
-  // `this` and `router`.
-  bool HasLocalPeer(const mem::Ref<Router>& router);
+  // `this` and `other`.
+  bool HasLocalPeer(const mem::Ref<Router>& other);
+
+  // A stricter version of HasLocalPeer() which requires both routers to be
+  // terminal routers with no decaying links.
+  bool HasStableLocalPeer(const mem::Ref<Router>& other);
 
   // Returns true iff sending a parcel of `data_size` towards the other side of
   // the route may exceed the specified `limits` on the receiving end.

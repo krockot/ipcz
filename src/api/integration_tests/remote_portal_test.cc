@@ -415,6 +415,10 @@ TEST_P(RemotePortalTest, LocalProxyBypass) {
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(p, parcel));
   EXPECT_EQ("hello", parcel.message);
 
+  while (!PortalsAreLocalPeers(q, p)) {
+    VerifyEndToEnd(q, p);
+  }
+
   ClosePortals({q, p, a, b, c, d});
   DestroyNodes({node_0, node_1, node_2});
 }

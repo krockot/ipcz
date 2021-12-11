@@ -105,9 +105,18 @@ void Router::QueryStatus(IpczPortalStatus& status) {
   status.size = size;
 }
 
-bool Router::HasLocalPeer(const mem::Ref<Router>& router) {
+bool Router::HasLocalPeer(const mem::Ref<Router>& other) {
   absl::MutexLock lock(&mutex_);
-  return outward_.link && outward_.link->GetLocalTarget() == router;
+  return outward_.link && outward_.link->GetLocalTarget() == other;
+}
+
+bool Router::HasStableLocalPeer(const mem::Ref<Router>& other) {
+  TwoMutexLock lock(&mutex_, &other->mutex_);
+  return outward_.link && outward_.link->GetLocalTarget() == other &&
+         other->outward_.link &&
+         other->outward_.link->GetLocalTarget() == this && !inward_.link &&
+         !other->inward_.link && !outward_.decaying_proxy_link &&
+         !other->outward_.decaying_proxy_link;
 }
 
 bool Router::WouldOutboundParcelExceedLimits(size_t data_size,
@@ -992,7 +1001,9 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   SequenceNumber proxied_inbound_sequence_length;
   SequenceNumber proxied_outbound_sequence_length;
   if (!new_local_peer) {
-    return false;
+    // The peer may have been explicitly closed by the time this message
+    // arrives.
+    return true;
   }
 
   {
