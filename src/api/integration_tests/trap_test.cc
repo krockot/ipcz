@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <chrono>
 #include <functional>
+#include <thread>
 
 #include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
+#include "os/event.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -39,7 +42,7 @@ class TestTrap {
 
   ~TestTrap() {
     if (!destroyed_) {
-      Destroy();
+      EXPECT_EQ(IPCZ_RESULT_OK, Destroy());
     }
   }
 
@@ -58,15 +61,14 @@ class TestTrap {
                          status);
   }
 
-  void Destroy() {
+  IpczResult Destroy() {
     destroyed_ = true;
-    EXPECT_EQ(IPCZ_RESULT_OK, ipcz_.DestroyTrap(trap_, IPCZ_NO_FLAGS, nullptr));
+    return ipcz_.DestroyTrap(trap_, IPCZ_NO_FLAGS, nullptr);
   }
 
-  void DestroyBlocking() {
+  IpczResult DestroyBlocking() {
     destroyed_ = true;
-    EXPECT_EQ(IPCZ_RESULT_OK,
-              ipcz_.DestroyTrap(trap_, IPCZ_DESTROY_TRAP_BLOCKING, nullptr));
+    return ipcz_.DestroyTrap(trap_, IPCZ_DESTROY_TRAP_BLOCKING, nullptr);
   }
 
  private:
@@ -160,17 +162,103 @@ TEST_F(TrapTest, RearmInEventHandler) {
   IpczTrapConditions conditions = {sizeof(conditions)};
   conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
   conditions.min_local_parcels = 1;
-  TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
-    EXPECT_FALSE(tripped);
-    EXPECT_EQ(trap.context(), e.context);
-    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) != 0);
-    tripped = true;
-    trap.Destroy();
-  });
+  TestTrap trap(
+      ipcz, b, conditions, [this, b, &trap, &tripped](const IpczTrapEvent& e) {
+        EXPECT_FALSE(tripped);
+        EXPECT_EQ(trap.context(), e.context);
+        EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) !=
+                    0);
+        tripped = true;
+        EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION, trap.Arm());
+
+        Parcel p;
+        EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+        EXPECT_EQ("hello", p.message);
+
+        EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+      });
 
   EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
   Put(a, "hello");
   EXPECT_TRUE(tripped);
+
+  tripped = false;
+  Put(a, "hello");
+  EXPECT_TRUE(tripped);
+
+  ClosePortals({a, b});
+}
+
+TEST_F(TrapTest, ArmWithConditionsMet) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+  conditions.min_local_parcels = 1;
+  TestTrap trap(ipcz, b, conditions, [](const IpczTrapEvent& e) {});
+
+  Put(a, "hello");
+
+  IpczTrapConditionFlags flags;
+  IpczPortalStatus status = {sizeof(status)};
+  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION, trap.Arm(&flags, &status));
+  EXPECT_TRUE((flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) != 0);
+  EXPECT_EQ(1u, status.num_local_parcels);
+
+  ClosePortals({a, b});
+}
+
+TEST_F(TrapTest, NoDispatchAfterDestroy) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  bool tripped = false;
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+  conditions.min_local_parcels = 1;
+  TestTrap trap(ipcz, b, conditions,
+                [&tripped](const IpczTrapEvent& e) { tripped = true; });
+
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Destroy());
+  Put(a, "hello", {}, {});
+  EXPECT_FALSE(tripped);
+
+  ClosePortals({a, b});
+}
+
+TEST_F(TrapTest, DestroyBlocking) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  os::Event trap_event_fired;
+  os::Event::Notifier trap_event_notifier = trap_event_fired.MakeNotifier();
+  bool tripped = false;
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+  conditions.min_local_parcels = 1;
+  TestTrap trap(ipcz, b, conditions,
+                [&trap_event_notifier, &tripped](const IpczTrapEvent& e) {
+                  using namespace std::chrono_literals;
+                  trap_event_notifier.Notify();
+                  std::this_thread::sleep_for(10ms);
+                  tripped = true;
+                });
+
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+
+  // Trigger the trap on a background thread.
+  std::thread t([this, a] { Put(a, "hello"); });
+
+  // Wait for the trap handler to be invoked and then immediately destroy the
+  // trap. DestroyBlocking() must wait for the handler to complete before
+  // returning.
+  trap_event_fired.Wait();
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.DestroyBlocking());
+  EXPECT_TRUE(tripped);
+  t.join();
+
   ClosePortals({a, b});
 }
 
