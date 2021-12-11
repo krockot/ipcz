@@ -423,6 +423,40 @@ TEST_P(RemotePortalTest, LocalProxyBypass) {
   DestroyNodes({node_0, node_1, node_2});
 }
 
+TEST_P(RemotePortalTest, SendPortalPair) {
+  // An edge case of questionable value, ensure it's OK to send both portals of
+  // a local pair in the same parcel to another node.
+
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+
+  IpczHandle a, b;
+  Connect(node, other_node, &a, &b);
+
+  IpczHandle pair[2];
+  OpenPortals(node, &pair[0], &pair[1]);
+
+  const std::string kMessage = "hiiiii";
+
+  Put(a, kMessage, {pair, 2});
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ(kMessage, p.message);
+  ASSERT_EQ(2u, p.portals.size());
+
+  IpczHandle c = p.portals[0];
+  IpczHandle d = p.portals[1];
+
+  while (!PortalsAreLocalPeers(c, d)) {
+    VerifyEndToEnd(c, d);
+  }
+  VerifyEndToEnd(c, d);
+
+  ClosePortals({a, b, c, d});
+  DestroyNodes({node, other_node});
+}
+
 using MultiprocessRemotePortalTest = test::MultiprocessTest;
 
 const std::string kMultiprocessMessageFromA = "hello!";
