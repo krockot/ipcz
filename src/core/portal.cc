@@ -12,6 +12,7 @@
 #include <tuple>
 #include <utility>
 
+#include "core/link_type.h"
 #include "core/local_router_link.h"
 #include "core/node.h"
 #include "core/parcel.h"
@@ -60,7 +61,7 @@ Portal::Pair Portal::CreatePair(mem::Ref<Node> node) {
   Router::Pair routers{mem::MakeRefCounted<Router>(),
                        mem::MakeRefCounted<Router>()};
   RouterLink::Pair links = LocalRouterLink::CreatePair(
-      LocalRouterLink::InitialState::kCanDecay, routers);
+      LinkType::kCentral, LocalRouterLink::InitialState::kCanDecay, routers);
   routers.first->SetOutwardLink(std::move(links.first));
   routers.second->SetOutwardLink(std::move(links.second));
   return {mem::MakeRefCounted<Portal>(node, std::move(routers.first)),

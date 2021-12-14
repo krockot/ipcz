@@ -33,22 +33,18 @@ namespace core {
 RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
                                    RoutingId routing_id,
                                    uint32_t link_state_index,
-                                   LinkSide link_side,
-                                   RouteSide target_route_side)
+                                   LinkType type,
+                                   LinkSide side)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
       link_state_index_(link_state_index),
-      link_side_(link_side),
-      target_route_side_(target_route_side) {}
+      type_(type),
+      side_(side) {}
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 
-LinkSide RemoteRouterLink::GetLinkSide() const {
-  return link_side_;
-}
-
-RouteSide RemoteRouterLink::GetTargetRouteSide() const {
-  return target_route_side_;
+LinkType RemoteRouterLink::GetType() const {
+  return type_;
 }
 
 mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
@@ -67,12 +63,12 @@ bool RemoteRouterLink::CanDecay() {
 
 bool RemoteRouterLink::SetSideCanDecay() {
   RouterLinkState* state = GetLinkState();
-  return state && state->SetSideReady(link_side_);
+  return state && state->SetSideReady(side_);
 }
 
 bool RemoteRouterLink::MaybeBeginDecay(absl::uint128* bypass_key) {
   RouterLinkState* state = GetLinkState();
-  bool result = state && state->TryToDecay(link_side_);
+  bool result = state && state->TryToDecay(side_);
   if (result && bypass_key) {
     *bypass_key = RandomUint128();
     state->bypass_key = *bypass_key;
@@ -87,7 +83,7 @@ bool RemoteRouterLink::CancelDecay() {
 
 bool RemoteRouterLink::CanBypassWithKey(const absl::uint128& bypass_key) {
   RouterLinkState* state = GetLinkState();
-  return state && state->is_decaying(link_side_.opposite()) &&
+  return state && state->is_decaying(side_.opposite()) &&
          state->bypass_key == bypass_key;
 }
 
@@ -142,9 +138,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
           node_link()->AllocateRoutingIds(1);
     }
     new_links[i] = node_link()->AddRoute(
-        routing_id, routing_id, LinkSide::kA,
-        descriptors[i].route_is_peer ? RouteSide::kOther : RouteSide::kSame,
-        std::move(route_listener));
+        routing_id, routing_id,
+        descriptors[i].route_is_peer ? LinkType::kCentral
+                                     : LinkType::kPeripheral,
+        LinkSide::kA, std::move(route_listener));
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
@@ -153,10 +150,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     mem::Ref<RouterLink> decaying_link;
     if (descriptors[i].route_is_peer) {
-      decaying_link =
-          node_link()->AddRoute(descriptors[i].new_decaying_routing_id,
-                                descriptors[i].new_decaying_routing_id,
-                                LinkSide::kA, RouteSide::kSame, routers[i]);
+      decaying_link = node_link()->AddRoute(
+          descriptors[i].new_decaying_routing_id,
+          descriptors[i].new_decaying_routing_id, LinkType::kPeripheral,
+          LinkSide::kA, routers[i]);
     }
     routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
                               std::move(decaying_link));
@@ -172,7 +169,7 @@ void RemoteRouterLink::AcceptRouteClosure(RouteSide route_side,
   msg::SideClosed side_closed;
   side_closed.params.routing_id = routing_id_;
   side_closed.params.route_side =
-      target_route_side_.is_same_side() ? route_side : route_side.opposite();
+      type_ == LinkType::kPeripheral ? route_side : route_side.opposite();
   side_closed.params.sequence_length = sequence_length;
   node_link()->Transmit(side_closed);
 }
@@ -242,7 +239,7 @@ std::string RemoteRouterLink::Describe() const {
 void RemoteRouterLink::LogRouteTrace(RouteSide toward_route_side) {
   msg::LogRouteTrace log_request;
   log_request.params.routing_id = routing_id_;
-  log_request.params.toward_route_side = target_route_side_.is_same_side()
+  log_request.params.toward_route_side = type_ == LinkType::kPeripheral
                                              ? toward_route_side
                                              : toward_route_side.opposite();
   node_link()->Transmit(log_request);

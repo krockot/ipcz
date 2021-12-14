@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-#include "core/link_side.h"
+#include "core/link_type.h"
 #include "core/node_name.h"
 #include "core/route_side.h"
 #include "core/routing_id.h"
@@ -26,28 +26,14 @@ class Parcel;
 class Router;
 
 // A RouterLink represents one endpoint of a link between two Routers. Each
-// RouterLink is arbitrarily assigned a LinkSide at construction time, and the
-// RouterLink on the other side of the link is assigned the opposite LinkSide.
-//
-// In addition to facilitating communication between linked Routers for route
-// inspection and mutation, each RouterLink shares some state with another
-// RouterLink instance on the opposite LinkSide of the same logical link. The
-// LinkSide property of each RouterLink is used as a convention to establish
-// each corresponding Router's responsibility for bits in the shared state.
+// conceptual link along a route has two RouterLink objects associated with it,
+// one on other side of the link, connecting the link to a Router on that side.
 class RouterLink : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<RouterLink>, mem::Ref<RouterLink>>;
 
-  // Returns the side of the link (side A or B) on which this RouterLink object
-  // falls. Neither side has special meaning: this is used as a convention for
-  // each side of a link to agree on a unique relative identity where it's
-  // useful to do so. For example in state shared by both sides of the link,
-  // data or state changes may be indexed by side A or side B.
-  virtual LinkSide GetLinkSide() const = 0;
-
-  // Indicates which side of the route the other side of the link is connected
-  // to, relative to Router on this side of the link.
-  virtual RouteSide GetTargetRouteSide() const = 0;
+  // Indicates what type of link this is. See LinkType documentation.
+  virtual LinkType GetType() const = 0;
 
   // Returns a reference to the local Router on the other side of this link
   // (connected to a corresponding RouterLink on the other side), if and only if
@@ -60,11 +46,11 @@ class RouterLink : public mem::RefCounted {
   virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;
 
   // Indicates whether this link is in a stable state suitable for decay from
-  // one side or the other. This means it exists as a router's outward link, its
-  // GetTargetRouteSide() is RouteSide::kOther, the router has no decaying
-  // outward link, and the other side of this link has not already started to
-  // decay. A proxying router with a link in this state may attempt to initiate
-  // its own bypass and eventual removal from the route. See MaybeBeginDecay().
+  // one side or the other. This means it exists as a router's outward link, it
+  // is a central link, the router has no decaying outward link, and the other
+  // side of the link has not already started to decay. A proxying router with a
+  // link in this state may attempt to initiate its own bypass and eventual
+  // removal from the route, starting with MaybeBeginDecay().
   virtual bool CanDecay() = 0;
 
   // Signals that this side of the link is in a stable state suitable for decay.
@@ -109,11 +95,10 @@ class RouterLink : public mem::RefCounted {
   // Passes a notification to the Router on the other side of this link to
   // indicate that the given `route_side` of the route itself has been closed.
   // `route_side` is relative to the calling Router. So for example if this is a
-  // a transverse link (GetTargetRouteSide() is RouteSide::kOther) and
-  // `route_side` is given here as RouteSide::kSame, then the receiving Router
-  // will receive the call with `route_side` as RouteSide::kOther, since the
-  // "same" side from our perspective is the "other" side from their
-  // perspective.
+  // a central link and `route_side` is given here as RouteSide::kSame, then the
+  // receiving Router will receive the call with `route_side` as
+  // RouteSide::kOther, since the "same" side from our perspective is the
+  // "other" side from their perspective.
   virtual void AcceptRouteClosure(RouteSide route_side,
                                   SequenceNumber sequence_length) = 0;
 

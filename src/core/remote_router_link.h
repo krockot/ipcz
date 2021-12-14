@@ -8,7 +8,7 @@
 #include <cstdint>
 
 #include "core/link_side.h"
-#include "core/route_side.h"
+#include "core/link_type.h"
 #include "core/router_link.h"
 #include "core/routing_id.h"
 
@@ -30,22 +30,21 @@ struct RouterLinkState;
 class RemoteRouterLink : public RouterLink {
  public:
   // Constructs a new RemoteRouterLink which sends messages over `node_link`
-  // using `routing_id` specifically. `link_side` is the side of this link on
-  // which this RemoteRouterLink falls (side A or B), and `target_route_side`
-  // indicates whether the remote Router is on the same side or the other side
-  // of the overall route.
+  // using `routing_id` specifically. `side` is the side of this link on which
+  // this RemoteRouterLink falls (side A or B), and `type` indicates what type
+  // of link it is -- which for remote links must be either kCentral or
+  // kPeripheral.
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
                    uint32_t link_state_index,
-                   LinkSide link_side,
-                   RouteSide target_route_side);
+                   LinkType type,
+                   LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
 
   // RouterLink:
-  LinkSide GetLinkSide() const override;
-  RouteSide GetTargetRouteSide() const override;
+  LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
   bool CanDecay() override;
@@ -80,8 +79,8 @@ class RemoteRouterLink : public RouterLink {
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
   const uint32_t link_state_index_;
-  const LinkSide link_side_;
-  const RouteSide target_route_side_;
+  const LinkType type_;
+  const LinkSide side_;
 };
 
 }  // namespace core

@@ -59,8 +59,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // router on the same side of the route, or on the other side of the route.
   mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
                                 size_t link_state_index,
-                                LinkSide link_side,
-                                RouteSide route_side,
+                                LinkType type,
+                                LinkSide side,
                                 mem::Ref<Router> router);
 
   // Removes the route specified by `routing_id`. Once removed, any messages

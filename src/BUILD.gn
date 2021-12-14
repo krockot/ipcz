@@ -83,6 +83,7 @@ source_set("core") {
     "core/driver_transport.h",
     "core/link_side.cc",
     "core/link_side.h",
+    "core/link_type.h",
     "core/local_router_link.cc",
     "core/local_router_link.h",
     "core/message_internal.cc",

@@ -30,12 +30,12 @@ class LocalRouterLink : public RouterLink {
   // Creates a new pair of LocalRouterLinks with the given initial link status
   // and linking the given pair of Routers together. The Routers must not
   // currently have outward links.
-  static RouterLink::Pair CreatePair(InitialState initial_state,
+  static RouterLink::Pair CreatePair(LinkType type,
+                                     InitialState initial_state,
                                      const Router::Pair& routers);
 
   // RouterLink:
-  LinkSide GetLinkSide() const override;
-  RouteSide GetTargetRouteSide() const override;
+  LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
   bool CanDecay() override;
@@ -65,10 +65,10 @@ class LocalRouterLink : public RouterLink {
  private:
   class SharedState;
 
-  LocalRouterLink(LinkSide link_side, mem::Ref<SharedState> state);
+  LocalRouterLink(LinkSide side, mem::Ref<SharedState> state);
   ~LocalRouterLink() override;
 
-  const LinkSide link_side_;
+  const LinkSide side_;
   const mem::Ref<SharedState> state_;
 };
 

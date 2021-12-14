@@ -12,12 +12,12 @@
 
 #include "core/driver_transport.h"
 #include "core/link_side.h"
+#include "core/link_type.h"
 #include "core/message_internal.h"
 #include "core/node_link.h"
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
-#include "core/route_side.h"
 #include "core/router.h"
 #include "core/routing_id.h"
 #include "debug/log.h"
@@ -91,7 +91,7 @@ class ConnectListener : public DriverTransport::Listener,
     for (size_t i = 0; i < waiting_portals_.size(); ++i) {
       const mem::Ref<Router>& router = waiting_portals_[i]->router();
       router->SetOutwardLink(node_link->AddRoute(
-          static_cast<RoutingId>(i), i, link_side, RouteSide::kOther, router));
+          static_cast<RoutingId>(i), i, LinkType::kCentral, link_side, router));
     }
     return IPCZ_RESULT_OK;
   }
@@ -348,8 +348,8 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
   mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
-      bypass.params.new_routing_id, bypass.params.new_routing_id, LinkSide::kB,
-      RouteSide::kOther, proxy_peer);
+      bypass.params.new_routing_id, bypass.params.new_routing_id,
+      LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewLink(
       new_peer_link, bypass.params.bypass_key,
       bypass.params.proxied_outbound_sequence_length);

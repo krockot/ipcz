@@ -51,15 +51,14 @@ RoutingId NodeLink::AllocateRoutingIds(size_t count) {
 
 mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
                                         size_t link_state_index,
-                                        LinkSide link_side,
-                                        RouteSide route_side,
+                                        LinkType type,
+                                        LinkSide side,
                                         mem::Ref<Router> router) {
   absl::MutexLock lock(&mutex_);
   auto result = routes_.try_emplace(routing_id, router);
   ABSL_ASSERT(result.second);
-  return mem::MakeRefCounted<RemoteRouterLink>(mem::WrapRefCounted(this),
-                                               routing_id, link_state_index,
-                                               link_side, route_side);
+  return mem::MakeRefCounted<RemoteRouterLink>(
+      mem::WrapRefCounted(this), routing_id, link_state_index, type, side);
 }
 
 bool NodeLink::RemoveRoute(RoutingId routing_id) {
@@ -161,7 +160,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // convention.
   RoutingId new_routing_id = AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link =
-      AddRoute(new_routing_id, new_routing_id, LinkSide::kA, RouteSide::kOther,
+      AddRoute(new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
                new_peer);
 
   // We don't want `new_peer` transmitting any outgoing parcels until we've
@@ -413,7 +412,7 @@ bool NodeLink::OnBypassProxyToSameNode(
 
   mem::Ref<RouterLink> new_link =
       AddRoute(bypass.params.new_routing_id, bypass.params.new_routing_id,
-               LinkSide::kB, RouteSide::kOther, router);
+               LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params.sequence_length);
 }

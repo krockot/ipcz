@@ -225,7 +225,7 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
     other->bridge_ = std::make_unique<IoState>();
 
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        LocalRouterLink::InitialState::kCanDecay,
+        LinkType::kBridge, LocalRouterLink::InitialState::kCanDecay,
         Router::Pair(mem::WrapRefCounted(this), other));
     bridge_->link = std::move(links.first);
     other->bridge_->link = std::move(links.second);
@@ -552,7 +552,7 @@ void Router::AcceptRouteClosure(RouteSide route_side,
   }
 
   if (forwarding_link) {
-    if (forwarding_link->GetTargetRouteSide().is_other_side()) {
+    if (forwarding_link->GetType() == LinkType::kCentral) {
       ABSL_ASSERT(route_side == RouteSide::kSame);
       forwarding_link->AcceptRouteClosure(RouteSide::kOther, sequence_length);
     } else {
@@ -825,7 +825,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
           *inward_.parcels.final_sequence_length();
       inward_.closure_propagated = true;
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
-               outward_.link->GetTargetRouteSide().is_other_side() &&
+               outward_.link->GetType() == LinkType::kCentral &&
                !inward_.link && !outward_.decaying_proxy_link &&
                !inward_.decaying_proxy_link) {
       // If we're becoming a proxy under some common special conditions --
@@ -873,9 +873,9 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
     }
 
     router->outward_.link = from_node_link.AddRoute(
-        descriptor.new_routing_id, descriptor.new_routing_id, LinkSide::kB,
-        descriptor.route_is_peer ? RouteSide::kOther : RouteSide::kSame,
-        router);
+        descriptor.new_routing_id, descriptor.new_routing_id,
+        descriptor.route_is_peer ? LinkType::kCentral : LinkType::kPeripheral,
+        LinkSide::kB, router);
     if (descriptor.route_is_peer) {
       // When split from a local peer, our remote counterpart (our remote peer's
       // former local peer) will use this link to forward parcels it already
@@ -884,7 +884,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
       router->outward_.decaying_proxy_link =
           from_node_link.AddRoute(descriptor.new_decaying_routing_id,
                                   descriptor.new_decaying_routing_id,
-                                  LinkSide::kB, RouteSide::kSame, router);
+                                  LinkType::kPeripheral, LinkSide::kB, router);
 
       // The sequence length toward this link is the current outbound sequence
       // length, which is to say, we will not be sending any parcels that way.
@@ -1042,7 +1042,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // not ready for further decay until the above established decaying links
     // have fully decayed.
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        LocalRouterLink::InitialState::kCannotDecay,
+        LinkType::kCentral, LocalRouterLink::InitialState::kCannotDecay,
         Router::Pair(mem::WrapRefCounted(this), new_local_peer));
     outward_.link = std::move(links.first);
     new_local_peer->outward_.link = std::move(links.second);
@@ -1305,7 +1305,7 @@ void Router::LogRouteTrace(RouteSide toward_route_side) {
   }
 
   if (next_link) {
-    if (next_link->GetTargetRouteSide().is_other_side()) {
+    if (next_link->GetType() == LinkType::kCentral) {
       ABSL_ASSERT(toward_route_side == RouteSide::kOther);
       next_link->LogRouteTrace(RouteSide::kSame);
     } else {
@@ -1535,8 +1535,10 @@ void Router::Flush() {
   }
 
   if (notify_closure_outward) {
-    outward_link->AcceptRouteClosure(outward_link->GetTargetRouteSide(),
-                                     final_sequence_length);
+    outward_link->AcceptRouteClosure(
+        outward_link->GetType() == LinkType::kCentral ? RouteSide::kOther
+                                                      : RouteSide::kSame,
+        final_sequence_length);
   }
 
   if (dead_outward_link) {
@@ -1554,7 +1556,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     absl::MutexLock lock(&mutex_);
     if (!outward_.link || !inward_.link || outward_.decaying_proxy_link ||
         inward_.decaying_proxy_link ||
-        outward_.link->GetTargetRouteSide().is_same_side()) {
+        outward_.link->GetType() != LinkType::kCentral) {
       return false;
     }
 
@@ -1598,7 +1600,7 @@ bool Router::MaybeInitiateSelfRemoval() {
   const RoutingId new_routing_id =
       node_link_to_successor->AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link = node_link_to_successor->AddRoute(
-      new_routing_id, new_routing_id, LinkSide::kA, RouteSide::kOther,
+      new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
       local_peer);
 
   {
@@ -1754,7 +1756,7 @@ void Router::MaybeInitiateBridgeBypass() {
     const RoutingId bypass_routing_id =
         node_link_to_second_peer->AllocateRoutingIds(1);
     mem::Ref<RouterLink> new_link = node_link_to_second_peer->AddRoute(
-        bypass_routing_id, bypass_routing_id, LinkSide::kA, RouteSide::kOther,
+        bypass_routing_id, bypass_routing_id, LinkType::kCentral, LinkSide::kA,
         first_local_peer);
     {
       ThreeMutexLock lock(&first_bridge->mutex_, &second_bridge->mutex_,
@@ -1864,7 +1866,7 @@ void Router::MaybeInitiateBridgeBypass() {
         length_from_first_peer;
 
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        LocalRouterLink::InitialState::kCannotDecay,
+        LinkType::kCentral, LocalRouterLink::InitialState::kCannotDecay,
         Router::Pair(first_local_peer, second_local_peer));
     first_local_peer->outward_.link = std::move(links.first);
     second_local_peer->outward_.link = std::move(links.second);
