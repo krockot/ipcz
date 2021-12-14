@@ -144,8 +144,8 @@ class Router : public mem::RefCounted {
   // takes a decaying inward link for this router and a new outward link for
   // this router's former local peer (which at the time of the call is still
   // linked via this router's outward link.) Right now this method does one or
-  // the other based on `descriptor.route_is_peer`, and there is very little
-  // overlap in behavior between the two cases.
+  // the other based on `descriptor.proxy_already_bypassed`, and there is very
+  // little overlap in behavior between the two cases.
   void BeginProxying(const RouterDescriptor& inward_peer_descriptor,
                      mem::Ref<RouterLink> link,
                      mem::Ref<RouterLink> decaying_link);

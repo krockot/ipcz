@@ -132,7 +132,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener =
         routers[i]->SerializeNewInwardPeer(descriptors[i]);
-    if (descriptors[i].route_is_peer) {
+    if (descriptors[i].proxy_already_bypassed) {
       bool ok = state.SetSideReady(LinkSide::kA);
       ABSL_ASSERT(ok);
       descriptors[i].new_decaying_routing_id =
@@ -140,8 +140,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     }
     new_links[i] = node_link()->AddRoute(
         routing_id, routing_id,
-        descriptors[i].route_is_peer ? LinkType::kCentral
-                                     : LinkType::kPeripheralInward,
+        descriptors[i].proxy_already_bypassed ? LinkType::kCentral
+                                              : LinkType::kPeripheralInward,
         LinkSide::kA, std::move(route_listener));
   }
 
@@ -150,7 +150,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
   for (size_t i = 0; i < num_portals; ++i) {
     mem::Ref<RouterLink> decaying_link;
-    if (descriptors[i].route_is_peer) {
+    if (descriptors[i].proxy_already_bypassed) {
       decaying_link = node_link()->AddRoute(
           descriptors[i].new_decaying_routing_id,
           descriptors[i].new_decaying_routing_id, LinkType::kPeripheralInward,

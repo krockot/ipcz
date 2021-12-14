@@ -257,12 +257,12 @@ void Router::BeginProxying(const RouterDescriptor& inward_peer_descriptor,
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_.has_current_link());
-    if (inward_peer_descriptor.route_is_peer) {
-      // When `route_is_peer` is true, this means we have two local Routers --
-      // let's call them P and Q -- who were each other's local peer, and who
-      // were just split apart by one of them (`this`, call it Q) serializing
-      // its portal and extending the route to another node. In this case,
-      // `link` is a link to the new router, and the local target of
+    if (inward_peer_descriptor.proxy_already_bypassed) {
+      // When `proxy_already_bypassed` is true, this means we have two local
+      // Routers -- let's call them P and Q -- who were each other's local peer,
+      // and who were just split apart by one of them (`this`, call it Q)
+      // serializing a new inward peer to extend the route to another node. In
+      // this case `link` is a link to the new router, and the local target of
       // `outward_link` is our former local peer (P) who must now use `link` as
       // its own outward link.
       //
@@ -281,7 +281,7 @@ void Router::BeginProxying(const RouterDescriptor& inward_peer_descriptor,
 
   bool attempt_self_removal = false;
   mem::Ref<Router> local_peer;
-  if (inward_peer_descriptor.route_is_peer) {
+  if (inward_peer_descriptor.proxy_already_bypassed) {
     ABSL_ASSERT(outward_link);
     local_peer = outward_link->GetLocalTarget();
     ABSL_ASSERT(local_peer);
@@ -298,8 +298,9 @@ void Router::BeginProxying(const RouterDescriptor& inward_peer_descriptor,
     local_peer->outward_.SetCurrentLink(std::move(link));
   } else {
     absl::MutexLock lock(&mutex_);
-    // In the case where `route_is_peer` is false, this Router is becoming a
-    // bidirectional proxy. We need to set its inward link accordingly.
+    // In the case where `proxy_already_bypassed` is false, this Router is
+    // becoming a bidirectional proxy. We need to set its inward link
+    // accordingly.
     inward_.SetCurrentLink(std::move(link));
 
     // Our outward link may be ready for decay by the time we hit this path.
@@ -665,7 +666,7 @@ mem::Ref<Router> Router::SerializeNewInwardPeer(RouterDescriptor& descriptor) {
         inward_.set_closure_propagated(true);
       }
 
-      descriptor.route_is_peer = true;
+      descriptor.proxy_already_bypassed = true;
       descriptor.next_outgoing_sequence_number =
           outward_.parcels().current_sequence_number();
       descriptor.next_incoming_sequence_number =
@@ -689,7 +690,7 @@ mem::Ref<Router> Router::SerializeNewInwardPeer(RouterDescriptor& descriptor) {
     // being serialized here, and it will forward inbound parcels to that Router
     // over a new inward link. Similarly it router will forward outbound parcels
     // from the new Router to our own outward peer.
-    descriptor.route_is_peer = false;
+    descriptor.proxy_already_bypassed = false;
     descriptor.next_outgoing_sequence_number =
         outward_.parcels().current_sequence_number();
     descriptor.next_incoming_sequence_number =
@@ -756,10 +757,10 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
 
     router->outward_.SetCurrentLink(from_node_link.AddRoute(
         descriptor.new_routing_id, descriptor.new_routing_id,
-        descriptor.route_is_peer ? LinkType::kCentral
-                                 : LinkType::kPeripheralOutward,
+        descriptor.proxy_already_bypassed ? LinkType::kCentral
+                                          : LinkType::kPeripheralOutward,
         LinkSide::kB, router));
-    if (descriptor.route_is_peer) {
+    if (descriptor.proxy_already_bypassed) {
       // When split from a local peer, our remote counterpart (our remote peer's
       // former local peer) will use this link to forward parcels it already
       // received from our peer. This link decays like any other decaying link
