@@ -59,8 +59,8 @@ Portal::~Portal() = default;
 Portal::Pair Portal::CreatePair(mem::Ref<Node> node) {
   Router::Pair routers{mem::MakeRefCounted<Router>(),
                        mem::MakeRefCounted<Router>()};
-  RouterLink::Pair links =
-      LocalRouterLink::CreatePair(RouterLinkState::kReady, routers);
+  RouterLink::Pair links = LocalRouterLink::CreatePair(
+      LocalRouterLink::InitialState::kCanDecay, routers);
   routers.first->SetOutwardLink(std::move(links.first));
   routers.second->SetOutwardLink(std::move(links.second));
   return {mem::MakeRefCounted<Portal>(node, std::move(routers.first)),

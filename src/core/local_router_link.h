@@ -22,19 +22,27 @@ namespace core {
 // links.
 class LocalRouterLink : public RouterLink {
  public:
+  enum class InitialState {
+    kCannotDecay,
+    kCanDecay,
+  };
+
   // Creates a new pair of LocalRouterLinks with the given initial link status
   // and linking the given pair of Routers together. The Routers must not
   // currently have outward links.
-  static RouterLink::Pair CreatePair(
-      RouterLinkState::Status initial_link_status,
-      const Router::Pair& routers);
+  static RouterLink::Pair CreatePair(InitialState initial_state,
+                                     const Router::Pair& routers);
 
   // RouterLink:
   LinkSide GetLinkSide() const override;
   RouteSide GetTargetRouteSide() const override;
-  RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
+  bool CanDecay() override;
+  bool SetSideCanDecay() override;
+  bool MaybeBeginDecay(absl::uint128* bypass_key) override;
+  bool CancelDecay() override;
+  bool CanBypassWithKey(const absl::uint128& bypass_key) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;

@@ -225,7 +225,7 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
     other->bridge_ = std::make_unique<IoState>();
 
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        RouterLinkState::kReady,
+        LocalRouterLink::InitialState::kCanDecay,
         Router::Pair(mem::WrapRefCounted(this), other));
     bridge_->link = std::move(links.first);
     other->bridge_->link = std::move(links.second);
@@ -250,8 +250,7 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
     }
 
     if (!outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
-      bool ok = outward_.link->GetLinkState().SetSideReady(
-          outward_.link->GetLinkSide());
+      bool ok = outward_.link->SetSideCanDecay();
       ABSL_ASSERT(ok);
     }
   }
@@ -744,7 +743,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       traps_.DisableAllAndClear();
       if (outward_.link) {
         local_peer = outward_.link->GetLocalTarget();
-        was_link_busy = !outward_.link->GetLinkState().is_link_ready();
+        was_link_busy = !outward_.link->CanDecay();
       }
     }
 
@@ -767,8 +766,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
         continue;
       }
 
-      if (!outward_.link->GetLinkState().TryToDecay(
-              outward_.link->GetLinkSide())) {
+      if (!outward_.link->MaybeBeginDecay()) {
         // Decay has been blocked since we checked above. Restart since it is no
         // longer safe to take the optimized path.
         continue;
@@ -838,16 +836,13 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
       proxy_peer_routing_id = remote_link.routing_id();
 
-      RouterLinkState& state = outward_.link->GetLinkState();
-      if (state.TryToDecay(outward_.link->GetLinkSide())) {
+      if (outward_.link->MaybeBeginDecay(&descriptor.bypass_key)) {
         DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
                  << "with peer at " << proxy_peer_node_name.ToString()
                  << " and "
                  << "peer route to proxy on routing ID "
-                 << proxy_peer_routing_id << " using " << state.bypass_key;
+                 << proxy_peer_routing_id << " using " << descriptor.bypass_key;
 
-        state.bypass_key = RandomUint128();
-        descriptor.bypass_key = state.bypass_key;
         descriptor.proxy_peer_node_name =
             remote_link.node_link()->remote_node_name();
         descriptor.proxy_peer_routing_id = remote_link.routing_id();
@@ -1047,7 +1042,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // not ready for further decay until the above established decaying links
     // have fully decayed.
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        RouterLinkState::kNotReady,
+        LocalRouterLink::InitialState::kCannotDecay,
         Router::Pair(mem::WrapRefCounted(this), new_local_peer));
     outward_.link = std::move(links.first);
     new_local_peer->outward_.link = std::move(links.second);
@@ -1078,11 +1073,7 @@ bool Router::BypassProxyWithNewLink(
       return true;
     }
 
-    RouterLinkState& state = outward_.link->GetLinkState();
-    if (state.bypass_key != bypass_key ||
-        !state.is_decaying(outward_.link->GetLinkSide().opposite())) {
-      DLOG(ERROR) << "Proxy bypass rejecting due to key mismatch: "
-                  << state.bypass_key << " != " << bypass_key;
+    if (!outward_.link->CanBypassWithKey(bypass_key)) {
       return false;
     }
 
@@ -1288,10 +1279,6 @@ void Router::LogDescription() {
   DLOG(INFO) << " - outward length from decaying link: "
              << DescribeOptionalLength(
                     outward_.sequence_length_from_decaying_link);
-  if (outward_.link) {
-    DLOG(INFO) << " - outward link status  "
-               << outward_.link->GetLinkState().status;
-  }
 
   DLOG(INFO) << " - inward " << DescribeLink(inward_.link);
   DLOG(INFO) << " - inward decaying "
@@ -1531,9 +1518,8 @@ void Router::Flush() {
     DVLOG(4) << "Router with fully decayed links may be eligible for "
              << "self-removal with outward " << DescribeLink(outward_link);
 
-    outward_link->GetLinkState().SetSideReady(outward_link->GetLinkSide());
-    if (!MaybeInitiateSelfRemoval() &&
-        outward_link->GetLinkState().is_link_ready()) {
+    outward_link->SetSideCanDecay();
+    if (!MaybeInitiateSelfRemoval() && outward_link->CanDecay()) {
       DVLOG(4) << "Cannot remove self, but pinging peer on "
                << DescribeLink(outward_link);
 
@@ -1574,15 +1560,12 @@ bool Router::MaybeInitiateSelfRemoval() {
 
     successor = inward_.link;
 
-    RouterLinkState& state = outward_.link->GetLinkState();
-    if (!state.TryToDecay(outward_.link->GetLinkSide())) {
+    if (!outward_.link->MaybeBeginDecay(&bypass_key)) {
       DVLOG(4) << "Proxy self-removal blocked by busy "
                << DescribeLink(outward_.link);
       return false;
     }
 
-    bypass_key = RandomUint128();
-    state.bypass_key = bypass_key;
     DVLOG(4) << "Setting bypass key " << bypass_key << " for "
              << DescribeLink(outward_.link);
 
@@ -1680,6 +1663,7 @@ void Router::MaybeInitiateBridgeBypass() {
     }
   }
 
+  absl::uint128 bypass_key;
   mem::Ref<Router> first_local_peer;
   mem::Ref<Router> second_local_peer;
   mem::Ref<RouterLink> link_to_first_peer;
@@ -1688,16 +1672,13 @@ void Router::MaybeInitiateBridgeBypass() {
     TwoMutexLock lock(&mutex_, &second_bridge->mutex_);
     link_to_first_peer = outward_.link;
     link_to_second_peer = second_bridge->outward_.link;
-    if (!link_to_first_peer->GetLinkState().TryToDecay(
-            link_to_first_peer->GetLinkSide())) {
+    if (!link_to_first_peer->MaybeBeginDecay(&bypass_key)) {
       return;
     }
-    if (!link_to_second_peer->GetLinkState().TryToDecay(
-            link_to_second_peer->GetLinkSide())) {
+    if (!link_to_second_peer->MaybeBeginDecay()) {
       // Cancel the decay on this bridge's side, because we couldn't decay the
       // other side of the bridge yet.
-      link_to_first_peer->GetLinkState().status =
-          RouterLinkState::Status::kReady;
+      link_to_first_peer->CancelDecay();
       return;
     }
 
@@ -1731,7 +1712,6 @@ void Router::MaybeInitiateBridgeBypass() {
     // proxy is a route bridge.
     const auto& remote_second_peer =
         static_cast<RemoteRouterLink&>(*link_to_second_peer);
-    const absl::uint128 bypass_key = RandomUint128();
     {
       TwoMutexLock lock(&first_bridge->mutex_, &second_bridge->mutex_);
 
@@ -1752,7 +1732,6 @@ void Router::MaybeInitiateBridgeBypass() {
           std::move(second_bridge->bridge_->link);
     }
 
-    link_to_first_peer->GetLinkState().bypass_key = bypass_key;
     link_to_second_peer->RequestProxyBypassInitiation(
         remote_second_peer.node_link()->remote_node_name(),
         remote_second_peer.routing_id(), bypass_key);
@@ -1885,7 +1864,7 @@ void Router::MaybeInitiateBridgeBypass() {
         length_from_first_peer;
 
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        RouterLinkState::kNotReady,
+        LocalRouterLink::InitialState::kCannotDecay,
         Router::Pair(first_local_peer, second_local_peer));
     first_local_peer->outward_.link = std::move(links.first);
     second_local_peer->outward_.link = std::move(links.second);

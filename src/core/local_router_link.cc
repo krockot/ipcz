@@ -13,17 +13,22 @@
 #include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "util/mutex_locks.h"
+#include "util/random.h"
 
 namespace ipcz {
 namespace core {
 
 class LocalRouterLink::SharedState : public mem::RefCounted {
  public:
-  SharedState(RouterLinkState::Status initial_link_status,
+  SharedState(LocalRouterLink::InitialState initial_state,
               mem::Ref<Router> router_a,
               mem::Ref<Router> router_b)
       : router_a_(std::move(router_a)), router_b_(std::move(router_b)) {
-    state_.status = initial_link_status;
+    if (initial_state == LocalRouterLink::InitialState::kCanDecay) {
+      state_.status = RouterLinkState::kReady;
+    } else {
+      state_.status = RouterLinkState::kNotReady;
+    }
   }
 
   RouterLinkState& state() { return state_; }
@@ -43,11 +48,10 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
 };
 
 // static
-RouterLink::Pair LocalRouterLink::CreatePair(
-    RouterLinkState::Status initial_link_status,
-    const Router::Pair& routers) {
-  auto state = mem::MakeRefCounted<SharedState>(initial_link_status,
-                                                routers.first, routers.second);
+RouterLink::Pair LocalRouterLink::CreatePair(InitialState initial_state,
+                                             const Router::Pair& routers) {
+  auto state = mem::MakeRefCounted<SharedState>(initial_state, routers.first,
+                                                routers.second);
   return {mem::WrapRefCounted(new LocalRouterLink(LinkSide::kA, state)),
           mem::WrapRefCounted(new LocalRouterLink(LinkSide::kB, state))};
 }
@@ -66,10 +70,6 @@ RouteSide LocalRouterLink::GetTargetRouteSide() const {
   return RouteSide::kOther;
 }
 
-RouterLinkState& LocalRouterLink::GetLinkState() {
-  return state_->state();
-}
-
 mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
   return state_->side(link_side_.opposite());
 }
@@ -77,6 +77,32 @@ mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
 bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
                                      RoutingId routing_id) {
   return false;
+}
+
+bool LocalRouterLink::CanDecay() {
+  return state_->state().is_link_ready();
+}
+
+bool LocalRouterLink::SetSideCanDecay() {
+  return state_->state().SetSideReady(link_side_);
+}
+
+bool LocalRouterLink::MaybeBeginDecay(absl::uint128* bypass_key) {
+  bool result = state_->state().TryToDecay(link_side_);
+  if (result && bypass_key) {
+    *bypass_key = RandomUint128();
+    state_->state().bypass_key = *bypass_key;
+  }
+  return result;
+}
+
+bool LocalRouterLink::CancelDecay() {
+  return state_->state().CancelDecay();
+}
+
+bool LocalRouterLink::CanBypassWithKey(const absl::uint128& bypass_key) {
+  return state_->state().is_decaying(link_side_.opposite()) &&
+         state_->state().bypass_key == bypass_key;
 }
 
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,

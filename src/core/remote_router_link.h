@@ -16,6 +16,7 @@ namespace ipcz {
 namespace core {
 
 class NodeLink;
+struct RouterLinkState;
 
 // One side of a link between two Routers living on different nodes. A
 // RemoteRouterLink uses a NodeLink plus a RoutingId as its transport between
@@ -45,9 +46,13 @@ class RemoteRouterLink : public RouterLink {
   // RouterLink:
   LinkSide GetLinkSide() const override;
   RouteSide GetTargetRouteSide() const override;
-  RouterLinkState& GetLinkState() override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
+  bool CanDecay() override;
+  bool SetSideCanDecay() override;
+  bool MaybeBeginDecay(absl::uint128* bypass_key) override;
+  bool CancelDecay() override;
+  bool CanBypassWithKey(const absl::uint128& bypass_key) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
@@ -69,6 +74,8 @@ class RemoteRouterLink : public RouterLink {
 
  private:
   ~RemoteRouterLink() override;
+
+  RouterLinkState* GetLinkState();
 
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;

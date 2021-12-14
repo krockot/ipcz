@@ -105,6 +105,10 @@ struct IPCZ_ALIGN(16) RouterLinkState {
   // In order for this to succeed, the link must have a kReady status. Returns
   // true on success or false on failure.
   bool TryToDecay(LinkSide side);
+
+  // Cancels a decay condition previously initiated by a successful call to
+  // TryToDecay().
+  bool CancelDecay();
 };
 
 static_assert(sizeof(RouterLinkState) == 32, "Invalid RouterLinkState size");

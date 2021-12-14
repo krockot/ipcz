@@ -25,6 +25,7 @@
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/random.h"
 
 namespace ipcz {
 namespace core {
@@ -46,10 +47,6 @@ LinkSide RemoteRouterLink::GetLinkSide() const {
   return link_side_;
 }
 
-RouterLinkState& RemoteRouterLink::GetLinkState() {
-  return node_link_->buffer().router_link_state(link_state_index_);
-}
-
 RouteSide RemoteRouterLink::GetTargetRouteSide() const {
   return target_route_side_;
 }
@@ -61,6 +58,37 @@ mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
 bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
                                       RoutingId routing_id) {
   return node_link_.get() == &node_link && routing_id_ == routing_id;
+}
+
+bool RemoteRouterLink::CanDecay() {
+  RouterLinkState* state = GetLinkState();
+  return state && state->is_link_ready();
+}
+
+bool RemoteRouterLink::SetSideCanDecay() {
+  RouterLinkState* state = GetLinkState();
+  return state && state->SetSideReady(link_side_);
+}
+
+bool RemoteRouterLink::MaybeBeginDecay(absl::uint128* bypass_key) {
+  RouterLinkState* state = GetLinkState();
+  bool result = state && state->TryToDecay(link_side_);
+  if (result && bypass_key) {
+    *bypass_key = RandomUint128();
+    state->bypass_key = *bypass_key;
+  }
+  return result;
+}
+
+bool RemoteRouterLink::CancelDecay() {
+  RouterLinkState* state = GetLinkState();
+  return state && state->CancelDecay();
+}
+
+bool RemoteRouterLink::CanBypassWithKey(const absl::uint128& bypass_key) {
+  RouterLinkState* state = GetLinkState();
+  return state && state->is_decaying(link_side_.opposite()) &&
+         state->bypass_key == bypass_key;
 }
 
 bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
@@ -218,6 +246,10 @@ void RemoteRouterLink::LogRouteTrace(RouteSide toward_route_side) {
                                              ? toward_route_side
                                              : toward_route_side.opposite();
   node_link()->Transmit(log_request);
+}
+
+RouterLinkState* RemoteRouterLink::GetLinkState() {
+  return &node_link_->buffer().router_link_state(link_state_index_);
 }
 
 }  // namespace core

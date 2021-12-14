@@ -24,18 +24,16 @@ namespace core {
 class NodeLink;
 class Parcel;
 class Router;
-struct RouterLinkState;
 
 // A RouterLink represents one endpoint of a link between two Routers. Each
 // RouterLink is arbitrarily assigned a LinkSide at construction time, and the
 // RouterLink on the other side of the link is assigned the opposite LinkSide.
 //
 // In addition to facilitating communication between linked Routers for route
-// inspection and mutation, each RouterLink shares some shared state (a
-// RouterLinkState structure) with a RouterLink on the opposite LinkSide of the
-// same link. The LinkSide property of each RouterLink is used as a convention
-// to establish each corresponding Router's own responsibility for bits in the
-// RouterLinkState.
+// inspection and mutation, each RouterLink shares some state with another
+// RouterLink instance on the opposite LinkSide of the same logical link. The
+// LinkSide property of each RouterLink is used as a convention to establish
+// each corresponding Router's responsibility for bits in the shared state.
 class RouterLink : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<RouterLink>, mem::Ref<RouterLink>>;
@@ -44,18 +42,12 @@ class RouterLink : public mem::RefCounted {
   // falls. Neither side has special meaning: this is used as a convention for
   // each side of a link to agree on a unique relative identity where it's
   // useful to do so. For example in state shared by both sides of the link,
-  // data or state changes may be scoped to one side of the link or the other.
+  // data or state changes may be indexed by side A or side B.
   virtual LinkSide GetLinkSide() const = 0;
 
   // Indicates which side of the route the other side of the link is connected
   // to, relative to Router on this side of the link.
   virtual RouteSide GetTargetRouteSide() const = 0;
-
-  // Returns a reference to the shared RouterLinkState used by both sides of the
-  // same link. The other RouterLink using this state may be on another thread
-  // or in another process, and it must be constructed with a LinkSide property
-  // opposite of this RouterLink.
-  virtual RouterLinkState& GetLinkState() = 0;
 
   // Returns a reference to the local Router on the other side of this link
   // (connected to a corresponding RouterLink on the other side), if and only if
@@ -66,6 +58,43 @@ class RouterLink : public mem::RefCounted {
   // with the Router on the other side of this link, if and only if that Router
   // lives on a different node from the Router on this side.
   virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;
+
+  // Indicates whether this link is in a stable state suitable for decay from
+  // one side or the other. This means it exists as a router's outward link, its
+  // GetTargetRouteSide() is RouteSide::kOther, the router has no decaying
+  // outward link, and the other side of this link has not already started to
+  // decay. A proxying router with a link in this state may attempt to initiate
+  // its own bypass and eventual removal from the route. See MaybeBeginDecay().
+  virtual bool CanDecay() = 0;
+
+  // Signals that this side of the link is in a stable state suitable for decay.
+  // Only once both sides of a logical link signal this condition can either
+  // side observe CanDecay() as true.
+  virtual bool SetSideCanDecay() = 0;
+
+  // Attempts to mark this side of the link for decay. Returns true if and only
+  // if successful. This call can only succeed if CanDecay() was true at the
+  // time of the call. If successful, CanDecay() will never return true again
+  // for either side of this link. This allows the initiating router to
+  // coordinate its own bypass with a new mutually outward link between its
+  // inward and outward peers, without risk of the outward peer trying to
+  // initiate its own bypass at the same time.
+  //
+  // On success, `bypass_key` (if non-null) is also populated with a randomly
+  // generated key which can be given to the router's inward peer as a means of
+  // authenticating bypass to the outward peer.
+  virtual bool MaybeBeginDecay(absl::uint128* bypass_key = nullptr) = 0;
+
+  // Cancels a decay process that was initiated by either side of the link.
+  // Only valid to call when one side or the other has successfully called
+  // MaybeBeginDecay(). After completion, CanDecay() may once again be true.
+  virtual bool CancelDecay() = 0;
+
+  // Indicates whether this link can be bypassed using the given key. True if
+  // and only if the other side of this link has already begun to decay, AND
+  // `bypass_key` matches a key generated on that side of the link and provided
+  // ahead-of-time to this side of the link.
+  virtual bool CanBypassWithKey(const absl::uint128& bypass_key) = 0;
 
   // Indicates an imperfect estimation of whether or not putting a parcel with
   // `data_size` bytes of data onto this link may ultimately cause the eventual

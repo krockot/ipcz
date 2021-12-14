@@ -46,5 +46,18 @@ bool RouterLinkState::TryToDecay(LinkSide side) {
                                         std::memory_order_relaxed);
 }
 
+bool RouterLinkState::CancelDecay() {
+  Status expected = kDecayOnA;
+  if (status.compare_exchange_strong(expected, kReady,
+                                     std::memory_order_relaxed)) {
+    return true;
+  }
+  if (expected != kDecayOnB) {
+    return false;
+  }
+  return status.compare_exchange_strong(expected, kReady,
+                                        std::memory_order_relaxed);
+}
+
 }  // namespace core
 }  // namespace ipcz
