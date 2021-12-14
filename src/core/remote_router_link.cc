@@ -16,8 +16,8 @@
 #include "core/node_messages.h"
 #include "core/parcel.h"
 #include "core/portal.h"
-#include "core/portal_descriptor.h"
 #include "core/router.h"
+#include "core/router_descriptor.h"
 #include "core/router_link_state.h"
 #include "core/routing_id.h"
 #include "ipcz/ipcz.h"
@@ -99,7 +99,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const size_t num_os_handles = parcel.os_handles_view().size();
   const size_t serialized_size =
       sizeof(msg::AcceptParcel) + IPCZ_ALIGNED(parcel.data_view().size(), 16) +
-      num_portals * sizeof(PortalDescriptor) +
+      num_portals * sizeof(RouterDescriptor) +
       num_os_handles * sizeof(internal::OSHandleData);
   serialized_data.resize(serialized_size);
 
@@ -113,7 +113,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   accept.num_os_handles = static_cast<uint32_t>(num_os_handles);
   auto* data = reinterpret_cast<uint8_t*>(&accept + 1);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  auto* descriptors = reinterpret_cast<PortalDescriptor*>(
+  auto* descriptors = reinterpret_cast<RouterDescriptor*>(
       data + IPCZ_ALIGNED(accept.num_bytes, 16));
 
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
@@ -130,7 +130,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     RouterLinkState::Initialize(&state);
     descriptors[i].new_routing_id = routing_id;
     routers[i] = portals[i]->router();
-    mem::Ref<Router> route_listener = routers[i]->Serialize(descriptors[i]);
+    mem::Ref<Router> route_listener =
+        routers[i]->SerializeNewInwardPeer(descriptors[i]);
     if (descriptors[i].route_is_peer) {
       bool ok = state.SetSideReady(LinkSide::kA);
       ABSL_ASSERT(ok);
@@ -159,7 +160,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
                               std::move(decaying_link));
 
     // It's important to reset references to any transferred portals, because
-    // darcels when destroyed will close any non-null attached portals.
+    // parcels when destroyed will close any non-null attached portals.
     portals[i].reset();
   }
 }

@@ -33,7 +33,7 @@ namespace core {
 
 class LocalRouterLink;
 class NodeLink;
-struct PortalDescriptor;
+struct RouterDescriptor;
 class RouterLink;
 
 class Router : public mem::RefCounted {
@@ -146,7 +146,7 @@ class Router : public mem::RefCounted {
   // linked via this router's outward link.) Right now this method does one or
   // the other based on `descriptor.route_is_peer`, and there is very little
   // overlap in behavior between the two cases.
-  void BeginProxying(const PortalDescriptor& descriptor,
+  void BeginProxying(const RouterDescriptor& inward_peer_descriptor,
                      mem::Ref<RouterLink> link,
                      mem::Ref<RouterLink> decaying_link);
 
@@ -195,13 +195,13 @@ class Router : public mem::RefCounted {
   void RemoveTrap(Trap& trap);
 
   // Serializes a description of a new Router to be introduced on a receiving
-  // node as the successor to this Router along the same side of this route.
+  // node as the inward peer to this Router along the same side of its route.
   // Also makes any necessary state changes to prepare this Router (and its
   // local peer, if applicable) for the new remote Router's introduction.
-  mem::Ref<Router> Serialize(PortalDescriptor& descriptor);
+  mem::Ref<Router> SerializeNewInwardPeer(RouterDescriptor& descriptor);
 
   // Deserializes a new Router from `descriptor` received over `from_node_link`.
-  static mem::Ref<Router> Deserialize(const PortalDescriptor& descriptor,
+  static mem::Ref<Router> Deserialize(const RouterDescriptor& descriptor,
                                       NodeLink& from_node_link);
 
   bool InitiateProxyBypass(NodeLink& requesting_node_link,

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
-#define IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
+#ifndef IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
+#define IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
 
 #include "core/node_name.h"
 #include "core/routing_id.h"
@@ -15,11 +15,11 @@ namespace ipcz {
 namespace core {
 
 // Serialized representation of a Portal sent in a parcel.
-struct IPCZ_ALIGN(16) PortalDescriptor {
-  PortalDescriptor();
-  PortalDescriptor(const PortalDescriptor&);
-  PortalDescriptor& operator=(const PortalDescriptor&);
-  ~PortalDescriptor();
+struct IPCZ_ALIGN(16) RouterDescriptor {
+  RouterDescriptor();
+  RouterDescriptor(const RouterDescriptor&);
+  RouterDescriptor& operator=(const RouterDescriptor&);
+  ~RouterDescriptor();
 
   absl::uint128 bypass_key;
   NodeName proxy_peer_node_name;
@@ -37,4 +37,4 @@ struct IPCZ_ALIGN(16) PortalDescriptor {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_PORTAL_DESCRIPTOR_H_
+#endif  // IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_

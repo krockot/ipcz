@@ -18,8 +18,8 @@
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/portal.h"
-#include "core/portal_descriptor.h"
 #include "core/remote_router_link.h"
+#include "core/router_descriptor.h"
 #include "core/router_link.h"
 #include "core/router_link_state.h"
 #include "core/routing_id.h"
@@ -250,14 +250,14 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
   return first_sequence_number_on_new_link;
 }
 
-void Router::BeginProxying(const PortalDescriptor& descriptor,
+void Router::BeginProxying(const RouterDescriptor& inward_peer_descriptor,
                            mem::Ref<RouterLink> link,
                            mem::Ref<RouterLink> decaying_link) {
   mem::Ref<RouterLink> outward_link;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_.has_current_link());
-    if (descriptor.route_is_peer) {
+    if (inward_peer_descriptor.route_is_peer) {
       // When `route_is_peer` is true, this means we have two local Routers --
       // let's call them P and Q -- who were each other's local peer, and who
       // were just split apart by one of them (`this`, call it Q) serializing
@@ -281,7 +281,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
 
   bool attempt_self_removal = false;
   mem::Ref<Router> local_peer;
-  if (descriptor.route_is_peer) {
+  if (inward_peer_descriptor.route_is_peer) {
     ABSL_ASSERT(outward_link);
     local_peer = outward_link->GetLocalTarget();
     ABSL_ASSERT(local_peer);
@@ -611,7 +611,7 @@ void Router::RemoveTrap(Trap& trap) {
   traps_.Remove(trap);
 }
 
-mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
+mem::Ref<Router> Router::SerializeNewInwardPeer(RouterDescriptor& descriptor) {
   for (;;) {
     // The fast path for a local pair being split is to directly establish a new
     // outward link to the destination, rather than proxying. First we acquire a
@@ -736,7 +736,7 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
 }
 
 // static
-mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
+mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
                                      NodeLink& from_node_link) {
   auto router = mem::MakeRefCounted<Router>();
   {

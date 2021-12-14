@@ -14,9 +14,9 @@
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
-#include "core/portal_descriptor.h"
 #include "core/remote_router_link.h"
 #include "core/router.h"
+#include "core/router_descriptor.h"
 #include "core/router_link.h"
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
@@ -314,7 +314,7 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   const uint32_t num_portals = accept.num_portals;
   const uint32_t num_os_handles = accept.num_os_handles;
   const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&accept + 1);
-  const auto* descriptors = reinterpret_cast<const PortalDescriptor*>(
+  const auto* descriptors = reinterpret_cast<const RouterDescriptor*>(
       bytes + IPCZ_ALIGNED(num_bytes, 16));
 
   if (message.handles.size() != num_os_handles) {

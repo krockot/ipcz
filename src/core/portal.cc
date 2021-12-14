@@ -16,7 +16,6 @@
 #include "core/local_router_link.h"
 #include "core/node.h"
 #include "core/parcel.h"
-#include "core/portal_descriptor.h"
 #include "core/router.h"
 #include "core/router_link_state.h"
 #include "core/trap.h"
