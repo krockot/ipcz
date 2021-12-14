@@ -115,8 +115,8 @@ bool Router::HasStableLocalPeer(const mem::Ref<Router>& other) {
   return outward_.link && outward_.link->GetLocalTarget() == other &&
          other->outward_.link &&
          other->outward_.link->GetLocalTarget() == this && !inward_.link &&
-         !other->inward_.link && !outward_.decaying_proxy_link &&
-         !other->outward_.decaying_proxy_link;
+         !other->inward_.link && !outward_.decaying_link &&
+         !other->outward_.decaying_link;
 }
 
 bool Router::WouldOutboundParcelExceedLimits(size_t data_size,
@@ -249,7 +249,7 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
           outward_.parcels.current_sequence_number();
     }
 
-    if (!outward_.decaying_proxy_link && !inward_.decaying_proxy_link) {
+    if (!outward_.decaying_link && !inward_.decaying_link) {
       bool ok = outward_.link->SetSideCanDecay();
       ABSL_ASSERT(ok);
     }
@@ -298,7 +298,7 @@ void Router::BeginProxying(const PortalDescriptor& descriptor,
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
     ABSL_ASSERT(!local_peer->outward_.link);
     if (decaying_link) {
-      inward_.decaying_proxy_link = std::move(decaying_link);
+      inward_.decaying_link = std::move(decaying_link);
       inward_.sequence_length_to_decaying_link =
           local_peer->outward_.parcels.current_sequence_number();
       inward_.sequence_length_from_decaying_link =
@@ -333,7 +333,7 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
   mem::Ref<Router> bridge_peer;
   {
     absl::MutexLock lock(&mutex_);
-    if (inward_.decaying_proxy_link || outward_.decaying_proxy_link) {
+    if (inward_.decaying_link || outward_.decaying_link) {
       return false;
     }
 
@@ -343,10 +343,10 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
       }
       bridge_peer = bridge_->link->GetLocalTarget();
     } else {
-      inward_.decaying_proxy_link = std::move(inward_.link);
+      inward_.decaying_link = std::move(inward_.link);
       inward_.sequence_length_to_decaying_link = inbound_sequence_length;
       inward_.sequence_length_from_decaying_link = outbound_sequence_length;
-      outward_.decaying_proxy_link = std::move(outward_.link);
+      outward_.decaying_link = std::move(outward_.link);
       outward_.sequence_length_to_decaying_link = outbound_sequence_length;
       outward_.sequence_length_from_decaying_link = inbound_sequence_length;
     }
@@ -359,27 +359,25 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
       return true;
     }
 
-    ABSL_ASSERT(!outward_.decaying_proxy_link);
-    outward_.decaying_proxy_link = std::move(outward_.link);
+    ABSL_ASSERT(!outward_.decaying_link);
+    outward_.decaying_link = std::move(outward_.link);
     outward_.sequence_length_to_decaying_link = outbound_sequence_length;
     outward_.sequence_length_from_decaying_link = inbound_sequence_length;
 
-    ABSL_ASSERT(!bridge_peer->outward_.decaying_proxy_link);
-    bridge_peer->outward_.decaying_proxy_link =
-        std::move(bridge_peer->outward_.link);
+    ABSL_ASSERT(!bridge_peer->outward_.decaying_link);
+    bridge_peer->outward_.decaying_link = std::move(bridge_peer->outward_.link);
     bridge_peer->outward_.sequence_length_to_decaying_link =
         inbound_sequence_length;
     bridge_peer->outward_.sequence_length_from_decaying_link =
         outbound_sequence_length;
 
-    ABSL_ASSERT(!bridge_->decaying_proxy_link);
-    bridge_->decaying_proxy_link = std::move(bridge_->link);
+    ABSL_ASSERT(!bridge_->decaying_link);
+    bridge_->decaying_link = std::move(bridge_->link);
     bridge_->sequence_length_to_decaying_link = inbound_sequence_length;
     bridge_->sequence_length_from_decaying_link = outbound_sequence_length;
 
-    ABSL_ASSERT(!bridge_peer->bridge_->decaying_proxy_link);
-    bridge_peer->bridge_->decaying_proxy_link =
-        std::move(bridge_peer->bridge_->link);
+    ABSL_ASSERT(!bridge_peer->bridge_->decaying_link);
+    bridge_peer->bridge_->decaying_link = std::move(bridge_peer->bridge_->link);
     bridge_peer->bridge_->sequence_length_to_decaying_link =
         outbound_sequence_length;
     bridge_peer->bridge_->sequence_length_from_decaying_link =
@@ -401,7 +399,7 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
       return false;
     }
 
-    if (!inward_.link && !inward_.decaying_proxy_link) {
+    if (!inward_.link && !inward_.decaying_link) {
       status_.num_local_parcels = inward_.parcels.GetNumAvailableParcels();
       status_.num_local_bytes = inward_.parcels.GetNumAvailableBytes();
       traps_.UpdatePortalStatus(status_, dispatcher);
@@ -466,7 +464,7 @@ void Router::AcceptRouteClosureFrom(Direction source,
     } else if (bridge_) {
       std::swap(forwarding_link, bridge_->link);
       if (!forwarding_link) {
-        std::swap(forwarding_link, bridge_->decaying_proxy_link);
+        std::swap(forwarding_link, bridge_->decaying_link);
       }
       std::swap(dead_outward_link, outward_.link);
     } else if (!inward_.link) {
@@ -746,8 +744,8 @@ mem::Ref<Router> Router::Serialize(PortalDescriptor& descriptor) {
       inward_.closure_propagated = true;
     } else if (outward_.link && !outward_.link->GetLocalTarget() &&
                outward_.link->GetType() == LinkType::kCentral &&
-               !inward_.link && !outward_.decaying_proxy_link &&
-               !inward_.decaying_proxy_link) {
+               !inward_.link && !outward_.decaying_link &&
+               !inward_.decaying_link) {
       // If we're becoming a proxy under some common special conditions --
       // namely that no other part of the route is currently decaying -- we can
       // roll the first step of our own decay into this descriptor transmission.
@@ -802,7 +800,7 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
       // former local peer) will use this link to forward parcels it already
       // received from our peer. This link decays like any other decaying link
       // once its usefulness has expired.
-      router->outward_.decaying_proxy_link = from_node_link.AddRoute(
+      router->outward_.decaying_link = from_node_link.AddRoute(
           descriptor.new_decaying_routing_id,
           descriptor.new_decaying_routing_id, LinkType::kPeripheralOutward,
           LinkSide::kB, router);
@@ -876,7 +874,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
       // Begin decaying our outward link. We don't know the sequence length
       // coming from it yet, but that will be determined eventually.
       absl::MutexLock lock(&mutex_);
-      outward_.decaying_proxy_link = std::move(outward_.link);
+      outward_.decaying_link = std::move(outward_.link);
       outward_.sequence_length_to_decaying_link =
           outward_.parcels.current_sequence_number();
     }
@@ -941,8 +939,8 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
 
     // We get a decaying outward link to the proxy, only to accept inbound
     // parcels already sent to it by our new local peer.
-    ABSL_ASSERT(!outward_.decaying_proxy_link);
-    outward_.decaying_proxy_link = std::move(outward_.link);
+    ABSL_ASSERT(!outward_.decaying_link);
+    outward_.decaying_link = std::move(outward_.link);
     outward_.sequence_length_from_decaying_link =
         proxied_inbound_sequence_length;
     outward_.sequence_length_to_decaying_link =
@@ -950,8 +948,8 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
 
     // Our new local peer gets a decaying outward link to the proxy, only to
     // forward outbound parcels already expected by the proxy.
-    ABSL_ASSERT(!new_local_peer->outward_.decaying_proxy_link);
-    new_local_peer->outward_.decaying_proxy_link =
+    ABSL_ASSERT(!new_local_peer->outward_.decaying_link);
+    new_local_peer->outward_.decaying_link =
         previous_outward_link_from_new_local_peer;
     new_local_peer->outward_.sequence_length_to_decaying_link =
         proxied_inbound_sequence_length;
@@ -1017,7 +1015,7 @@ bool Router::BypassProxyWithNewLink(
              << proxy_outbound_sequence_length;
 
     decaying_outward_link_to_proxy = std::move(outward_.link);
-    outward_.decaying_proxy_link = decaying_outward_link_to_proxy;
+    outward_.decaying_link = decaying_outward_link_to_proxy;
     outward_.sequence_length_to_decaying_link = proxy_inbound_sequence_length;
     outward_.sequence_length_from_decaying_link =
         proxy_outbound_sequence_length;
@@ -1064,7 +1062,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
       return false;
     }
 
-    if (outward_.decaying_proxy_link) {
+    if (outward_.decaying_link) {
       return false;
     }
 
@@ -1078,7 +1076,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     outward_.link = std::move(new_peer);
 
     sequence_length_to_proxy = outward_.parcels.current_sequence_number();
-    outward_.decaying_proxy_link = decaying_proxy;
+    outward_.decaying_link = decaying_proxy;
     outward_.sequence_length_to_decaying_link = sequence_length_to_proxy;
     outward_.sequence_length_from_decaying_link = sequence_length_from_proxy;
   }
@@ -1093,10 +1091,10 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   mem::Ref<Router> bridge_peer;
   {
     absl::MutexLock lock(&mutex_);
-    if (bridge_ && bridge_->decaying_proxy_link) {
-      bridge_peer = bridge_->decaying_proxy_link->GetLocalTarget();
-    } else if (outward_.decaying_proxy_link) {
-      local_peer = outward_.decaying_proxy_link->GetLocalTarget();
+    if (bridge_ && bridge_->decaying_link) {
+      bridge_peer = bridge_->decaying_link->GetLocalTarget();
+    } else if (outward_.decaying_link) {
+      local_peer = outward_.decaying_link->GetLocalTarget();
     } else {
       return false;
     }
@@ -1105,14 +1103,14 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   if (local_peer && !bridge_peer) {
     // Typical case, where no bridge link is present.
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
-    if (!local_peer->outward_.decaying_proxy_link ||
-        !outward_.decaying_proxy_link || !inward_.decaying_proxy_link) {
+    if (!local_peer->outward_.decaying_link || !outward_.decaying_link ||
+        !inward_.decaying_link) {
       return false;
     }
 
     DVLOG(4) << "Stopping proxy with inward decaying "
-             << DescribeLink(inward_.decaying_proxy_link) << " and outward "
-             << "decaying " << DescribeLink(outward_.decaying_proxy_link);
+             << DescribeLink(inward_.decaying_link) << " and outward "
+             << "decaying " << DescribeLink(outward_.decaying_link);
 
     // Update all locally decaying links regarding the sequence length from the
     // remote peer to this router -- the decaying proxy -- so that those links
@@ -1126,19 +1124,18 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
     // update three routers instead of two.
     {
       absl::MutexLock lock(&bridge_peer->mutex_);
-      if (!bridge_peer->outward_.decaying_proxy_link) {
+      if (!bridge_peer->outward_.decaying_link) {
         return false;
       }
-      local_peer = bridge_peer->outward_.decaying_proxy_link->GetLocalTarget();
+      local_peer = bridge_peer->outward_.decaying_link->GetLocalTarget();
       if (!local_peer) {
         return false;
       }
     }
 
     ThreeMutexLock lock(&mutex_, &local_peer->mutex_, &bridge_peer->mutex_);
-    if (!local_peer->outward_.decaying_proxy_link ||
-        !outward_.decaying_proxy_link ||
-        !bridge_peer->outward_.decaying_proxy_link) {
+    if (!local_peer->outward_.decaying_link || !outward_.decaying_link ||
+        !bridge_peer->outward_.decaying_link) {
       return false;
     }
 
@@ -1162,14 +1159,14 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
 bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
-    if (!outward_.decaying_proxy_link ||
+    if (!outward_.decaying_link ||
         outward_.sequence_length_from_decaying_link) {
       return true;
     }
 
     DVLOG(4) << "Bypassed proxy has finalized its inbound sequence length at "
              << sequence_length << " for "
-             << DescribeLink(outward_.decaying_proxy_link);
+             << DescribeLink(outward_.decaying_link);
 
     outward_.sequence_length_from_decaying_link = sequence_length;
   }
@@ -1192,8 +1189,7 @@ void Router::LogDescription() {
              << (outward_.parcels.final_sequence_length().has_value() ? "yes"
                                                                       : "no");
   DLOG(INFO) << " - outward " << DescribeLink(outward_.link);
-  DLOG(INFO) << " - outward decaying "
-             << DescribeLink(outward_.decaying_proxy_link);
+  DLOG(INFO) << " - outward decaying " << DescribeLink(outward_.decaying_link);
   DLOG(INFO) << " - outward length to decaying link: "
              << DescribeOptionalLength(
                     outward_.sequence_length_to_decaying_link);
@@ -1202,8 +1198,7 @@ void Router::LogDescription() {
                     outward_.sequence_length_from_decaying_link);
 
   DLOG(INFO) << " - inward " << DescribeLink(inward_.link);
-  DLOG(INFO) << " - inward decaying "
-             << DescribeLink(inward_.decaying_proxy_link);
+  DLOG(INFO) << " - inward decaying " << DescribeLink(inward_.decaying_link);
   DLOG(INFO) << " - inward length to decaying link: "
              << DescribeOptionalLength(
                     inward_.sequence_length_to_decaying_link);
@@ -1236,11 +1231,11 @@ mem::Ref<RouterLink> Router::GetForwardingLinkForSource(Direction source) {
   absl::MutexLock lock(&mutex_);
   if (source.is_outward()) {
     if (bridge_) {
-      return bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
+      return bridge_->link ? bridge_->link : bridge_->decaying_link;
     }
-    return inward_.link ? inward_.link : inward_.decaying_proxy_link;
+    return inward_.link ? inward_.link : inward_.decaying_link;
   }
-  return outward_.link ? outward_.link : outward_.decaying_proxy_link;
+  return outward_.link ? outward_.link : outward_.decaying_link;
 }
 
 void Router::Flush() {
@@ -1265,15 +1260,14 @@ void Router::Flush() {
     absl::MutexLock lock(&mutex_);
     inward_link = inward_.link;
     outward_link = outward_.link;
-    decaying_inward_proxy = inward_.decaying_proxy_link;
-    decaying_outward_proxy = outward_.decaying_proxy_link;
+    decaying_inward_proxy = inward_.decaying_link;
+    decaying_outward_proxy = outward_.decaying_link;
     if (bridge_) {
-      bridge_link =
-          bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
+      bridge_link = bridge_->link ? bridge_->link : bridge_->decaying_link;
     }
 
     // Flush any outbound parcels destined for a decaying outward link.
-    while (outward_.parcels.HasNextParcel() && outward_.decaying_proxy_link &&
+    while (outward_.parcels.HasNextParcel() && outward_.decaying_link &&
            (!outward_.sequence_length_to_decaying_link ||
             outward_.parcels.current_sequence_number() <
                 *outward_.sequence_length_to_decaying_link)) {
@@ -1299,14 +1293,14 @@ void Router::Flush() {
            inward_.parcels.GetCurrentSequenceLength() <
                *outward_.sequence_length_from_decaying_link);
       if (!still_receiving_from_outward_proxy) {
-        DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_proxy_link)
+        DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_link)
                  << " fully decayed at outbound length "
                  << DescribeOptionalLength(
                         outward_.sequence_length_to_decaying_link)
                  << " and inbound length "
                  << *outward_.sequence_length_from_decaying_link;
         outward_proxy_decayed = true;
-        outward_.decaying_proxy_link.reset();
+        outward_.decaying_link.reset();
         outward_.sequence_length_to_decaying_link.reset();
         outward_.sequence_length_from_decaying_link.reset();
       }
@@ -1326,7 +1320,7 @@ void Router::Flush() {
     }
 
     // Now flush any inbound parcels destined for a decaying inward link.
-    while (inward_.parcels.HasNextParcel() && inward_.decaying_proxy_link &&
+    while (inward_.parcels.HasNextParcel() && inward_.decaying_link &&
            inward_.parcels.current_sequence_number() <
                *inward_.sequence_length_to_decaying_link) {
       bool ok = inward_.parcels.Pop(parcel);
@@ -1349,7 +1343,7 @@ void Router::Flush() {
           (outward_.parcels.GetCurrentSequenceLength() <
            *inward_.sequence_length_from_decaying_link);
       if (!still_receiving_from_inward_proxy) {
-        DVLOG(4) << "Inward " << DescribeLink(inward_.decaying_proxy_link)
+        DVLOG(4) << "Inward " << DescribeLink(inward_.decaying_link)
                  << " fully decayed at inbound length "
                  << DescribeOptionalLength(
                         inward_.sequence_length_to_decaying_link)
@@ -1357,7 +1351,7 @@ void Router::Flush() {
                  << *inward_.sequence_length_from_decaying_link;
 
         inward_proxy_decayed = true;
-        inward_.decaying_proxy_link.reset();
+        inward_.decaying_link.reset();
         inward_.sequence_length_to_decaying_link.reset();
         inward_.sequence_length_from_decaying_link.reset();
       }
@@ -1381,7 +1375,7 @@ void Router::Flush() {
       bridge_parcels.push_back(std::move(parcel));
     }
 
-    if (bridge_ && bridge_->decaying_proxy_link &&
+    if (bridge_ && bridge_->decaying_link &&
         bridge_->sequence_length_to_decaying_link &&
         inward_.parcels.current_sequence_number() >=
             *bridge_->sequence_length_to_decaying_link &&
@@ -1480,8 +1474,8 @@ bool Router::MaybeInitiateSelfRemoval() {
   mem::Ref<Router> local_peer;
   {
     absl::MutexLock lock(&mutex_);
-    if (!outward_.link || !inward_.link || outward_.decaying_proxy_link ||
-        inward_.decaying_proxy_link ||
+    if (!outward_.link || !inward_.link || outward_.decaying_link ||
+        inward_.decaying_link ||
         outward_.link->GetType() != LinkType::kCentral) {
       return false;
     }
@@ -1550,20 +1544,19 @@ bool Router::MaybeInitiateSelfRemoval() {
     ABSL_ASSERT(local_peer->outward_.link->GetLocalTarget() == this);
     ABSL_ASSERT(outward_.link->GetLocalTarget() == local_peer);
 
-    ABSL_ASSERT(!local_peer->outward_.decaying_proxy_link);
-    local_peer->outward_.decaying_proxy_link =
-        std::move(local_peer->outward_.link);
+    ABSL_ASSERT(!local_peer->outward_.decaying_link);
+    local_peer->outward_.decaying_link = std::move(local_peer->outward_.link);
     local_peer->outward_.sequence_length_to_decaying_link =
         local_peer->outward_.parcels.current_sequence_number();
     sequence_length = local_peer->outward_.parcels.current_sequence_number();
 
-    ABSL_ASSERT(!outward_.decaying_proxy_link);
-    outward_.decaying_proxy_link = std::move(outward_.link);
+    ABSL_ASSERT(!outward_.decaying_link);
+    outward_.decaying_link = std::move(outward_.link);
     outward_.sequence_length_from_decaying_link =
         local_peer->outward_.parcels.current_sequence_number();
 
-    ABSL_ASSERT(!inward_.decaying_proxy_link);
-    inward_.decaying_proxy_link = std::move(inward_.link);
+    ABSL_ASSERT(!inward_.decaying_link);
+    inward_.decaying_link = std::move(inward_.link);
     inward_.sequence_length_to_decaying_link =
         local_peer->outward_.parcels.current_sequence_number();
 
@@ -1643,20 +1636,20 @@ void Router::MaybeInitiateBridgeBypass() {
     {
       TwoMutexLock lock(&first_bridge->mutex_, &second_bridge->mutex_);
 
-      ABSL_ASSERT(!first_bridge->outward_.decaying_proxy_link);
-      first_bridge->outward_.decaying_proxy_link =
+      ABSL_ASSERT(!first_bridge->outward_.decaying_link);
+      first_bridge->outward_.decaying_link =
           std::move(first_bridge->outward_.link);
 
-      ABSL_ASSERT(!second_bridge->outward_.decaying_proxy_link);
-      second_bridge->outward_.decaying_proxy_link =
+      ABSL_ASSERT(!second_bridge->outward_.decaying_link);
+      second_bridge->outward_.decaying_link =
           std::move(second_bridge->outward_.link);
 
-      ABSL_ASSERT(!first_bridge->bridge_->decaying_proxy_link);
-      first_bridge->bridge_->decaying_proxy_link =
+      ABSL_ASSERT(!first_bridge->bridge_->decaying_link);
+      first_bridge->bridge_->decaying_link =
           std::move(first_bridge->bridge_->link);
 
-      ABSL_ASSERT(!second_bridge->bridge_->decaying_proxy_link);
-      second_bridge->bridge_->decaying_proxy_link =
+      ABSL_ASSERT(!second_bridge->bridge_->decaying_link);
+      second_bridge->bridge_->decaying_link =
           std::move(second_bridge->bridge_->link);
     }
 
@@ -1690,32 +1683,32 @@ void Router::MaybeInitiateBridgeBypass() {
 
       sequence_length_from_local_peer =
           first_local_peer->outward_.parcels.current_sequence_number();
-      ABSL_ASSERT(!first_local_peer->outward_.decaying_proxy_link);
-      first_local_peer->outward_.decaying_proxy_link =
+      ABSL_ASSERT(!first_local_peer->outward_.decaying_link);
+      first_local_peer->outward_.decaying_link =
           std::move(first_local_peer->outward_.link);
       first_local_peer->outward_.sequence_length_to_decaying_link =
           sequence_length_from_local_peer;
 
-      ABSL_ASSERT(!first_bridge->outward_.decaying_proxy_link);
-      first_bridge->outward_.decaying_proxy_link =
+      ABSL_ASSERT(!first_bridge->outward_.decaying_link);
+      first_bridge->outward_.decaying_link =
           std::move(first_bridge->outward_.link);
       first_bridge->outward_.sequence_length_from_decaying_link =
           sequence_length_from_local_peer;
 
-      ABSL_ASSERT(!second_bridge->outward_.decaying_proxy_link);
-      second_bridge->outward_.decaying_proxy_link =
+      ABSL_ASSERT(!second_bridge->outward_.decaying_link);
+      second_bridge->outward_.decaying_link =
           std::move(second_bridge->outward_.link);
       second_bridge->outward_.sequence_length_to_decaying_link =
           sequence_length_from_local_peer;
 
-      ABSL_ASSERT(!first_bridge->bridge_->decaying_proxy_link);
-      first_bridge->bridge_->decaying_proxy_link =
+      ABSL_ASSERT(!first_bridge->bridge_->decaying_link);
+      first_bridge->bridge_->decaying_link =
           std::move(first_bridge->bridge_->link);
       first_bridge->bridge_->sequence_length_to_decaying_link =
           sequence_length_from_local_peer;
 
-      ABSL_ASSERT(!second_bridge->bridge_->decaying_proxy_link);
-      second_bridge->bridge_->decaying_proxy_link =
+      ABSL_ASSERT(!second_bridge->bridge_->decaying_link);
+      second_bridge->bridge_->decaying_link =
           std::move(second_bridge->bridge_->link);
       second_bridge->bridge_->sequence_length_from_decaying_link =
           sequence_length_from_local_peer;
@@ -1743,48 +1736,48 @@ void Router::MaybeInitiateBridgeBypass() {
     const SequenceNumber length_from_second_peer =
         second_local_peer->outward_.parcels.current_sequence_number();
 
-    ABSL_ASSERT(!first_local_peer->outward_.decaying_proxy_link);
-    first_local_peer->outward_.decaying_proxy_link =
+    ABSL_ASSERT(!first_local_peer->outward_.decaying_link);
+    first_local_peer->outward_.decaying_link =
         std::move(first_local_peer->outward_.link);
     first_local_peer->outward_.sequence_length_to_decaying_link =
         length_from_first_peer;
     first_local_peer->outward_.sequence_length_from_decaying_link =
         length_from_second_peer;
 
-    ABSL_ASSERT(!second_local_peer->outward_.decaying_proxy_link);
-    second_local_peer->outward_.decaying_proxy_link =
+    ABSL_ASSERT(!second_local_peer->outward_.decaying_link);
+    second_local_peer->outward_.decaying_link =
         std::move(second_local_peer->outward_.link);
     second_local_peer->outward_.sequence_length_to_decaying_link =
         length_from_second_peer;
     second_local_peer->outward_.sequence_length_from_decaying_link =
         length_from_first_peer;
 
-    ABSL_ASSERT(!first_bridge->outward_.decaying_proxy_link);
-    first_bridge->outward_.decaying_proxy_link =
+    ABSL_ASSERT(!first_bridge->outward_.decaying_link);
+    first_bridge->outward_.decaying_link =
         std::move(first_bridge->outward_.link);
     first_bridge->outward_.sequence_length_to_decaying_link =
         length_from_second_peer;
     first_bridge->outward_.sequence_length_from_decaying_link =
         length_from_first_peer;
 
-    ABSL_ASSERT(!second_bridge->outward_.decaying_proxy_link);
-    second_bridge->outward_.decaying_proxy_link =
+    ABSL_ASSERT(!second_bridge->outward_.decaying_link);
+    second_bridge->outward_.decaying_link =
         std::move(second_bridge->outward_.link);
     second_bridge->outward_.sequence_length_to_decaying_link =
         length_from_first_peer;
     second_bridge->outward_.sequence_length_from_decaying_link =
         length_from_second_peer;
 
-    ABSL_ASSERT(!first_bridge->bridge_->decaying_proxy_link);
-    first_bridge->bridge_->decaying_proxy_link =
+    ABSL_ASSERT(!first_bridge->bridge_->decaying_link);
+    first_bridge->bridge_->decaying_link =
         std::move(first_bridge->bridge_->link);
     first_bridge->bridge_->sequence_length_to_decaying_link =
         length_from_first_peer;
     first_bridge->bridge_->sequence_length_from_decaying_link =
         length_from_second_peer;
 
-    ABSL_ASSERT(!second_bridge->bridge_->decaying_proxy_link);
-    second_bridge->bridge_->decaying_proxy_link =
+    ABSL_ASSERT(!second_bridge->bridge_->decaying_link);
+    second_bridge->bridge_->decaying_link =
         std::move(second_bridge->bridge_->link);
     second_bridge->bridge_->sequence_length_to_decaying_link =
         length_from_second_peer;

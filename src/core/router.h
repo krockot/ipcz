@@ -242,7 +242,7 @@ class Router : public mem::RefCounted {
 
     ParcelQueue parcels;
     mem::Ref<RouterLink> link;
-    mem::Ref<RouterLink> decaying_proxy_link;
+    mem::Ref<RouterLink> decaying_link;
     absl::optional<SequenceNumber> sequence_length_to_decaying_link;
     absl::optional<SequenceNumber> sequence_length_from_decaying_link;
     bool closure_propagated = false;
