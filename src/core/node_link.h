@@ -57,8 +57,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   // Binds `routing_id` on this NodeLink to the given `router`. `link_side`
   // specifies which side of the link this end identifies as (A or B), and
-  // `route_side` specifies whether the link connects `router` to a remote
-  // router on the same side of the route, or on the other side of the route.
+  // `type` specifies the type of link this is from the receiving router's
+  // perspective.
   mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
                                 size_t link_state_index,
                                 LinkType type,
@@ -137,7 +137,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
   // everything else).
   bool OnAcceptParcel(const DriverTransport::Message& message);
-  bool OnSideClosed(const msg::SideClosed& side_closed);
+  bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);

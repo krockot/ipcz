@@ -13,5 +13,9 @@ constexpr LinkSide::Value LinkSide::kA;
 // static
 constexpr LinkSide::Value LinkSide::kB;
 
+std::string LinkSide::ToString() const {
+  return value_ == Value::kA ? "left" : "right";
+}
+
 }  // namespace core
 }  // namespace ipcz

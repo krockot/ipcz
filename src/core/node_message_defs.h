@@ -47,13 +47,13 @@ IPCZ_MSG_NO_REPLY(Connect, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_HANDLE_OPTIONAL(link_state_memory)
 IPCZ_MSG_END()
 
-// Notifies a node that the side of the route which contains a link bound to
-// `routing_id` on this NodeLink has been closed. `side` is relative to the
-// receiving router, and `sequence_length` is the total number of parcels
-// transmitted from that side before closing.
-IPCZ_MSG_NO_REPLY(SideClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
+// Notifies a node that the route has been closed on one side. If this arrives
+// at a router from an inward facing or bridge link, it implicitly pertains to
+// the router's own side of the route. Otherwise it indicates that the other
+// side of the route has been closed. In either case, `sequence_length` is the
+// total number of parcels transmitted from the closed side before closing.
+IPCZ_MSG_NO_REPLY(RouteClosed, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(RouteSide, route_side)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 

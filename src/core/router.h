@@ -15,7 +15,6 @@
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
-#include "core/route_side.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/trap.h"
@@ -169,11 +168,10 @@ class Router : public mem::RefCounted {
   // outward link.
   bool AcceptOutboundParcel(Parcel& parcel);
 
-  // Accepts notification that `route_side` of this route (relative to this
-  // Router's own side) has been closed. The closed side of the route has
-  // transmitted all parcels up to but not including the sequence number
-  // `sequence_length`.
-  void AcceptRouteClosure(RouteSide route_side, SequenceNumber sequence_length);
+  // Accepts notification that the endpoint in the `source` direction along this
+  // route (relative to this Router) has been closed. The closed side of the
+  // route has transmitted a total of `sequence_length` parcels.
+  void AcceptRouteClosureFrom(Direction source, SequenceNumber sequence_length);
 
   // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,

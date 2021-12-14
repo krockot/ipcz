@@ -37,6 +37,7 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
   }
 
   LinkType type() const { return type_; }
+  Direction direction() const { return type_.direction(); }
 
   RouterLinkState& state() { return state_; }
 
@@ -126,11 +127,9 @@ void LocalRouterLink::AcceptParcel(Parcel& parcel) {
   }
 }
 
-void LocalRouterLink::AcceptRouteClosure(RouteSide route_side,
-                                         SequenceNumber sequence_length) {
-  // We flip `route_side` because we're a transverse link.
+void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   state_->side(side_.opposite())
-      ->AcceptRouteClosure(route_side.opposite(), sequence_length);
+      ->AcceptRouteClosureFrom(state_->direction(), sequence_length);
 }
 
 void LocalRouterLink::RequestProxyBypassInitiation(
@@ -182,13 +181,7 @@ std::string LocalRouterLink::Describe() const {
 }
 
 void LocalRouterLink::LogRouteTrace() {
-  if (state_->type() == LinkType::kCentral) {
-    state_->side(side_.opposite())
-        ->AcceptLogRouteTraceFrom(Direction::kOutward);
-  } else {
-    ABSL_ASSERT(state_->type() == LinkType::kBridge);
-    state_->side(side_.opposite())->AcceptLogRouteTraceFrom(Direction::kInward);
-  }
+  state_->side(side_.opposite())->AcceptLogRouteTraceFrom(state_->direction());
 }
 
 }  // namespace core

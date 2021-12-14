@@ -55,8 +55,7 @@ class RemoteRouterLink : public RouterLink {
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
-  void AcceptRouteClosure(RouteSide side,
-                          SequenceNumber sequence_length) override;
+  void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     RoutingId proxy_peer_routing_id,
                                     const absl::uint128& bypass_key) override;

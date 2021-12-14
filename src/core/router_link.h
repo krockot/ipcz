@@ -11,7 +11,6 @@
 
 #include "core/link_type.h"
 #include "core/node_name.h"
-#include "core/route_side.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
@@ -93,14 +92,9 @@ class RouterLink : public mem::RefCounted {
   virtual void AcceptParcel(Parcel& parcel) = 0;
 
   // Passes a notification to the Router on the other side of this link to
-  // indicate that the given `route_side` of the route itself has been closed.
-  // `route_side` is relative to the calling Router. So for example if this is a
-  // a central link and `route_side` is given here as RouteSide::kSame, then the
-  // receiving Router will receive the call with `route_side` as
-  // RouteSide::kOther, since the "same" side from our perspective is the
-  // "other" side from their perspective.
-  virtual void AcceptRouteClosure(RouteSide route_side,
-                                  SequenceNumber sequence_length) = 0;
+  // indicate that the route endpoint closer to the sender has been closed after
+  // sending a total of `sequence_length` parcels.
+  virtual void AcceptRouteClosure(SequenceNumber sequence_length) = 0;
 
   // Requests that the Router on the other side of this link initiate a bypass
   // of the Router on this side of the link. The provided parameters are enough

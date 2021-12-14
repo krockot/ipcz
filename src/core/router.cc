@@ -202,7 +202,7 @@ void Router::CloseRoute() {
     outward_.parcels.SetFinalSequenceLength(final_sequence_length);
   }
 
-  forwarding_link->AcceptRouteClosure(RouteSide::kSame, final_sequence_length);
+  forwarding_link->AcceptRouteClosure(final_sequence_length);
 
   if (dead_outward_link) {
     dead_outward_link->Deactivate();
@@ -434,13 +434,13 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
   return true;
 }
 
-void Router::AcceptRouteClosure(RouteSide route_side,
-                                SequenceNumber sequence_length) {
+void Router::AcceptRouteClosureFrom(Direction source,
+                                    SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
   mem::Ref<RouterLink> forwarding_link;
   mem::Ref<RouterLink> dead_outward_link;
   mem::Ref<RouterLink> bridge_link;
-  if (route_side == RouteSide::kSame) {
+  if (source.is_inward()) {
     // If we're being notified of our own side's closure, we want to propagate
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
@@ -464,7 +464,10 @@ void Router::AcceptRouteClosure(RouteSide route_side,
       forwarding_link = inward_.link;
       inward_.closure_propagated = true;
     } else if (bridge_) {
-      std::swap(bridge_link, bridge_->link);
+      std::swap(forwarding_link, bridge_->link);
+      if (!forwarding_link) {
+        std::swap(forwarding_link, bridge_->decaying_proxy_link);
+      }
       std::swap(dead_outward_link, outward_.link);
     } else if (!inward_.link) {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
@@ -483,25 +486,11 @@ void Router::AcceptRouteClosure(RouteSide route_side,
   }
 
   if (forwarding_link) {
-    if (forwarding_link->GetType() == LinkType::kCentral) {
-      ABSL_ASSERT(route_side == RouteSide::kSame);
-      forwarding_link->AcceptRouteClosure(RouteSide::kOther, sequence_length);
-    } else {
-      forwarding_link->AcceptRouteClosure(route_side, sequence_length);
-    }
+    forwarding_link->AcceptRouteClosure(sequence_length);
   }
 
   if (dead_outward_link) {
     dead_outward_link->Deactivate();
-  }
-
-  if (bridge_link) {
-    ABSL_ASSERT(route_side == RouteSide::kOther);
-
-    // Bridge links are local links and so they'll invert the RouteSide. We
-    // want the other bridge router to receive kSame so it will behave as if
-    // its own side has closed and forward that to its own other side.
-    bridge_link->AcceptRouteClosure(route_side, sequence_length);
   }
 }
 
@@ -1245,7 +1234,7 @@ void Router::AcceptLogRouteTraceFrom(Direction source) {
 
 mem::Ref<RouterLink> Router::GetForwardingLinkForSource(Direction source) {
   absl::MutexLock lock(&mutex_);
-  if (source == Direction::kOutward) {
+  if (source.is_outward()) {
     if (bridge_) {
       return bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
     }
@@ -1475,10 +1464,7 @@ void Router::Flush() {
   }
 
   if (notify_closure_outward) {
-    outward_link->AcceptRouteClosure(
-        outward_link->GetType() == LinkType::kCentral ? RouteSide::kOther
-                                                      : RouteSide::kSame,
-        final_sequence_length);
+    outward_link->AcceptRouteClosure(final_sequence_length);
   }
 
   if (dead_outward_link) {

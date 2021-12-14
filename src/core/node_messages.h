@@ -10,7 +10,6 @@
 #include "core/driver_transport.h"
 #include "core/message_internal.h"
 #include "core/node_name.h"
-#include "core/route_side.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"

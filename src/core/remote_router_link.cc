@@ -164,15 +164,11 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   }
 }
 
-void RemoteRouterLink::AcceptRouteClosure(RouteSide route_side,
-                                          SequenceNumber sequence_length) {
-  msg::SideClosed side_closed;
-  side_closed.params.routing_id = routing_id_;
-  side_closed.params.route_side = type_ == LinkType::kPeripheralOutward
-                                      ? route_side
-                                      : route_side.opposite();
-  side_closed.params.sequence_length = sequence_length;
-  node_link()->Transmit(side_closed);
+void RemoteRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
+  msg::RouteClosed route_closed;
+  route_closed.params.routing_id = routing_id_;
+  route_closed.params.sequence_length = sequence_length;
+  node_link()->Transmit(route_closed);
 }
 
 void RemoteRouterLink::StopProxying(SequenceNumber inbound_sequence_length,

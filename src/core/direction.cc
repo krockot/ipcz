@@ -2,16 +2,20 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/route_side.h"
+#include "core/direction.h"
 
 namespace ipcz {
 namespace core {
 
 // static
-constexpr RouteSide::Value RouteSide::kSame;
+constexpr Direction::Value Direction::kInward;
 
 // static
-constexpr RouteSide::Value RouteSide::kOther;
+constexpr Direction::Value Direction::kOutward;
+
+std::string Direction::ToString() const {
+  return value_ == Direction::kInward ? "inward" : "outward";
+}
 
 }  // namespace core
 }  // namespace ipcz

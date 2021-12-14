@@ -38,9 +38,7 @@ struct LinkSide {
 
   explicit operator Value() const { return value_; }
 
-  std::string ToString() const {
-    return value_ == Value::kA ? "left" : "right";
-  }
+  std::string ToString() const;
 
  private:
   Value value_ = Value::kA;

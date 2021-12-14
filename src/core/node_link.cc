@@ -206,9 +206,9 @@ IpczResult NodeLink::OnTransportMessage(
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
 
-    case msg::SideClosed::kId: {
-      msg::SideClosed side_closed;
-      if (side_closed.Deserialize(message) && OnSideClosed(side_closed)) {
+    case msg::RouteClosed::kId: {
+      msg::RouteClosed route_closed;
+      if (route_closed.Deserialize(message) && OnRouteClosed(route_closed)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -351,14 +351,14 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   }
 }
 
-bool NodeLink::OnSideClosed(const msg::SideClosed& side_closed) {
-  mem::Ref<Router> receiver = GetRouter(side_closed.params.routing_id);
-  if (!receiver) {
+bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
+  absl::optional<Route> route = GetRoute(route_closed.params.routing_id);
+  if (!route) {
     return true;
   }
 
-  receiver->AcceptRouteClosure(side_closed.params.route_side,
-                               side_closed.params.sequence_length);
+  route->receiver->AcceptRouteClosureFrom(route->link->GetType().direction(),
+                                          route_closed.params.sequence_length);
   return true;
 }
 
@@ -468,10 +468,7 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
     return true;
   }
 
-  const Direction source = route->link->GetType() == LinkType::kCentral
-                               ? Direction::kOutward
-                               : Direction::kInward;
-  route->receiver->AcceptLogRouteTraceFrom(source);
+  route->receiver->AcceptLogRouteTraceFrom(route->link->GetType().direction());
   return true;
 }
 

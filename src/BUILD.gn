@@ -79,11 +79,13 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
+    "core/direction.cc",
     "core/direction.h",
     "core/driver_transport.cc",
     "core/driver_transport.h",
     "core/link_side.cc",
     "core/link_side.h",
+    "core/link_type.cc",
     "core/link_type.h",
     "core/local_router_link.cc",
     "core/local_router_link.h",
@@ -123,8 +125,6 @@ source_set("core") {
     "core/portal_descriptor.h",
     "core/remote_router_link.cc",
     "core/remote_router_link.h",
-    "core/route_side.cc",
-    "core/route_side.h",
     "core/router.cc",
     "core/router.h",
     "core/router_link.h",
