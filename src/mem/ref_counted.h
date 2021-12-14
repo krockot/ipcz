@@ -66,7 +66,7 @@ class Ref : public GenericRef {
       typename std::enable_if<std::is_convertible<U*, T*>::value>::type;
 
   template <typename U, typename = EnableIfConvertible<U>>
-  Ref(const Ref<U>& other) : Ref(other.ptr_) {}
+  Ref(const Ref<U>& other) : Ref(other.get()) {}
 
   template <typename U, typename = EnableIfConvertible<U>>
   Ref(Ref<U>&& other) noexcept
