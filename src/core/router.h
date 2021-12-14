@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/decayable_link.h"
 #include "core/direction.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
@@ -234,28 +235,7 @@ class Router : public mem::RefCounted {
   friend class LocalRouterLink;
   friend class NodeLink;
 
-  struct IoState {
-    IoState();
-    IoState(const IoState&) = delete;
-    IoState& operator=(const IoState&) = delete;
-    ~IoState();
-
-    ParcelQueue parcels;
-    mem::Ref<RouterLink> link;
-    mem::Ref<RouterLink> decaying_link;
-    absl::optional<SequenceNumber> sequence_length_to_decaying_link;
-    absl::optional<SequenceNumber> sequence_length_from_decaying_link;
-    bool closure_propagated = false;
-  };
-
   ~Router() override;
-
-  // Returns the best link suitable for forwarding a message received from the
-  // given `direction`. For example if `direction` is kInward, this method may
-  // return the router's current outward link if available.
-  //
-  // May return null if no suitable link is available.
-  mem::Ref<RouterLink> GetForwardingLinkForSource(Direction source);
 
   // Flushes any inbound or outbound parcels to be proxied, as well as any route
   // closure notifications. If the result of the flush is that one or more
@@ -275,17 +255,17 @@ class Router : public mem::RefCounted {
   void MaybeInitiateBridgeBypass();
 
   absl::Mutex mutex_;
-  IoState inward_ ABSL_GUARDED_BY(mutex_);
-  IoState outward_ ABSL_GUARDED_BY(mutex_);
+  DecayableLink inward_ ABSL_GUARDED_BY(mutex_);
+  DecayableLink outward_ ABSL_GUARDED_BY(mutex_);
   bool outbound_transmission_paused_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 
-  // IO state used only if this router has been merged with another, which is
-  // a relatively rare operation. This uses a local outward link to proxy
-  // parcels between two separate routes, and uses a specialized bypass
-  // operation to eliminate itself over time.
-  std::unique_ptr<IoState> bridge_ ABSL_GUARDED_BY(mutex_);
+  // Link used only if this router has been merged with another, which is a
+  // relatively rare operation. This link proxies parcels between two separate
+  // routes and uses a specialized bypass operation to eliminate itself over
+  // time.
+  std::unique_ptr<DecayableLink> bridge_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

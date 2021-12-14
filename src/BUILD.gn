@@ -79,6 +79,8 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
+    "core/decayable_link.cc",
+    "core/decayable_link.h",
     "core/direction.cc",
     "core/direction.h",
     "core/driver_transport.cc",

@@ -166,13 +166,13 @@ void LocalRouterLink::Deactivate() {
   mem::Ref<Router> left = state_->side(LinkSide::kA);
   mem::Ref<Router> right = state_->side(LinkSide::kB);
   TwoMutexLock lock(&left->mutex_, &right->mutex_);
-  if (!left->outward_.link || left->outward_.link->GetLocalTarget() != right ||
-      !right->outward_.link || right->outward_.link->GetLocalTarget() != left) {
+  if (left->outward_.GetLocalPeer() != right ||
+      right->outward_.GetLocalPeer() != left) {
     return;
   }
 
-  left->outward_.link = nullptr;
-  right->outward_.link = nullptr;
+  left->outward_.SetCurrentLink(nullptr);
+  right->outward_.SetCurrentLink(nullptr);
 }
 
 std::string LocalRouterLink::Describe() const {
