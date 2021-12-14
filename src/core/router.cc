@@ -225,7 +225,7 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
     other->bridge_ = std::make_unique<IoState>();
 
     RouterLink::Pair links = LocalRouterLink::CreatePair(
-        LinkType::kBridge, LocalRouterLink::InitialState::kCanDecay,
+        LinkType::kBridge, LocalRouterLink::InitialState::kCannotDecay,
         Router::Pair(mem::WrapRefCounted(this), other));
     bridge_->link = std::move(links.first);
     other->bridge_->link = std::move(links.second);
