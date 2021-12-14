@@ -20,6 +20,7 @@
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -27,6 +28,7 @@ namespace core {
 
 class Node;
 struct NodeLinkBuffer;
+class RemoteRouterLink;
 class Router;
 class RouterLink;
 
@@ -112,6 +114,20 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  private:
   ~NodeLink() override;
 
+  struct Route {
+    Route(mem::Ref<RemoteRouterLink> link, mem::Ref<Router> receiver);
+    Route(Route&&);
+    Route(const Route&);
+    Route& operator=(Route&&);
+    Route& operator=(const Route&);
+    ~Route();
+
+    mem::Ref<RemoteRouterLink> link;
+    mem::Ref<Router> receiver;
+  };
+
+  absl::optional<Route> GetRoute(RoutingId routing_id);
+
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(
       const DriverTransport::Message& message) override;
@@ -140,8 +156,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   absl::Mutex mutex_;
   bool active_ = true;
-  absl::flat_hash_map<RoutingId, mem::Ref<Router>> routes_
-      ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<RoutingId, Route> routes_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

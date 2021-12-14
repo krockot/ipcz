@@ -5,9 +5,6 @@
 #ifndef IPCZ_SRC_CORE_LINK_TYPE_H_
 #define IPCZ_SRC_CORE_LINK_TYPE_H_
 
-#include <cstdint>
-#include <string>
-
 namespace ipcz {
 namespace core {
 
@@ -39,7 +36,13 @@ enum class LinkType {
   //
   // Peripheral links can only decay as part of a decaying process initiated on
   // a central link by a mutually adjacent router.
-  kPeripheral,
+  //
+  // Every peripheral link has a side facing inward and a side facing outward.
+  // An inward peripheral link goes further toward the terminal endpoint of the
+  // router's own side of the route, while an inward peripheral link goes
+  // toward the terminal endpoint of the side opposite the router.
+  kPeripheralInward,
+  kPeripheralOutward,
 
   // Bridge links are special links formed only when merging two routes
   // together. A bridge link links two terminal routers from two different

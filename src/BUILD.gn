@@ -79,6 +79,7 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
+    "core/direction.h",
     "core/driver_transport.cc",
     "core/driver_transport.h",
     "core/link_side.cc",

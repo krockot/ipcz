@@ -140,7 +140,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     new_links[i] = node_link()->AddRoute(
         routing_id, routing_id,
         descriptors[i].route_is_peer ? LinkType::kCentral
-                                     : LinkType::kPeripheral,
+                                     : LinkType::kPeripheralInward,
         LinkSide::kA, std::move(route_listener));
   }
 
@@ -152,7 +152,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     if (descriptors[i].route_is_peer) {
       decaying_link = node_link()->AddRoute(
           descriptors[i].new_decaying_routing_id,
-          descriptors[i].new_decaying_routing_id, LinkType::kPeripheral,
+          descriptors[i].new_decaying_routing_id, LinkType::kPeripheralInward,
           LinkSide::kA, routers[i]);
     }
     routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
@@ -168,8 +168,9 @@ void RemoteRouterLink::AcceptRouteClosure(RouteSide route_side,
                                           SequenceNumber sequence_length) {
   msg::SideClosed side_closed;
   side_closed.params.routing_id = routing_id_;
-  side_closed.params.route_side =
-      type_ == LinkType::kPeripheral ? route_side : route_side.opposite();
+  side_closed.params.route_side = type_ == LinkType::kPeripheralOutward
+                                      ? route_side
+                                      : route_side.opposite();
   side_closed.params.sequence_length = sequence_length;
   node_link()->Transmit(side_closed);
 }

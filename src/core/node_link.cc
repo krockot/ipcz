@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "core/direction.h"
 #include "core/node.h"
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
@@ -54,11 +55,12 @@ mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
                                         LinkType type,
                                         LinkSide side,
                                         mem::Ref<Router> router) {
-  absl::MutexLock lock(&mutex_);
-  auto result = routes_.try_emplace(routing_id, router);
-  ABSL_ASSERT(result.second);
-  return mem::MakeRefCounted<RemoteRouterLink>(
+  auto link = mem::MakeRefCounted<RemoteRouterLink>(
       mem::WrapRefCounted(this), routing_id, link_state_index, type, side);
+  absl::MutexLock lock(&mutex_);
+  auto result = routes_.try_emplace(routing_id,
+                                    Route(std::move(link), std::move(router)));
+  return result.first->second.link;
 }
 
 bool NodeLink::RemoveRoute(RoutingId routing_id) {
@@ -78,7 +80,7 @@ mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
   if (it == routes_.end()) {
     return nullptr;
   }
-  return it->second;
+  return it->second.receiver;
 }
 
 void NodeLink::Deactivate() {
@@ -181,6 +183,15 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
 
   new_peer->PauseOutboundTransmission(false);
   return true;
+}
+
+absl::optional<NodeLink::Route> NodeLink::GetRoute(RoutingId routing_id) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routes_.find(routing_id);
+  if (it == routes_.end()) {
+    return absl::nullopt;
+  }
+  return it->second;
 }
 
 IpczResult NodeLink::OnTransportMessage(
@@ -325,12 +336,19 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  mem::Ref<Router> receiver = GetRouter(accept.routing_id);
-  if (!receiver) {
+  absl::optional<Route> route = GetRoute(accept.routing_id);
+  if (!route) {
     return true;
   }
 
-  return receiver->AcceptParcelFrom(*this, accept.routing_id, parcel);
+  const LinkType link_type = route->link->GetType();
+  if (link_type == LinkType::kCentral ||
+      link_type == LinkType::kPeripheralOutward) {
+    return route->receiver->AcceptInboundParcel(parcel);
+  } else {
+    ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
+    return route->receiver->AcceptOutboundParcel(parcel);
+  }
 }
 
 bool NodeLink::OnSideClosed(const msg::SideClosed& side_closed) {
@@ -445,14 +463,31 @@ bool NodeLink::OnDecayUnblocked(const msg::DecayUnblocked& unblocked) {
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
-  mem::Ref<Router> router = GetRouter(log_request.params.routing_id);
-  if (!router) {
+  absl::optional<Route> route = GetRoute(log_request.params.routing_id);
+  if (!route) {
     return true;
   }
 
-  router->LogRouteTraceFrom(*this, log_request.params.routing_id);
+  const Direction source = route->link->GetType() == LinkType::kCentral
+                               ? Direction::kOutward
+                               : Direction::kInward;
+  route->receiver->AcceptLogRouteTraceFrom(source);
   return true;
 }
+
+NodeLink::Route::Route(mem::Ref<RemoteRouterLink> link,
+                       mem::Ref<Router> receiver)
+    : link(std::move(link)), receiver(std::move(receiver)) {}
+
+NodeLink::Route::Route(Route&&) = default;
+
+NodeLink::Route::Route(const Route&) = default;
+
+NodeLink::Route& NodeLink::Route::operator=(Route&&) = default;
+
+NodeLink::Route& NodeLink::Route::operator=(const Route&) = default;
+
+NodeLink::Route::~Route() = default;
 
 }  // namespace core
 }  // namespace ipcz

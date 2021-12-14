@@ -7,6 +7,7 @@
 #include <string>
 #include <utility>
 
+#include "core/direction.h"
 #include "core/link_side.h"
 #include "core/link_type.h"
 #include "core/router.h"
@@ -116,10 +117,12 @@ bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
-  if (!state_->side(side_.opposite())
-           ->AcceptLocalParcelFrom(state_->side(side_), parcel)) {
-    DLOG(ERROR) << "Rejecting unexpected " << parcel.Describe() << " on "
-                << Describe();
+  Router& receiver = *state_->side(side_.opposite());
+  if (state_->type() == LinkType::kCentral) {
+    receiver.AcceptInboundParcel(parcel);
+  } else {
+    ABSL_ASSERT(state_->type() == LinkType::kBridge);
+    receiver.AcceptOutboundParcel(parcel);
   }
 }
 
@@ -179,7 +182,13 @@ std::string LocalRouterLink::Describe() const {
 }
 
 void LocalRouterLink::LogRouteTrace() {
-  state_->side(side_.opposite())->LogRouteTraceFromLocalPeer();
+  if (state_->type() == LinkType::kCentral) {
+    state_->side(side_.opposite())
+        ->AcceptLogRouteTraceFrom(Direction::kOutward);
+  } else {
+    ABSL_ASSERT(state_->type() == LinkType::kBridge);
+    state_->side(side_.opposite())->AcceptLogRouteTraceFrom(Direction::kInward);
+  }
 }
 
 }  // namespace core

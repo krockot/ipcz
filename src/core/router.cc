@@ -393,75 +393,6 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
   return true;
 }
 
-bool Router::AcceptParcelFrom(NodeLink& link,
-                              RoutingId routing_id,
-                              Parcel& parcel) {
-  bool is_inbound;
-  {
-    absl::MutexLock lock(&mutex_);
-    // Inbound parcels arrive from outward links and outbound parcels arrive
-    // from inward links.
-    if (outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound " << parcel.Describe() << " received by "
-               << DescribeLink(outward_.link);
-
-      is_inbound = true;
-    } else if (outward_.decaying_proxy_link &&
-               outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Inbound " << parcel.Describe() << " received by "
-               << DescribeLink(outward_.decaying_proxy_link);
-
-      is_inbound = true;
-    } else if (inward_.link && inward_.link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound " << parcel.Describe() << " received by "
-               << DescribeLink(inward_.link);
-
-      is_inbound = false;
-    } else if (inward_.decaying_proxy_link &&
-               inward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id)) {
-      DVLOG(4) << "Outbound " << parcel.Describe() << " received by "
-               << DescribeLink(inward_.decaying_proxy_link);
-
-      is_inbound = false;
-    } else {
-      DVLOG(4) << "Rejecting unexpected " << parcel.Describe() << " at "
-               << link.node()->name().ToString() << " from route " << routing_id
-               << " to " << link.remote_node_name().ToString();
-      return false;
-    }
-  }
-
-  if (is_inbound) {
-    return AcceptInboundParcel(parcel);
-  }
-
-  return AcceptOutboundParcel(parcel);
-}
-
-bool Router::AcceptLocalParcelFrom(const mem::Ref<Router>& router,
-                                   Parcel& parcel) {
-  bool is_inbound;
-  {
-    absl::MutexLock lock(&mutex_);
-    mem::Ref<RouterLink> bridge_link;
-    if (bridge_) {
-      bridge_link =
-          bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
-    }
-    if (bridge_link && router == bridge_link->GetLocalTarget()) {
-      is_inbound = false;
-    } else {
-      is_inbound = true;
-    }
-  }
-
-  if (is_inbound) {
-    return AcceptInboundParcel(parcel);
-  }
-
-  return AcceptOutboundParcel(parcel);
-}
-
 bool Router::AcceptInboundParcel(Parcel& parcel) {
   TrapEventDispatcher dispatcher;
   {
@@ -874,17 +805,18 @@ mem::Ref<Router> Router::Deserialize(const PortalDescriptor& descriptor,
 
     router->outward_.link = from_node_link.AddRoute(
         descriptor.new_routing_id, descriptor.new_routing_id,
-        descriptor.route_is_peer ? LinkType::kCentral : LinkType::kPeripheral,
+        descriptor.route_is_peer ? LinkType::kCentral
+                                 : LinkType::kPeripheralOutward,
         LinkSide::kB, router);
     if (descriptor.route_is_peer) {
       // When split from a local peer, our remote counterpart (our remote peer's
       // former local peer) will use this link to forward parcels it already
       // received from our peer. This link decays like any other decaying link
       // once its usefulness has expired.
-      router->outward_.decaying_proxy_link =
-          from_node_link.AddRoute(descriptor.new_decaying_routing_id,
-                                  descriptor.new_decaying_routing_id,
-                                  LinkType::kPeripheral, LinkSide::kB, router);
+      router->outward_.decaying_proxy_link = from_node_link.AddRoute(
+          descriptor.new_decaying_routing_id,
+          descriptor.new_decaying_routing_id, LinkType::kPeripheralOutward,
+          LinkSide::kB, router);
 
       // The sequence length toward this link is the current outbound sequence
       // length, which is to say, we will not be sending any parcels that way.
@@ -1304,41 +1236,22 @@ void Router::LogRouteTrace() {
   }
 }
 
-void Router::LogRouteTraceFromLocalPeer() {
+void Router::AcceptLogRouteTraceFrom(Direction source) {
   LogDescription();
-
-  mem::Ref<RouterLink> next_link;
-  {
-    absl::MutexLock lock(&mutex_);
-    next_link = inward_.link;
-  }
-  if (next_link) {
+  if (mem::Ref<RouterLink> next_link = GetForwardingLinkForSource(source)) {
     next_link->LogRouteTrace();
   }
 }
 
-void Router::LogRouteTraceFrom(NodeLink& link, RoutingId routing_id) {
-  LogDescription();
-
-  mem::Ref<RouterLink> next_link;
-  {
-    absl::MutexLock lock(&mutex_);
-    if ((outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) ||
-        (outward_.decaying_proxy_link &&
-         outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id))) {
-      if (bridge_) {
-        next_link =
-            bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
-      } else {
-        next_link = inward_.link;
-      }
-    } else {
-      next_link = outward_.link;
+mem::Ref<RouterLink> Router::GetForwardingLinkForSource(Direction source) {
+  absl::MutexLock lock(&mutex_);
+  if (source == Direction::kOutward) {
+    if (bridge_) {
+      return bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
     }
+    return inward_.link ? inward_.link : inward_.decaying_proxy_link;
   }
-  if (next_link) {
-    next_link->LogRouteTrace();
-  }
+  return outward_.link ? outward_.link : outward_.decaying_proxy_link;
 }
 
 void Router::Flush() {

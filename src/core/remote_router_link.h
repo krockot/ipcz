@@ -32,8 +32,8 @@ class RemoteRouterLink : public RouterLink {
   // Constructs a new RemoteRouterLink which sends messages over `node_link`
   // using `routing_id` specifically. `side` is the side of this link on which
   // this RemoteRouterLink falls (side A or B), and `type` indicates what type
-  // of link it is -- which for remote links must be either kCentral or
-  // kPeripheral.
+  // of link it is -- which for remote links must be either kCentral,
+  // kPeripheralInward, or kPeripheralOutward.
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
                    uint32_t link_state_index,

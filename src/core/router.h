@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/direction.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
@@ -157,15 +158,6 @@ class Router : public mem::RefCounted {
   bool StopProxying(SequenceNumber inbound_sequence_length,
                     SequenceNumber outbound_sequence_length);
 
-  // Accepts a parcel routed here from `link` via `routing_id`, which is
-  // determined to be either an inbound or outbound parcel based on the active
-  // links this Router has at its disposal.
-  bool AcceptParcelFrom(NodeLink& link, RoutingId routing_id, Parcel& parcel);
-
-  // Accepts a parcel router here from a LocalRouterLink, which may be this
-  // router's outward link or a bridge link.
-  bool AcceptLocalParcelFrom(const mem::Ref<Router>& router, Parcel& parcel);
-
   // Accepts an inbound parcel routed here from some other Router. The parcel
   // is queued here and may either be made available for retrieval by a portal,
   // or (perhaps immediately) forwarded further along the route via this
@@ -232,11 +224,13 @@ class Router : public mem::RefCounted {
   void LogDescription();
 
   // Logs a detailed description of this router and every router along the
-  // route from this one, in the direction of the terminal router on
-  // `toward_route_side`.
+  // route from this one, in the direction of the terminal router on the
+  // other side of the route.
   void LogRouteTrace();
-  void LogRouteTraceFromLocalPeer();
-  void LogRouteTraceFrom(NodeLink& link, RoutingId routing_id);
+
+  // Logs a description of this router and forwards the trace along the opposite
+  // direction from whence it was received.
+  void AcceptLogRouteTraceFrom(Direction source);
 
  private:
   friend class LocalRouterLink;
@@ -257,6 +251,13 @@ class Router : public mem::RefCounted {
   };
 
   ~Router() override;
+
+  // Returns the best link suitable for forwarding a message received from the
+  // given `direction`. For example if `direction` is kInward, this method may
+  // return the router's current outward link if available.
+  //
+  // May return null if no suitable link is available.
+  mem::Ref<RouterLink> GetForwardingLinkForSource(Direction source);
 
   // Flushes any inbound or outbound parcels to be proxied, as well as any route
   // closure notifications. If the result of the flush is that one or more
