@@ -60,7 +60,7 @@ class LocalRouterLink : public RouterLink {
   void DecayUnblocked() override;
   void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace(RouteSide toward_route_side) override;
+  void LogRouteTrace() override;
 
  private:
   class SharedState;

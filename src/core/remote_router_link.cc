@@ -236,12 +236,9 @@ std::string RemoteRouterLink::Describe() const {
   return ss.str();
 }
 
-void RemoteRouterLink::LogRouteTrace(RouteSide toward_route_side) {
+void RemoteRouterLink::LogRouteTrace() {
   msg::LogRouteTrace log_request;
   log_request.params.routing_id = routing_id_;
-  log_request.params.toward_route_side = type_ == LinkType::kPeripheral
-                                             ? toward_route_side
-                                             : toward_route_side.opposite();
   node_link()->Transmit(log_request);
 }
 

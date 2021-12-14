@@ -69,7 +69,7 @@ class RemoteRouterLink : public RouterLink {
   void DecayUnblocked() override;
   void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace(RouteSide toward_side) override;
+  void LogRouteTrace() override;
 
  private:
   ~RemoteRouterLink() override;

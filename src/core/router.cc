@@ -1291,26 +1291,53 @@ void Router::LogDescription() {
                     inward_.sequence_length_from_decaying_link);
 }
 
-void Router::LogRouteTrace(RouteSide toward_route_side) {
+void Router::LogRouteTrace() {
   LogDescription();
 
   mem::Ref<RouterLink> next_link;
   {
     absl::MutexLock lock(&mutex_);
-    if (toward_route_side == RouteSide::kSame) {
-      next_link = inward_.link;
+    next_link = outward_.link;
+  }
+  if (next_link) {
+    next_link->LogRouteTrace();
+  }
+}
+
+void Router::LogRouteTraceFromLocalPeer() {
+  LogDescription();
+
+  mem::Ref<RouterLink> next_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    next_link = inward_.link;
+  }
+  if (next_link) {
+    next_link->LogRouteTrace();
+  }
+}
+
+void Router::LogRouteTraceFrom(NodeLink& link, RoutingId routing_id) {
+  LogDescription();
+
+  mem::Ref<RouterLink> next_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    if ((outward_.link && outward_.link->IsRemoteLinkTo(link, routing_id)) ||
+        (outward_.decaying_proxy_link &&
+         outward_.decaying_proxy_link->IsRemoteLinkTo(link, routing_id))) {
+      if (bridge_) {
+        next_link =
+            bridge_->link ? bridge_->link : bridge_->decaying_proxy_link;
+      } else {
+        next_link = inward_.link;
+      }
     } else {
       next_link = outward_.link;
     }
   }
-
   if (next_link) {
-    if (next_link->GetType() == LinkType::kCentral) {
-      ABSL_ASSERT(toward_route_side == RouteSide::kOther);
-      next_link->LogRouteTrace(RouteSide::kSame);
-    } else {
-      next_link->LogRouteTrace(toward_route_side);
-    }
+    next_link->LogRouteTrace();
   }
 }
 

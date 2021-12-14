@@ -169,7 +169,7 @@ class RouterLink : public mem::RefCounted {
   // Asynchronously and verbosely logs a description of every Router along this
   // link, from the Router on the other side of this link, to the terminal
   // Router on the identified route side relative to the calling Router.
-  virtual void LogRouteTrace(RouteSide toward_route_side) = 0;
+  virtual void LogRouteTrace() = 0;
 
  protected:
   ~RouterLink() override = default;

@@ -234,7 +234,9 @@ class Router : public mem::RefCounted {
   // Logs a detailed description of this router and every router along the
   // route from this one, in the direction of the terminal router on
   // `toward_route_side`.
-  void LogRouteTrace(RouteSide toward_route_side);
+  void LogRouteTrace();
+  void LogRouteTraceFromLocalPeer();
+  void LogRouteTraceFrom(NodeLink& link, RoutingId routing_id);
 
  private:
   friend class LocalRouterLink;

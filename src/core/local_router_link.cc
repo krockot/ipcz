@@ -178,9 +178,8 @@ std::string LocalRouterLink::Describe() const {
          side_.opposite().ToString() + " side";
 }
 
-void LocalRouterLink::LogRouteTrace(RouteSide toward_route_side) {
-  // We flip `toward_route_side` because we're a transverse link.
-  state_->side(side_.opposite())->LogRouteTrace(toward_route_side.opposite());
+void LocalRouterLink::LogRouteTrace() {
+  state_->side(side_.opposite())->LogRouteTraceFromLocalPeer();
 }
 
 }  // namespace core

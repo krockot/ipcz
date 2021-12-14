@@ -450,7 +450,7 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
     return true;
   }
 
-  router->LogRouteTrace(log_request.params.toward_route_side);
+  router->LogRouteTraceFrom(*this, log_request.params.routing_id);
   return true;
 }
 

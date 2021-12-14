@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "core/portal.h"
-#include "core/route_side.h"
 #include "core/router.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -182,7 +181,7 @@ bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
 
 void TestBase::LogPortalRoute(IpczHandle a) {
   mem::Ref<core::Router> router = reinterpret_cast<core::Portal*>(a)->router();
-  router->LogRouteTrace(core::RouteSide::kOther);
+  router->LogRouteTrace();
 }
 
 // static

@@ -177,9 +177,7 @@ IPCZ_MSG_NO_REPLY(DecayUnblocked, IPCZ_MSG_ID(11), IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 // Requests that the receiving Router log a description of itself and forward
-// this request the next link along the route in the direction of
-// `toward_route_side`, relative to the receiving router.
+// this request along the same direction in which it was received.
 IPCZ_MSG_NO_REPLY(LogRouteTrace, IPCZ_MSG_ID(12), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(RouteSide, toward_route_side)
 IPCZ_MSG_END()
