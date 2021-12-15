@@ -46,7 +46,7 @@ mem::Ref<RouterLink> DecayableLink::TakeCurrentOrDecayingLink() {
   return current_link_ ? std::move(current_link_) : std::move(decaying_link_);
 }
 
-bool DecayableLink::AllowDecay() {
+bool DecayableLink::UnblockDecay() {
   ABSL_ASSERT(current_link_);
   return current_link_->SetSideCanDecay();
 }

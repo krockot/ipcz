@@ -240,7 +240,7 @@ SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
         outward_.SetCurrentLink(std::move(link));
 
     if (!outward_.has_decaying_link() && !inward_.has_decaying_link()) {
-      bool ok = outward_.AllowDecay();
+      bool ok = outward_.UnblockDecay();
       ABSL_ASSERT(ok);
     }
   }

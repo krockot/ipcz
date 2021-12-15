@@ -73,7 +73,7 @@ class DecayableLink {
   SequenceNumber SetCurrentLink(mem::Ref<RouterLink> link);
   mem::Ref<RouterLink> TakeCurrentLink();
   mem::Ref<RouterLink> TakeCurrentOrDecayingLink();
-  bool AllowDecay();
+  bool UnblockDecay();
   void StartDecayingWithLink(
       mem::Ref<RouterLink> link,
       absl::optional<SequenceNumber> length_to_link = absl::nullopt,
