@@ -28,12 +28,14 @@ namespace ipcz {
 namespace core {
 
 NodeLink::NodeLink(mem::Ref<Node> node,
+                   const NodeName& local_node_name,
                    const NodeName& remote_node_name,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    mem::Ref<DriverTransport> transport,
                    os::Memory::Mapping link_memory)
     : node_(std::move(node)),
+      local_node_name_(local_node_name),
       remote_node_name_(remote_node_name),
       remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
@@ -399,7 +401,7 @@ bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
     return true;
   }
 
-  DVLOG(4) << "Received StopProxying on " << node_->name().ToString()
+  DVLOG(4) << "Received StopProxying on " << local_node_name_.ToString()
            << " routing ID " << stop.params.routing_id << " with inbound"
            << " length " << stop.params.inbound_sequence_length
            << " and outbound length " << stop.params.outbound_sequence_length;

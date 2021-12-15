@@ -227,7 +227,7 @@ void RemoteRouterLink::Deactivate() {
 
 std::string RemoteRouterLink::Describe() const {
   std::stringstream ss;
-  ss << "link on " << node_link_->node()->name().ToString() << " to "
+  ss << "link on " << node_link_->local_node_name().ToString() << " to "
      << node_link_->remote_node_name().ToString() << " via routing ID "
      << routing_id_;
   return ss.str();

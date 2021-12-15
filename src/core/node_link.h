@@ -34,6 +34,7 @@ class RouterLink;
 class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  public:
   NodeLink(mem::Ref<Node> node,
+           const NodeName& local_node_name,
            const NodeName& remote_node_name,
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
@@ -41,6 +42,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            os::Memory::Mapping link_memory);
 
   const mem::Ref<Node>& node() const { return node_; }
+  const NodeName& local_node_name() const { return local_node_name_; }
   const NodeName& remote_node_name() const { return remote_node_name_; }
   Node::Type remote_node_type() const { return remote_node_type_; }
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
@@ -143,6 +145,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
 
   const mem::Ref<Node> node_;
+  const NodeName local_node_name_;
   const NodeName remote_node_name_;
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;

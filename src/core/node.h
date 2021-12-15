@@ -34,7 +34,6 @@ class Node : public mem::RefCounted {
 
   Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node);
 
-  const NodeName& name() const { return name_; }
   Type type() const { return type_; }
   const IpczDriver& driver() const { return driver_; }
 
@@ -64,13 +63,13 @@ class Node : public mem::RefCounted {
 
   bool AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link);
 
-  const NodeName name_{NodeName::kRandom};
   const Type type_;
   const IpczDriver driver_;
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
-  mem::Ref<NodeLink> broker_link_;
+  NodeName assigned_name_ ABSL_GUARDED_BY(mutex_);
+  mem::Ref<NodeLink> broker_link_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links_
       ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<NodeName, std::vector<EstablishLinkCallback>>

@@ -782,14 +782,15 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
 
       DVLOG(4) << "Route moved from split pair on "
                << from_node_link.remote_node_name().ToString() << " to "
-               << from_node_link.node()->name().ToString() << " via routing ID "
-               << descriptor.new_routing_id << " and decaying routing ID "
+               << from_node_link.local_node_name().ToString()
+               << " via routing ID " << descriptor.new_routing_id
+               << " and decaying routing ID "
                << descriptor.new_decaying_routing_id;
     } else {
       DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
-               << from_node_link.node()->name().ToString() << " via routing ID "
-               << descriptor.new_routing_id;
+               << from_node_link.local_node_name().ToString()
+               << " via routing ID " << descriptor.new_routing_id;
     }
   }
 
@@ -828,7 +829,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     }
   }
 
-  if (proxy_peer_node_name != requesting_node_link.node()->name()) {
+  if (proxy_peer_node_name != requesting_node_link.local_node_name()) {
     // Common case: the proxy's outward peer is NOT on the same node as we are.
     // In this case we send a BypassProxy request to that node, which may
     // require an introduction first.
@@ -956,7 +957,7 @@ bool Router::BypassProxyWithNewRemoteLink(
     DVLOG(4) << "Bypassing proxy at "
              << node_link_to_proxy->remote_node_name().ToString()
              << " on routing ID " << remote_proxy.routing_id() << " from "
-             << node_link_to_proxy->node()->name().ToString()
+             << node_link_to_proxy->local_node_name().ToString()
              << " with new link to "
              << node_link_to_peer->remote_node_name().ToString()
              << " on routing ID " << remote_peer.routing_id()
@@ -1017,7 +1018,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     DVLOG(4) << "Bypassing proxy at "
              << remote_node_link->remote_node_name().ToString()
              << " on routing ID " << old_remote_peer.routing_id() << " from "
-             << remote_node_link->node()->name().ToString()
+             << remote_node_link->local_node_name().ToString()
              << " with new routing ID " << new_remote_peer.routing_id();
 
     sequence_length_to_proxy = outward_.current_sequence_number();
@@ -1363,7 +1364,8 @@ bool Router::MaybeInitiateSelfRemoval() {
   }
 
   if (!local_peer) {
-    DVLOG(4) << "Proxy at " << successor->node_link()->node()->name().ToString()
+    DVLOG(4) << "Proxy at "
+             << successor->node_link()->local_node_name().ToString()
              << " initiating its own bypass with link to successor "
              << successor->node_link()->remote_node_name().ToString()
              << " on routing ID " << successor->routing_id()
