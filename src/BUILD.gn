@@ -206,6 +206,7 @@ test("ipcz_tests") {
     "api/api_tests/open_portals_api_test.cc",
     "api/api_tests/put_api_test.cc",
     "api/api_tests/query_portal_status_api_test.cc",
+    "api/integration_tests/connect_test.cc",
     "api/integration_tests/merge_portals_test.cc",
     "api/integration_tests/node_test.cc",
     "api/integration_tests/portal_transfer_test.cc",
