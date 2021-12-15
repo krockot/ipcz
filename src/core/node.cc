@@ -347,12 +347,11 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // By convention, the initiator of a bypass uses the side A of the bypass
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
-  mem::Ref<RouterLink> new_peer_link = from_node_link.AddRoute(
+  mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRoute(
       bypass.params.new_routing_id, bypass.params.new_routing_id,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
-  return proxy_peer->BypassProxyWithNewLink(
-      new_peer_link, bypass.params.bypass_key,
-      bypass.params.proxied_outbound_sequence_length);
+  return proxy_peer->BypassProxyWithNewRemoteLink(
+      new_peer_link, bypass.params.proxied_outbound_sequence_length);
 }
 
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {

@@ -66,14 +66,14 @@ bool RemoteRouterLink::SetSideCanDecay() {
   return state && state->SetSideReady(side_);
 }
 
-bool RemoteRouterLink::MaybeBeginDecay(absl::uint128* bypass_key) {
+bool RemoteRouterLink::MaybeBeginDecay(const NodeName& bypass_request_source) {
   RouterLinkState* state = GetLinkState();
-  bool result = state && state->TryToDecay(side_);
-  if (result && bypass_key) {
-    *bypass_key = RandomUint128();
-    state->bypass_key = *bypass_key;
+  if (!state || !state->TryToDecay(side_)) {
+    return false;
   }
-  return result;
+
+  state->allowed_bypass_request_source = bypass_request_source;
+  return true;
 }
 
 bool RemoteRouterLink::CancelDecay() {
@@ -81,10 +81,11 @@ bool RemoteRouterLink::CancelDecay() {
   return state && state->CancelDecay();
 }
 
-bool RemoteRouterLink::CanBypassWithKey(const absl::uint128& bypass_key) {
+bool RemoteRouterLink::CanNodeRequestBypass(
+    const NodeName& bypass_request_source) {
   RouterLinkState* state = GetLinkState();
   return state && state->is_decaying(side_.opposite()) &&
-         state->bypass_key == bypass_key;
+         state->allowed_bypass_request_source == bypass_request_source;
 }
 
 bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
@@ -131,7 +132,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     descriptors[i].new_routing_id = routing_id;
     routers[i] = portals[i]->router();
     mem::Ref<Router> route_listener =
-        routers[i]->SerializeNewInwardPeer(descriptors[i]);
+        routers[i]->SerializeNewInwardPeer(*node_link(), descriptors[i]);
     if (descriptors[i].proxy_already_bypassed) {
       bool ok = state.SetSideReady(LinkSide::kA);
       ABSL_ASSERT(ok);
@@ -183,13 +184,11 @@ void RemoteRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
 
 void RemoteRouterLink::RequestProxyBypassInitiation(
     const NodeName& to_new_peer,
-    RoutingId proxy_peer_routing_id,
-    const absl::uint128& bypass_key) {
+    RoutingId proxy_peer_routing_id) {
   msg::InitiateProxyBypass request;
   request.params.routing_id = routing_id_;
   request.params.proxy_peer_name = to_new_peer;
   request.params.proxy_peer_routing_id = proxy_peer_routing_id;
-  request.params.bypass_key = bypass_key;
   node_link()->Transmit(request);
 }
 

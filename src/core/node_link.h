@@ -18,7 +18,6 @@
 #include "os/handle.h"
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -59,11 +58,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // specifies which side of the link this end identifies as (A or B), and
   // `type` specifies the type of link this is from the receiving router's
   // perspective.
-  mem::Ref<RouterLink> AddRoute(RoutingId routing_id,
-                                size_t link_state_index,
-                                LinkType type,
-                                LinkSide side,
-                                mem::Ref<Router> router);
+  mem::Ref<RemoteRouterLink> AddRoute(RoutingId routing_id,
+                                      size_t link_state_index,
+                                      LinkType type,
+                                      LinkSide side,
+                                      mem::Ref<Router> router);
 
   // Removes the route specified by `routing_id`. Once removed, any messages
   // received for that routing ID are ignored.
@@ -100,15 +99,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // with a new peer link. Specifically, whatever router has a peer
   // RemoteRouterLink to `proxy_peer_node_name` on `proxy_peer_routing_id` is
   // reconfigured to instead adopt a new RemoteRouterLink as its peer, on this
-  // NodeLink with a newly allocated routing ID. `bypass_key` is used to
-  // authenticate the request and must have already been shared with the remote
-  // node by the proxy itself (the node identified by `proxy_peer_node_name`).
-  // Upon success, `new_peer` is updated to use the reconfigured remote router
-  // as its peer and (asynchronously) `new_peer` becomes the new peer of the
-  // reconfigured remote router.
+  // NodeLink with a newly allocated routing ID.  `new_peer` becomes the new
+  // peer of the reconfigured remote router, assuming it's able to authenticate
+  // the source of this request.
   bool BypassProxy(const NodeName& proxy_name,
                    RoutingId proxy_routing_id,
-                   absl::uint128 bypass_key,
                    mem::Ref<Router> new_peer);
 
  private:

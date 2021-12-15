@@ -50,11 +50,11 @@ RoutingId NodeLink::AllocateRoutingIds(size_t count) {
   return buffer().AllocateRoutingIds(count);
 }
 
-mem::Ref<RouterLink> NodeLink::AddRoute(RoutingId routing_id,
-                                        size_t link_state_index,
-                                        LinkType type,
-                                        LinkSide side,
-                                        mem::Ref<Router> router) {
+mem::Ref<RemoteRouterLink> NodeLink::AddRoute(RoutingId routing_id,
+                                              size_t link_state_index,
+                                              LinkType type,
+                                              LinkSide side,
+                                              mem::Ref<Router> router) {
   auto link = mem::MakeRefCounted<RemoteRouterLink>(
       mem::WrapRefCounted(this), routing_id, link_state_index, type, side);
   absl::MutexLock lock(&mutex_);
@@ -155,7 +155,6 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
-                           absl::uint128 bypass_key,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end will adopt side B by
@@ -176,7 +175,6 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.bypass_key = bypass_key;
   bypass.params.proxied_outbound_sequence_length =
       proxied_outbound_sequence_length;
   Transmit(bypass);
@@ -416,9 +414,9 @@ bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
     return true;
   }
 
-  return router->InitiateProxyBypass(
-      *this, request.params.routing_id, request.params.proxy_peer_name,
-      request.params.proxy_peer_routing_id, request.params.bypass_key);
+  return router->InitiateProxyBypass(*this, request.params.routing_id,
+                                     request.params.proxy_peer_name,
+                                     request.params.proxy_peer_routing_id);
 }
 
 bool NodeLink::OnBypassProxyToSameNode(

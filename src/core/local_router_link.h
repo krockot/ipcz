@@ -40,16 +40,15 @@ class LocalRouterLink : public RouterLink {
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
   bool CanDecay() override;
   bool SetSideCanDecay() override;
-  bool MaybeBeginDecay(absl::uint128* bypass_key) override;
+  bool MaybeBeginDecay(const NodeName& bypass_request_source) override;
   bool CancelDecay() override;
-  bool CanBypassWithKey(const absl::uint128& bypass_key) override;
+  bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
-                                    RoutingId proxy_peer_routing_id,
-                                    const absl::uint128& bypass_key) override;
+                                    RoutingId proxy_peer_routing_id) override;
   void StopProxying(SequenceNumber inbound_sequence_length,
                     SequenceNumber outbound_sequence_length) override;
   void ProxyWillStop(SequenceNumber sequence_length) override;

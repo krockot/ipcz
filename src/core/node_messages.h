@@ -14,7 +14,6 @@
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {

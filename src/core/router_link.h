@@ -15,7 +15,6 @@
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -65,21 +64,23 @@ class RouterLink : public mem::RefCounted {
   // inward and outward peers, without risk of the outward peer trying to
   // initiate its own bypass at the same time.
   //
-  // On success, `bypass_key` (if non-null) is also populated with a randomly
-  // generated key which can be given to the router's inward peer as a means of
-  // authenticating bypass to the outward peer.
-  virtual bool MaybeBeginDecay(absl::uint128* bypass_key = nullptr) = 0;
+  // On success, `bypass_request_source` is also stashed in the link's shared
+  // state so that the other side of the link can authenticate a bypass request
+  // coming from that node. This parameter may be omitted if the bypass does not
+  // not require authentication.
+  virtual bool MaybeBeginDecay(const NodeName& bypass_request_source = {}) = 0;
 
   // Cancels a decay process that was initiated by either side of the link.
   // Only valid to call when one side or the other has successfully called
   // MaybeBeginDecay(). After completion, CanDecay() may once again be true.
   virtual bool CancelDecay() = 0;
 
-  // Indicates whether this link can be bypassed using the given key. True if
-  // and only if the other side of this link has already begun to decay, AND
-  // `bypass_key` matches a key generated on that side of the link and provided
-  // ahead-of-time to this side of the link.
-  virtual bool CanBypassWithKey(const absl::uint128& bypass_key) = 0;
+  // Indicates whether this link can be bypassed by a request from the named
+  // node to one side of the link. True if and only if the other side of this
+  // link has already begun to decay, AND `bypass_request_source` matches the
+  // NodeName already stored in this link's shared state by the proxy on the
+  // other side of the link.
+  virtual bool CanNodeRequestBypass(const NodeName& bypass_request_source) = 0;
 
   // Indicates an imperfect estimation of whether or not putting a parcel with
   // `data_size` bytes of data onto this link may ultimately cause the eventual
@@ -109,8 +110,7 @@ class RouterLink : public mem::RefCounted {
   // receiving Routers.
   virtual void RequestProxyBypassInitiation(
       const NodeName& to_new_peer,
-      RoutingId proxy_peer_routing_id,
-      const absl::uint128& bypass_key) = 0;
+      RoutingId proxy_peer_routing_id) = 0;
 
   // Informs the Router on the other side of this link that it can stop
   // forwarding parcels to its inward peer once it has forwarded up to

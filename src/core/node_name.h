@@ -9,12 +9,13 @@
 #include <string>
 #include <utility>
 
+#include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
 
-class NodeName {
+class IPCZ_ALIGN(16) NodeName {
  public:
   enum { kRandom };
 

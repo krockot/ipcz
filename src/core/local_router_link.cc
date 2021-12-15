@@ -93,22 +93,23 @@ bool LocalRouterLink::SetSideCanDecay() {
   return state_->state().SetSideReady(side_);
 }
 
-bool LocalRouterLink::MaybeBeginDecay(absl::uint128* bypass_key) {
-  bool result = state_->state().TryToDecay(side_);
-  if (result && bypass_key) {
-    *bypass_key = RandomUint128();
-    state_->state().bypass_key = *bypass_key;
+bool LocalRouterLink::MaybeBeginDecay(const NodeName& bypass_request_source) {
+  if (!state_->state().TryToDecay(side_)) {
+    return false;
   }
-  return result;
+
+  state_->state().allowed_bypass_request_source = bypass_request_source;
+  return true;
 }
 
 bool LocalRouterLink::CancelDecay() {
   return state_->state().CancelDecay();
 }
 
-bool LocalRouterLink::CanBypassWithKey(const absl::uint128& bypass_key) {
+bool LocalRouterLink::CanNodeRequestBypass(
+    const NodeName& bypass_request_source) {
   return state_->state().is_decaying(side_.opposite()) &&
-         state_->state().bypass_key == bypass_key;
+         state_->state().allowed_bypass_request_source == bypass_request_source;
 }
 
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
@@ -134,8 +135,7 @@ void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
 
 void LocalRouterLink::RequestProxyBypassInitiation(
     const NodeName& to_new_peer,
-    RoutingId proxy_peer_routing_id,
-    const absl::uint128& bypass_key) {
+    RoutingId proxy_peer_routing_id) {
   ABSL_ASSERT(false);
 }
 

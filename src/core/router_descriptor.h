@@ -9,7 +9,6 @@
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -28,9 +27,7 @@ struct IPCZ_ALIGN(16) RouterDescriptor {
   // immediately on deserialization of the new Router. The deserializing node
   // must contact `proxy_peer_node_name` with the name of the node who sent this
   // descriptor, along with `proxy_peer_routing_id` (an existing routing ID
-  // between those two nodes, identifying the link we want to bypass) and
-  // `bypass_key` to authenticate the request.
-  absl::uint128 bypass_key;
+  // between those two nodes, identifying the link we want to bypass).
   NodeName proxy_peer_node_name;
   RoutingId proxy_peer_routing_id;
 

@@ -72,75 +72,48 @@ IPCZ_MSG_NO_REPLY(RequestIntroduction, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
 IPCZ_MSG_END()
 
-// Informs the recipient that its predecessor has become a half-proxy. In the
-// simplest half-proxying scenario (moving an active portal with an active peer)
-// this message is unused and the relevant information is instead conveyed
-// directly by the serialized portal within the parcel that moves it.
-//
-// However, in cases where a moved portal cannot enter a half-proxying state
-// (because either it had no peer, or its peer was buffering or half-proxying
-// at the time) the portal becomes a full proxy. Only once a full proxy obtains
-// a peer link to an active peer can it decay to a half-proxy.
-//
-// This message is used to implement that decay operation. Once a full proxy
-// obtains a peer link to an active peer, it generates a random 128-bit key
-// as described on BypassProxy above and shares it in the peer link's shared
-// state. It also then sends this InitiateProxyBypass message to its successor,
-// with the same key and some information about its own peer link. The successor
-// then uses this information to construct and send a BypassProxy message to the
-// named peer.
+// Informs the recipient that its outward peer is a proxy which has negotiated
+// its own turn to decay and be bypassed along the route. This provides the
+// recipient with enough information to contact the proxy's own outward peer
+// directly in order to request that its link to the proxy be bypassed with a
+// direct link to the recipient.
 IPCZ_MSG_NO_REPLY(InitiateProxyBypass, IPCZ_MSG_ID(5), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(uint64_t, reserved0)
   IPCZ_MSG_PARAM(NodeName, proxy_peer_name)
   IPCZ_MSG_PARAM(RoutingId, proxy_peer_routing_id)
-  IPCZ_MSG_PARAM(absl::uint128, bypass_key)
 IPCZ_MSG_END()
 
-// Simultaneously informs the recipient that its peer link is connected to a
-// half-proxying portal, and requests that this link be replaced immediately
-// with a more direct link to the proxy's own destination; which is the sender
-// of this message:
+// Simultaneously informs the recipient that its outward link is connected to a
+// proxying router, and requests that this link be replaced immediately
+// with a more direct link to the proxy's inward peer, who is the sender of this
+// message.
 //
-//  recipient R === [peer link] ==>  proxy P  === [successor link] ==> sender S
-//     \                                                               /
-//      \__<<<<<<<<<<<<<<<<<[ BypassProxy message ]<<<<<<<<<<<<<<<<___/
-//
-// In this diagram, portal P was at some point a mutual peer of portal R, and
-// portal S did not exist. The active portal at P was then relocated to S on a
-// different node, and left in P's place was a half-proxy: a portal that exists
-// only to forward parcels to its successor (S).
-//
-// As part of this operation, P generated a random key and stashed it in the
-// shared state of the peer link between R and P. The same key was subsequently
-// shared with S (and only S), along with the identity of R and the routing ID
-// of the peer link between R and P.
-//
-// S sends this BypassProxy message to R using the same shared secret key,
-// allowing R to trust the request and immediately stop using the peer link to
-// P, replacing it instead with a new peer link directly to S.
-//
-// R also sends a StopProxying message to P just before this operation completes
-// to inform P of the last in-flight parcel already sent to P and therefore the
-// last parcel P needs to accept and forward to S before it can cease to exist.
+// By the time this is message is sent from a proxy's inward peer to the proxy's
+// outward peer, the proxy must have already informed the outward peer of its
+// inward peer's NodeName. The outward peer will then be able to reliably
+// authenticate the source of this BypassProxy request.
 IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, proxy_name)
   IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
-  IPCZ_MSG_PARAM(absl::uint128, bypass_key)
   IPCZ_MSG_PARAM(SequenceNumber, proxied_outbound_sequence_length)
 IPCZ_MSG_END()
 
-// Equivalent to BypassProxy, but used only when the requesting proxy and its
-// bypass target live on the same node. In this case there's no need for the
-// bypasser to authenticate any request to the target, because the target is
-// made aware of the bypass as soon as its local peer initiates it. The bypasser
-// receiving this message need only decay its link over `routing_id` and replace
-// it with a link over `new_routing_id`. `sequence_length` indicates the length
-// of the sequence already sent or in-flight over `routing_id` from the proxy,
-// and the bypasser must send a StopProxyingToLocalPeer back to the proxy with
-// this length and the length of its own outbound sequence just before switching
-// to the new link.
+// Equivalent to BypassProxy, but used only when the proxy and its outward peer
+// live on the same node. In this case there's no need for the proxy's inward
+// peer to authenticate any request to the outward peer, because the outward
+// peer is made aware of made aware of the bypass operation as soon as the
+// proxy initiates it.
+//
+// When the proxy's inward peer receives this message, it may immediately begin
+// decaying its link on `routing_id` to the proxy, replacing it with a new link
+// link (to the same node) on `new_routing_id` to the proxy's outward peer.
+//
+// `sequence_length` indicates the length of the sequence already sent or
+// in-flight over `routing_id` from the proxy, and the recipient of this message
+// must send a StopProxyingToLocalPeer back to the proxy with the length its own
+// outbound sequence had at the time it began decaying the link on `routing_id`.
 IPCZ_MSG_NO_REPLY(BypassProxyToSameNode, IPCZ_MSG_ID(7), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
@@ -157,8 +130,8 @@ IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(8), IPCZ_MSG_VERSION(0))
 IPCZ_MSG_END()
 
 // Informs the recipient that it has been bypassed by the sender in favor of a
-// direct route to the recipient's local peer. This is essentially a reply to
-// BypassProxyToSameNode.
+// direct route to the sender's local outward peer. This is essentially a reply
+// to BypassProxyToSameNode.
 IPCZ_MSG_NO_REPLY(StopProxyingToLocalPeer, IPCZ_MSG_ID(9), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)

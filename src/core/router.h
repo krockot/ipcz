@@ -23,7 +23,6 @@
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -35,6 +34,7 @@ class LocalRouterLink;
 class NodeLink;
 struct RouterDescriptor;
 class RouterLink;
+class RemoteRouterLink;
 
 class Router : public mem::RefCounted {
  public:
@@ -198,7 +198,8 @@ class Router : public mem::RefCounted {
   // node as the inward peer to this Router along the same side of its route.
   // Also makes any necessary state changes to prepare this Router (and its
   // local peer, if applicable) for the new remote Router's introduction.
-  mem::Ref<Router> SerializeNewInwardPeer(RouterDescriptor& descriptor);
+  mem::Ref<Router> SerializeNewInwardPeer(NodeLink& to_node_link,
+                                          RouterDescriptor& descriptor);
 
   // Deserializes a new Router from `descriptor` received over `from_node_link`.
   static mem::Ref<Router> Deserialize(const RouterDescriptor& descriptor,
@@ -207,11 +208,10 @@ class Router : public mem::RefCounted {
   bool InitiateProxyBypass(NodeLink& requesting_node_link,
                            RoutingId requesting_routing_id,
                            const NodeName& proxy_peer_node_name,
-                           RoutingId proxy_peer_routing_id,
-                           absl::uint128 bypass_key);
-  bool BypassProxyWithNewLink(mem::Ref<RouterLink> new_peer,
-                              absl::uint128 bypass_key,
-                              SequenceNumber proxy_outbound_sequence_length);
+                           RoutingId proxy_peer_routing_id);
+  bool BypassProxyWithNewRemoteLink(
+      mem::Ref<RemoteRouterLink> new_peer,
+      SequenceNumber proxy_outbound_sequence_length);
   bool BypassProxyWithNewLinkToSameNode(
       mem::Ref<RouterLink> new_peer,
       SequenceNumber sequence_length_from_proxy);
