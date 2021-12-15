@@ -257,7 +257,6 @@ class Router : public mem::RefCounted {
   absl::Mutex mutex_;
   DecayableLink inward_ ABSL_GUARDED_BY(mutex_);
   DecayableLink outward_ ABSL_GUARDED_BY(mutex_);
-  bool outbound_transmission_paused_ ABSL_GUARDED_BY(mutex_) = false;
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 

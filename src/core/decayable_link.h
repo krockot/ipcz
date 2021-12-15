@@ -45,6 +45,9 @@ class DecayableLink {
     closure_propagated_ = propagated;
   }
 
+  bool paused() const { return paused_; }
+  void set_paused(bool paused) { paused_ = paused; }
+
   SequenceNumber sequence_length() const {
     return parcels_.GetCurrentSequenceLength();
   }
@@ -86,6 +89,7 @@ class DecayableLink {
   void FlushParcels(absl::InlinedVector<Parcel, 2>& parcels_to_decaying_link,
                     absl::InlinedVector<Parcel, 2>& parcels_to_current_link);
   bool IsDecayFinished(SequenceNumber received_sequence_length) const;
+  bool ShouldPropagateRouteClosure() const;
 
  private:
   bool ShouldSendOnDecayingLink(SequenceNumber n) const;
@@ -95,6 +99,7 @@ class DecayableLink {
   mem::Ref<RouterLink> decaying_link_;
   absl::optional<SequenceNumber> length_to_decaying_link_;
   absl::optional<SequenceNumber> length_from_decaying_link_;
+  bool paused_ = false;
   bool closure_propagated_ = false;
 };
 

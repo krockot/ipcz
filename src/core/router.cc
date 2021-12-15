@@ -78,8 +78,8 @@ size_t Router::GetNumRoutersForTesting() {
 void Router::PauseOutboundTransmission(bool paused) {
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(outbound_transmission_paused_ != paused);
-    outbound_transmission_paused_ = paused;
+    ABSL_ASSERT(outward_.paused() != paused);
+    outward_.set_paused(paused);
   }
 
   if (!paused) {
@@ -183,10 +183,11 @@ void Router::CloseRoute() {
 
     ABSL_ASSERT(!inward_.has_current_link());
 
-    forwarding_link = outward_.current_link();
-    if (!forwarding_link || outbound_transmission_paused_) {
+    if (!outward_.has_current_link() || outward_.paused()) {
       return;
     }
+
+    forwarding_link = outward_.current_link();
 
     // If we're paused we may have some outbound parcels buffered. Don't drop
     // the outward link yet in that case.
@@ -412,8 +413,7 @@ void Router::AcceptRouteClosureFrom(Direction source,
     // this outward toward the other side.
     absl::MutexLock lock(&mutex_);
     outward_.parcels().SetFinalSequenceLength(sequence_length);
-    if (!outward_.closure_propagated() && !outbound_transmission_paused_ &&
-        outward_.has_current_link()) {
+    if (outward_.ShouldPropagateRouteClosure()) {
       forwarding_link = outward_.current_link();
       outward_.set_closure_propagated(true);
     }
@@ -427,7 +427,7 @@ void Router::AcceptRouteClosureFrom(Direction source,
     // status and traps.
     absl::MutexLock lock(&mutex_);
     inward_.parcels().SetFinalSequenceLength(sequence_length);
-    if (!inward_.closure_propagated() && inward_.has_current_link()) {
+    if (inward_.ShouldPropagateRouteClosure()) {
       forwarding_link = inward_.current_link();
       inward_.set_closure_propagated(true);
     } else if (bridge_) {
@@ -1127,7 +1127,6 @@ bool Router::OnDecayUnblocked() {
 void Router::LogDescription() {
   absl::MutexLock lock(&mutex_);
   DLOG(INFO) << "## router [" << this << "]";
-  DLOG(INFO) << " - paused: " << (outbound_transmission_paused_ ? "yes" : "no");
   DLOG(INFO) << " - status flags: " << status_.flags;
   DLOG(INFO) << " - side closed: "
              << (outward_.parcels().final_sequence_length().has_value() ? "yes"
@@ -1181,6 +1180,7 @@ void Router::AcceptLogRouteTraceFrom(Direction source) {
 void Router::Flush() {
   mem::Ref<RouterLink> inward_link;
   mem::Ref<RouterLink> outward_link;
+  mem::Ref<RouterLink> dead_inward_link;
   mem::Ref<RouterLink> dead_outward_link;
   mem::Ref<RouterLink> decaying_inward_proxy;
   mem::Ref<RouterLink> decaying_outward_proxy;
@@ -1193,8 +1193,8 @@ void Router::Flush() {
   absl::InlinedVector<Parcel, 2> bridge_parcels;
   bool inward_proxy_decayed = false;
   bool outward_proxy_decayed = false;
-  bool notify_closure_outward = false;
-  SequenceNumber final_sequence_length;
+  absl::optional<SequenceNumber> final_inward_sequence_length;
+  absl::optional<SequenceNumber> final_outward_sequence_length;
   {
     absl::MutexLock lock(&mutex_);
     inward_link = inward_.current_link();
@@ -1206,17 +1206,14 @@ void Router::Flush() {
                                                  : bridge_->current_link();
     }
 
-    if (!outbound_transmission_paused_) {
-      outward_.FlushParcels(outbound_parcels_to_proxy, outbound_parcels);
-      if (outward_.IsDecayFinished(inward_.sequence_length())) {
-        DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_link())
-                 << " fully decayed at outbound length "
-                 << *outward_.length_to_decaying_link()
-                 << " and inbound length "
-                 << *outward_.length_from_decaying_link();
-        outward_proxy_decayed = true;
-        outward_.ResetDecayingLink();
-      }
+    outward_.FlushParcels(outbound_parcels_to_proxy, outbound_parcels);
+    if (outward_.IsDecayFinished(inward_.sequence_length())) {
+      DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_link())
+               << " fully decayed at outbound length "
+               << *outward_.length_to_decaying_link() << " and inbound length "
+               << *outward_.length_from_decaying_link();
+      outward_proxy_decayed = true;
+      outward_.ResetDecayingLink();
     }
 
     inward_.FlushParcels(inbound_parcels_to_proxy, inbound_parcels);
@@ -1252,19 +1249,20 @@ void Router::Flush() {
       dead_outward_link = outward_.TakeCurrentLink();
     }
 
-    if (outward_.parcels().final_sequence_length() &&
-        !outward_.closure_propagated() && outward_.has_current_link() &&
-        !outbound_transmission_paused_) {
-      notify_closure_outward = true;
-      final_sequence_length = *outward_.parcels().final_sequence_length();
+    if (outward_.ShouldPropagateRouteClosure()) {
+      final_outward_sequence_length =
+          *outward_.parcels().final_sequence_length();
 
-      // If we're closed and have an outward link, our outbound queue should
-      // definitely be empty now. This means it's safe to deactivate our outward
-      // link: we don't care about inbound parcels if we're closed, and all
-      // outbound parcels have been flushed out.
       ABSL_ASSERT(outward_.parcels().IsEmpty());
       if (!dead_outward_link) {
         dead_outward_link = outward_.TakeCurrentLink();
+      }
+    }
+
+    if (inward_.ShouldPropagateRouteClosure()) {
+      final_inward_sequence_length = *inward_.parcels().final_sequence_length();
+      if (inward_.parcels().IsDead()) {
+        dead_inward_link = inward_.TakeCurrentLink();
       }
     }
   }
@@ -1320,12 +1318,20 @@ void Router::Flush() {
     MaybeInitiateBridgeBypass();
   }
 
-  if (notify_closure_outward) {
-    outward_link->AcceptRouteClosure(final_sequence_length);
+  if (final_outward_sequence_length) {
+    outward_link->AcceptRouteClosure(*final_outward_sequence_length);
+  }
+
+  if (final_inward_sequence_length) {
+    inward_link->AcceptRouteClosure(*final_inward_sequence_length);
   }
 
   if (dead_outward_link) {
     dead_outward_link->Deactivate();
+  }
+
+  if (dead_inward_link) {
+    dead_inward_link->Deactivate();
   }
 }
 
@@ -1408,7 +1414,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     inward_.StartDecaying(sequence_length);
 
     local_peer->outward_.SetCurrentLink(new_link);
-    local_peer->outbound_transmission_paused_ = true;
+    local_peer->outward_.set_paused(true);
   }
 
   successor->BypassProxyToSameNode(new_routing_id, sequence_length);
@@ -1530,7 +1536,7 @@ void Router::MaybeInitiateBridgeBypass() {
                                             length_from_local_peer);
 
       first_local_peer->outward_.SetCurrentLink(new_link);
-      first_local_peer->outbound_transmission_paused_ = true;
+      first_local_peer->outward_.set_paused(true);
     }
 
     link_to_second_peer->BypassProxyToSameNode(bypass_routing_id,

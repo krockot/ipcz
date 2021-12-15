@@ -77,6 +77,10 @@ void DecayableLink::StartDecaying(
 void DecayableLink::FlushParcels(
     absl::InlinedVector<Parcel, 2>& parcels_to_decaying_link,
     absl::InlinedVector<Parcel, 2>& parcels_to_current_link) {
+  if (paused_) {
+    return;
+  }
+
   Parcel parcel;
   while (parcels_.HasNextParcel() &&
          ShouldSendOnDecayingLink(parcels_.current_sequence_number())) {
@@ -98,6 +102,11 @@ bool DecayableLink::IsDecayFinished(
          length_from_decaying_link_ &&
          parcels_.current_sequence_number() >= *length_to_decaying_link_ &&
          received_sequence_length >= *length_from_decaying_link_;
+}
+
+bool DecayableLink::ShouldPropagateRouteClosure() const {
+  return parcels_.final_sequence_length() && !closure_propagated_ &&
+         current_link_ && !paused_;
 }
 
 bool DecayableLink::ShouldSendOnDecayingLink(SequenceNumber n) const {
