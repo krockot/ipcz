@@ -650,7 +650,7 @@ mem::Ref<Router> Router::SerializeNewInwardPeer(NodeLink& to_node_link,
         continue;
       }
 
-      if (!outward_.current_link()->MaybeBeginDecay()) {
+      if (!outward_.TryToDecay(to_node_link.remote_node_name())) {
         // Decay has been blocked since we checked above. Restart since it is no
         // longer safe to take the optimized path.
         continue;
@@ -719,8 +719,7 @@ mem::Ref<Router> Router::SerializeNewInwardPeer(NodeLink& to_node_link,
       proxy_peer_node_name = remote_link.node_link()->remote_node_name();
       proxy_peer_routing_id = remote_link.routing_id();
 
-      if (outward_.current_link()->MaybeBeginDecay(
-              to_node_link.remote_node_name())) {
+      if (outward_.TryToDecay(to_node_link.remote_node_name())) {
         DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
                  << "with peer at " << proxy_peer_node_name.ToString()
                  << " and peer route to proxy on routing ID "
@@ -1347,8 +1346,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     successor = mem::WrapRefCounted(
         static_cast<RemoteRouterLink*>(inward_.current_link().get()));
 
-    if (!outward_.current_link()->MaybeBeginDecay(
-            successor->node_link()->remote_node_name())) {
+    if (!outward_.TryToDecay(successor->node_link()->remote_node_name())) {
       DVLOG(4) << "Proxy self-removal blocked by busy "
                << DescribeLink(outward_.current_link());
       return false;

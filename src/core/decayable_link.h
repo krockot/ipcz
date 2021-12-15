@@ -7,6 +7,7 @@
 
 #include <cstddef>
 
+#include "core/node_name.h"
 #include "core/parcel_queue.h"
 #include "core/router_link.h"
 #include "core/sequence_number.h"
@@ -74,6 +75,7 @@ class DecayableLink {
   mem::Ref<RouterLink> TakeCurrentLink();
   mem::Ref<RouterLink> TakeCurrentOrDecayingLink();
   bool UnblockDecay();
+  bool TryToDecay(const NodeName& bypass_request_source);
   void StartDecayingWithLink(
       mem::Ref<RouterLink> link,
       absl::optional<SequenceNumber> length_to_link = absl::nullopt,

@@ -51,6 +51,12 @@ bool DecayableLink::UnblockDecay() {
   return current_link_->SetSideCanDecay();
 }
 
+bool DecayableLink::TryToDecay(const NodeName& bypass_request_source) {
+  return current_link_ && current_link_->GetType().is_central() &&
+         !decaying_link_ &&
+         current_link_->MaybeBeginDecay(bypass_request_source);
+}
+
 void DecayableLink::StartDecayingWithLink(
     mem::Ref<RouterLink> link,
     absl::optional<SequenceNumber> length_to_link,
