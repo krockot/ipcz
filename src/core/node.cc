@@ -150,12 +150,9 @@ Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
   if (type_ == Type::kBroker) {
     // Only brokers assign their own names.
     assigned_name_ = NodeName{NodeName::kRandom};
-
-    DVLOG(4) << "Created new broker node " << assigned_name_.ToString()
-             << " [type=" << static_cast<int>(type_) << "]";
+    DVLOG(4) << "Created new broker node " << assigned_name_.ToString();
   } else {
-    DVLOG(4) << "Created new non-broker node " << this
-             << " [type=" << static_cast<int>(type_) << "]";
+    DVLOG(4) << "Created new non-broker node " << this;
   }
 }
 
