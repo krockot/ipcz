@@ -75,18 +75,6 @@ size_t Router::GetNumRoutersForTesting() {
   return g_num_routers;
 }
 
-void Router::PauseOutboundTransmission(bool paused) {
-  {
-    absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(outward_.paused() != paused);
-    outward_.set_paused(paused);
-  }
-
-  if (!paused) {
-    Flush();
-  }
-}
-
 bool Router::IsPeerClosed() {
   absl::MutexLock lock(&mutex_);
   return status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED;
@@ -183,20 +171,16 @@ void Router::CloseRoute() {
 
     ABSL_ASSERT(!inward_.has_current_link());
 
-    if (!outward_.has_current_link() || outward_.paused()) {
-      return;
-    }
-
     forwarding_link = outward_.current_link();
-
-    // If we're paused we may have some outbound parcels buffered. Don't drop
-    // the outward link yet in that case.
-    if (outward_.parcels().IsEmpty()) {
-      dead_outward_link = outward_.TakeCurrentLink();
+    if (!forwarding_link) {
+      return;
     }
 
     final_sequence_length = outward_.sequence_length();
     outward_.parcels().SetFinalSequenceLength(final_sequence_length);
+    if (outward_.parcels().IsDead()) {
+      dead_outward_link = outward_.TakeCurrentLink();
+    }
   }
 
   forwarding_link->AcceptRouteClosure(final_sequence_length);
@@ -232,22 +216,25 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
   return IPCZ_RESULT_OK;
 }
 
-SequenceNumber Router::SetOutwardLink(mem::Ref<RouterLink> link) {
-  SequenceNumber first_sequence_number_on_new_link;
+void Router::SetOutwardLink(mem::Ref<RouterLink> link) {
+  bool link_can_decay = false;
+  bool attempt_removal = false;
   {
     absl::MutexLock lock(&mutex_);
-    ABSL_ASSERT(!outward_.has_current_link());
-    first_sequence_number_on_new_link =
-        outward_.SetCurrentLink(std::move(link));
-
+    outward_.SetCurrentLink(link);
     if (!outward_.has_decaying_link() && !inward_.has_decaying_link()) {
-      bool ok = outward_.UnblockDecay();
-      ABSL_ASSERT(ok);
+      bool unblocked = outward_.UnblockDecay();
+      ABSL_ASSERT(unblocked);
+      link_can_decay = outward_.current_link()->CanDecay();
+      attempt_removal = link_can_decay && inward_.has_current_link();
     }
   }
 
   Flush();
-  return first_sequence_number_on_new_link;
+
+  if ((attempt_removal && !MaybeInitiateSelfRemoval()) || link_can_decay) {
+    link->DecayUnblocked();
+  }
 }
 
 void Router::BeginProxying(const RouterDescriptor& inward_peer_descriptor,
@@ -832,26 +819,28 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // Common case: the proxy's outward peer is NOT on the same node as we are.
     // In this case we send a BypassProxy request to that node, which may
     // require an introduction first.
+    SequenceNumber sequence_length_to_proxy;
     {
       // Begin decaying our outward link. We don't know the sequence length
       // coming from it yet, but that will be determined eventually.
       absl::MutexLock lock(&mutex_);
-      outward_.StartDecaying(outward_.current_sequence_number());
+      sequence_length_to_proxy = outward_.current_sequence_number();
+      outward_.StartDecaying(sequence_length_to_proxy);
     }
 
     mem::Ref<NodeLink> new_peer_node =
         requesting_node_link.node()->GetLink(proxy_peer_node_name);
     if (new_peer_node) {
-      new_peer_node->BypassProxy(requesting_node_link.remote_node_name(),
-                                 proxy_peer_routing_id,
-                                 mem::WrapRefCounted(this));
+      new_peer_node->BypassProxy(
+          requesting_node_link.remote_node_name(), proxy_peer_routing_id,
+          sequence_length_to_proxy, mem::WrapRefCounted(this));
       return true;
     }
 
     requesting_node_link.node()->EstablishLink(
         proxy_peer_node_name,
         [requesting_node_name = requesting_node_link.remote_node_name(),
-         proxy_peer_routing_id,
+         proxy_peer_routing_id, sequence_length_to_proxy,
          self = mem::WrapRefCounted(this)](NodeLink* new_link) {
           if (!new_link) {
             // TODO: failure to connect to a node here should result in route
@@ -861,7 +850,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
           }
 
           new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
-                                self);
+                                sequence_length_to_proxy, self);
         });
     return true;
   }
@@ -1211,7 +1200,8 @@ void Router::Flush() {
       DVLOG(4) << "Outward " << DescribeLink(outward_.decaying_link())
                << " fully decayed at outbound length "
                << *outward_.length_to_decaying_link() << " and inbound length "
-               << *outward_.length_from_decaying_link();
+               << *outward_.length_from_decaying_link() << " for router "
+               << this;
       outward_proxy_decayed = true;
       outward_.ResetDecayingLink();
     }
@@ -1412,13 +1402,10 @@ bool Router::MaybeInitiateSelfRemoval() {
     local_peer->outward_.StartDecaying(sequence_length);
     outward_.StartDecaying(absl::nullopt, sequence_length);
     inward_.StartDecaying(sequence_length);
-
-    local_peer->outward_.SetCurrentLink(new_link);
-    local_peer->outward_.set_paused(true);
   }
 
   successor->BypassProxyToSameNode(new_routing_id, sequence_length);
-  local_peer->PauseOutboundTransmission(false);
+  local_peer->SetOutwardLink(std::move(new_link));
   return true;
 }
 
@@ -1534,14 +1521,11 @@ void Router::MaybeInitiateBridgeBypass() {
                                            length_from_local_peer);
       second_bridge->bridge_->StartDecaying(absl::nullopt,
                                             length_from_local_peer);
-
-      first_local_peer->outward_.SetCurrentLink(new_link);
-      first_local_peer->outward_.set_paused(true);
     }
 
     link_to_second_peer->BypassProxyToSameNode(bypass_routing_id,
                                                length_from_local_peer);
-    first_local_peer->PauseOutboundTransmission(false);
+    first_local_peer->SetOutwardLink(std::move(new_link));
     first_bridge->Flush();
     second_bridge->Flush();
     first_local_peer->Flush();

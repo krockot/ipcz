@@ -33,9 +33,9 @@ mem::Ref<Router> DecayableLink::GetDecayingLocalPeer() const {
   return decaying_link_ ? decaying_link_->GetLocalTarget() : nullptr;
 }
 
-SequenceNumber DecayableLink::SetCurrentLink(mem::Ref<RouterLink> link) {
+void DecayableLink::SetCurrentLink(mem::Ref<RouterLink> link) {
+  ABSL_ASSERT(!current_link_);
   current_link_ = std::move(link);
-  return length_to_decaying_link_.value_or(parcels_.current_sequence_number());
 }
 
 mem::Ref<RouterLink> DecayableLink::TakeCurrentLink() {
@@ -77,10 +77,6 @@ void DecayableLink::StartDecaying(
 void DecayableLink::FlushParcels(
     absl::InlinedVector<Parcel, 2>& parcels_to_decaying_link,
     absl::InlinedVector<Parcel, 2>& parcels_to_current_link) {
-  if (paused_) {
-    return;
-  }
-
   Parcel parcel;
   while (parcels_.HasNextParcel() &&
          ShouldSendOnDecayingLink(parcels_.current_sequence_number())) {
@@ -106,7 +102,7 @@ bool DecayableLink::IsDecayFinished(
 
 bool DecayableLink::ShouldPropagateRouteClosure() const {
   return parcels_.final_sequence_length() && !closure_propagated_ &&
-         current_link_ && !paused_;
+         current_link_;
 }
 
 bool DecayableLink::ShouldSendOnDecayingLink(SequenceNumber n) const {

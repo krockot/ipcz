@@ -157,6 +157,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
+                           SequenceNumber sequence_length_to_proxy,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end will adopt side B by
@@ -166,22 +167,18 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
       AddRoute(new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
                new_peer);
 
-  // We don't want `new_peer` transmitting any outgoing parcels until we've
-  // transmitted the BypassProxy message; otherwise the parcels would arrive on
-  // an unrecognized route and be rejected.
-  new_peer->PauseOutboundTransmission(true);
-  const SequenceNumber proxied_outbound_sequence_length =
-      new_peer->SetOutwardLink(new_link);
-
   msg::BypassProxy bypass;
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.proxied_outbound_sequence_length =
-      proxied_outbound_sequence_length;
+  bypass.params.proxied_outbound_sequence_length = sequence_length_to_proxy;
   Transmit(bypass);
 
-  new_peer->PauseOutboundTransmission(false);
+  // This link is only provided after we transmit the bypass request, ensuring
+  // that `new_peer` doesn't send anything else over the link until the bypass
+  // has been accepted by the remote node.
+  new_peer->SetOutwardLink(new_link);
+
   return true;
 }
 

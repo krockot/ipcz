@@ -66,9 +66,6 @@ class Router : public mem::RefCounted {
   // Returns the total number of Routers living in the calling process.
   static size_t GetNumRoutersForTesting();
 
-  // Pauses or unpauses outbound parcel transmission.
-  void PauseOutboundTransmission(bool paused);
-
   // Returns true iff the other side of this Router's route is known to be
   // closed.
   bool IsPeerClosed();
@@ -123,14 +120,11 @@ class Router : public mem::RefCounted {
   // other side of its route. Must only be called on a Router which has no
   // outward link.
   //
-  // Returns the SequenceNumber of the first parcel that will be sent over that
-  // link if any parcels are sent over it.
-  //
   // NOTE: This is NOT safe to call when the other side of the link is already
   // in active use by another Router, as `this` Router may already be in a
   // transitional state and must be able to block decay around `link` from
   // within this call.
-  SequenceNumber SetOutwardLink(mem::Ref<RouterLink> link);
+  void SetOutwardLink(mem::Ref<RouterLink> link);
 
   // Provides the Router with a new link to which it should forward all inbound
   // parcels received from its outward link. The Router may also forward

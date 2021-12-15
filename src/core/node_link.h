@@ -14,6 +14,7 @@
 #include "core/node_name.h"
 #include "core/remote_router_link.h"
 #include "core/routing_id.h"
+#include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/memory.h"
@@ -106,6 +107,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // the source of this request.
   bool BypassProxy(const NodeName& proxy_name,
                    RoutingId proxy_routing_id,
+                   SequenceNumber sequence_length_to_proxy,
                    mem::Ref<Router> new_peer);
 
  private:

@@ -45,9 +45,6 @@ class DecayableLink {
     closure_propagated_ = propagated;
   }
 
-  bool paused() const { return paused_; }
-  void set_paused(bool paused) { paused_ = paused; }
-
   SequenceNumber sequence_length() const {
     return parcels_.GetCurrentSequenceLength();
   }
@@ -74,7 +71,7 @@ class DecayableLink {
   void ResetDecayingLink();
   mem::Ref<Router> GetLocalPeer() const;
   mem::Ref<Router> GetDecayingLocalPeer() const;
-  SequenceNumber SetCurrentLink(mem::Ref<RouterLink> link);
+  void SetCurrentLink(mem::Ref<RouterLink> link);
   mem::Ref<RouterLink> TakeCurrentLink();
   mem::Ref<RouterLink> TakeCurrentOrDecayingLink();
   bool UnblockDecay();
@@ -99,7 +96,6 @@ class DecayableLink {
   mem::Ref<RouterLink> decaying_link_;
   absl::optional<SequenceNumber> length_to_decaying_link_;
   absl::optional<SequenceNumber> length_from_decaying_link_;
-  bool paused_ = false;
   bool closure_propagated_ = false;
 };
 
