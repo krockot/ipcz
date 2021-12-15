@@ -1318,20 +1318,20 @@ void Router::Flush() {
     MaybeInitiateBridgeBypass();
   }
 
-  if (final_outward_sequence_length) {
-    outward_link->AcceptRouteClosure(*final_outward_sequence_length);
-  }
-
   if (final_inward_sequence_length) {
     inward_link->AcceptRouteClosure(*final_inward_sequence_length);
   }
 
-  if (dead_outward_link) {
-    dead_outward_link->Deactivate();
+  if (final_outward_sequence_length) {
+    outward_link->AcceptRouteClosure(*final_outward_sequence_length);
   }
 
   if (dead_inward_link) {
     dead_inward_link->Deactivate();
+  }
+
+  if (dead_outward_link) {
+    dead_outward_link->Deactivate();
   }
 }
 
