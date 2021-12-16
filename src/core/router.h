@@ -66,6 +66,9 @@ class Router : public mem::RefCounted {
   // Returns the total number of Routers living in the calling process.
   static size_t GetNumRoutersForTesting();
 
+  // Logs a description of every router instance in the calling process.
+  static void DumpAllRoutersForDebugging();
+
   // Returns true iff the other side of this Router's route is known to be
   // closed.
   bool IsPeerClosed();
@@ -126,24 +129,6 @@ class Router : public mem::RefCounted {
   // within this call.
   void SetOutwardLink(mem::Ref<RouterLink> link);
 
-  // Provides the Router with a new link to which it should forward all inbound
-  // parcels received from its outward link. The Router may also forward
-  // outbound parcels received from the new inward link to the outward link. If
-  // `decaying_link` is non-null, it is adopted as the router's decaying inward
-  // link and will be used to accept any outbound parcels up to the current
-  // outbound sequence length.
-  //
-  // TODO: This should be split into separate methods: one for BeginProxying
-  // which takes only an inward link; and one for e.g. RerouteLocalPair which
-  // takes a decaying inward link for this router and a new outward link for
-  // this router's former local peer (which at the time of the call is still
-  // linked via this router's outward link.) Right now this method does one or
-  // the other based on `descriptor.proxy_already_bypassed`, and there is very
-  // little overlap in behavior between the two cases.
-  void BeginProxying(const RouterDescriptor& inward_peer_descriptor,
-                     mem::Ref<RouterLink> link,
-                     mem::Ref<RouterLink> decaying_link);
-
   // Finalizes this Router's proxying responsibilities in either direction. Once
   // the proxy has forwarded any inbound parcels up to (but not including)
   // `inbound_sequence_length` over to its inward link, and it has forwarded any
@@ -189,11 +174,18 @@ class Router : public mem::RefCounted {
   void RemoveTrap(Trap& trap);
 
   // Serializes a description of a new Router to be introduced on a receiving
-  // node as the inward peer to this Router along the same side of its route.
-  // Also makes any necessary state changes to prepare this Router (and its
-  // local peer, if applicable) for the new remote Router's introduction.
-  mem::Ref<Router> SerializeNewInwardPeer(NodeLink& to_node_link,
-                                          RouterDescriptor& descriptor);
+  // node as an extension of this route. Also makes any necessary state changes
+  // changes to prepare `this` (and its local peer if applicable) for the new
+  // new remote router's introduction.
+  void SerializeNewRouter(NodeLink& to_node_link, RouterDescriptor& descriptor);
+
+  // Finalizes the router's new state (and its local peer's new state if
+  // applicable) after a RouterDescriptor serialized by SerializeNewRouter()
+  // above has been transmitted to its destination. This establishes links to
+  // the newly created router, as those links were not safe to establish prior
+  // to transmission of the new descriptor.
+  void BeginProxyingToNewRouter(NodeLink& to_node_link,
+                                const RouterDescriptor& descriptor);
 
   // Deserializes a new Router from `descriptor` received over `from_node_link`.
   static mem::Ref<Router> Deserialize(const RouterDescriptor& descriptor,
@@ -247,6 +239,30 @@ class Router : public mem::RefCounted {
   // initiates creation of a direct bypass link between each bridge router's
   // outward peer.
   void MaybeInitiateBridgeBypass();
+
+  // Serializes the description of a new Router to be introduced on another node
+  // to extend the route as an inward peer of `this` router. `local_peer` must
+  // be the this router's locally linked outward peer at the time of the call.
+  //
+  // If the local link between this router and `local_peer` is not in an
+  // appropriate state to support this optimized serialization path, this will
+  // return false without modifying the state of either router. In such cases,
+  // callers should fall back on the default serialization path defined by
+  // SerializeNewRouterAndConfigureProxy().
+  bool SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
+                                       RouterDescriptor& descriptor,
+                                       mem::Ref<Router> local_peer);
+
+  // Serializes the description of a new Router to be introduced on another node
+  // to extend the route as an inward peer of `this` router. This router is
+  // given a new (temporarily paused) inward peripheral link to the new router.
+  // Once the descriptor is transmitted, links are unpaused and this router's
+  // outward link may become eligible for decay. If `bypass_proxy` is true, it
+  // is safe for the serialized router to begin bypassing us immediately upon
+  // deserialization.
+  void SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
+                                           RouterDescriptor& descriptor,
+                                           bool bypass_proxy);
 
   absl::Mutex mutex_;
   DecayableLink inward_ ABSL_GUARDED_BY(mutex_);

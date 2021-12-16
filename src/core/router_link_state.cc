@@ -29,7 +29,7 @@ bool RouterLinkState::SetSideReady(LinkSide side) {
                                      std::memory_order_relaxed)) {
     return true;
   }
-  if (expected == kReady) {
+  if (expected == kReadyOnThisSide || expected == kReady) {
     return true;
   }
   if (expected != kReadyOnOtherSide) {

@@ -118,51 +118,22 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
       data + IPCZ_ALIGNED(accept.num_bytes, 16));
 
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
-  const RoutingId first_routing_id =
-      node_link()->AllocateRoutingIds(num_portals);
   std::vector<os::Handle> os_handles;
-  std::vector<mem::Ref<Router>> routers(num_portals);
-  std::vector<mem::Ref<RouterLink>> new_links(num_portals);
   os_handles.reserve(num_os_handles);
   for (size_t i = 0; i < num_portals; ++i) {
-    const RoutingId routing_id = first_routing_id + i;
-    RouterLinkState& state =
-        node_link()->buffer().router_link_state(routing_id);
-    RouterLinkState::Initialize(&state);
-    descriptors[i].new_routing_id = routing_id;
-    routers[i] = portals[i]->router();
-    mem::Ref<Router> route_listener =
-        routers[i]->SerializeNewInwardPeer(*node_link(), descriptors[i]);
-    if (descriptors[i].proxy_already_bypassed) {
-      bool ok = state.SetSideReady(LinkSide::kA);
-      ABSL_ASSERT(ok);
-      descriptors[i].new_decaying_routing_id =
-          node_link()->AllocateRoutingIds(1);
-    }
-    new_links[i] = node_link()->AddRoute(
-        routing_id, routing_id,
-        descriptors[i].proxy_already_bypassed ? LinkType::kCentral
-                                              : LinkType::kPeripheralInward,
-        LinkSide::kA, std::move(route_listener));
+    portals[i]->router()->SerializeNewRouter(*node_link(), descriptors[i]);
   }
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
                         parcel.os_handles_view());
 
   for (size_t i = 0; i < num_portals; ++i) {
-    mem::Ref<RouterLink> decaying_link;
-    if (descriptors[i].proxy_already_bypassed) {
-      decaying_link = node_link()->AddRoute(
-          descriptors[i].new_decaying_routing_id,
-          descriptors[i].new_decaying_routing_id, LinkType::kPeripheralInward,
-          LinkSide::kA, routers[i]);
-    }
-    routers[i]->BeginProxying(descriptors[i], std::move(new_links[i]),
-                              std::move(decaying_link));
-
-    // It's important to reset references to any transferred portals, because
-    // parcels when destroyed will close any non-null attached portals.
-    portals[i].reset();
+    // It's important to move out references to any transferred portals, because
+    // when a parcel is destroyed, it will attempt to close any non-null portals
+    // it has. Transferred portals should be forgotten, not closed.
+    mem::Ref<Portal> doomed_portal = std::move(portals[i]);
+    doomed_portal->router()->BeginProxyingToNewRouter(*node_link(),
+                                                      descriptors[i]);
   }
 }
 

@@ -69,6 +69,8 @@ void DecayableLink::StartDecayingWithLink(
     absl::optional<SequenceNumber> length_from_link) {
   ABSL_ASSERT(!decaying_link_);
   decaying_link_ = std::move(link);
+  ABSL_ASSERT(!length_to_decaying_link_);
+  ABSL_ASSERT(!length_from_decaying_link_);
   length_to_decaying_link_ = length_to_link;
   length_from_decaying_link_ = length_from_link;
 }

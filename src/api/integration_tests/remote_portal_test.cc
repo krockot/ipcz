@@ -106,9 +106,16 @@ TEST_P(RemotePortalTest, TransferManyLocalPortals) {
     ClosePortals({d, f});
   }
 
-  while (GetNumRouters() > 2) {
+  // TODO: remove this hack. force a crash if any proxies are left behind, and
+  // and log a description of every existing router before crashing.
+  size_t n = 1000;
+  while (GetNumRouters() > 2 && --n) {
     VerifyEndToEnd(a, b);
   }
+  if (GetNumRouters() > 2) {
+    DumpAllRouters();
+  }
+  ABSL_ASSERT(GetNumRouters() == 2);
 
   ClosePortals({a, b});
   DestroyNodes({node, other_node});

@@ -34,6 +34,18 @@ class RouterLink;
 
 class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  public:
+  struct Route {
+    Route(mem::Ref<RemoteRouterLink> link, mem::Ref<Router> receiver);
+    Route(Route&&);
+    Route(const Route&);
+    Route& operator=(Route&&);
+    Route& operator=(const Route&);
+    ~Route();
+
+    mem::Ref<RemoteRouterLink> link;
+    mem::Ref<Router> receiver;
+  };
+
   NodeLink(mem::Ref<Node> node,
            const NodeName& local_node_name,
            const NodeName& remote_node_name,
@@ -71,7 +83,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // received for that routing ID are ignored.
   bool RemoveRoute(RoutingId routing_id);
 
-  // Retrieves the Router currently bound to `routing_id` on this NodeLink.
+  // Retrieves the Router and RemoteRouterLink currently bound to `routing_id`
+  // on this NodeLink.
+  absl::optional<Route> GetRoute(RoutingId routing_id);
+
+  // Retrieves only the Router currently bound to `routing_id` on this NodeLink.
   mem::Ref<Router> GetRouter(RoutingId routing_id);
 
   // Permanently deactivates this NodeLink. Once this call returns the NodeLink
@@ -112,20 +128,6 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
  private:
   ~NodeLink() override;
-
-  struct Route {
-    Route(mem::Ref<RemoteRouterLink> link, mem::Ref<Router> receiver);
-    Route(Route&&);
-    Route(const Route&);
-    Route& operator=(Route&&);
-    Route& operator=(const Route&);
-    ~Route();
-
-    mem::Ref<RemoteRouterLink> link;
-    mem::Ref<Router> receiver;
-  };
-
-  absl::optional<Route> GetRoute(RoutingId routing_id);
 
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(

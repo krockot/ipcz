@@ -76,6 +76,15 @@ bool NodeLink::RemoveRoute(RoutingId routing_id) {
   return true;
 }
 
+absl::optional<NodeLink::Route> NodeLink::GetRoute(RoutingId routing_id) {
+  absl::MutexLock lock(&mutex_);
+  auto it = routes_.find(routing_id);
+  if (it == routes_.end()) {
+    return absl::nullopt;
+  }
+  return it->second;
+}
+
 mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
   absl::MutexLock lock(&mutex_);
   auto it = routes_.find(routing_id);
@@ -180,15 +189,6 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   new_peer->SetOutwardLink(new_link);
 
   return true;
-}
-
-absl::optional<NodeLink::Route> NodeLink::GetRoute(RoutingId routing_id) {
-  absl::MutexLock lock(&mutex_);
-  auto it = routes_.find(routing_id);
-  if (it == routes_.end()) {
-    return absl::nullopt;
-  }
-  return it->second;
 }
 
 IpczResult NodeLink::OnTransportMessage(

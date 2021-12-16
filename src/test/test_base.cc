@@ -189,5 +189,10 @@ size_t TestBase::GetNumRouters() {
   return core::Router::GetNumRoutersForTesting();
 }
 
+// static
+void TestBase::DumpAllRouters() {
+  return core::Router::DumpAllRoutersForDebugging();
+}
+
 }  // namespace test
 }  // namespace ipcz

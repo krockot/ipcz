@@ -78,6 +78,7 @@ class TestBase : public testing::Test {
   bool PortalsAreLocalPeers(IpczHandle a, IpczHandle b);
   void LogPortalRoute(IpczHandle a);
   static size_t GetNumRouters();
+  static void DumpAllRouters();
 };
 
 }  // namespace test
