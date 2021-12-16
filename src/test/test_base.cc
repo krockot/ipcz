@@ -9,6 +9,7 @@
 
 #include "core/portal.h"
 #include "core/router.h"
+#include "core/router_tracker.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/event.h"
@@ -33,7 +34,7 @@ TestBase::TestBase() {
 }
 
 TestBase::~TestBase() {
-  ABSL_ASSERT(core::Router::GetNumRoutersForTesting() == 0);
+  ABSL_ASSERT(core::RouterTracker::GetNumRouters() == 0);
 }
 
 IpczHandle TestBase::ConnectNode(IpczHandle node,
@@ -186,12 +187,12 @@ void TestBase::LogPortalRoute(IpczHandle a) {
 
 // static
 size_t TestBase::GetNumRouters() {
-  return core::Router::GetNumRoutersForTesting();
+  return core::RouterTracker::GetNumRouters();
 }
 
 // static
 void TestBase::DumpAllRouters() {
-  return core::Router::DumpAllRoutersForDebugging();
+  return core::RouterTracker::DumpRouters();
 }
 
 }  // namespace test

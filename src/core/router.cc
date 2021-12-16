@@ -5,7 +5,6 @@
 #include "core/router.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <set>
@@ -24,6 +23,7 @@
 #include "core/router_descriptor.h"
 #include "core/router_link.h"
 #include "core/router_link_state.h"
+#include "core/router_tracker.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/trap.h"
@@ -60,66 +60,14 @@ std::string DescribeOptionalLength(absl::optional<SequenceNumber> length) {
   return "none";
 }
 
-#ifdef NDEBUG
-inline void TrackRouterForDebugging(Router* router) {}
-inline void UntrackRouterForDebugging(Router* router) {}
-inline void DumpRoutersForDebugging() {}
-#else
-struct RouterTracker {
-  RouterTracker() = default;
-  absl::Mutex mutex;
-  std::set<Router*> routers;
-};
-
-RouterTracker& GetRouterTracker() {
-  static uint8_t storage[sizeof(RouterTracker)];
-  static RouterTracker* tracker = new (&storage[0]) RouterTracker();
-  return *tracker;
-}
-
-void TrackRouterForDebugging(Router* router) {
-  RouterTracker& tracker = GetRouterTracker();
-  absl::MutexLock lock(&tracker.mutex);
-  tracker.routers.insert(router);
-}
-
-void UntrackRouterForDebugging(Router* router) {
-  RouterTracker& tracker = GetRouterTracker();
-  absl::MutexLock lock(&tracker.mutex);
-  tracker.routers.erase(router);
-}
-
-void DumpRoutersForDebugging() {
-  RouterTracker& tracker = GetRouterTracker();
-  absl::MutexLock lock(&tracker.mutex);
-  for (Router* router : tracker.routers) {
-    router->LogDescription();
-  }
-}
-#endif
-
-std::atomic<size_t> g_num_routers{0};
-
 }  // namespace
 
 Router::Router() {
-  ++g_num_routers;
-  TrackRouterForDebugging(this);
+  RouterTracker::Track(this);
 }
 
 Router::~Router() {
-  --g_num_routers;
-  UntrackRouterForDebugging(this);
-}
-
-// static
-size_t Router::GetNumRoutersForTesting() {
-  return g_num_routers;
-}
-
-// static
-void Router::DumpAllRoutersForDebugging() {
-  DumpRoutersForDebugging();
+  RouterTracker::Untrack(this);
 }
 
 bool Router::IsPeerClosed() {
