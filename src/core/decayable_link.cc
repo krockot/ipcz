@@ -35,7 +35,13 @@ mem::Ref<Router> DecayableLink::GetDecayingLocalPeer() const {
 
 void DecayableLink::SetCurrentLink(mem::Ref<RouterLink> link) {
   ABSL_ASSERT(!current_link_);
-  current_link_ = std::move(link);
+  if (!decaying_link_ &&
+      (length_to_decaying_link_ || length_from_decaying_link_)) {
+    // Decay was started without a link. This link should go straight to decay.
+    decaying_link_ = std::move(link);
+  } else {
+    current_link_ = std::move(link);
+  }
 }
 
 mem::Ref<RouterLink> DecayableLink::TakeCurrentLink() {
