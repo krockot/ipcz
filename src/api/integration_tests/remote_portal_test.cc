@@ -9,9 +9,6 @@
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-#include <chrono>
-#include <thread>
-
 namespace ipcz {
 namespace {
 
@@ -23,23 +20,10 @@ TEST_P(RemotePortalTest, BasicConnection) {
   IpczHandle other_node = CreateNonBrokerNode();
   Connect(node, other_node, &a, &b);
 
-  const std::string kMessageFromA = "hello!";
-  const std::string kMessageFromB = "hey hey";
-  Put(a, kMessageFromA, {}, {});
-  Put(b, kMessageFromB, {}, {});
+  VerifyEndToEnd(a, b);
+  EXPECT_EQ(2u, GetNumRouters());
 
-  Parcel a_parcel;
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, a_parcel));
-  EXPECT_EQ(kMessageFromB, a_parcel.message);
-
-  Parcel b_parcel;
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, b_parcel));
-  EXPECT_EQ(kMessageFromA, b_parcel.message);
-
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(b, b_parcel));
-
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  ClosePortals({a, b});
   DestroyNodes({node, other_node});
 }
 
@@ -74,6 +58,10 @@ TEST_P(RemotePortalTest, TransferLocalPortal) {
   Parcel d_parcel;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, d_parcel));
   EXPECT_EQ(kMessageFromC, d_parcel.message);
+
+  while (GetNumRouters() > 2) {
+    VerifyEndToEnd(c, d);
+  }
 
   ClosePortals({c, d});
   DestroyNodes({node, other_node});
@@ -118,6 +106,10 @@ TEST_P(RemotePortalTest, TransferManyLocalPortals) {
     ClosePortals({d, f});
   }
 
+  while (GetNumRouters() > 2) {
+    VerifyEndToEnd(a, b);
+  }
+
   ClosePortals({a, b});
   DestroyNodes({node, other_node});
 }
@@ -159,7 +151,13 @@ TEST_P(RemotePortalTest, MultipleHops) {
     EXPECT_EQ("nerp", p.message);
   }
 
-  ClosePortals({a, b, c, d, e, f2});
+  ClosePortals({a, b, c, d});
+
+  while (GetNumRouters() > 2) {
+    VerifyEndToEnd(e, f2);
+  }
+
+  ClosePortals({e, f2});
   DestroyNodes({node0, node1, node2});
 }
 
@@ -255,18 +253,9 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
-  size_t count = 0;
-  while (!PortalsAreLocalPeers(c, d)) {
-    ++count;
-    if (count % 10 == 0) {
-      using namespace std::chrono_literals;
-      std::this_thread::sleep_for(1s);
-      LogPortalRoute(c);
-      std::this_thread::sleep_for(1s);
-    }
+  while (!PortalsAreLocalPeers(c, d) || GetNumRouters() > 4) {
     VerifyEndToEnd(c, d);
   }
-  VerifyEndToEnd(c, d);
 
   ClosePortals({a, b, c, d});
   DestroyNodes({node, other_node});
@@ -317,7 +306,7 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
     b = p.portals[0];
   }
 
-  while (!PortalsAreLocalPeers(a, b)) {
+  while (!PortalsAreLocalPeers(a, b) || GetNumRouters() > (2 + kNumHops * 4)) {
     VerifyEndToEnd(a, b);
   }
   VerifyEndToEnd(a, b);
@@ -415,11 +404,13 @@ TEST_P(RemotePortalTest, LocalProxyBypass) {
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(p, parcel));
   EXPECT_EQ("hello", parcel.message);
 
-  while (!PortalsAreLocalPeers(q, p)) {
+  ClosePortals({a, b, c, d});
+
+  while (!PortalsAreLocalPeers(q, p) || GetNumRouters() > 2) {
     VerifyEndToEnd(q, p);
   }
 
-  ClosePortals({q, p, a, b, c, d});
+  ClosePortals({q, p});
   DestroyNodes({node_0, node_1, node_2});
 }
 
@@ -448,12 +439,13 @@ TEST_P(RemotePortalTest, SendPortalPair) {
   IpczHandle c = p.portals[0];
   IpczHandle d = p.portals[1];
 
-  while (!PortalsAreLocalPeers(c, d)) {
+  ClosePortals({a, b});
+
+  while (!PortalsAreLocalPeers(c, d) || GetNumRouters() > 2) {
     VerifyEndToEnd(c, d);
   }
-  VerifyEndToEnd(c, d);
 
-  ClosePortals({a, b, c, d});
+  ClosePortals({c, d});
   DestroyNodes({node, other_node});
 }
 
