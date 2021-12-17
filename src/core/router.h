@@ -11,11 +11,11 @@
 #include <utility>
 #include <vector>
 
-#include "core/decayable_link.h"
 #include "core/direction.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
+#include "core/route_edge.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "core/trap.h"
@@ -85,10 +85,6 @@ class Router : public mem::RefCounted {
   // Returns true iff this Router's outward link is a LocalRouterLink between
   // `this` and `other`.
   bool HasLocalPeer(const mem::Ref<Router>& other);
-
-  // A stricter version of HasLocalPeer() which requires both routers to be
-  // terminal routers with no decaying links.
-  bool HasStableLocalPeer(const mem::Ref<Router>& other);
 
   // Returns true iff sending a parcel of `data_size` towards the other side of
   // the route may exceed the specified `limits` on the receiving end.
@@ -203,7 +199,7 @@ class Router : public mem::RefCounted {
       SequenceNumber sequence_length_from_proxy);
   bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
   bool OnProxyWillStop(SequenceNumber sequence_length);
-  bool OnDecayUnblocked();
+  bool OnBypassPossible();
 
   // Logs a detailed description of this router for debugging.
   void LogDescription();
@@ -257,24 +253,50 @@ class Router : public mem::RefCounted {
   // to extend the route as an inward peer of `this` router. This router is
   // given a new (temporarily paused) inward peripheral link to the new router.
   // Once the descriptor is transmitted, links are unpaused and this router's
-  // outward link may become eligible for decay. If `bypass_proxy` is true, it
-  // is safe for the serialized router to begin bypassing us immediately upon
+  // outward link may become eligible for decay. If `can_bypass_proxy` is true,
+  // it is safe for the serialized router to begin bypassing us immediately upon
   // deserialization.
   void SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
                                            RouterDescriptor& descriptor,
-                                           bool bypass_proxy);
+                                           bool initiate_proxy_bypass);
 
   absl::Mutex mutex_;
-  DecayableLink inward_ ABSL_GUARDED_BY(mutex_);
-  DecayableLink outward_ ABSL_GUARDED_BY(mutex_);
+
+  // The current computed portal status to be reflected by a portal controlling
+  // this router, iff this is a terminal router.
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
+
+  // A set of traps installed by a controlling portal where applicable. These
+  // traps are notified about any interesting state changes within the router so
+  // that the application's event handlers can be invoked accordingly.
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
+
+  // An edge connceting this router outward to another router closer to the
+  // terminal router on the opposite side of the route.
+  RouteEdge outward_edge_ ABSL_GUARDED_BY(mutex_);
+
+  // Parcels transmitted directly from this router (if sent by a controlling
+  // portal) or received from an inward peer which sent them outward toward us.
+  // These parcels are forwarded along `outward_edge_` whenever feasible.
+  ParcelQueue outbound_parcels_ ABSL_GUARDED_BY(mutex_);
+
+  // An edge connecting this router inward to another router closer to the
+  // terminal router on this side of the route. Null if and only if this is a
+  // terminal router.
+  absl::optional<RouteEdge> inward_edge_ ABSL_GUARDED_BY(mutex_);
+
+  // Parcels received from the other end of the route. If this is a terminal
+  // router, these may be retreived by the application via a controlling portal.
+  // Otherwise they will be forwarded over `inward_edge_` whenever feasible.
+  ParcelQueue inbound_parcels_ ABSL_GUARDED_BY(mutex_);
 
   // Link used only if this router has been merged with another, which is a
   // relatively rare operation. This link proxies parcels between two separate
   // routes and uses a specialized bypass operation to eliminate itself over
-  // time.
-  std::unique_ptr<DecayableLink> bridge_ ABSL_GUARDED_BY(mutex_);
+  // time. This is essentially treated as an inward edge, but it also acts as
+  // a boundary between successive routes, allowing each bridged route to be
+  // reduced independently in parallel before eliminating the bridge itself.
+  std::unique_ptr<RouteEdge> bridge_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

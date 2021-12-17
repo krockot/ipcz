@@ -95,9 +95,10 @@ mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
 }
 
 void NodeLink::Deactivate() {
+  RouteMap routes;
   {
     absl::MutexLock lock(&mutex_);
-    routes_.clear();
+    routes = std::move(routes_);
     if (!active_) {
       return;
     }
@@ -105,6 +106,7 @@ void NodeLink::Deactivate() {
     active_ = false;
   }
 
+  routes.clear();
   transport_->Deactivate();
 }
 
@@ -274,9 +276,9 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    case msg::DecayUnblocked::kId: {
-      msg::DecayUnblocked unblocked;
-      if (unblocked.Deserialize(message) && OnDecayUnblocked(unblocked)) {
+    case msg::NotifyBypassPossible::kId: {
+      msg::NotifyBypassPossible notify;
+      if (notify.Deserialize(message) && OnNotifyBypassPossible(notify)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -341,9 +343,13 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   const LinkType link_type = route->link->GetType();
   if (link_type == LinkType::kCentral ||
       link_type == LinkType::kPeripheralOutward) {
+    DVLOG(4) << "Accepting inbound " << parcel.Describe() << " at "
+             << route->link->Describe();
     return route->receiver->AcceptInboundParcel(parcel);
   } else {
     ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
+    DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
+             << route->link->Describe();
     return route->receiver->AcceptOutboundParcel(parcel);
   }
 }
@@ -450,13 +456,13 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
   return router->OnProxyWillStop(will_stop.params.sequence_length);
 }
 
-bool NodeLink::OnDecayUnblocked(const msg::DecayUnblocked& unblocked) {
-  mem::Ref<Router> router = GetRouter(unblocked.params.routing_id);
+bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
+  mem::Ref<Router> router = GetRouter(notify.params.routing_id);
   if (!router) {
     return true;
   }
 
-  return router->OnDecayUnblocked();
+  return router->OnBypassPossible();
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {

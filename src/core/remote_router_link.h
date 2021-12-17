@@ -47,10 +47,10 @@ class RemoteRouterLink : public RouterLink {
   LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
-  bool CanDecay() override;
-  bool SetSideCanDecay() override;
-  bool MaybeBeginDecay(const NodeName& bypass_request_source) override;
-  bool CancelDecay() override;
+  bool CanLockForBypass() override;
+  bool SetSideCanSupportBypass() override;
+  bool TryToLockForBypass(const NodeName& bypass_request_source) override;
+  bool CancelBypassLock() override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
@@ -64,7 +64,7 @@ class RemoteRouterLink : public RouterLink {
   void BypassProxyToSameNode(RoutingId new_routing_id,
                              SequenceNumber sequence_length) override;
   void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
-  void DecayUnblocked() override;
+  void NotifyBypassPossible() override;
   void Deactivate() override;
   std::string Describe() const override;
   void LogRouteTrace() override;

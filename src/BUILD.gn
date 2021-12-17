@@ -79,8 +79,6 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
-    "core/decayable_link.cc",
-    "core/decayable_link.h",
     "core/direction.cc",
     "core/direction.h",
     "core/driver_transport.cc",
@@ -125,6 +123,8 @@ source_set("core") {
     "core/portal.h",
     "core/remote_router_link.cc",
     "core/remote_router_link.h",
+    "core/route_edge.cc",
+    "core/route_edge.h",
     "core/router.cc",
     "core/router.h",
     "core/router_descriptor.cc",

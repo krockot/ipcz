@@ -144,7 +144,10 @@ IPCZ_MSG_NO_REPLY(StopProxyingToLocalPeer, IPCZ_MSG_ID(17), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
 IPCZ_MSG_END()
 
-IPCZ_MSG_NO_REPLY(DecayUnblocked, IPCZ_MSG_ID(18), IPCZ_MSG_VERSION(0))
+// Notifies the target router that bypass of its outward link may be possible.
+// This may be sent to catalyze route reduction in some cases where the router
+// in question could otherwise fail indefinitely to notice a bypass opportunity.
+IPCZ_MSG_NO_REPLY(NotifyBypassPossible, IPCZ_MSG_ID(18), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
 IPCZ_MSG_END()
 

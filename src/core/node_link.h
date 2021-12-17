@@ -145,7 +145,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);
   bool OnStopProxyingToLocalPeer(const msg::StopProxyingToLocalPeer& stop);
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
-  bool OnDecayUnblocked(const msg::DecayUnblocked& unblocked);
+  bool OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
 
   const mem::Ref<Node> node_;
@@ -158,7 +158,9 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   absl::Mutex mutex_;
   bool active_ = true;
-  absl::flat_hash_map<RoutingId, Route> routes_ ABSL_GUARDED_BY(mutex_);
+
+  using RouteMap = absl::flat_hash_map<RoutingId, Route>;
+  RouteMap routes_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

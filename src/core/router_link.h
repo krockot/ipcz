@@ -43,48 +43,53 @@ class RouterLink : public mem::RefCounted {
   // lives on a different node from the Router on this side.
   virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;
 
-  // Indicates whether this link is in a stable state suitable for decay from
-  // one side or the other. This means it exists as a router's outward link, it
-  // is a central link, the router has no decaying outward link, and the other
-  // side of the link has not already started to decay. A proxying router with a
-  // link in this state may attempt to initiate its own bypass and eventual
-  // removal from the route, starting with MaybeBeginDecay().
-  virtual bool CanDecay() = 0;
+  // Indicates whether this link is in a stable state suitable for initiating
+  // bypass from one side or the other. This means it exists as a router's
+  // outward link, it is a central link, the neither side has decaying links,
+  // and the other side hasn't already locked the link for bypass. A proxying
+  // router with a link in this state may lock the link for bypass by calling
+  // TryToLockForBypass(). Once locked, it's safe for the router to coordinate
+  // with other routers and have itself bypassed.
+  virtual bool CanLockForBypass() = 0;
 
-  // Signals that this side of the link is in a stable state suitable for decay.
-  // Only once both sides of a logical link signal this condition can either
-  // side observe CanDecay() as true.
-  virtual bool SetSideCanDecay() = 0;
+  // Signals that this side of the link is in a stable state suitable for one
+  // side or the other to lock it for bypass. Only once both sides agree to
+  // allow bypass can either side observe CanLockForBypass() as true.
+  virtual bool SetSideCanSupportBypass() = 0;
 
-  // Attempts to mark this side of the link for decay. Returns true if and only
-  // if successful. This call can only succeed if CanDecay() was true at the
-  // time of the call. If successful, CanDecay() will never return true again
-  // for either side of this link. This allows the initiating router to
-  // coordinate its own bypass with a new mutually outward link between its
-  // inward and outward peers, without risk of the outward peer trying to
-  // initiate its own bypass at the same time.
+  // Attempts to lock the link for the router on this side to coordinate its own
+  // bypass. Returns true if and only if successful, meaning the link is locked
+  // and it's safe for the router who locked it to coordinate its own bypass by
+  // providing its inward and outward peers with a new central link over which
+  // they may communicate directly.
   //
-  // On success, `bypass_request_source` is also stashed in the link's shared
+  // This call can only succeed if CanLockForBypass() was true at the time of
+  // the call. Once locked, CanLockForBypass() will never return true again for
+  // either side of this link unless CancelBypassLock() is called.
+  //
+  // On success, `bypass_request_source` is also stashed in this link's shared
   // state so that the other side of the link can authenticate a bypass request
   // coming from that node. This parameter may be omitted if the bypass does not
-  // not require authentication.
-  virtual bool MaybeBeginDecay(const NodeName& bypass_request_source = {}) = 0;
+  // not require authentication, e.g. because the requesting inward peer's node
+  // is the same as the proxy's own node, or that of the proxy's current outward
+  // peer.
+  virtual bool TryToLockForBypass(
+      const NodeName& bypass_request_source = {}) = 0;
 
-  // Cancels a decay process that was initiated by either side of the link.
-  // Only valid to call when one side or the other has successfully called
-  // MaybeBeginDecay(). After completion, CanDecay() may once again be true.
-  virtual bool CancelDecay() = 0;
+  // Unlocks a link previously locked for bypass by a successful call to
+  // TryToLockForBypass(). If this returns with success, CanLockForBypass() may
+  // once again return true on either side of the link.
+  virtual bool CancelBypassLock() = 0;
 
   // Indicates whether this link can be bypassed by a request from the named
-  // node to one side of the link. True if and only if the other side of this
-  // link has already begun to decay, AND `bypass_request_source` matches the
-  // NodeName already stored in this link's shared state by the proxy on the
-  // other side of the link.
+  // node to one side of the link. True if and only if the proxy on the other
+  // side of this link has already initiated bypass and `bypass_request_source`
+  // matches the NodeName it stored in this link's shared state at that time.
   virtual bool CanNodeRequestBypass(const NodeName& bypass_request_source) = 0;
 
   // Indicates an imperfect estimation of whether or not putting a parcel with
   // `data_size` bytes of data onto this link may ultimately cause the eventual
-  // (terminal) destination Router to exceed queue limits specified in `limits`.
+  // destination router to any exceed queue limits specified in `limits`.
   virtual bool WouldParcelExceedLimits(size_t data_size,
                                        const IpczPutLimits& limits) = 0;
 
@@ -148,10 +153,14 @@ class RouterLink : public mem::RefCounted {
   virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
 
   // Informs the Router on the other side of this link that the link is now
-  // fully ready to support further decay. Sent only if this side of the link
-  // was the last side to become ready, and it does not need to decay itself
-  // further.
-  virtual void DecayUnblocked() = 0;
+  // fully ready to support bypass if necessary. Sent only if this side of the
+  // link was the last side to become ready, and this side does not want to
+  // initiate bypass itself.
+  //
+  // TODO: we should be able to use shared state to reliably indicate whether
+  // it's worth sending this notification. otherwise we're forced to send it in
+  // a bunch of potentially redundant cases.
+  virtual void NotifyBypassPossible() = 0;
 
   // Deactivates the link, ensuring that it no longer facilitates new calls
   // arriving for its associated Router.
@@ -160,9 +169,10 @@ class RouterLink : public mem::RefCounted {
   // Verbosely describes this link for debug logging.
   virtual std::string Describe() const = 0;
 
-  // Asynchronously and verbosely logs a description of every Router along this
-  // link, from the Router on the other side of this link, to the terminal
-  // Router on the identified route side relative to the calling Router.
+  // Asynchronously and verbosely logs a description of every router along this
+  // link, starting from the Router on the other side of this link and
+  // continuing along the route in that direction until a terminal router is
+  // reached.
   virtual void LogRouteTrace() = 0;
 
  protected:

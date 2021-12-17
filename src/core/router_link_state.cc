@@ -39,24 +39,31 @@ bool RouterLinkState::SetSideReady(LinkSide side) {
                                         std::memory_order_relaxed);
 }
 
-bool RouterLinkState::TryToDecay(LinkSide side) {
-  const Status kDecayOnThisSide = side == LinkSide::kA ? kDecayOnA : kDecayOnB;
+bool RouterLinkState::TryToLockForBypass(LinkSide side) {
+  const Status kLockedByThisSide =
+      side == LinkSide::kA ? kLockedByA : kLockedByB;
   Status expected = Status::kReady;
-  return status.compare_exchange_strong(expected, kDecayOnThisSide,
+  return status.compare_exchange_strong(expected, kLockedByThisSide,
                                         std::memory_order_relaxed);
 }
 
-bool RouterLinkState::CancelDecay() {
-  Status expected = kDecayOnA;
+bool RouterLinkState::CancelBypassLock() {
+  Status expected = kLockedByA;
   if (status.compare_exchange_strong(expected, kReady,
                                      std::memory_order_relaxed)) {
     return true;
   }
-  if (expected != kDecayOnB) {
+  if (expected == kReady) {
+    return true;
+  }
+  if (expected != kLockedByB) {
     return false;
   }
-  return status.compare_exchange_strong(expected, kReady,
-                                        std::memory_order_relaxed);
+  if (status.compare_exchange_strong(expected, kReady,
+                                     std::memory_order_relaxed)) {
+    return true;
+  }
+  return expected == kReady;
 }
 
 }  // namespace core

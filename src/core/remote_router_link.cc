@@ -20,6 +20,7 @@
 #include "core/router_descriptor.h"
 #include "core/router_link_state.h"
 #include "core/routing_id.h"
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -56,35 +57,37 @@ bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
   return node_link_.get() == &node_link && routing_id_ == routing_id;
 }
 
-bool RemoteRouterLink::CanDecay() {
+bool RemoteRouterLink::CanLockForBypass() {
   RouterLinkState* state = GetLinkState();
   return state && state->is_link_ready();
 }
 
-bool RemoteRouterLink::SetSideCanDecay() {
+bool RemoteRouterLink::SetSideCanSupportBypass() {
   RouterLinkState* state = GetLinkState();
   return state && state->SetSideReady(side_);
 }
 
-bool RemoteRouterLink::MaybeBeginDecay(const NodeName& bypass_request_source) {
+bool RemoteRouterLink::TryToLockForBypass(
+    const NodeName& bypass_request_source) {
   RouterLinkState* state = GetLinkState();
-  if (!state || !state->TryToDecay(side_)) {
+  if (!state || !state->TryToLockForBypass(side_)) {
     return false;
   }
 
   state->allowed_bypass_request_source = bypass_request_source;
+  std::atomic_thread_fence(std::memory_order_release);
   return true;
 }
 
-bool RemoteRouterLink::CancelDecay() {
+bool RemoteRouterLink::CancelBypassLock() {
   RouterLinkState* state = GetLinkState();
-  return state && state->CancelDecay();
+  return state && state->CancelBypassLock();
 }
 
 bool RemoteRouterLink::CanNodeRequestBypass(
     const NodeName& bypass_request_source) {
   RouterLinkState* state = GetLinkState();
-  return state && state->is_decaying(side_.opposite()) &&
+  return state && state->is_locked_by(side_.opposite()) &&
          state->allowed_bypass_request_source == bypass_request_source;
 }
 
@@ -123,6 +126,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   for (size_t i = 0; i < num_portals; ++i) {
     portals[i]->router()->SerializeNewRouter(*node_link(), descriptors[i]);
   }
+
+  DVLOG(4) << "Transmitting " << parcel.Describe() << " over " << Describe();
 
   node_link()->Transmit(absl::MakeSpan(serialized_data),
                         parcel.os_handles_view());
@@ -186,8 +191,8 @@ void RemoteRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
   node_link()->Transmit(will_stop);
 }
 
-void RemoteRouterLink::DecayUnblocked() {
-  msg::DecayUnblocked unblocked;
+void RemoteRouterLink::NotifyBypassPossible() {
+  msg::NotifyBypassPossible unblocked;
   unblocked.params.routing_id = routing_id_;
   node_link()->Transmit(unblocked);
 }
