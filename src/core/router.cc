@@ -641,8 +641,7 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
       DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.local_node_name().ToString()
-               << " via routing ID " << descriptor.new_routing_id << " uh "
-               << descriptor.proxy_peer_node_name.is_valid();
+               << " via routing ID " << descriptor.new_routing_id;
     }
   }
 

@@ -178,6 +178,11 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
       AddRoute(new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
                new_peer);
 
+  DVLOG(4) << "Sending BypassProxy from " << local_node_name_.ToString()
+           << " to " << remote_node_name_.ToString() << " with new routing ID "
+           << new_routing_id << " to replace its link to proxy "
+           << proxy_name.ToString() << " on routing ID " << proxy_routing_id;
+
   msg::BypassProxy bypass;
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
