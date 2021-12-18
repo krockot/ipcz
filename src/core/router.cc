@@ -1326,6 +1326,9 @@ void Router::MaybeInitiateBridgeBypass() {
     TwoMutexLock lock(&mutex_, &second_bridge->mutex_);
     link_to_first_peer = outward_edge_.primary_link();
     link_to_second_peer = second_bridge->outward_edge_.primary_link();
+    if (!link_to_first_peer || !link_to_second_peer) {
+      return;
+    }
 
     first_local_peer = link_to_first_peer->GetLocalTarget();
     second_local_peer = link_to_second_peer->GetLocalTarget();
