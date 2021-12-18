@@ -66,6 +66,7 @@ TEST_F(BeginPutAPITest, ParcelLimit) {
 
   IpczPutLimits limits = {sizeof(limits)};
   limits.max_queued_parcels = 2;
+  limits.max_queued_bytes = 0xfffffffful;
   IpczBeginPutOptions options = {sizeof(options)};
   options.limits = &limits;
 
@@ -100,6 +101,7 @@ TEST_F(BeginPutAPITest, DataLimit) {
             ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
 
   IpczPutLimits limits = {sizeof(limits)};
+  limits.max_queued_parcels = 0xfffffffful;
   limits.max_queued_bytes = 8;
   IpczBeginPutOptions options = {sizeof(options)};
   options.limits = &limits;
