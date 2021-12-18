@@ -47,8 +47,10 @@ class RouteEdge {
   const mem::Ref<RouterLink>& decaying_link() const { return decaying_link_; }
 
   // Indicates whether this edge is stable, meaning it is not currently decaying
-  // a link.
-  bool is_stable() const { return !decaying_link_ && !was_decay_deferred_; }
+  // a link and it has a valid primary link.
+  bool is_stable() const {
+    return primary_link_ && !decaying_link_ && !was_decay_deferred_;
+  }
 
   // Indicates whether this edge is exclusively decaying with no replacement
   // primary link anticipated. This means it's on its way out of existence.

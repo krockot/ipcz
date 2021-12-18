@@ -1463,7 +1463,7 @@ void Router::MaybeInitiateBridgeBypass() {
 bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
                                              RouterDescriptor& descriptor,
                                              mem::Ref<Router> local_peer) {
-  SequenceNumber proxied_length_from_local_peer;
+  SequenceNumber proxy_inbound_sequence_length;
   {
     TwoMutexLock lock(&mutex_, &local_peer->mutex_);
     if (local_peer->outward_edge_.GetLocalPeer() != this) {
@@ -1471,7 +1471,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
       return false;
     }
 
-    proxied_length_from_local_peer =
+    proxy_inbound_sequence_length =
         local_peer->outbound_parcels_.current_sequence_number();
 
     // The local peer no longer needs its link to us. We'll give it a new
@@ -1516,7 +1516,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
       outbound_parcels_.current_sequence_number();
   descriptor.next_incoming_sequence_number =
       inbound_parcels_.current_sequence_number();
-  descriptor.decaying_incoming_sequence_length = proxied_length_from_local_peer;
+  descriptor.decaying_incoming_sequence_length = proxy_inbound_sequence_length;
 
   DVLOG(4) << "Splitting local pair to move router with outbound sequence "
            << "length " << descriptor.next_outgoing_sequence_number
@@ -1533,7 +1533,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
   // Initialize an inward edge that will immediately begin decaying once it has
   // a link (established in BeginProxyingToNewRouter()).
   inward_edge_.emplace();
-  inward_edge_->StartDecaying(proxied_length_from_local_peer,
+  inward_edge_->StartDecaying(proxy_inbound_sequence_length,
                               outbound_parcels_.current_sequence_number());
   return true;
 }
@@ -1555,10 +1555,18 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
              << " and current inbound sequence number "
              << descriptor.next_incoming_sequence_number;
 
+    // A new link will be assigned to this edge in BeginProxyingToNewRouter().
+    inward_edge_.emplace();
+
     if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
       descriptor.peer_closed = true;
       descriptor.closed_peer_sequence_length =
           *inbound_parcels_.final_sequence_length();
+
+      // Ensure that the new edge is decayed immediately sine we know it won't
+      // be used.
+      inward_edge_->StartDecaying(*inbound_parcels_.final_sequence_length(),
+                                  outbound_parcels_.current_sequence_number());
     } else if (initiate_proxy_bypass && !outward_edge_.GetLocalPeer()) {
       RemoteRouterLink& remote_link =
           static_cast<RemoteRouterLink&>(*outward_edge_.primary_link());
@@ -1569,14 +1577,12 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
                << "with peer at " << descriptor.proxy_peer_node_name.ToString()
                << " and peer route to proxy on routing ID "
                << descriptor.proxy_peer_routing_id;
-    }
 
-    // Initialize an inward edge that will immediately begin decaying once it
-    // has a link (established in BeginProxyingToNewRouter()), and also begin
-    // decaying the outward edge.
-    inward_edge_.emplace();
-    inward_edge_->StartDecaying();
-    outward_edge_.StartDecaying();
+      // Immediately begin decaying inward and outward edges. They'll get
+      // concrete links to decay in BeginProxyingToNewRouter().
+      inward_edge_->StartDecaying();
+      outward_edge_.StartDecaying();
+    }
   }
 
   const RoutingId new_routing_id = to_node_link.AllocateRoutingIds(1);
