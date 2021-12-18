@@ -29,7 +29,7 @@ RouterTracker::~RouterTracker() = default;
 void RouterTracker::Track(Router* router) {
   RouterTracker& tracker = GetTracker();
 #ifdef NDEBUG
-  ++num_routers_;
+  ++tracker.num_routers_;
 #else
   absl::MutexLock lock(&tracker.mutex_);
   tracker.routers_.insert(router);
@@ -40,7 +40,7 @@ void RouterTracker::Track(Router* router) {
 void RouterTracker::Untrack(Router* router) {
   RouterTracker& tracker = GetTracker();
 #ifdef NDEBUG
-  --num_routers_;
+  --tracker.num_routers_;
 #else
   absl::MutexLock lock(&tracker.mutex_);
   tracker.routers_.erase(router);
@@ -51,7 +51,7 @@ void RouterTracker::Untrack(Router* router) {
 size_t RouterTracker::GetNumRouters() {
   RouterTracker& tracker = GetTracker();
 #ifdef NDEBUG
-  return num_routers_;
+  return tracker.num_routers_;
 #else
   absl::MutexLock lock(&tracker.mutex_);
   return tracker.routers_.size();
