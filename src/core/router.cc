@@ -1068,13 +1068,13 @@ void Router::Flush() {
         outbound_parcels_, outbound_parcels_to_proxy, outbound_parcels);
     const SequenceNumber outbound_sequence_length_sent =
         outbound_parcels_.current_sequence_number();
-    const SequenceNumber outbound_sequence_length_received =
-        outbound_parcels_.GetCurrentSequenceLength();
+    const SequenceNumber inbound_sequence_length_received =
+        inbound_parcels_.GetCurrentSequenceLength();
     if (outward_edge_.TryToFinishDecaying(outbound_sequence_length_sent,
-                                          outbound_sequence_length_received)) {
+                                          inbound_sequence_length_received)) {
       DVLOG(4) << "Outward " << DescribeLink(decaying_outward_link)
                << " fully decayed at " << outbound_sequence_length_sent
-               << " sent and " << outbound_sequence_length_received
+               << " sent and " << inbound_sequence_length_received
                << " received";
       outward_link_decayed = true;
     }
@@ -1084,13 +1084,14 @@ void Router::Flush() {
           inbound_parcels_, inbound_parcels_to_proxy, inbound_parcels);
       const SequenceNumber inbound_sequence_length_sent =
           inbound_parcels_.current_sequence_number();
-      const SequenceNumber inbound_sequence_length_received =
-          inbound_parcels_.GetCurrentSequenceLength();
-      if (inward_edge_->TryToFinishDecaying(inbound_sequence_length_sent,
-                                            inbound_sequence_length_received)) {
+      const SequenceNumber outbound_sequence_length_received =
+          outbound_parcels_.GetCurrentSequenceLength();
+      if (inward_edge_->TryToFinishDecaying(
+            inbound_sequence_length_sent,
+            outbound_sequence_length_received)) {
         DVLOG(4) << "Inward " << DescribeLink(decaying_inward_link)
                  << " fully decayed at " << inbound_sequence_length_sent
-                 << " sent and " << inbound_sequence_length_received
+                 << " sent and " << outbound_sequence_length_received
                  << " received";
         inward_link_decayed = true;
       }
