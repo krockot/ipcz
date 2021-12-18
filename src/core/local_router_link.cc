@@ -141,21 +141,25 @@ void LocalRouterLink::RequestProxyBypassInitiation(
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
-                                   SequenceNumber outbound_sequence_length) {
+void LocalRouterLink::StopProxying(
+    SequenceNumber proxy_inbound_sequence_length,
+    SequenceNumber proxy_outbound_sequence_length) {
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
+void LocalRouterLink::ProxyWillStop(
+    SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::BypassProxyToSameNode(RoutingId new_routing_id,
-                                            SequenceNumber sequence_length) {
+void LocalRouterLink::BypassProxyToSameNode(
+    RoutingId new_routing_id,
+    SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+void LocalRouterLink::StopProxyingToLocalPeer(
+    SequenceNumber proxy_outbound_sequence_length) {
   ABSL_ASSERT(false);
 }
 

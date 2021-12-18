@@ -229,8 +229,8 @@ void Router::SetOutwardLink(mem::Ref<RouterLink> link) {
   }
 }
 
-bool Router::StopProxying(SequenceNumber inbound_sequence_length,
-                          SequenceNumber outbound_sequence_length) {
+bool Router::StopProxying(SequenceNumber proxy_inbound_sequence_length,
+                          SequenceNumber proxy_outbound_sequence_length) {
   mem::Ref<Router> bridge_peer;
   {
     absl::MutexLock lock(&mutex_);
@@ -247,9 +247,9 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
       return false;
     } else {
       inward_edge_->set_length_to_and_from_decaying_link(
-          inbound_sequence_length, outbound_sequence_length);
+          proxy_inbound_sequence_length, proxy_outbound_sequence_length);
       outward_edge_.set_length_to_and_from_decaying_link(
-          outbound_sequence_length, inbound_sequence_length);
+          proxy_outbound_sequence_length, proxy_inbound_sequence_length);
     }
   }
 
@@ -260,14 +260,14 @@ bool Router::StopProxying(SequenceNumber inbound_sequence_length,
       return true;
     }
 
-    outward_edge_.set_length_to_and_from_decaying_link(outbound_sequence_length,
-                                                       inbound_sequence_length);
+    outward_edge_.set_length_to_and_from_decaying_link(
+        proxy_outbound_sequence_length, proxy_inbound_sequence_length);
     bridge_peer->outward_edge_.set_length_to_and_from_decaying_link(
-        inbound_sequence_length, outbound_sequence_length);
-    bridge_->set_length_to_and_from_decaying_link(inbound_sequence_length,
-                                                  outbound_sequence_length);
+        proxy_inbound_sequence_length, proxy_outbound_sequence_length);
+    bridge_->set_length_to_and_from_decaying_link(
+        proxy_inbound_sequence_length, proxy_outbound_sequence_length);
     bridge_peer->bridge_->set_length_to_and_from_decaying_link(
-        outbound_sequence_length, inbound_sequence_length);
+        proxy_outbound_sequence_length, proxy_inbound_sequence_length);
   }
 
   Flush();
@@ -684,13 +684,15 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     // Common case: the proxy's outward peer is NOT on the same node as we are.
     // In this case we send a BypassProxy request to that node, which may
     // require an introduction first.
-    SequenceNumber sequence_length_to_proxy;
+    SequenceNumber proxy_outbound_sequence_length;
     {
-      // Begin decaying our inward and outward links. The sequence length from
-      // the outward link will be passed to us soon in a ProxyWillStop message.
+      // Begin decaying our outward link. The sequence length to this link is
+      // trivially known here, and the sequence length expected *from* the link
+      // will be passed to us soon in a ProxyWillStop message.
       absl::MutexLock lock(&mutex_);
-      sequence_length_to_proxy = outbound_parcels_.current_sequence_number();
-      if (!outward_edge_.StartDecaying(sequence_length_to_proxy)) {
+      proxy_outbound_sequence_length =
+          outbound_parcels_.current_sequence_number();
+      if (!outward_edge_.StartDecaying(proxy_outbound_sequence_length)) {
         return false;
       }
     }
@@ -700,14 +702,14 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     if (new_peer_node) {
       new_peer_node->BypassProxy(
           requesting_node_link.remote_node_name(), proxy_peer_routing_id,
-          sequence_length_to_proxy, mem::WrapRefCounted(this));
+          proxy_outbound_sequence_length, mem::WrapRefCounted(this));
       return true;
     }
 
     requesting_node_link.node()->EstablishLink(
         proxy_peer_node_name,
         [requesting_node_name = requesting_node_link.remote_node_name(),
-         proxy_peer_routing_id, sequence_length_to_proxy,
+         proxy_peer_routing_id, proxy_outbound_sequence_length,
          self = mem::WrapRefCounted(this)](NodeLink* new_link) {
           if (!new_link) {
             // TODO: failure to connect to a node here should result in route
@@ -717,7 +719,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
           }
 
           new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
-                                sequence_length_to_proxy, self);
+                                proxy_outbound_sequence_length, self);
         });
     return true;
   }
@@ -728,8 +730,8 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   mem::Ref<Router> new_local_peer =
       requesting_node_link.GetRouter(proxy_peer_routing_id);
   mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
-  SequenceNumber proxied_inbound_sequence_length;
-  SequenceNumber proxied_outbound_sequence_length;
+  SequenceNumber proxy_inbound_sequence_length;
+  SequenceNumber proxy_outbound_sequence_length;
   if (!new_local_peer) {
     // The peer may have been explicitly closed by the time this message
     // arrives.
@@ -738,9 +740,9 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
 
   {
     TwoMutexLock lock(&mutex_, &new_local_peer->mutex_);
-    proxied_inbound_sequence_length =
+    proxy_inbound_sequence_length =
         new_local_peer->outbound_parcels_.current_sequence_number();
-    proxied_outbound_sequence_length =
+    proxy_outbound_sequence_length =
         outbound_parcels_.current_sequence_number();
 
     DVLOG(4) << "Initiating proxy bypass with new local peer on "
@@ -748,13 +750,13 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
              << requesting_node_link.remote_node_name().ToString()
              << " on routing IDs " << proxy_peer_routing_id << " and "
              << requesting_routing_id << "; inbound length "
-             << proxied_inbound_sequence_length << " and outbound length "
-             << proxied_outbound_sequence_length;
+             << proxy_inbound_sequence_length << " and outbound length "
+             << proxy_outbound_sequence_length;
 
-    // We get a decaying outward link to the proxy, only to accept inbound
-    // parcels already sent to it by our new local peer.
-    if (!outward_edge_.StartDecaying(proxied_outbound_sequence_length,
-                                     proxied_inbound_sequence_length)) {
+    // We can immediately begin decaying our own link to the proxy, and the
+    // link's sequence length in both directions is already known.
+    if (!outward_edge_.StartDecaying(proxy_outbound_sequence_length,
+                                     proxy_inbound_sequence_length)) {
       return false;
     }
 
@@ -763,15 +765,14 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     previous_outward_link_from_new_local_peer =
         new_local_peer->outward_edge_.primary_link();
     if (!new_local_peer->outward_edge_.StartDecaying(
-            proxied_inbound_sequence_length,
-            proxied_outbound_sequence_length)) {
+            proxy_inbound_sequence_length,
+            proxy_outbound_sequence_length)) {
       return false;
     }
 
     // Finally, create a new LocalRouterLink and use it to replace both our
     // own outward link and our new local peer's outward link. The new link is
-    // not ready for further decay until the above established decaying links
-    // have fully decayed.
+    // not ready to support bypass until all the above links have fully decayed.
     RouterLink::Pair links = LocalRouterLink::CreatePair(
         LinkType::kCentral, LocalRouterLink::InitialState::kCannotBypass,
         Router::Pair(mem::WrapRefCounted(this), new_local_peer));
@@ -781,7 +782,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
 
   if (previous_outward_link_from_new_local_peer) {
     previous_outward_link_from_new_local_peer->StopProxying(
-        proxied_inbound_sequence_length, proxied_outbound_sequence_length);
+        proxy_inbound_sequence_length, proxy_outbound_sequence_length);
   } else {
     // TODO: The local peer must have been closed. Tear down the route.
   }
@@ -844,9 +845,9 @@ bool Router::BypassProxyWithNewRemoteLink(
 
 bool Router::BypassProxyWithNewLinkToSameNode(
     mem::Ref<RouterLink> new_peer,
-    SequenceNumber sequence_length_from_proxy) {
+    SequenceNumber proxy_inbound_sequence_length) {
   mem::Ref<RouterLink> decaying_proxy;
-  SequenceNumber sequence_length_to_proxy;
+  SequenceNumber proxy_outbound_sequence_length;
   {
     absl::MutexLock lock(&mutex_);
     if (!outward_edge_.primary_link()) {
@@ -880,22 +881,24 @@ bool Router::BypassProxyWithNewLinkToSameNode(
              << remote_node_link->local_node_name().ToString()
              << " with new routing ID " << new_remote_peer.routing_id();
 
-    sequence_length_to_proxy = outbound_parcels_.current_sequence_number();
+    proxy_outbound_sequence_length =
+        outbound_parcels_.current_sequence_number();
 
     decaying_proxy = outward_edge_.primary_link();
-    if (!outward_edge_.StartDecaying(sequence_length_to_proxy,
-                                     sequence_length_from_proxy)) {
+    if (!outward_edge_.StartDecaying(proxy_outbound_sequence_length,
+                                     proxy_inbound_sequence_length)) {
       return false;
     }
     outward_edge_.SetPrimaryLink(std::move(new_peer));
   }
 
   ABSL_ASSERT(decaying_proxy);
-  decaying_proxy->StopProxyingToLocalPeer(sequence_length_to_proxy);
+  decaying_proxy->StopProxyingToLocalPeer(proxy_outbound_sequence_length);
   return true;
 }
 
-bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+bool Router::StopProxyingToLocalPeer(
+    SequenceNumber proxy_outbound_sequence_length) {
   mem::Ref<Router> local_peer;
   mem::Ref<Router> bridge_peer;
   {
@@ -921,9 +924,10 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
              << DescribeLink(inward_edge_->decaying_link()) << " and outward "
              << "decaying " << DescribeLink(outward_edge_.decaying_link());
 
-    local_peer->outward_edge_.set_length_from_decaying_link(sequence_length);
-    outward_edge_.set_length_to_decaying_link(sequence_length);
-    inward_edge_->set_length_from_decaying_link(sequence_length);
+    local_peer->outward_edge_.set_length_from_decaying_link(
+        proxy_outbound_sequence_length);
+    outward_edge_.set_length_to_decaying_link(proxy_outbound_sequence_length);
+    inward_edge_->set_length_from_decaying_link(proxy_outbound_sequence_length);
   } else if (bridge_peer) {
     // Here the proxy is actually a pair of bridge routers linking two routes
     // together as a result of a prior Merge() operation. Just means we have to
@@ -945,11 +949,14 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
       return false;
     }
 
-    local_peer->outward_edge_.set_length_from_decaying_link(sequence_length);
-    outward_edge_.set_length_from_decaying_link(sequence_length);
-    bridge_->set_length_to_decaying_link(sequence_length);
-    bridge_peer->outward_edge_.set_length_to_decaying_link(sequence_length);
-    bridge_peer->bridge_->set_length_from_decaying_link(sequence_length);
+    local_peer->outward_edge_.set_length_from_decaying_link(
+        proxy_outbound_sequence_length);
+    outward_edge_.set_length_from_decaying_link(proxy_outbound_sequence_length);
+    bridge_->set_length_to_decaying_link(proxy_outbound_sequence_length);
+    bridge_peer->outward_edge_.set_length_to_decaying_link(
+        proxy_outbound_sequence_length);
+    bridge_peer->bridge_->set_length_from_decaying_link(
+        proxy_outbound_sequence_length);
   } else {
     return false;
   }
@@ -962,7 +969,7 @@ bool Router::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
   return true;
 }
 
-bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
+bool Router::OnProxyWillStop(SequenceNumber proxy_inbound_sequence_length) {
   {
     absl::MutexLock lock(&mutex_);
     if (outward_edge_.is_stable()) {
@@ -970,10 +977,10 @@ bool Router::OnProxyWillStop(SequenceNumber sequence_length) {
     }
 
     DVLOG(4) << "Bypassed proxy has finalized its inbound sequence length at "
-             << sequence_length << " for "
+             << proxy_inbound_sequence_length << " for "
              << DescribeLink(outward_edge_.decaying_link());
 
-    outward_edge_.set_length_from_decaying_link(sequence_length);
+    outward_edge_.set_length_from_decaying_link(proxy_inbound_sequence_length);
   }
 
   Flush();

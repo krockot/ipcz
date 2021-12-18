@@ -168,7 +168,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            RoutingId proxy_routing_id,
-                           SequenceNumber sequence_length_to_proxy,
+                           SequenceNumber proxy_outbound_sequence_length,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end will adopt side B by
@@ -187,7 +187,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.proxied_outbound_sequence_length = sequence_length_to_proxy;
+  bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   Transmit(bypass);
 
   // This link is only provided after we transmit the bypass request, ensuring
@@ -411,11 +411,12 @@ bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
 
   DVLOG(4) << "Received StopProxying on " << local_node_name_.ToString()
            << " routing ID " << stop.params.routing_id << " with inbound"
-           << " length " << stop.params.inbound_sequence_length
-           << " and outbound length " << stop.params.outbound_sequence_length;
+           << " length " << stop.params.proxy_inbound_sequence_length
+           << " and outbound length "
+           << stop.params.proxy_outbound_sequence_length;
 
-  return router->StopProxying(stop.params.inbound_sequence_length,
-                              stop.params.outbound_sequence_length);
+  return router->StopProxying(stop.params.proxy_inbound_sequence_length,
+                              stop.params.proxy_outbound_sequence_length);
 }
 
 bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
@@ -440,7 +441,7 @@ bool NodeLink::OnBypassProxyToSameNode(
       AddRoute(bypass.params.new_routing_id, bypass.params.new_routing_id,
                LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
-      std::move(new_link), bypass.params.sequence_length);
+      std::move(new_link), bypass.params.proxy_inbound_sequence_length);
 }
 
 bool NodeLink::OnStopProxyingToLocalPeer(
@@ -449,7 +450,8 @@ bool NodeLink::OnStopProxyingToLocalPeer(
   if (!router) {
     return true;
   }
-  return router->StopProxyingToLocalPeer(stop.params.sequence_length);
+  return router->StopProxyingToLocalPeer(
+      stop.params.proxy_outbound_sequence_length);
 }
 
 bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
@@ -458,7 +460,8 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
     return true;
   }
 
-  return router->OnProxyWillStop(will_stop.params.sequence_length);
+  return router->OnProxyWillStop(
+      will_stop.params.proxy_inbound_sequence_length);
 }
 
 bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {

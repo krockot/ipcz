@@ -130,8 +130,8 @@ class Router : public mem::RefCounted {
   // `inbound_sequence_length` over to its inward link, and it has forwarded any
   // outbound parcels up to the current outbound sequence length to its outward
   // link, it will destroy itself.
-  bool StopProxying(SequenceNumber inbound_sequence_length,
-                    SequenceNumber outbound_sequence_length);
+  bool StopProxying(SequenceNumber proxy_inbound_sequence_length,
+                    SequenceNumber proxy_outbound_sequence_length);
 
   // Accepts an inbound parcel routed here from some other Router. The parcel
   // is queued here and may either be made available for retrieval by a portal,
@@ -196,9 +196,9 @@ class Router : public mem::RefCounted {
       SequenceNumber proxy_outbound_sequence_length);
   bool BypassProxyWithNewLinkToSameNode(
       mem::Ref<RouterLink> new_peer,
-      SequenceNumber sequence_length_from_proxy);
-  bool StopProxyingToLocalPeer(SequenceNumber sequence_length);
-  bool OnProxyWillStop(SequenceNumber sequence_length);
+      SequenceNumber proxy_inbound_sequence_length);
+  bool StopProxyingToLocalPeer(SequenceNumber proxy_outbound_sequence_length);
+  bool OnProxyWillStop(SequenceNumber proxy_inbound_sequence_length);
   bool OnBypassPossible();
 
   // Logs a detailed description of this router for debugging.

@@ -49,12 +49,14 @@ class LocalRouterLink : public RouterLink {
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     RoutingId proxy_peer_routing_id) override;
-  void StopProxying(SequenceNumber inbound_sequence_length,
-                    SequenceNumber outbound_sequence_length) override;
-  void ProxyWillStop(SequenceNumber sequence_length) override;
-  void BypassProxyToSameNode(RoutingId new_routing_id,
-                             SequenceNumber sequence_length) override;
-  void StopProxyingToLocalPeer(SequenceNumber sequence_length) override;
+  void StopProxying(SequenceNumber proxy_inbound_sequence_length,
+                    SequenceNumber proxy_outbound_sequence_length) override;
+  void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
+  void BypassProxyToSameNode(
+      RoutingId new_routing_id,
+      SequenceNumber proxy_inbound_sequence_length) override;
+  void StopProxyingToLocalPeer(
+      SequenceNumber proxy_outbound_sequence_length) override;
   void NotifyBypassPossible() override;
   void Deactivate() override;
   std::string Describe() const override;

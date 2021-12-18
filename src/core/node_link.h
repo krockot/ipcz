@@ -123,7 +123,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // the source of this request.
   bool BypassProxy(const NodeName& proxy_name,
                    RoutingId proxy_routing_id,
-                   SequenceNumber sequence_length_to_proxy,
+                   SequenceNumber proxy_outbound_sequence_length,
                    mem::Ref<Router> new_peer);
 
  private:

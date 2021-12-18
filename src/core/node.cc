@@ -411,7 +411,7 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
       bypass.params.new_routing_id, bypass.params.new_routing_id,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
-      new_peer_link, bypass.params.proxied_outbound_sequence_length);
+      new_peer_link, bypass.params.proxy_outbound_sequence_length);
 }
 
 bool Node::AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link) {

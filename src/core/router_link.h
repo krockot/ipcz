@@ -122,14 +122,14 @@ class RouterLink : public mem::RefCounted {
   // `inbound_sequence_length` parcels, and that it can stop forwarding to its
   // outward peer once it has forwarded up to `outbound_sequence_length`
   // parcels.
-  virtual void StopProxying(SequenceNumber inbound_sequence_length,
-                            SequenceNumber outbound_sequence_length) = 0;
+  virtual void StopProxying(SequenceNumber proxy_inbound_sequence_length,
+                            SequenceNumber proxy_outbound_sequence_length) = 0;
 
   // Informs the Router on the other side of this link that the proxy router it
   // most recently bypassed will stop sending it parcels once the inbound
   // sequence length reaches `sequence_length`, at which point its link to the
   // proxy can be discarded.
-  virtual void ProxyWillStop(SequenceNumber sequence_length) = 0;
+  virtual void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) = 0;
 
   // Informs the Router on the other side of this link that its outward link
   // goes to a proxying Router who is ready to be bypassed. The proxy's own
@@ -142,15 +142,17 @@ class RouterLink : public mem::RefCounted {
   // Router must assume that any subsequent parcels from the other half of the
   // route will instead arrive via the new RoutingId. The receiver is expected
   // to call back to the sender with StopProxyingToLocalPeer().
-  virtual void BypassProxyToSameNode(RoutingId new_routing_id,
-                                     SequenceNumber sequence_length) = 0;
+  virtual void BypassProxyToSameNode(
+      RoutingId new_routing_id,
+      SequenceNumber proxy_inbound_sequence_length) = 0;
 
   // Essentially a reply to BypassProxyToSameNode, this informs the receiving
   // proxy Router of the final length of the parcel sequence that will be
   // transmitted to it by the sender. All subsequent parcels from that half of
   // the route will instead be transmitted to the proxy's own outward, local
   // peer.
-  virtual void StopProxyingToLocalPeer(SequenceNumber sequence_length) = 0;
+  virtual void StopProxyingToLocalPeer(
+      SequenceNumber proxy_outbound_sequence_length) = 0;
 
   // Informs the Router on the other side of this link that the link is now
   // fully ready to support bypass if necessary. Sent only if this side of the

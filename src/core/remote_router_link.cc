@@ -149,12 +149,13 @@ void RemoteRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   node_link()->Transmit(route_closed);
 }
 
-void RemoteRouterLink::StopProxying(SequenceNumber inbound_sequence_length,
-                                    SequenceNumber outbound_sequence_length) {
+void RemoteRouterLink::StopProxying(
+    SequenceNumber proxy_inbound_sequence_length,
+    SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxying stop;
   stop.params.routing_id = routing_id_;
-  stop.params.inbound_sequence_length = inbound_sequence_length;
-  stop.params.outbound_sequence_length = outbound_sequence_length;
+  stop.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
+  stop.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
 }
 
@@ -168,26 +169,30 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
   node_link()->Transmit(request);
 }
 
-void RemoteRouterLink::BypassProxyToSameNode(RoutingId new_routing_id,
-                                             SequenceNumber sequence_length) {
+void RemoteRouterLink::BypassProxyToSameNode(
+    RoutingId new_routing_id,
+    SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
   bypass.params.routing_id = routing_id_;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.sequence_length = sequence_length;
+  bypass.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
 }
 
-void RemoteRouterLink::StopProxyingToLocalPeer(SequenceNumber sequence_length) {
+void RemoteRouterLink::StopProxyingToLocalPeer(
+      SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxyingToLocalPeer stop;
   stop.params.routing_id = routing_id_;
-  stop.params.sequence_length = sequence_length;
+  stop.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
 }
 
-void RemoteRouterLink::ProxyWillStop(SequenceNumber sequence_length) {
+void RemoteRouterLink::ProxyWillStop(
+    SequenceNumber proxy_inbound_sequence_length) {
   msg::ProxyWillStop will_stop;
   will_stop.params.routing_id = routing_id_;
-  will_stop.params.sequence_length = sequence_length;
+  will_stop.params.proxy_inbound_sequence_length =
+      proxy_inbound_sequence_length;
   node_link()->Transmit(will_stop);
 }
 

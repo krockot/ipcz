@@ -96,7 +96,7 @@ IPCZ_MSG_NO_REPLY(BypassProxy, IPCZ_MSG_ID(13), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, proxy_name)
   IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, proxied_outbound_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that the portal on `routing_id` for this NodeLink can
@@ -104,8 +104,8 @@ IPCZ_MSG_END()
 // specified sequence length in each direction.
 IPCZ_MSG_NO_REPLY(StopProxying, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, inbound_sequence_length)
-  IPCZ_MSG_PARAM(SequenceNumber, outbound_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that its decaying outward link (implicitly going to a
@@ -113,7 +113,7 @@ IPCZ_MSG_END()
 // given `sequence_length`.
 IPCZ_MSG_NO_REPLY(ProxyWillStop, IPCZ_MSG_ID(15), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 IPCZ_MSG_END()
 
 // Equivalent to BypassProxy, but used only when the proxy and its outward peer
@@ -133,7 +133,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_NO_REPLY(BypassProxyToSameNode, IPCZ_MSG_ID(16), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that it has been bypassed by the sender in favor of a
@@ -141,7 +141,7 @@ IPCZ_MSG_END()
 // to BypassProxyToSameNode.
 IPCZ_MSG_NO_REPLY(StopProxyingToLocalPeer, IPCZ_MSG_ID(17), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+  IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
 // Notifies the target router that bypass of its outward link may be possible.
