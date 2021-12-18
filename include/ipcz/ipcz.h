@@ -122,7 +122,7 @@ typedef uint64_t IpczDriverHandle;
 // about incoming data or state changes.
 typedef uint32_t IpczTransportActivityFlags;
 
-// If set, the driver encountered an uncoverable error using the transport and
+// If set, the driver encountered an unrecoverable error using the transport and
 // ipcz should discard it.
 #define IPCZ_TRANSPORT_ACTIVITY_ERROR IPCZ_FLAG_BIT(0)
 
@@ -169,7 +169,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // application before passing this structure to any ipcz API functions.
   uint32_t size;
 
-  // Creates a new pair of entnagled bidirectional transports, returning them in
+  // Creates a new pair of entangled bidirectional transports, returning them in
   // `first_transport` and `second_transport`. Implementation of the transport
   // is up to the driver, but:
   //
@@ -222,8 +222,8 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // updated with the exact amount of storage required for each before
   // returning.
   //
-  // If the caller's provided storage is sufficent, `data` and `os_handles` will
-  // be populated with the serialized transport, and this returns
+  // If the caller's provided storage is sufficient, `data` and `os_handles`
+  // will be populated with the serialized transport, and this returns
   // IPCZ_RESULT_OK. In this case `driver_transport` is also invalidated.
   //
   // Drivers are allowed but not required to support serialization of a
@@ -266,7 +266,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // Called by ipcz to activate a transport. `driver_transport` is the
   // driver-side handle assigned to the transport by the driver, either as given
   // to ipcz via ConnectNode(), or as returned by the driver from an ipcz call
-  // out to CreateDriverTransport().
+  // out to CreateTransports().
   //
   // `transport` is a handle the driver can use when calling `activity_handler`
   // to update ipcz regarding any incoming data or state changes from the
@@ -280,7 +280,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // Any return value other than IPCZ_RESULT_OK indicates an error, and the
   // endpoint will be dropped by ipcz. Otherwise the endpoint may be used
   // immediately to accept or submit data, and it should continue to operate
-  // until ipcz calls DestroyDriverTransport() on `driver_transport`.
+  // until ipcz calls DestroyTransport() on `driver_transport`.
   //
   // Note that `activity_handler` invocations MUST be mutually exclusive,
   // because transmissions from ipcz are expected to arrive and be processed
@@ -308,7 +308,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // transport's connection to be severed.
   //
   // The net result of this transmission should be an activity handler
-  // invocation on the correpsonding remote transport by the driver on its node.
+  // invocation on the corresponding remote transport by the driver on its node.
   // It is the driver's responsibility to get any data and handles to the other
   // transport, and to ensure that all transmissions from transport end up
   // invoking the activity handler on the peer transport in the same order they
@@ -333,7 +333,7 @@ typedef uint32_t IpczCreateNodeFlags;
 // Indicates that the created node will serve as the broker in its cluster.
 //
 // Brokers are expected to live in relatively trusted processes -- not elevated
-// in privelege but also generally not restricted by sandbox constraints and not
+// in privilege but also generally not restricted by sandbox constraints and not
 // prone to processing risky, untrusted data -- as they're responsible for
 // helping other nodes establish direct lines of communication, as well as in
 // some cases facilitating proxying of data and relaying of OS handles.
@@ -369,7 +369,7 @@ struct IPCZ_ALIGN(8) IpczPutLimits {
   // the call will fail with IPCZ_RESULT_RESOURCE_EXHAUSTED.
   uint32_t max_queued_parcels;
 
-  // Specifies the maxmimum number of data bytes to allow in a portal's queue.
+  // Specifies the maximum number of data bytes to allow in a portal's queue.
   // If a Put() or BeginPut() call specifying this limit would cause the number
   // of data bytes across all queued unread parcels to exceed this value, the
   // call will fail with IPCZ_RESULT_RESOURCE_EXHAUSTED.
@@ -634,7 +634,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // NOTE: If `node` is the broker node in its cluster of connected nodes,
   // certain operations across the cluster -- such as handle transmission
-  // through portals or portal transferrence in general -- may begin to fail
+  // through portals or portal transference in general -- may begin to fail
   // spontaneously once destruction is complete.
   //
   // Returns:
@@ -1024,7 +1024,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
                     struct IpczOSHandle* os_handles,
                     uint32_t* num_os_handles);
 
-  // Begins a two-phase get operation on `portal` to retreive data, portals, and
+  // Begins a two-phase get operation on `portal` to retrieve data, portals, and
   // OS handles. While a two-phase get operation is in progress on a portal, all
   // other get operations on the same portal will fail with
   // IPCZ_RESULT_ALREADY_EXISTS.
@@ -1042,7 +1042,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // If `num_portals` or `num_os_handles` is non-null and this call is
   // successful, the value(s) pointed to will respectively reflect the number of
   // portals and OS handles in the next available parcel. The portals and
-  // handles are not retreived from the portal until the application issues a
+  // handles are not retrieved from the portal until the application issues a
   // corresponding call to EndGet().
   //
   // NOTE: When performing two-phase get operations, callers should be mindful
@@ -1268,7 +1268,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
 //
 //    IPCZ_RESULT_OK if `api` was successfully populated. In this case
 //       `api->size` effectively indicates the API version provided, and the
-//       appopriate function pointers within `api` are filled in.
+//       appropriate function pointers within `api` are filled in.
 //
 //    IPCZ_RESULT_INVALID_ARGUMENT if `api` was invalid, for example if the
 //       caller's provided `api->size` is less than the size of the function

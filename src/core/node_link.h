@@ -65,7 +65,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // Allocates a routing ID from the NodeLink's shared state. This atomically
   // increments the shared routing ID counter shared by both ends of the link by
   // `count` and returns the value it had just before incrementing. The caller
-  // can assume succesful allocation of routing IDs from the returned value N
+  // can assume successful allocation of routing IDs from the returned value N
   // (inclusive) up to `N + count` (exclusive).
   RoutingId AllocateRoutingIds(size_t count);
 

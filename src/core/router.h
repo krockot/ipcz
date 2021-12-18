@@ -271,7 +271,7 @@ class Router : public mem::RefCounted {
   // that the application's event handlers can be invoked accordingly.
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 
-  // An edge connceting this router outward to another router closer to the
+  // An edge connecting this router outward to another router closer to the
   // terminal router on the opposite side of the route.
   RouteEdge outward_edge_ ABSL_GUARDED_BY(mutex_);
 
@@ -286,7 +286,7 @@ class Router : public mem::RefCounted {
   absl::optional<RouteEdge> inward_edge_ ABSL_GUARDED_BY(mutex_);
 
   // Parcels received from the other end of the route. If this is a terminal
-  // router, these may be retreived by the application via a controlling portal.
+  // router, these may be retrieved by the application via a controlling portal.
   // Otherwise they will be forwarded over `inward_edge_` whenever feasible.
   ParcelQueue inbound_parcels_ ABSL_GUARDED_BY(mutex_);
 
