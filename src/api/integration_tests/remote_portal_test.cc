@@ -106,16 +106,9 @@ TEST_P(RemotePortalTest, TransferManyLocalPortals) {
     ClosePortals({d, f});
   }
 
-  // TODO: remove this hack. force a crash if any proxies are left behind, and
-  // and log a description of every existing router before crashing.
-  size_t n = 1000;
-  while (GetNumRouters() > 2 && --n) {
+  while (GetNumRouters() > 2) {
     VerifyEndToEnd(a, b);
   }
-  if (GetNumRouters() > 2) {
-    DumpAllRouters();
-  }
-  ABSL_ASSERT(GetNumRouters() == 2);
 
   ClosePortals({a, b});
   DestroyNodes({node, other_node});
@@ -230,6 +223,10 @@ TEST_P(RemotePortalTest, MultipleHopsThenSendAndClose) {
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));
   EXPECT_EQ(kMessage, p.message);
 
+  while (GetNumRouters() > 6) {
+    VerifyEndToEnd(a, b);
+  }
+
   ClosePortals({a, b, c, d, e});
   DestroyNodes({node0, node1, node2});
 }
@@ -260,9 +257,11 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     EXPECT_EQ("hi", p.message);
   }
 
-  while (!PortalsAreLocalPeers(c, d) || GetNumRouters() > 4) {
+  while (GetNumRouters() > 4) {
     VerifyEndToEnd(c, d);
   }
+
+  EXPECT_TRUE(PortalsAreLocalPeers(c, d));
 
   ClosePortals({a, b, c, d});
   DestroyNodes({node, other_node});
@@ -313,10 +312,11 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
     b = p.portals[0];
   }
 
-  while (!PortalsAreLocalPeers(a, b) || GetNumRouters() > (2 + kNumHops * 4)) {
+  while (GetNumRouters() > (2 + kNumHops * 4)) {
     VerifyEndToEnd(a, b);
   }
-  VerifyEndToEnd(a, b);
+
+  EXPECT_TRUE(PortalsAreLocalPeers(a, b));
 
   ClosePortals({a, b});
   for (size_t i = 0; i < kNumHops; ++i) {
@@ -413,9 +413,11 @@ TEST_P(RemotePortalTest, LocalProxyBypass) {
 
   ClosePortals({a, b, c, d});
 
-  while (!PortalsAreLocalPeers(q, p) || GetNumRouters() > 2) {
+  while (GetNumRouters() > 2) {
     VerifyEndToEnd(q, p);
   }
+
+  EXPECT_TRUE(PortalsAreLocalPeers(q, p));
 
   ClosePortals({q, p});
   DestroyNodes({node_0, node_1, node_2});
@@ -448,9 +450,11 @@ TEST_P(RemotePortalTest, SendPortalPair) {
 
   ClosePortals({a, b});
 
-  while (!PortalsAreLocalPeers(c, d) || GetNumRouters() > 2) {
+  while (GetNumRouters() > 2) {
     VerifyEndToEnd(c, d);
   }
+
+  EXPECT_TRUE(PortalsAreLocalPeers(c, d));
 
   ClosePortals({c, d});
   DestroyNodes({node, other_node});
