@@ -579,10 +579,6 @@ void Router::BeginProxyingToNewRouter(NodeLink& to_node_link,
   }
 
   Flush();
-
-  if (!descriptor.proxy_already_bypassed) {
-    MaybeInitiateSelfRemoval();
-  }
 }
 
 // static
@@ -1077,7 +1073,9 @@ void Router::Flush() {
     if (outward_edge_.TryToFinishDecaying(outbound_sequence_length_sent,
                                           outbound_sequence_length_received)) {
       DVLOG(4) << "Outward " << DescribeLink(decaying_outward_link)
-               << " fully decayed";
+               << " fully decayed at " << outbound_sequence_length_sent
+               << " sent and " << outbound_sequence_length_received
+               << " received";
       outward_link_decayed = true;
     }
 
@@ -1091,7 +1089,9 @@ void Router::Flush() {
       if (inward_edge_->TryToFinishDecaying(inbound_sequence_length_sent,
                                             inbound_sequence_length_received)) {
         DVLOG(4) << "Inward " << DescribeLink(decaying_inward_link)
-                 << " fully decayed";
+                 << " fully decayed at " << inbound_sequence_length_sent
+                 << " sent and " << inbound_sequence_length_received
+                 << " received";
         inward_link_decayed = true;
       }
     }
@@ -1563,7 +1563,7 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
       descriptor.closed_peer_sequence_length =
           *inbound_parcels_.final_sequence_length();
 
-      // Ensure that the new edge is decayed immediately sine we know it won't
+      // Ensure that the new edge is decayed immediately since we know it won't
       // be used.
       inward_edge_->StartDecaying(*inbound_parcels_.final_sequence_length(),
                                   outbound_parcels_.current_sequence_number());

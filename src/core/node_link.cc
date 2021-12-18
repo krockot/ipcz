@@ -171,8 +171,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            SequenceNumber proxy_outbound_sequence_length,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
-  // adopts side A of the new bypass link. The other end will adopt side B by
-  // convention.
+  // adopts side A of the new bypass link. The other end adopts side B.
   RoutingId new_routing_id = AllocateRoutingIds(1);
   mem::Ref<RouterLink> new_link =
       AddRoute(new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
@@ -342,6 +341,10 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   parcel.SetOSHandles(std::move(os_handles));
   absl::optional<Route> route = GetRoute(accept.routing_id);
   if (!route) {
+    DVLOG(4) << "Dropping " << parcel.Describe() << " at "
+             << local_node_name_.ToString() << ", arriving from "
+             << remote_node_name_.ToString() << " via unknown routing ID "
+             << accept.routing_id;
     return true;
   }
 
