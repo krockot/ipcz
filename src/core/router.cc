@@ -641,8 +641,8 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
       DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
                << from_node_link.local_node_name().ToString()
-               << " via routing ID " << descriptor.new_routing_id
-               << " uh " << descriptor.proxy_peer_node_name.is_valid();
+               << " via routing ID " << descriptor.new_routing_id << " uh "
+               << descriptor.proxy_peer_node_name.is_valid();
     }
   }
 
@@ -1036,6 +1036,8 @@ void Router::Flush() {
   mem::Ref<RouterLink> outward_link;
   mem::Ref<RouterLink> decaying_inward_link;
   mem::Ref<RouterLink> decaying_outward_link;
+  mem::Ref<RouterLink> inward_link_for_closure_propagation;
+  mem::Ref<RouterLink> outward_link_for_closure_propagation;
   mem::Ref<RouterLink> dead_inward_link;
   mem::Ref<RouterLink> dead_outward_link;
   mem::Ref<RouterLink> bridge_link;
@@ -1046,8 +1048,8 @@ void Router::Flush() {
   absl::InlinedVector<Parcel, 2> bridge_parcels;
   bool inward_link_decayed = false;
   bool outward_link_decayed = false;
-  absl::optional<SequenceNumber> final_inward_sequence_length;
-  absl::optional<SequenceNumber> final_outward_sequence_length;
+  SequenceNumber final_inward_sequence_length;
+  SequenceNumber final_outward_sequence_length;
   {
     absl::MutexLock lock(&mutex_);
     inward_link = inward_edge_ ? inward_edge_->primary_link() : nullptr;
@@ -1104,8 +1106,12 @@ void Router::Flush() {
 
     // If the inbound sequence is dead, the other side of the route is gone and
     // we have received all the parcels it sent. We can drop the outward link.
-    if (outbound_parcels_.final_sequence_length() &&
-        outward_edge_.GetLinkToPropagateRouteClosure()) {
+    if (outbound_parcels_.final_sequence_length()) {
+      outward_link_for_closure_propagation =
+          outward_edge_.GetLinkToPropagateRouteClosure();
+    }
+
+    if (outward_link_for_closure_propagation) {
       final_outward_sequence_length =
           *outbound_parcels_.final_sequence_length();
 
@@ -1119,8 +1125,12 @@ void Router::Flush() {
       dead_outward_link = outward_edge_.ReleasePrimaryLink();
     }
 
-    if (inward_edge_ && inbound_parcels_.final_sequence_length() &&
-        inward_edge_->GetLinkToPropagateRouteClosure()) {
+    if (inward_edge_ && inbound_parcels_.final_sequence_length()) {
+      inward_link_for_closure_propagation =
+          inward_edge_->GetLinkToPropagateRouteClosure();
+    }
+
+    if (inward_link_for_closure_propagation) {
       final_inward_sequence_length = *inbound_parcels_.final_sequence_length();
       if (inbound_parcels_.IsDead()) {
         dead_inward_link = inward_edge_->ReleasePrimaryLink();
@@ -1176,12 +1186,14 @@ void Router::Flush() {
     MaybeInitiateBridgeBypass();
   }
 
-  if (final_inward_sequence_length) {
-    inward_link->AcceptRouteClosure(*final_inward_sequence_length);
+  if (inward_link_for_closure_propagation) {
+    inward_link_for_closure_propagation->AcceptRouteClosure(
+        final_inward_sequence_length);
   }
 
-  if (final_outward_sequence_length) {
-    outward_link->AcceptRouteClosure(*final_outward_sequence_length);
+  if (outward_link_for_closure_propagation) {
+    outward_link_for_closure_propagation->AcceptRouteClosure(
+        final_outward_sequence_length);
   }
 
   if (dead_inward_link) {

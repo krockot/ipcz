@@ -89,7 +89,7 @@ bool RouteEdge::CanLockPrimaryLinkForBypass() {
 
 bool RouteEdge::TryToLockPrimaryLinkForBypass(
     const NodeName& bypass_request_source) {
-  if (decaying_link_ || was_decay_deferred_) {
+  if (decaying_link_ || was_decay_deferred_ || !primary_link_) {
     return false;
   }
 
