@@ -23,6 +23,18 @@ class ConnectTest : public test::MultinodeTestWithDriver {
     return portal;
   }
 
+  void ConnectNodes(IpczHandle node0,
+                    IpczConnectNodeFlags flags0,
+                    IpczHandle node1,
+                    IpczConnectNodeFlags flags1,
+                    IpczHandle* portal0,
+                    IpczHandle* portal1) {
+    IpczDriverHandle transports[2];
+    CreateTransports(&transports[0], &transports[1]);
+    *portal0 = ConnectNode(node0, transports[0], flags0);
+    *portal1 = ConnectNode(node1, transports[1], flags1);
+  }
+
   void TestNodeConnections(IpczHandle node0,
                            IpczHandle node0_to_node1,
                            IpczHandle node1_to_node0,
@@ -54,27 +66,22 @@ class ConnectTest : public test::MultinodeTestWithDriver {
 };
 
 TEST_P(ConnectTest, BrokerToNonBroker) {
-  IpczHandle broker = CreateBrokerNode();
-  IpczHandle node_a = CreateNonBrokerNode();
+  IpczHandle node_a = CreateBrokerNode();
   IpczHandle node_b = CreateNonBrokerNode();
+  IpczHandle node_c = CreateNonBrokerNode();
 
-  IpczDriverHandle transport_a[2];
-  CreateTransports(&transport_a[0], &transport_a[1]);
-  IpczHandle broker_to_a = ConnectNode(broker, transport_a[0], IPCZ_NO_FLAGS);
-  IpczHandle a_to_broker =
-      ConnectNode(node_a, transport_a[1], IPCZ_CONNECT_NODE_TO_BROKER);
+  IpczHandle a_to_b, b_to_a;
+  ConnectNodes(node_a, IPCZ_NO_FLAGS, node_b, IPCZ_CONNECT_NODE_TO_BROKER,
+               &a_to_b, &b_to_a);
 
-  IpczDriverHandle transport_b[2];
-  CreateTransports(&transport_b[0], &transport_b[1]);
-  IpczHandle broker_to_b = ConnectNode(broker, transport_b[0], IPCZ_NO_FLAGS);
-  IpczHandle b_to_broker =
-      ConnectNode(node_b, transport_b[1], IPCZ_CONNECT_NODE_TO_BROKER);
+  IpczHandle a_to_c, c_to_a;
+  ConnectNodes(node_a, IPCZ_NO_FLAGS, node_c, IPCZ_CONNECT_NODE_TO_BROKER,
+               &a_to_c, &c_to_a);
 
-  TestNodeConnections(broker, broker_to_a, a_to_broker, broker_to_b,
-                      b_to_broker);
+  TestNodeConnections(node_a, a_to_b, b_to_a, a_to_c, c_to_a);
 
-  ClosePortals({broker_to_a, a_to_broker, broker_to_b, b_to_broker});
-  DestroyNodes({broker, node_a, node_b});
+  ClosePortals({a_to_b, b_to_a, a_to_c, c_to_a});
+  DestroyNodes({node_a, node_b, node_c});
 }
 
 INSTANTIATE_MULTINODE_TEST_SUITE_P(ConnectTest);
