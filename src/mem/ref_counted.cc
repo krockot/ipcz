@@ -67,8 +67,9 @@ GenericRef::~GenericRef() {
 
 void GenericRef::reset() {
   if (ptr_) {
-    ptr_->ReleaseRef();
-    ptr_ = nullptr;
+    RefCounted* ptr = nullptr;
+    std::swap(ptr, ptr_);
+    ptr->ReleaseRef();
   }
 }
 

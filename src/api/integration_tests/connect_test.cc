@@ -84,6 +84,26 @@ TEST_P(ConnectTest, BrokerToNonBroker) {
   DestroyNodes({node_a, node_b, node_c});
 }
 
+TEST_P(ConnectTest, NonBrokerToNonBrokerWithoutBroker) {
+  IpczHandle node_a = CreateNonBrokerNode();
+  IpczHandle node_b = CreateNonBrokerNode();
+
+  IpczDriverHandle transports[2];
+  CreateTransports(&transports[0], &transports[1]);
+
+  IpczOSProcessHandle process = {sizeof(process)};
+  os::Process::ToIpczOSProcessHandle(os::Process::GetCurrent(), process);
+
+  IpczHandle portal;
+  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
+            ipcz.ConnectNode(node_a, transports[0], &process, 1, IPCZ_NO_FLAGS,
+                             nullptr, &portal));
+
+  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
+            ipcz.ConnectNode(node_b, transports[1], &process, 1, IPCZ_NO_FLAGS,
+                             nullptr, &portal));
+}
+
 INSTANTIATE_MULTINODE_TEST_SUITE_P(ConnectTest);
 
 }  // namespace

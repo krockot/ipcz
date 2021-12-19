@@ -104,6 +104,8 @@ source_set("core") {
     "core/message_macros/undef_message_macros.h",
     "core/node.cc",
     "core/node.h",
+    "core/node_connector.cc",
+    "core/node_connector.h",
     "core/node_link.cc",
     "core/node_link.h",
     "core/node_link_buffer.cc",

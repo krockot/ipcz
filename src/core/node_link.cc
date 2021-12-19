@@ -203,6 +203,15 @@ IpczResult NodeLink::OnTransportMessage(
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
 
   switch (header.message_id) {
+    case msg::RequestBrokerIntroduction::kId: {
+      msg::RequestBrokerIntroduction request;
+      if (request.Deserialize(message) &&
+          node_->OnRequestBrokerIntroduction(*this, request)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     case msg::AcceptParcel::kId:
       if (OnAcceptParcel(message)) {
         return IPCZ_RESULT_OK;
@@ -306,6 +315,11 @@ IpczResult NodeLink::OnTransportMessage(
 }
 
 void NodeLink::OnTransportError() {}
+
+bool NodeLink::OnRequestBrokerIntroduction(
+    const msg::RequestBrokerIntroduction& request) {
+  return node_->OnRequestBrokerIntroduction()
+}
 
 bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
   if (message.data.size() < sizeof(msg::AcceptParcel)) {

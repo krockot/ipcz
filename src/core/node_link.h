@@ -18,6 +18,7 @@
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/memory.h"
+#include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -103,9 +104,18 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
     transport_->Transmit(message);
   }
 
-  // Asks this link (which must be linked to a remote broker node) to introduce
-  // us to the named node. This will always elicit an eventual IntroduceNode
-  // message from the broker, even if only to indicate failure.
+  // Asks the broker on the other end of this link to accept a new node for
+  // introduction into the network. Normally nodes connect directly to a broker,
+  // but in some cases a non-broker may connect directly another non-broker to
+  // request inheritance of its same broker. This facilitates that behavior.
+  void RequestBrokerIntroduction(uint64_t request_id,
+                                 os::Process new_node_process,
+                                 uint32_t new_node_protocol_version);
+
+  // Asks the broker on the other end of this link to introduce the local node
+  // on this side of the link to the named node. This will always elicit an
+  // eventual IntroduceNode message from the broker, even if only to indicate
+  // failure.
   void RequestIntroduction(const NodeName& name);
 
   // Introduces the remote node to the node named `name`, giving it a new
@@ -137,6 +147,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // All of these methods correspond directly to remote calls from another node,
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
   // everything else).
+  bool OnRequestBrokerIntroduction(
+      const msg::RequestBrokerIntroduction& request);
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);

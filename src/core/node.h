@@ -59,17 +59,33 @@ class Node : public mem::RefCounted {
   // a collection of new portals who will immediately begin to route parcels
   // over a link to the new node, assuming the link is established successfully.
   IpczResult ConnectNode(IpczDriverHandle driver_transport,
-                         Type remote_node_type,
                          os::Process remote_process,
+                         IpczConnectNodeFlags flags,
                          absl::Span<IpczHandle> initial_portals);
 
   // Opens a new pair of directly linked portals on this node and returns
   // references to both of them.
   Portal::Pair OpenPortals();
 
+  NodeName GetAssignedName();
+
   // Looks up a NodeLink by name. If there's no known link to the named node,
   // this returns null.
   mem::Ref<NodeLink> GetLink(const NodeName& name);
+
+  // Gets a reference to the node's broker link, if it has one.
+  mem::Ref<NodeLink> GetBrokerLink();
+
+  // Sets this nodes broker link. The link must also be registered separately
+  // via AddLink().
+  void SetBrokerLink(mem::Ref<NodeLink> link);
+
+  // Sets this node's assigned name as given by a broker. Must only be called
+  // once and only on non-broker nodes.
+  void SetAssignedName(const NodeName& name);
+
+  // Registers a new NodeLink for the given `remote_node_name`.
+  bool AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link);
 
   // Asynchronously establishes a NodeLink to the named node and invokes
   // `callback` when complete. If it's determined that establishing a link won't
@@ -83,6 +99,14 @@ class Node : public mem::RefCounted {
   // and `callback` will be invoked once that request is completed.
   using EstablishLinkCallback = std::function<void(NodeLink*)>;
   void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
+
+  // Handles an incoming request to introduce a new node to this broker
+  // indirectly. The sender on the other end of `from_node_link` is already a
+  // client of this broker, and they're requesting this introduction on behalf
+  // of another (currently brokerless) node.
+  bool OnRequestBrokerIntroduction(
+      NodeLink& from_node_link,
+      const msg::RequestBrokerIntroduction& request);
 
   // Handles an incoming introduction request. This message is only accepted by
   // broker nodes. If the broker knows of the node named in `request`, it will
@@ -111,14 +135,13 @@ class Node : public mem::RefCounted {
  private:
   ~Node() override;
 
-  // Registers a new NodeLink for the given `remote_node_name`.
-  bool AddLink(const NodeName& remote_node_name, mem::Ref<NodeLink> link);
-
   const Type type_;
   const IpczDriver driver_;
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
+
+  uint64_t next_request_id_ ABSL_GUARDED_BY(mutex_) = 0;
 
   // The name assigned to this node by the first broker it connected to. Once
   // assigned, this name remains constant through the life of the node.

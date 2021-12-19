@@ -46,6 +46,45 @@ IPCZ_MSG_NO_REPLY(ConnectToBroker, IPCZ_MSG_ID(1), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
 IPCZ_MSG_END()
 
+// Sent by a non-broker to another non-broker to request that the recipient
+// introduce the sender to its own broker. It will do so by sending a
+// RequestBrokerIntroduction message to its own broker, and once it receives a
+// reply to that message it will send a ConnectAndIntroduceBroker message to the
+// original sender of this message.
+IPCZ_MSG_NO_REPLY(ConnectAndInheritBroker, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
+  // The highest protocol version known and desired by the sender.
+  IPCZ_MSG_PARAM(uint32_t, protocol_version)
+
+  // The number of initial portals assumed on the sender's end of the
+  // connection. If there is a mismatch between the number sent by each node on
+  // an initial connection, the node which sent the larger number should behave
+  // as if its excess portals have observed peer closure.
+  IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
+IPCZ_MSG_END()
+
+// Sent by a non-broker to its already-established broker when attempting to
+// establish a new broker connection on behalf of another non-broker. The broker
+// will allocate a new transport and reply with its serialized representation,
+// along with a new assigned name for the other non-broker. The requester should
+// forwrad that information back to the original requesting node via a
+// ConnectAndIntroduceBroker message.
+IPCZ_MSG_NO_REPLY(RequestBrokerIntroduction, IPCZ_MSG_ID(3),
+                  IPCZ_MSG_VERSION(0))
+  // An ID for this introduction request, unique in the scope of the
+  // transmitting NodeLink. A resulting IntroduceBrokerIndirect message is sent
+  // with the same ID to correlate that message with an instance of this one.
+  IPCZ_MSG_PARAM(uint64_t, request_id)
+
+  // The highest protocol version known and desired by the node on whose behalf
+  // this introduction is being requested.
+  IPCZ_MSG_PARAM(uint32_t, new_node_protocol_version)
+
+  // A handle to the the process hosting the new node to be introduced. This is
+  // optional but may be necessary to specify on some platforms (namely Windows)
+  // in order for OS handle transfer to work properly to and from the new node.
+  IPCZ_MSG_HANDLE_OPTIONAL(new_node_process)
+IPCZ_MSG_END()
+
 // Sent by a non-broker node to a broker node. Requests that the broker provide
 // a new NodeLink to both the sender and the node identified by `name`, linking
 // the two nodes together and allowing them to communicate directly. This

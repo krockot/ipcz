@@ -101,11 +101,8 @@ IpczResult ConnectNode(IpczHandle node_handle,
   }
 
   core::Node& node = ToRef<core::Node>(node_handle);
-  const core::Node::Type remote_node_type =
-      (flags & IPCZ_CONNECT_NODE_TO_BROKER) ? core::Node::Type::kBroker
-                                            : core::Node::Type::kNormal;
   return node.ConnectNode(
-      driver_transport, remote_node_type, std::move(process),
+      driver_transport, std::move(process), flags,
       absl::Span<IpczHandle>(initial_portals, num_initial_portals));
 }
 
