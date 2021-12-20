@@ -361,7 +361,12 @@ typedef uint32_t IpczConnectNodeFlags;
 // wishes to inherit that broker as well. This flag must only be used when
 // connecting to a node the caller trusts, and only when the calling node does
 // not already have an established broker from a previous ConnectNode() call.
+// The other node must specify IPCZ_CONNECT_NODE_SHARE_BROKER as well.
 #define IPCZ_CONNECT_NODE_INHERIT_BROKER IPCZ_FLAG_BIT(1)
+
+// Indicates that the remote node for this connection is expected not to be a
+// broker, and to specify IPCZ_CONNECT_NODE_INHERITY_BROKER.
+#define IPCZ_CONNECT_NODE_SHARE_BROKER IPCZ_FLAG_BIT(2)
 
 // ipcz may periodically allocate shared memory regions to facilitate
 // communication between two nodes. In most runtime environments, even within
@@ -374,7 +379,7 @@ typedef uint32_t IpczConnectNodeFlags;
 // Specifying this flag ensures that all shared memory allocation elicited by
 // this node will be delegated to the remote node to which the caller is
 // connecting.
-#define IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE IPCZ_FLAG_BIT(2)
+#define IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE IPCZ_FLAG_BIT(3)
 
 // In some environments (in particular on Windows) the relative privilege level
 // of each node's host process may impact how ipcz manages OS handle transfer
@@ -385,14 +390,14 @@ typedef uint32_t IpczConnectNodeFlags;
 // its own process, it must specify this flag. The corresponding ConnectNode()
 // call on the more privigeled node's end must include
 // IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL.
-#define IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(3)
+#define IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(4)
 
 // See the above comments regarding relative privilege level. If a node is
 // hosted by a process with a higher privilege level than the broker to which
 // it's connecting (implying IPCZ_CONNECT_NODE_TO_BROKER is also specified),
 // this flag must also be specified. The correspoding ConnectNode() call on the
 // broker node's end must include IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL.
-#define IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(4)
+#define IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(5)
 
 // Optional limits provided by IpczPutOptions for Put() or IpczBeginPutOptions
 // for BeginPut().

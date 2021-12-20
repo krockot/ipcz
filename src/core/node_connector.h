@@ -6,12 +6,15 @@
 #define IPCZ_SRC_CORE_NODE_CONNECTOR_H_
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "core/driver_transport.h"
 #include "core/link_side.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "os/process.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
@@ -28,43 +31,42 @@ class Portal;
 // Once an initial handshake is complete the underlying transport is adopted by
 // a new NodeLink and handed off to the local Node to communicate with the
 // remote node, and this object is destroyed.
-class NodeConnector : public mem::RefCounted,
-                      public DriverTransport::Listener {
+class NodeConnector : public mem::RefCounted, public DriverTransport::Listener {
  public:
-  // Constructs a new NodeConnector on a broker node expecting a connection from
-  // a non-broker node over `transport`. The non-broker node will be assigned
-  // `new_remote_node_name` as its name.
-  static mem::Ref<NodeConnector> ConnectBrokerToNonBroker(
+  // Constructs a new NodeConnector to send and receive a handshake on
+  // `transport`. The specific type of connector to create is determined by a
+  // combination of the Node::Type of `node` and the value of `flags`.
+  //
+  // If a connection is successfully established, `transport` will eventually
+  // be adopted by a NodeLink and passed to `node` for use. Otherwise, all
+  // `initial_portals` will observe peer closure.
+  //
+  // In either case this object invokes `callback` if non-null and then destroys
+  // itself once the handshake is complete. If this fails, the NodeLink given
+  // to the callback will be null.
+  using ConnectCallback = std::function<void(mem::Ref<NodeLink> new_link)>;
+  static IpczResult ConnectNode(
       mem::Ref<Node> node,
-      const NodeName& broker_name,
-      const NodeName& new_remote_node_name,
       mem::Ref<DriverTransport> transport,
-      std::vector<mem::Ref<Portal>> waiting_portals);
+      os::Process remote_process,
+      IpczCreateNodeFlags flags,
+      const std::vector<mem::Ref<Portal>>& initial_portals,
+      ConnectCallback callback = nullptr);
 
-  // Constructs a new NodeConnector on a non-broker node expecting a connection
-  // from a broker node over `transport`.
-  static mem::Ref<NodeConnector> ConnectNonBrokerToBroker(
-      mem::Ref<Node> node,
-      mem::Ref<DriverTransport> transport,
-      std::vector<mem::Ref<Portal>> waiting_portals);
-
-  // Constructs a new NodeConnector on a non-broker node expecting a connection
-  // from another non-broker node over `transport`. The remote non-broker node
-  // is expected to already have established a link to a broker, and they will
-  // facilitate this connecting node's introduction to that broker.
-  static mem::Ref<NodeConnector> ConnectAndInheritBroker(
-      mem::Ref<Node> node,
-      mem::Ref<DriverTransport> transport,
-      std::vector<mem::Ref<Portal>> waiting_portals);
-
-  // Constructs a new NodeConnector on a non-broker node expecting a connection
-  // from another non-broker node over `transport`. The calling node most have
-  // already established a broker link, and the remote node is expected to want
-  // to inherit that same broker from us.
-  static mem::Ref<NodeConnector> ConnectAndIntroduceBroker(
-      mem::Ref<Node> node,
-      mem::Ref<DriverTransport> transport,
-      std::vector<mem::Ref<Portal>> waiting_portals);
+  // Constructs a new NodeConnector to send and receive a handshake on
+  // `transport`, which was passed to this (broker) node by one non-broker
+  // referring another non-broker to the network. On the other side of this
+  // transport must be the latter non-broker, issuing its own ConnectNode() call
+  //  with the IPCZ_CONNECT_NODE_INHERIT_BROKER flag specified.
+  using ConnectIndirectCallback =
+      std::function<void(mem::Ref<NodeLink> new_link,
+                         uint32_t num_remote_portals)>;
+  static IpczResult ConnectNodeIndirect(mem::Ref<Node> node,
+                                        mem::Ref<NodeLink> referrer,
+                                        mem::Ref<DriverTransport> transport,
+                                        os::Process remote_process,
+                                        uint32_t num_initial_portals,
+                                        ConnectIndirectCallback callback);
 
   virtual void Connect() = 0;
   virtual bool OnMessage(uint8_t message_id,
@@ -73,11 +75,12 @@ class NodeConnector : public mem::RefCounted,
  protected:
   NodeConnector(mem::Ref<Node> node,
                 mem::Ref<DriverTransport> transport,
-                std::vector<mem::Ref<Portal>> waiting_portals);
+                std::vector<mem::Ref<Portal>> waiting_portals,
+                ConnectCallback callback);
   ~NodeConnector() override;
 
   uint32_t num_portals() const {
-    return static_cast<uint32_t>(waiting_portals_);
+    return static_cast<uint32_t>(waiting_portals_.size());
   }
 
   // Invoked once by the implementation when it has completed the handshake.
@@ -86,9 +89,12 @@ class NodeConnector : public mem::RefCounted,
   void AcceptConnection(mem::Ref<NodeLink> new_link,
                         LinkSide link_side,
                         uint32_t num_remote_portals);
+  void RejectConnection();
 
   const mem::Ref<Node> node_;
   const mem::Ref<DriverTransport> transport_;
+  const std::vector<mem::Ref<Portal>> waiting_portals_;
+  mem::Ref<NodeConnector> active_self_;
 
  private:
   void ActivateTransportAndConnect();
@@ -101,8 +107,7 @@ class NodeConnector : public mem::RefCounted,
       const DriverTransport::Message& message) override;
   void OnTransportError() override;
 
-  const std::vector<mem::Ref<Portal>> waiting_portals_;
-  mem::Ref<NodeConnector> active_self_;
+  const ConnectCallback callback_;
 };
 
 }  // namespace core

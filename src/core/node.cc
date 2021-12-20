@@ -14,6 +14,7 @@
 #include "core/link_side.h"
 #include "core/link_type.h"
 #include "core/message_internal.h"
+#include "core/node_connector.h"
 #include "core/node_link.h"
 #include "core/node_link_buffer.h"
 #include "core/node_messages.h"
@@ -30,172 +31,6 @@
 
 namespace ipcz {
 namespace core {
-
-namespace {
-
-// Helper which listens on the application-provided DriverTransport given to a
-// ConnectNode() API call for an initial handshake. Classes derived from this
-class ConnectListener : public DriverTransport::Listener,
-                        public mem::RefCounted {
- public:
-  ConnectListener(mem::Ref<Node> node,
-                  NodeName local_node_name,
-                  NodeName remote_node_name,
-                  mem::Ref<DriverTransport> transport,
-                  std::vector<mem::Ref<Portal>> waiting_portals,
-                  os::Memory::Mapping link_buffer_mapping,
-                  bool inherit_broker,
-                  bool introduce_indirect)
-      : node_(std::move(node)),
-        local_node_name_(local_node_name),
-        remote_node_name_(remote_node_name),
-        transport_(std::move(transport)),
-        waiting_portals_(std::move(waiting_portals)),
-        link_buffer_mapping_(std::move(link_buffer_mapping)),
-        inherit_broker_(inherit_broker),
-        introduce_indirect_(introduce_indirect) {
-    if (node_->type() == Node::Type::kBroker) {
-      ABSL_ASSERT(local_node_name.is_valid());
-      ABSL_ASSERT(remote_node_name.is_valid());
-      ABSL_ASSERT(link_buffer_mapping_.is_valid());
-      ABSL_ASSERT(!inherit_broker_);
-      ABSL_ASSERT(!introduce_indirect_);
-    } else {
-      ABSL_ASSERT(!local_node_name.is_valid());
-      ABSL_ASSERT(!remote_node_name.is_valid());
-      ABSL_ASSERT(!link_buffer_mapping_.is_valid());
-    }
-  }
-
-  using ConnectHandler = std::function<void(mem::Ref<NodeLink> link)>;
-
-  void Listen(ConnectHandler handler) { handler_ = std::move(handler); }
-
-  // DriverTransport::Listener:
-  IpczResult OnTransportMessage(
-      const DriverTransport::Message& message) override {
-    mem::Ref<NodeLink> new_link;
-    const auto& header =
-        *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-    if (node_->type() == Node::Type::kBroker &&
-        header.message_id == msg::ConnectToBroker::kId) {
-      msg::ConnectToBroker connect;
-      if (!connect.Deserialize(message)) {
-        handler_ = nullptr;
-        return IPCZ_RESULT_INVALID_ARGUMENT;
-      }
-      return AcceptNewLink(
-          mem::MakeRefCounted<NodeLink>(
-              node_, local_node_name_, remote_node_name_, Node::Type::kNormal,
-              connect.params.protocol_version, transport_,
-              std::move(link_buffer_mapping_)),
-          connect.params.num_initial_portals);
-    }
-
-    if (node_->type() == Node::Type::kNormal &&
-        header.message_id == msg::ConnectFromBroker::kId) {
-      msg::ConnectFromBroker connect;
-      if (!connect.Deserialize(message)) {
-        handler_ = nullptr;
-        return IPCZ_RESULT_INVALID_ARGUMENT;
-      }
-      os::Memory memory(std::move(connect.handles.link_state_memory),
-                        sizeof(NodeLinkBuffer));
-      return AcceptNewLink(
-          mem::MakeRefCounted<NodeLink>(
-              node_, connect.params.receiver_name, connect.params.broker_name,
-              Node::Type::kBroker, connect.params.protocol_version, transport_,
-              memory.Map()),
-          connect.params.num_initial_portals);
-    }
-
-    if (node_->type() == Node::Type::kNormal &&
-        header.message_id == msg::ConnectAndInheritBroker) {
-      msg::ConnectAndInheritBroker connect;
-      if (!connect.Deserialize(message)) {
-        handler_ = nullptr;
-        return IPCZ_RESULT_INVALID_ARGUMENT;
-      }
-
-      mem::Ref<NodeLink> broker = node_->GetBrokerLink();
-      if (!broker) {
-        msg::ConnectAndIntroduceBroker intro;
-        intro.message_header.size = sizeof(intro.message_header);
-        intro.message_header.message_id = msg::ConnectAndIntroduceBroker::kId;
-        intro.known = false;
-        transport_->Transmit(intro);
-        return
-      }
-
-      broker->RequestBrokerIntroduction()
-    }
-
-    if (node_type() == Node::Type::kNormal &&
-        header.message_id == msg::ConnectAndIntroduceBroker) {
-      msg::ConnectAndIntroduceBroker connect;
-      // nightmare
-      if (!connect.known) {
-        // oh no
-        handler_ = nullptr;
-        return IPCZ_RESULT_INVALID_ARGUMENT;
-      }
-
-      /* set node_ broker link and assigned name */
-      return AcceptNewLink(/* accept THIS link */);
-    }
-
-    return IPCZ_RESULT_UNIMPLEMENTED;
-  }
-
-  IpczResult AcceptNewLink(mem::Ref<NodeLink> link,
-                           size_t num_initial_portals) {
-    if (!handler_) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    ConnectHandler handler = std::move(handler_);
-    handler(link);
-
-    // By convention, bootstrapped router links use side A on the node with the
-    // the numerically lesser NodeName, and side B on the other node.
-    const LinkSide link_side =
-        link->local_node_name() < link->remote_node_name() ? LinkSide::kA
-                                                           : LinkSide::kB;
-    const size_t num_valid_portals = std::min(waiting_portals_.size(),
-                                              num_initial_portals);
-    for (size_t i = 0; i < num_valid_portals; ++i) {
-      const mem::Ref<Router>& router = waiting_portals_[i]->router();
-      router->SetOutwardLink(link->AddRoute(
-          static_cast<RoutingId>(i), i, LinkType::kCentral, link_side, router));
-    }
-    for (size_t i = num_valid_portals; i < waiting_portals_.size(); ++i) {
-      waiting_portals_[i]->router()->AcceptRouteClosure(Direction::kOutward, 0);
-    }
-    return IPCZ_RESULT_OK;
-  }
-
-  void OnTransportError() override {
-    if (handler_) {
-      handler_(nullptr);
-      handler_ = nullptr;
-    }
-  }
-
- private:
-  ~ConnectListener() override = default;
-
-  const mem::Ref<Node> node_;
-  const NodeName local_node_name_;
-  const NodeName remote_node_name_;
-  const mem::Ref<DriverTransport> transport_;
-  const std::vector<mem::Ref<Portal>> waiting_portals_;
-  os::Memory::Mapping link_buffer_mapping_;
-  const bool inherit_broker_;
-  const bool introduce_indirect_;
-  ConnectHandler handler_;
-};
-
-}  // namespace
 
 Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
     : type_(type), driver_(driver), driver_node_(driver_node) {
@@ -227,101 +62,59 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
                              os::Process remote_process,
                              IpczConnectNodeFlags flags,
                              absl::Span<IpczHandle> initial_portals) {
-  const core::Node::Type remote_node_type =
-      (flags & IPCZ_CONNECT_NODE_TO_BROKER) ? core::Node::Type::kBroker
-                                            : core::Node::Type::kNormal;
-  const bool inherit_broker = (flags & IPCZ_CONNECT_NODE_INHERIT_BROKER) != 0;
-  bool introduce_indirect = false;
-  const uint32_t num_portals = static_cast<uint32_t>(initial_portals.size());
-  NodeName local_node_name;
-  NodeName remote_node_name;
-  msg::ConnectFromBroker connect_from_broker;
-  msg::ConnectToBroker connect_to_broker;
-  msg::ConnectAndInheritBroker connect_and_inherit_broker;
-  os::Memory::Mapping link_state_mapping;
-  if (type_ == Type::kBroker && remote_node_type == Type::kNormal) {
-    if (inherit_broker) {
-      return IPCZ_RESULT_FAILED_PRECONDITION;
-    }
-    os::Memory link_state_memory(sizeof(NodeLinkBuffer));
-    absl::MutexLock lock(&mutex_);
-    local_node_name = assigned_name_;
-    remote_node_name = NodeName{NodeName::kRandom};
-    connect_from_broker.params.broker_name = local_node_name;
-    connect_from_broker.params.receiver_name = remote_node_name;
-    connect_from_broker.params.protocol_version = msg::kProtocolVersion;
-    connect_from_broker.params.num_initial_portals = num_portals;
-
-    link_state_mapping = link_state_memory.Map();
-    NodeLinkBuffer::Init(link_state_mapping.base(), num_portals);
-    connect_from_broker.handles.link_state_memory =
-        link_state_memory.TakeHandle();
-  } else if (type_ == Type::kNormal && remote_node_type == Type::kBroker) {
-    if (inherit_broker) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-    connect_to_broker.params.protocol_version = msg::kProtocolVersion;
-    connect_to_broker.params.num_initial_portals = num_portals;
-  } else if (type_ == Type::kNormal && remote_node_type == Type::kNormal) {
-    absl::MutexLock lock(&mutex_);
-    if ((broker_link_ && inherit_broker) ||
-        (!broker_link_ && !inherit_broker)) {
-      return IPCZ_RESULT_FAILED_PRECONDITION;
-    }
-
-    if (inherit_broker) {
-      connect_and_inherit_broker.params.protocol_version =
-          msg::kProtocolVersion;
-      connect_and_inherit_broker.params.num_initial_portals = num_portals;
-    } else {
-      ABSL_ASSERT(broker_link_);
-      introduce_indirect = true;
-    }
-  }
-
-  std::vector<mem::Ref<Portal>> buffering_portals(initial_portals.size());
+  std::vector<mem::Ref<Portal>> portals(initial_portals.size());
   for (size_t i = 0; i < initial_portals.size(); ++i) {
     auto portal = mem::MakeRefCounted<Portal>(mem::WrapRefCounted(this),
                                               mem::MakeRefCounted<Router>());
-    buffering_portals[i] = portal;
+    portals[i] = portal;
     initial_portals[i] = ToHandle(portal.release());
   }
 
   auto transport =
       mem::MakeRefCounted<DriverTransport>(driver_, driver_transport);
-  auto listener = mem::MakeRefCounted<ConnectListener>(
-      mem::WrapRefCounted(this), local_node_name, remote_node_name, transport,
-      std::move(buffering_portals), std::move(link_state_mapping),
-      inherit_broker, introduce_indirect);
-  listener->Listen([node = mem::WrapRefCounted(this), listener,
-                    remote_node_type](mem::Ref<NodeLink> link) {
-    node->AddLink(link->remote_node_name(), link);
-    if (remote_node_type == Type::kBroker) {
-      absl::MutexLock lock(&node->mutex_);
-      DVLOG(4) << "Node " << node.get() << " assigned name "
-               << link->local_node_name().ToString() << " by broker.";
-      node->assigned_name_ = link->local_node_name();
-      node->broker_link_ = std::move(link);
+  IpczResult result = NodeConnector::ConnectNode(
+      mem::WrapRefCounted(this), std::move(transport),
+      std::move(remote_process), flags, portals);
+  if (result != IPCZ_RESULT_OK) {
+    for (mem::Ref<Portal>& portal : portals) {
+      mem::Ref<Portal> doomed_portal{mem::RefCounted::kAdoptExistingRef,
+                                     portal.get()};
+    }
+    return result;
+  }
+  return IPCZ_RESULT_OK;
+}
+
+void Node::SetPortalsWaitingForLink(
+    const NodeName& node_name,
+    absl::Span<const mem::Ref<Portal>> portals) {
+  absl::MutexLock lock(&mutex_);
+
+  DVLOG(4) << "Holding on to " << portals.size() << " portal(s) waiting for a "
+           << "link to " << node_name.ToString();
+
+  std::vector<mem::Ref<Portal>> waiting_portals(portals.begin(), portals.end());
+  pending_introductions_[node_name].push_back([waiting_portals](
+                                                  mem::Ref<NodeLink> link) {
+    if (!link) {
+      for (const mem::Ref<Portal>& portal : waiting_portals) {
+        portal->router()->AcceptRouteClosureFrom(Direction::kOutward, 0);
+      }
+      return;
+    }
+
+    DVLOG(4) << "Upon introduction to " << link->remote_node_name().ToString()
+             << ", activating " << waiting_portals.size()
+             << " portals on link from " << link->local_node_name().ToString()
+             << " to " << link->remote_node_name().ToString();
+
+    for (size_t i = 0; i < waiting_portals.size(); ++i) {
+      const mem::Ref<Router> router = waiting_portals[i]->router();
+      router->SetOutwardLink(link->AddRoute(static_cast<RoutingId>(i), i,
+                                            LinkType::kCentral, LinkSide::kB,
+                                            router));
     }
   });
-
-  transport->set_listener(listener.get());
-  transport->Activate();
-
-  if (type_ == Type::kBroker) {
-    transport->Transmit(connect_from_broker);
-  } else if (!inherit_broker && !introduce_indirect) {
-    transport->Transmit(connect_to_broker);
-  } else if (inherit_broker) {
-    transport->Transmit(connect_and_inherit_broker);
-  }
-
-  // Note that in the case where we're going to introduce the other side of this
-  // connection to our broker, we don't do anything yet. The ConnectionListener
-  // waits for the remote node's connection request before issuing a request to
-  // the broker in that case.
-
-  return IPCZ_RESULT_OK;
 }
 
 Portal::Pair Node::OpenPortals() {
@@ -348,14 +141,21 @@ mem::Ref<NodeLink> Node::GetBrokerLink() {
 }
 
 void Node::SetBrokerLink(mem::Ref<NodeLink> link) {
-  absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!broker_link_);
-  broker_link_ = std::move(link);
+  std::vector<BrokerCallback> callbacks;
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(!broker_link_);
+    broker_link_ = link;
+    std::swap(callbacks, broker_callbacks_);
+  }
+  for (BrokerCallback& callback : callbacks) {
+    callback(link);
+  }
 }
 
 void Node::SetAssignedName(const NodeName& name) {
   absl::MutexLock lock(&mutex_);
-  ABSL_ASSERT(!assigned_name_);
+  ABSL_ASSERT(!assigned_name_.is_valid());
   assigned_name_ = name;
 }
 
@@ -416,16 +216,54 @@ void Node::EstablishLink(const NodeName& name, EstablishLinkCallback callback) {
   broker->RequestIntroduction(name);
 }
 
-bool Node::OnRequestBrokerIntroduction(
+bool Node::OnRequestIndirectBrokerConnection(
     NodeLink& from_node_link,
-    const msg::RequestBrokerIntroduction& request) {
+    uint64_t request_id,
+    mem::Ref<DriverTransport> transport,
+    os::Process process,
+    uint32_t num_initial_portals) {
   if (type_ != Type::kBroker) {
     return false;
   }
 
-  std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
-      DriverTransport::CreatePair(driver_, driver_node_);
+  DVLOG(4) << "Broker " << from_node_link.local_node_name().ToString()
+           << " received indirect connection request from "
+           << from_node_link.remote_node_name().ToString();
 
+  IpczResult result = NodeConnector::ConnectNodeIndirect(
+      mem::WrapRefCounted(this), mem::WrapRefCounted(&from_node_link),
+      std::move(transport), std::move(process), num_initial_portals,
+      [node = mem::WrapRefCounted(this),
+       source_link = mem::WrapRefCounted(&from_node_link), num_initial_portals,
+       request_id](mem::Ref<NodeLink> new_link, uint32_t num_remote_portals) {
+        msg::AcceptIndirectBrokerConnection accept;
+        accept.params.request_id = request_id;
+        accept.params.success = new_link != nullptr;
+        accept.params.num_remote_portals = num_remote_portals;
+        accept.params.connected_node_name =
+            new_link ? new_link->remote_node_name() : NodeName();
+        source_link->Transmit(accept);
+
+        const uint32_t num_portals =
+            std::min(num_initial_portals, num_remote_portals);
+        os::Memory link_buffer_memory(sizeof(NodeLinkBuffer));
+        os::Memory::Mapping link_buffer_mapping = link_buffer_memory.Map();
+        NodeLinkBuffer::Init(link_buffer_mapping.base(), num_portals);
+        std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
+            transports = DriverTransport::CreatePair(node->driver(),
+                                                     node->driver_node());
+        new_link->IntroduceNode(source_link->remote_node_name(),
+                                std::move(transports.first),
+                                link_buffer_memory.Clone());
+        source_link->IntroduceNode(new_link->remote_node_name(),
+                                   std::move(transports.second),
+                                   std::move(link_buffer_memory));
+      });
+  if (result != IPCZ_RESULT_OK) {
+    return false;
+  }
+
+  return true;
 }
 
 bool Node::OnRequestIntroduction(NodeLink& from_node_link,
@@ -536,6 +374,19 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
       new_peer_link, bypass.params.proxy_outbound_sequence_length);
+}
+
+void Node::AddBrokerCallback(BrokerCallback callback) {
+  mem::Ref<NodeLink> broker_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (!broker_link_) {
+      broker_callbacks_.push_back(std::move(callback));
+      return;
+    }
+    broker_link = broker_link_;
+  }
+  callback(std::move(broker_link));
 }
 
 }  // namespace core

@@ -104,6 +104,48 @@ TEST_P(ConnectTest, NonBrokerToNonBrokerWithoutBroker) {
                              nullptr, &portal));
 }
 
+TEST_P(ConnectTest, InheritBrokerConflict) {
+  IpczHandle node_a = CreateNonBrokerNode();
+  IpczHandle node_b = CreateNonBrokerNode();
+
+  IpczOSProcessHandle process = {sizeof(process)};
+  os::Process::ToIpczOSProcessHandle(os::Process::GetCurrent(), process);
+
+  IpczDriverHandle transports[2];
+  CreateTransports(&transports[0], &transports[1]);
+
+  IpczHandle a_to_b;
+  IpczHandle b_to_a;
+  ConnectNodes(node_a, IPCZ_CONNECT_NODE_INHERIT_BROKER, node_b,
+               IPCZ_CONNECT_NODE_INHERIT_BROKER, &a_to_b, &b_to_a);
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(b_to_a, p));
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(a_to_b, p));
+
+  ClosePortals({a_to_b, b_to_a});
+  DestroyNodes({node_a, node_b});
+}
+
+TEST_P(ConnectTest, InheritBrokerFromNonBroker) {
+  IpczHandle node_a = CreateBrokerNode();
+  IpczHandle node_b = CreateNonBrokerNode();
+  IpczHandle node_c = CreateNonBrokerNode();
+
+  IpczHandle a_to_b, b_to_a;
+  ConnectNodes(node_a, IPCZ_NO_FLAGS, node_b, IPCZ_CONNECT_NODE_TO_BROKER,
+               &a_to_b, &b_to_a);
+
+  IpczHandle b_to_c, c_to_b;
+  ConnectNodes(node_b, IPCZ_CONNECT_NODE_SHARE_BROKER, node_c,
+               IPCZ_CONNECT_NODE_INHERIT_BROKER, &b_to_c, &c_to_b);
+
+  TestNodeConnections(node_b, b_to_a, a_to_b, b_to_c, c_to_b);
+
+  ClosePortals({a_to_b, b_to_a, b_to_c, c_to_b});
+  DestroyNodes({node_a, node_b, node_c});
+}
+
 INSTANTIATE_MULTINODE_TEST_SUITE_P(ConnectTest);
 
 }  // namespace

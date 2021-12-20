@@ -49,29 +49,17 @@ namespace msg {
 #pragma pack(pop)
 
 // hacks
-struct IPCZ_ALIGN(16) ConnectAndIntroduceBroker {
-  static constexpr uint8_t kId = 2;
-  internal::MessageHeader message_header;
-  bool known : 1;
-  uint32_t protocol_version;
-  uint32_t broker_protocol_version;
-  NodeName name;
-  NodeName receiver_name;
-  NodeName broker_name;
-  uint32_t num_transport_bytes;
-  uint32_t num_transport_os_handles;
-IPCZ_MSG_END()
-
-struct IPCZ_ALIGN(16) IntroduceBrokerIndirect {
+struct IPCZ_ALIGN(16) RequestIndirectBrokerConnection {
   static constexpr uint8_t kId = 4;
   internal::MessageHeader message_header;
-  NodeName new_node_name;
+  uint64_t request_id;
+  uint32_t num_initial_portals;
   uint32_t num_transport_bytes;
   uint32_t num_transport_os_handles;
 };
 
 struct IPCZ_ALIGN(16) IntroduceNode {
-  static constexpr uint8_t kId = 6;
+  static constexpr uint8_t kId = 7;
   internal::MessageHeader message_header;
   bool known : 1;
   NodeName name;

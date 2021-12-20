@@ -30,7 +30,7 @@ IPCZ_MSG_NO_REPLY(ConnectFromBroker, IPCZ_MSG_ID(0), IPCZ_MSG_VERSION(0))
 
   // A handle to an initial shared memory buffer which can be used to allocate
   // shared state between the two connecting nodes.
-  IPCZ_MSG_HANDLE_REQUIRED(link_state_memory)
+  IPCZ_MSG_HANDLE_REQUIRED(initial_link_buffer_memory)
 IPCZ_MSG_END()
 
 // Initial greeting sent by a non-broker node to a broker node via the
@@ -46,12 +46,11 @@ IPCZ_MSG_NO_REPLY(ConnectToBroker, IPCZ_MSG_ID(1), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
 IPCZ_MSG_END()
 
-// Sent by a non-broker to another non-broker to request that the recipient
-// introduce the sender to its own broker. It will do so by sending a
-// RequestBrokerIntroduction message to its own broker, and once it receives a
-// reply to that message it will send a ConnectAndIntroduceBroker message to the
-// original sender of this message.
-IPCZ_MSG_NO_REPLY(ConnectAndInheritBroker, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
+// Sent by a non-broker to broker, via a non-broker on the other side of a
+// ConnectNode() which specified IPCZ_CONNECT_NODE_INHERIT_BROKER. The broker
+// will reply with ConnectFromBrokerIndirect, and will also introduce the
+// other non-broker to the sender of this message.
+IPCZ_MSG_NO_REPLY(ConnectToBrokerIndirect, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   // The highest protocol version known and desired by the sender.
   IPCZ_MSG_PARAM(uint32_t, protocol_version)
 
@@ -62,27 +61,64 @@ IPCZ_MSG_NO_REPLY(ConnectAndInheritBroker, IPCZ_MSG_ID(2), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
 IPCZ_MSG_END()
 
-// Sent by a non-broker to its already-established broker when attempting to
-// establish a new broker connection on behalf of another non-broker. The broker
-// will allocate a new transport and reply with its serialized representation,
-// along with a new assigned name for the other non-broker. The requester should
-// forwrad that information back to the original requesting node via a
-// ConnectAndIntroduceBroker message.
-IPCZ_MSG_NO_REPLY(RequestBrokerIntroduction, IPCZ_MSG_ID(3),
+// Sent by a broker to a non-broker who initiated contact by connecting to a
+// second non-broker with IPCZ_CONNECT_NODE_INHERIT_BROKER. This is similar to
+// ConnectFromBroker, but it also specifies the name of the other non-broker
+// node who facilitated this connection.
+IPCZ_MSG_NO_REPLY(ConnectFromBrokerIndirect,
+                  IPCZ_MSG_ID(3),
                   IPCZ_MSG_VERSION(0))
-  // An ID for this introduction request, unique in the scope of the
-  // transmitting NodeLink. A resulting IntroduceBrokerIndirect message is sent
-  // with the same ID to correlate that message with an instance of this one.
+  // The name of the broker node.
+  IPCZ_MSG_PARAM(NodeName, broker_name)
+
+  // The name of the receiving node, assigned randomly by the broker.
+  IPCZ_MSG_PARAM(NodeName, receiver_name)
+
+  // The name of the other non-broker node to which the receiver of this message
+  // originally connected with IPCZ_CONNECT_NODE_INHERIT_BROKER. The receiving
+  // node can expect to receive an introduction to this named node immediately
+  // after receiving this message.
+  IPCZ_MSG_PARAM(NodeName, connected_node_name)
+
+  // The highest protocol version known and desired by the broker.
+  IPCZ_MSG_PARAM(uint32_t, protocol_version)
+
+  // The number of initial portals specified on the other end of this
+  // connection.
+  IPCZ_MSG_PARAM(uint32_t, num_remote_portals)
+
+  // A handle to an initial shared memory buffer which can be used to allocate
+  // shared state between the two connecting nodes.
+  IPCZ_MSG_HANDLE_REQUIRED(initial_link_buffer_memory)
+IPCZ_MSG_END()
+
+// Messgae ID 3 is used by RequestIndirectBrokerConnection in node_messages.h.
+
+// A reply to RequestIndirectBrokerConnection. If `success` is true, this
+// message will be followed immediately by an IntroduceNode message to introduce
+// the recipient of this message to the newly connected node.
+IPCZ_MSG_NO_REPLY(AcceptIndirectBrokerConnection,
+                  IPCZ_MSG_ID(5),
+                  IPCZ_MSG_VERSION(0))
+  // An ID corresponding to a RequestIndirectBrokerConnection message sent
+  // previously by the target of this message.
   IPCZ_MSG_PARAM(uint64_t, request_id)
 
-  // The highest protocol version known and desired by the node on whose behalf
-  // this introduction is being requested.
-  IPCZ_MSG_PARAM(uint32_t, new_node_protocol_version)
+  // Indicates whether the broker agreed to complete the requested connection.
+  // If true,
+  IPCZ_MSG_PARAM(bool, success)
 
-  // A handle to the the process hosting the new node to be introduced. This is
-  // optional but may be necessary to specify on some platforms (namely Windows)
-  // in order for OS handle transfer to work properly to and from the new node.
-  IPCZ_MSG_HANDLE_OPTIONAL(new_node_process)
+  // Padding to ensure the NodeName below is 16-byte aligned.
+  IPCZ_MSG_PARAM(uint8_t, reserved0)
+  IPCZ_MSG_PARAM(uint16_t, reserved1)
+
+  // The number of initial portals requested by the new non-broker node who
+  // requested this indirect connection.
+  IPCZ_MSG_PARAM(uint32_t, num_remote_portals)
+
+  // The name assigned to the node that was introduced to the broker by the
+  // corresponding RequestIndirectBrokerConnection message.
+  IPCZ_MSG_PARAM(NodeName, connected_node_name)
 IPCZ_MSG_END()
 
 // Sent by a non-broker node to a broker node. Requests that the broker provide
@@ -96,9 +132,13 @@ IPCZ_MSG_END()
 // and the node identified by `name`, with complementary transport descriptors
 // attached to each, and an os::Memory handle in `link_state_memory` which each
 // side can use to map a shared (zero-initialized) NodeLinkState.
-IPCZ_MSG_NO_REPLY(RequestIntroduction, IPCZ_MSG_ID(5), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_NO_REPLY(RequestIntroduction, IPCZ_MSG_ID(6), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
 IPCZ_MSG_END()
+
+// Message ID 7 is used by IntroduceNode in node_messages.h.
+
+// Message ID 10 is used by AcceptParcel in node_messages.h.
 
 // Notifies a node that the route has been closed on one side. If this arrives
 // at a router from an inward facing or bridge link, it implicitly pertains to

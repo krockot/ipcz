@@ -8,6 +8,7 @@
 #include <functional>
 #include <utility>
 
+#include "core/driver_transport.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/portal.h"
@@ -48,6 +49,7 @@ class Node : public mem::RefCounted {
 
   Type type() const { return type_; }
   const IpczDriver& driver() const { return driver_; }
+  IpczDriverHandle driver_node() const { return driver_node_; }
 
   // Deactivates all NodeLinks and their underlying driver transports in
   // preparation for this node's imminent destruction.
@@ -62,6 +64,9 @@ class Node : public mem::RefCounted {
                          os::Process remote_process,
                          IpczConnectNodeFlags flags,
                          absl::Span<IpczHandle> initial_portals);
+
+  void SetPortalsWaitingForLink(const NodeName& node_name,
+                                absl::Span<const mem::Ref<Portal>> portals);
 
   // Opens a new pair of directly linked portals on this node and returns
   // references to both of them.
@@ -104,9 +109,11 @@ class Node : public mem::RefCounted {
   // indirectly. The sender on the other end of `from_node_link` is already a
   // client of this broker, and they're requesting this introduction on behalf
   // of another (currently brokerless) node.
-  bool OnRequestBrokerIntroduction(
-      NodeLink& from_node_link,
-      const msg::RequestBrokerIntroduction& request);
+  bool OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
+                                         uint64_t request_id,
+                                         mem::Ref<DriverTransport> transport,
+                                         os::Process process,
+                                         uint32_t num_initial_portals);
 
   // Handles an incoming introduction request. This message is only accepted by
   // broker nodes. If the broker knows of the node named in `request`, it will
@@ -132,6 +139,12 @@ class Node : public mem::RefCounted {
   // Handles an incoming request to bypass a proxying router on another node.
   bool OnBypassProxy(NodeLink& from_node_link, const msg::BypassProxy& bypass);
 
+  // Registers a callback to be invoked as soon as this node acquires a link to
+  // a broker node. If it alread has one, the callback is invoked immediately,
+  // before returning from this call.
+  using BrokerCallback = std::function<void(mem::Ref<NodeLink> broker_link)>;
+  void AddBrokerCallback(BrokerCallback callback);
+
  private:
   ~Node() override;
 
@@ -140,8 +153,6 @@ class Node : public mem::RefCounted {
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
-
-  uint64_t next_request_id_ ABSL_GUARDED_BY(mutex_) = 0;
 
   // The name assigned to this node by the first broker it connected to. Once
   // assigned, this name remains constant through the life of the node.
@@ -164,6 +175,9 @@ class Node : public mem::RefCounted {
   // that NodeName are executed.
   absl::flat_hash_map<NodeName, std::vector<EstablishLinkCallback>>
       pending_introductions_ ABSL_GUARDED_BY(mutex_);
+
+  // A list of callbacks to be invoked when this node acquires a broker link.
+  std::vector<BrokerCallback> broker_callbacks_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

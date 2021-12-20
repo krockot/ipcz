@@ -115,6 +115,57 @@ void NodeLink::Transmit(absl::Span<const uint8_t> data,
   transport_->TransmitMessage(DriverTransport::Message(data, handles));
 }
 
+void NodeLink::RequestIndirectBrokerConnection(
+    mem::Ref<DriverTransport> transport,
+    os::Process new_node_process,
+    size_t num_initial_portals,
+    IndirectBrokerConnectionCallback callback) {
+  std::vector<uint8_t> serialized_transport_data;
+  std::vector<os::Handle> serialized_transport_handles;
+  if (transport) {
+    IpczResult result = transport->Serialize(serialized_transport_data,
+                                             serialized_transport_handles);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  }
+
+  uint64_t request_id;
+  {
+    absl::MutexLock lock(&mutex_);
+    request_id = next_request_id_++;
+    pending_indirect_broker_connections_[request_id] = std::move(callback);
+  }
+
+  absl::InlinedVector<uint8_t, 256> serialized_data;
+  size_t num_os_handles = serialized_transport_handles.size() + 1;
+  const size_t serialized_size =
+      sizeof(msg::RequestIndirectBrokerConnection) +
+      serialized_transport_data.size() +
+      num_os_handles * sizeof(internal::OSHandleData);
+  serialized_data.resize(serialized_size);
+
+  auto& request = *reinterpret_cast<msg::RequestIndirectBrokerConnection*>(
+      serialized_data.data());
+  new (&request) msg::RequestIndirectBrokerConnection();
+  request.message_header.size = sizeof(request.message_header);
+  request.message_header.message_id = msg::RequestIndirectBrokerConnection::kId;
+  request.request_id = request_id;
+  request.num_initial_portals = static_cast<uint32_t>(num_initial_portals);
+  request.num_transport_bytes =
+      static_cast<uint32_t>(serialized_transport_data.size());
+  request.num_transport_os_handles =
+      static_cast<uint32_t>(serialized_transport_handles.size());
+  memcpy(&request + 1, serialized_transport_data.data(),
+         serialized_transport_data.size());
+
+  std::vector<os::Handle> handles(num_os_handles);
+  handles[0] = new_node_process.TakeAsHandle();
+  for (size_t i = 0; i < serialized_transport_handles.size(); ++i) {
+    handles[i + 1] = std::move(serialized_transport_handles[i]);
+  }
+
+  Transmit(absl::MakeSpan(serialized_data), absl::MakeSpan(handles));
+}
+
 void NodeLink::RequestIntroduction(const NodeName& name) {
   msg::RequestIntroduction request;
   request.params.name = name;
@@ -203,10 +254,16 @@ IpczResult NodeLink::OnTransportMessage(
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
 
   switch (header.message_id) {
-    case msg::RequestBrokerIntroduction::kId: {
-      msg::RequestBrokerIntroduction request;
-      if (request.Deserialize(message) &&
-          node_->OnRequestBrokerIntroduction(*this, request)) {
+    case msg::RequestIndirectBrokerConnection::kId:
+      if (OnRequestIndirectBrokerConnection(message)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+
+    case msg::AcceptIndirectBrokerConnection::kId: {
+      msg::AcceptIndirectBrokerConnection accept;
+      if (accept.Deserialize(message) &&
+          OnAcceptIndirectBrokerConnection(accept)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -316,9 +373,86 @@ IpczResult NodeLink::OnTransportMessage(
 
 void NodeLink::OnTransportError() {}
 
-bool NodeLink::OnRequestBrokerIntroduction(
-    const msg::RequestBrokerIntroduction& request) {
-  return node_->OnRequestBrokerIntroduction()
+bool NodeLink::OnRequestIndirectBrokerConnection(
+    const DriverTransport::Message& message) {
+  if (node_->type() != Node::Type::kBroker) {
+    return false;
+  }
+
+  if (message.data.size() < sizeof(msg::RequestIndirectBrokerConnection)) {
+    return false;
+  }
+  const auto& request =
+      *reinterpret_cast<const msg::RequestIndirectBrokerConnection*>(
+          message.data.data());
+  const uint32_t num_transport_bytes = request.num_transport_bytes;
+  const uint32_t num_transport_os_handles = request.num_transport_os_handles;
+  const uint32_t num_os_handles = num_transport_os_handles + 1;
+  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&request + 1);
+
+  const size_t serialized_size =
+      sizeof(request) + num_transport_bytes +
+      num_os_handles * sizeof(internal::OSHandleData);
+  if (message.data.size() < serialized_size) {
+    return false;
+  }
+  if (message.handles.size() < num_transport_os_handles) {
+    return false;
+  }
+
+  const size_t num_extra_handles =
+      message.handles.size() - num_transport_os_handles;
+  if (num_extra_handles > 1) {
+    return false;
+  }
+
+  os::Process new_node_process;
+#if defined(OS_WIN) || defined(OS_FUCHSIA)
+  if (num_extra_handles == 1 && message.handles[0]) {
+    new_node_process = os::Process(message.handles[0].release());
+  }
+#endif
+
+  auto transport = DriverTransport::Deserialize(
+      node_->driver(), node_->driver_node(),
+      absl::Span<const uint8_t>(bytes, num_transport_bytes),
+      message.handles.subspan(num_extra_handles));
+  if (!transport) {
+    return false;
+  }
+
+  return node_->OnRequestIndirectBrokerConnection(
+      *this, request.request_id, std::move(transport),
+      std::move(new_node_process), request.num_initial_portals);
+}
+
+bool NodeLink::OnAcceptIndirectBrokerConnection(
+    const msg::AcceptIndirectBrokerConnection& accept) {
+  if (node_->type() == Node::Type::kBroker ||
+      remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  IndirectBrokerConnectionCallback callback;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it =
+        pending_indirect_broker_connections_.find(accept.params.request_id);
+    if (it == pending_indirect_broker_connections_.end()) {
+      return false;
+    }
+
+    callback = std::move(it->second);
+    pending_indirect_broker_connections_.erase(it);
+  }
+
+  if (!accept.params.success) {
+    callback(NodeName(), 0);
+  } else {
+    callback(accept.params.connected_node_name,
+             accept.params.num_remote_portals);
+  }
+  return true;
 }
 
 bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {

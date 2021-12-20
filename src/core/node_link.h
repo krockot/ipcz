@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 
 #include "core/driver_transport.h"
 #include "core/node.h"
@@ -107,10 +108,16 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // Asks the broker on the other end of this link to accept a new node for
   // introduction into the network. Normally nodes connect directly to a broker,
   // but in some cases a non-broker may connect directly another non-broker to
-  // request inheritance of its same broker. This facilitates that behavior.
-  void RequestBrokerIntroduction(uint64_t request_id,
-                                 os::Process new_node_process,
-                                 uint32_t new_node_protocol_version);
+  // request inheritance of its broker in order to join the same network. This
+  // message is sent to the broker by an established non-broker on behalf of the
+  // new non-broker attempting to join the network.
+  using IndirectBrokerConnectionCallback =
+      std::function<void(const NodeName&, uint32_t num_remote_portals)>;
+  void RequestIndirectBrokerConnection(
+      mem::Ref<DriverTransport> transport,
+      os::Process new_node_process,
+      size_t num_initial_portals,
+      IndirectBrokerConnectionCallback callback);
 
   // Asks the broker on the other end of this link to introduce the local node
   // on this side of the link to the named node. This will always elicit an
@@ -147,8 +154,10 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // All of these methods correspond directly to remote calls from another node,
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
   // everything else).
-  bool OnRequestBrokerIntroduction(
-      const msg::RequestBrokerIntroduction& request);
+  bool OnRequestIndirectBrokerConnection(
+      const DriverTransport::Message& message);
+  bool OnAcceptIndirectBrokerConnection(
+      const msg::AcceptIndirectBrokerConnection& accept);
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnIntroduceNode(const DriverTransport::Message& message);
@@ -173,6 +182,12 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   using RouteMap = absl::flat_hash_map<RoutingId, Route>;
   RouteMap routes_ ABSL_GUARDED_BY(mutex_);
+
+  uint64_t next_request_id_ ABSL_GUARDED_BY(mutex_) = 0;
+  using IndirectBrokerConnectionMap =
+      absl::flat_hash_map<uint64_t, IndirectBrokerConnectionCallback>;
+  IndirectBrokerConnectionMap pending_indirect_broker_connections_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core
