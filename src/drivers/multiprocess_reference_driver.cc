@@ -51,7 +51,11 @@ class MultiprocessTransport : public mem::RefCounted {
     activity_handler_ = activity_handler;
     channel_->Listen(
         [transport = mem::WrapRefCounted(this)](os::Channel::Message message) {
-          return transport->OnMessage(message);
+          if (!transport->OnMessage(message)) {
+            transport->OnError();
+            return false;
+          }
+          return true;
         });
   }
 
@@ -89,7 +93,12 @@ class MultiprocessTransport : public mem::RefCounted {
         transport_, message.data.data(),
         static_cast<uint32_t>(message.data.size()), os_handles.data(),
         static_cast<uint32_t>(os_handles.size()), IPCZ_NO_FLAGS, nullptr);
-    return result == IPCZ_RESULT_OK;
+    return result == IPCZ_RESULT_OK || result == IPCZ_RESULT_UNIMPLEMENTED;
+  }
+
+  void OnError() {
+    activity_handler_(transport_, nullptr, 0, nullptr, 0,
+                      IPCZ_TRANSPORT_ACTIVITY_ERROR, nullptr);
   }
 
   // Access to these fields is not synchronized: ipcz is responsible for

@@ -35,10 +35,14 @@ class TransportWrapper : public mem::RefCounted {
 
   IpczResult Notify(absl::Span<const uint8_t> data,
                     absl::Span<const IpczOSHandle> os_handles) {
-    return activity_handler_(
+    IpczResult result = activity_handler_(
         transport_, data.data(), static_cast<uint32_t>(data.size()),
         os_handles.data(), static_cast<uint32_t>(os_handles.size()),
         IPCZ_NO_FLAGS, nullptr);
+    if (result != IPCZ_RESULT_OK && result != IPCZ_RESULT_UNIMPLEMENTED) {
+      NotifyError();
+    }
+    return result;
   }
 
   IpczResult NotifyError() {
