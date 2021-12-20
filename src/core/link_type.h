@@ -23,7 +23,7 @@ namespace core {
 // The stable state of any given route is to have exactly two routers, both
 // terminal, with a single central link between them. Routes which are extended
 // by portal relocation or bridged via portal merges may grow into arbitrarily
-// chains of bridged routes with many peripheral links, but over time all
+// long chains of bridged routes with many peripheral links, but over time all
 // interior routers are bypassed by incrementally decaying and replacing central
 // links and bridge links.
 struct LinkType {
@@ -45,7 +45,7 @@ struct LinkType {
     //
     // Every peripheral link has a side facing inward and a side facing outward.
     // An inward peripheral link goes further toward the terminal endpoint of
-    // the router's own side of the route, while an inward peripheral link goes
+    // the router's own side of the route, while an outward peripheral link goes
     // toward the terminal endpoint of the side opposite the router.
     kPeripheralInward,
     kPeripheralOutward,
