@@ -11,6 +11,7 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
+#include "os/handle.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -86,6 +87,8 @@ class Process {
   void reset();
 
   Process Clone() const;
+
+  Handle TakeAsHandle();
 
  private:
 #if defined(OS_FUCHSIA)

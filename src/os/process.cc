@@ -141,5 +141,18 @@ Process Process::Clone() const {
   return clone;
 }
 
+Handle Process::TakeAsHandle() {
+#if defined(OS_WIN) || defined(OS_FUCHSIA)
+  ProcessHandle handle = kNullProcessHandle;
+  if (is_current_process_) {
+    return os::Handle();
+  }
+  std::swap(handle, handle_);
+  return os::Handle(handle);
+#else
+  return os::Handle();
+#endif
+}
+
 }  // namespace os
 }  // namespace ipcz
