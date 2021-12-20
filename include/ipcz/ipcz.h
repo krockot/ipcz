@@ -356,6 +356,44 @@ typedef uint32_t IpczConnectNodeFlags;
 // any untrusted process.
 #define IPCZ_CONNECT_NODE_TO_BROKER IPCZ_FLAG_BIT(0)
 
+// Indicates that the remote node for this connection is expected not to be a
+// broker, but to already have a link to a broker; and that the calling node
+// wishes to inherit that broker as well. This flag must only be used when
+// connecting to a node the caller trusts, and only when the calling node does
+// not already have an established broker from a previous ConnectNode() call.
+#define IPCZ_CONNECT_NODE_INHERIT_BROKER IPCZ_FLAG_BIT(1)
+
+// ipcz may periodically allocate shared memory regions to facilitate
+// communication between two nodes. In most runtime environments, even within
+// a security sandbox, ipcz can do do this safely and directly by interfacing
+// with the OS. In some environments however (e.g. in some Windows sandbox
+// environments) direct allocation is not possible, and in such cases, a node
+// must delegate this responsibility to some other trusted node in the system,
+// typically the broker node.
+//
+// Specifying this flag ensures that all shared memory allocation elicited by
+// this node will be delegated to the remote node to which the caller is
+// connecting.
+#define IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE IPCZ_FLAG_BIT(2)
+
+// In some environments (in particular on Windows) the relative privilege level
+// of each node's host process may impact how ipcz manages OS handle transfer
+// and potentially other transactions between the two processes. Normally ipcz
+// will assume an appropriate relative privilege level based on which side of
+// a connection is a broker and which is a non-broker. If however a broker
+// wishes to connect to a node within a process of even higher privilege than
+// its own process, it must specify this flag. The corresponding ConnectNode()
+// call on the more privigeled node's end must include
+// IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL.
+#define IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(3)
+
+// See the above comments regarding relative privilege level. If a node is
+// hosted by a process with a higher privilege level than the broker to which
+// it's connecting (implying IPCZ_CONNECT_NODE_TO_BROKER is also specified),
+// this flag must also be specified. The correspoding ConnectNode() call on the
+// broker node's end must include IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL.
+#define IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(4)
+
 // Optional limits provided by IpczPutOptions for Put() or IpczBeginPutOptions
 // for BeginPut().
 struct IPCZ_ALIGN(8) IpczPutLimits {
@@ -661,12 +699,34 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // to be fully operational.
   //
   // If IPCZ_CONNECT_NODE_TO_BROKER is given in `flags`, the remote node must
-  // be a broker node, and the calling node will treat it as such.
+  // be a broker node, and the calling node will treat it as such. If the
+  // calling node is also a broker, the brokers' respective networks will be
+  // effectively merged as long as both brokers remain alive: nodes in one
+  // network will be able to discover and communicate directly with nodes in the
+  // other network.
+  //
+  // Conversely if IPCZ_CONNECT_NODE_TO_BROKER is *not* given and neither the
+  // local nor remote nodes is a broker, one of the two nodes MUST already have
+  // an established link to a broker, and the other MUST specify
+  // IPCZ_CONNECT_NODE_INHERIT_BROKER on its respective ConnectNode() call.
+  //
+  // If IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE is given in `flags`, this node
+  // will delegate all ipcz internal shared memory allocation operations to
+  // the remote node. This flag should only be used when the calling node is
+  // operating in a restricted environment where direct shared memory allocation
+  // is not possible.
   //
   // The caller may establish any number of initial portals to be linked
   // between the nodes as soon as the two-way connection is complete. On
   // success, all returned portal handles are usable immediately by the
   // application.
+  //
+  // Finally, if a node connecting to a broker is hosted in a process more
+  // privileged than the broker's own node, the more privileged node must
+  // specify IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE, and the broker node must
+  // specify IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE in its corresponding call to
+  // ConnectNode(). This ensures that OS handles can be properly transferred to
+  // and from the more privileged process.
   //
   // Returns:
   //
