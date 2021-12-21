@@ -42,13 +42,13 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
 
   // NodeConnector:
   void Connect() override {
-    DVLOG(4) << "Sending direct ConnectFromBroker from broker "
+    DVLOG(4) << "Sending direct ConnectFromBrokerToNonBroker from broker "
              << broker_name_.ToString() << " to new node "
              << new_remote_node_name_.ToString() << " with " << num_portals()
              << " initial portals";
 
     ABSL_ASSERT(node_->type() == Node::Type::kBroker);
-    msg::ConnectFromBroker connect;
+    msg::ConnectFromBrokerToNonBroker connect;
     connect.params.broker_name = broker_name_;
     connect.params.receiver_name = new_remote_node_name_;
     connect.params.protocol_version = msg::kProtocolVersion;
@@ -60,16 +60,16 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
 
   bool OnMessage(uint8_t message_id,
                  const DriverTransport::Message& message) override {
-    if (message_id != msg::ConnectToBroker::kId) {
+    if (message_id != msg::ConnectFromNonBrokerToBroker::kId) {
       return false;
     }
 
-    msg::ConnectToBroker connect;
+    msg::ConnectFromNonBrokerToBroker connect;
     if (!connect.Deserialize(message)) {
       return false;
     }
 
-    DVLOG(4) << "Accepting ConnectToBroker on broker "
+    DVLOG(4) << "Accepting ConnectFromNonBrokerToBroker on broker "
              << broker_name_.ToString() << " from new node "
              << new_remote_node_name_.ToString();
     AcceptConnection(mem::MakeRefCounted<NodeLink>(
@@ -105,7 +105,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
   // NodeConnector:
   void Connect() override {
     ABSL_ASSERT(node_->type() == Node::Type::kNormal);
-    msg::ConnectToBroker connect;
+    msg::ConnectFromNonBrokerToBroker connect;
     connect.params.protocol_version = msg::kProtocolVersion;
     connect.params.num_initial_portals = num_portals();
     transport_->Transmit(connect);
@@ -113,18 +113,18 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
 
   bool OnMessage(uint8_t message_id,
                  const DriverTransport::Message& message) override {
-    if (message_id != msg::ConnectFromBroker::kId) {
+    if (message_id != msg::ConnectFromBrokerToNonBroker::kId) {
       return false;
     }
 
-    msg::ConnectFromBroker connect;
+    msg::ConnectFromBrokerToNonBroker connect;
     if (!connect.Deserialize(message)) {
       return false;
     }
 
-    DVLOG(4) << "New node accepting ConnectFromBroker with assigned name "
-             << connect.params.receiver_name.ToString() << " from broker "
-             << connect.params.broker_name.ToString();
+    DVLOG(4) << "New node accepting ConnectFromBrokerToNonBroker with assigned "
+             << "name " << connect.params.receiver_name.ToString()
+             << " from broker " << connect.params.broker_name.ToString();
 
     os::Memory initial_link_buffer_memory(
         std::move(connect.handles.initial_link_buffer_memory),
