@@ -745,7 +745,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        closed peer.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid, `num_initial_portals`
-  //        is zero, or `initial_portals` is null.
+  //        is zero, `initial_portals` is null, or `flags` specifies one or more
+  //        flags which are invalid for `node` or invalid when combined.
   IpczResult (*ConnectNode)(IpczHandle node,
                             IpczDriverHandle driver_transport,
                             const struct IpczOSProcessHandle* target_process,

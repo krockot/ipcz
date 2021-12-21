@@ -98,7 +98,7 @@ DriverTransport::DriverTransport(const IpczDriver& driver,
     : driver_(driver), driver_transport_(driver_transport) {}
 
 DriverTransport::~DriverTransport() {
-  if (!serialized_) {
+  if (!serialized_ && driver_transport_ != IPCZ_INVALID_HANDLE) {
     driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
   }
 }
@@ -115,6 +115,12 @@ DriverTransport::Pair DriverTransport::CreatePair(
   auto first = mem::MakeRefCounted<DriverTransport>(driver, transport0);
   auto second = mem::MakeRefCounted<DriverTransport>(driver, transport1);
   return {std::move(first), std::move(second)};
+}
+
+IpczDriverHandle DriverTransport::Release() {
+  IpczDriverHandle transport = IPCZ_INVALID_HANDLE;
+  std::swap(transport, driver_transport_);
+  return transport;
 }
 
 IpczResult DriverTransport::Activate() {

@@ -70,6 +70,10 @@ class DriverTransport : public mem::RefCounted {
   // are mutually exclusive). `listener` must outlive this DriverTransport.
   void set_listener(Listener* listener) { listener_ = listener; }
 
+  // Releases the driver handle so that it's no longer controlled by this
+  // DriverTranport.
+  IpczDriverHandle Release();
+
   IpczResult Activate();
   IpczResult Deactivate();
   IpczResult TransmitMessage(const Message& message);
@@ -102,7 +106,7 @@ class DriverTransport : public mem::RefCounted {
   ~DriverTransport() override;
 
   const IpczDriver& driver_;
-  const IpczDriverHandle driver_transport_;
+  IpczDriverHandle driver_transport_;
 
   bool serialized_ = false;
   Listener* listener_ = nullptr;

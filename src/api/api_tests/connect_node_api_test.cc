@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
 #include "test/api_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -12,7 +13,44 @@ namespace {
 using ConnectNodeAPITest = test::APITest;
 
 TEST_F(ConnectNodeAPITest, InvalidArgs) {
-  // TODO
+  IpczHandle portal;
+  IpczDriverHandle transports[2];
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            drivers::kSingleProcessReferenceDriver.CreateTransports(
+                IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, &transports[0],
+                &transports[1]));
+
+  // Invalid node.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.ConnectNode(IPCZ_INVALID_HANDLE, transports[0], nullptr, 1,
+                             IPCZ_NO_FLAGS, nullptr, &portal));
+
+  // Zero initial portals.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.ConnectNode(node, transports[0], nullptr, 0, IPCZ_NO_FLAGS,
+                             nullptr, &portal));
+
+  // Null portal storage.
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.ConnectNode(node, transports[0], nullptr, 1, IPCZ_NO_FLAGS,
+                             nullptr, nullptr));
+
+  IpczHandle broker;
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+                            IPCZ_INVALID_HANDLE, IPCZ_CREATE_NODE_AS_BROKER,
+                            nullptr, &broker));
+
+  // Non-brokers cannot specify IPCZ_CONNECT_NODE_INHERIT_BROKER or
+  // IPCZ_CONNECT_NODE_SHARE_BROKER.
+  EXPECT_EQ(
+      IPCZ_RESULT_INVALID_ARGUMENT,
+      ipcz.ConnectNode(broker, transports[0], nullptr, 1,
+                       IPCZ_CONNECT_NODE_INHERIT_BROKER, nullptr, &portal));
+
+  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
+            ipcz.ConnectNode(broker, transports[0], nullptr, 1,
+                             IPCZ_CONNECT_NODE_SHARE_BROKER, nullptr, &portal));
 }
 
 }  // namespace

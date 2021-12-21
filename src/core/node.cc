@@ -72,10 +72,11 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
 
   auto transport =
       mem::MakeRefCounted<DriverTransport>(driver_, driver_transport);
-  IpczResult result = NodeConnector::ConnectNode(
-      mem::WrapRefCounted(this), std::move(transport),
-      std::move(remote_process), flags, portals);
+  IpczResult result =
+      NodeConnector::ConnectNode(mem::WrapRefCounted(this), transport,
+                                 std::move(remote_process), flags, portals);
   if (result != IPCZ_RESULT_OK) {
+    transport->Release();
     for (mem::Ref<Portal>& portal : portals) {
       mem::Ref<Portal> doomed_portal{mem::RefCounted::kAdoptExistingRef,
                                      portal.get()};
