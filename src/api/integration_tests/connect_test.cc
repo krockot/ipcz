@@ -146,6 +146,20 @@ TEST_P(ConnectTest, InheritBrokerFromNonBroker) {
   DestroyNodes({node_a, node_b, node_c});
 }
 
+TEST_P(ConnectTest, BrokerToBroker) {
+  IpczHandle node_a = CreateBrokerNode();
+  IpczHandle node_b = CreateBrokerNode();
+
+  IpczHandle a_to_b, b_to_a;
+  ConnectNodes(node_a, IPCZ_CONNECT_NODE_TO_BROKER, node_b,
+               IPCZ_CONNECT_NODE_TO_BROKER, &a_to_b, &b_to_a);
+
+  VerifyEndToEnd(a_to_b, b_to_a);
+
+  ClosePortals({a_to_b, b_to_a});
+  DestroyNodes({node_a, node_b});
+}
+
 INSTANTIATE_MULTINODE_TEST_SUITE_P(ConnectTest);
 
 }  // namespace

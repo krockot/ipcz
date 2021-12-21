@@ -69,7 +69,7 @@ namespace msg {
 // establish initial portals between the two non-broker nodes as their original
 // ConnectNode() calls intended.
 struct IPCZ_ALIGN(16) RequestIndirectBrokerConnection {
-  static constexpr uint8_t kId = 4;
+  static constexpr uint8_t kId = 10;
   internal::MessageHeader message_header;
   uint64_t request_id;
   uint32_t num_initial_portals;
@@ -81,7 +81,7 @@ struct IPCZ_ALIGN(16) RequestIndirectBrokerConnection {
 // accepted from broker nodes. Includes a serialized driver transport descriptor
 // which the recipient can use to communicate with the new named node.
 struct IPCZ_ALIGN(16) IntroduceNode {
-  static constexpr uint8_t kId = 7;
+  static constexpr uint8_t kId = 13;
   internal::MessageHeader message_header;
   bool known : 1;
   NodeName name;
@@ -93,7 +93,7 @@ struct IPCZ_ALIGN(16) IntroduceNode {
 // boundary. Also contains a variable number of OS handles and
 // RouterDescriptors.
 struct IPCZ_ALIGN(16) AcceptParcel {
-  static constexpr uint8_t kId = 10;
+  static constexpr uint8_t kId = 20;
   internal::MessageHeader message_header;
   RoutingId routing_id;
   SequenceNumber sequence_number;

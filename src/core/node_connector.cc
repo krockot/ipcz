@@ -298,17 +298,66 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
       : NodeConnector(std::move(node),
                       std::move(transport),
                       std::move(waiting_portals),
-                      std::move(callback)) {}
+                      std::move(callback)) {
+    NodeLinkBuffer::Init(our_link_buffer_mapping_.base(), num_portals());
+  }
 
   ~NodeConnectorForBrokerToBroker() override = default;
 
   // NodeConnector:
-  void Connect() override {}
+  void Connect() override {
+    DVLOG(4) << "Sending direct ConnectFromBrokerToBroker from broker "
+             << local_name_.ToString() << " with " << num_portals()
+             << " initial portals";
+
+    ABSL_ASSERT(node_->type() == Node::Type::kBroker);
+    msg::ConnectFromBrokerToBroker connect;
+    connect.params.sender_name = local_name_;
+    connect.params.protocol_version = msg::kProtocolVersion;
+    connect.params.num_initial_portals = num_portals();
+    connect.handles.initial_link_buffer_memory =
+        our_link_buffer_memory_.TakeHandle();
+    transport_->Transmit(connect);
+  }
 
   bool OnMessage(uint8_t message_id,
                  const DriverTransport::Message& message) override {
-    return false;
+    if (message_id != msg::ConnectFromBrokerToBroker::kId) {
+      return false;
+    }
+
+    msg::ConnectFromBrokerToBroker connect;
+    if (!connect.Deserialize(message)) {
+      return false;
+    }
+
+    DVLOG(4) << "Accepting ConnectFromBrokerToBroker on broker "
+             << local_name_.ToString() << " from broker "
+             << connect.params.sender_name.ToString();
+
+    os::Memory their_link_buffer_memory(
+        std::move(connect.handles.initial_link_buffer_memory),
+        sizeof(NodeLinkBuffer));
+    os::Memory::Mapping their_link_buffer_mapping =
+        their_link_buffer_memory.Map();
+
+    const bool we_win = local_name_ < connect.params.sender_name;
+    os::Memory::Mapping initial_link_buffer_mapping =
+        we_win ? std::move(our_link_buffer_mapping_)
+               : std::move(their_link_buffer_mapping);
+    LinkSide link_side = we_win ? LinkSide::kA : LinkSide::kB;
+    AcceptConnection(mem::MakeRefCounted<NodeLink>(
+                         node_, local_name_, connect.params.sender_name,
+                         Node::Type::kBroker, connect.params.protocol_version,
+                         transport_, std::move(initial_link_buffer_mapping)),
+                     link_side, connect.params.num_initial_portals);
+    return true;
   }
+
+ private:
+  const NodeName local_name_{node_->GetAssignedName()};
+  os::Memory our_link_buffer_memory_{sizeof(NodeLinkBuffer)};
+  os::Memory::Mapping our_link_buffer_mapping_{our_link_buffer_memory_.Map()};
 };
 
 std::pair<mem::Ref<NodeConnector>, IpczResult> CreateConnector(
