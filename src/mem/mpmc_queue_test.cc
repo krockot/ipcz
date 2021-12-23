@@ -27,7 +27,7 @@ constexpr size_t kNumElementsPerProducer = 5000;
 constexpr size_t kNumElementsTotal = kNumProducers * kNumElementsPerProducer;
 constexpr size_t kNumConsumers = kNumProducers;
 constexpr size_t kNumElementsPerConsumer = kNumElementsPerProducer;
-constexpr size_t kQueueLength = 4;
+constexpr size_t kQueueLength = 15;
 
 using TestQueue = MpmcQueue<size_t, kQueueLength>;
 
