@@ -10,56 +10,36 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "ipcz/ipcz.h"
 #include "mem/atomic_memcpy.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
 namespace mem {
 
-// MpmcQueue is a multiple-producer, multiple-consumer, bounded, lock-free queue
-// structure suitable for use by any number of concurrent producers and
-// consumers. MqmcQueue objects do not contain heap references and are safe to
-// allocate and use within shared memory regions.
-//
-// The underlying data type T must be trivially copyable, and consumers should
-// pop frequently to avoid starving producers.
-template <typename T, size_t kCapacity>
-class MpmcQueue {
- public:
-  using DataType = T;
+namespace internal {
 
-  static_assert(kCapacity >= 4 && kCapacity <= 0x80000000,
-                "capacity must be between 4 and 2^31, inclusive");
-  static_assert(std::is_trivially_copyable<DataType>::value,
-                "data must be trivially copyable");
+// Queue data which potentially resides in shared memory. The capacity of the
+// queue is not stored here since it should not be trusted between arbitrary
+// processes.
+template <typename T>
+struct MpmcQueueData {
+  MpmcQueueData() = default;
+  ~MpmcQueueData() = default;
 
-  // The low two bits of the status of each cell. Both zero means the cell is
-  // empty; only busy means it's claimed and i the process of being pushed
-  // into; only full means it's full and ready to be popped, and both busy and
-  // full means it's full and claimed and in the process of being popped out of.
-  // A busy status bit allows for the element load/store itself to incur
-  // multiple sequence-locked atomic operations without tearing on push/pop.
-  static constexpr uint32_t kBusyBit = 1 << 0;
-  static constexpr uint32_t kFullBit = 1 << 1;
-
-  // Maximum number of iterations to spin in PushBack or PopFront when
-  // encountering spurious failures or losing races with other producers or
-  // consumers. Arbitrary smallish number.
-  static constexpr size_t kMaxRetries = 10;
-
-  MpmcQueue() = default;
-  MpmcQueue(const MpmcQueue&) = delete;
-  MpmcQueue& operator=(const MpmcQueue&) = delete;
-  ~MpmcQueue() = default;
+  void Initialize(size_t capacity) {
+    new (this) MpmcQueueData<T>();
+    memset(&first_cell_, 0, sizeof(Cell) * capacity);
+  }
 
   // Tries to push `value` onto the tail of the queue. Returns false on failure,
-  // either if the queue is full or if we exceed `kMaxRetries` attempts at
-  // resolving a race against other producers.
-  bool PushBack(const DataType& value) {
+  // either if the queue size would exceed `capacity`.
+  bool Push(const T& value, const size_t capacity) {
     uint32_t tail = tail_.load(std::memory_order_relaxed);
-    for (size_t attempts = 0; attempts < kMaxRetries; ++attempts) {
-      const uint32_t tail_lap = tail / kCapacity;
+    for (;;) {
+      const uint32_t tail_lap = tail / capacity;
       const uint32_t empty_status = tail_lap << 2;
-      Cell& c = cells_[tail % kCapacity];
+      Cell& c = cell(tail % capacity);
       uint32_t status = empty_status;
       if (c.status.compare_exchange_weak(status, empty_status | kBusyBit,
                                          std::memory_order_release,
@@ -88,18 +68,16 @@ class MpmcQueue {
       // Otherwise we've just lost a race. Reload the tail index and try again.
       tail = tail_.load(std::memory_order_relaxed);
     }
-    return false;
   }
 
   // Tries to pop a value off the front of the queue and into `value`. Returns
-  // false on failure, either if the queue is empty or we exceed `kMaxRetries`
-  // attempts at resolving a race against other consumers.
-  bool PopFront(DataType& value) {
+  // false if the queue was empty.
+  bool Pop(T& value, const size_t capacity) {
     uint32_t head = head_.load(std::memory_order_relaxed);
-    for (size_t attempts = 0; attempts < kMaxRetries; ++attempts) {
-      const uint32_t head_lap = head / kCapacity;
+    for (;;) {
+      const uint32_t head_lap = head / capacity;
       const uint32_t full_status = (head_lap << 2) | kFullBit;
-      Cell& c = cells_[head % kCapacity];
+      Cell& c = cell(head % capacity);
       uint32_t status = full_status;
       if (c.status.compare_exchange_weak(status, full_status | kBusyBit,
                                          std::memory_order_release,
@@ -129,24 +107,85 @@ class MpmcQueue {
       // Otherwise we've just lost a race. Reload the tail index and try again.
       head = head_.load(std::memory_order_relaxed);
     }
-    return false;
+  }
+
+  static size_t GetFixedStorageSize() {
+    return ComputeStorageSize(1) - GetPerElementStorageSize();
+  }
+
+  static size_t GetPerElementStorageSize() { return sizeof(Cell); }
+
+  static size_t ComputeStorageSize(size_t capacity) {
+    ABSL_ASSERT(capacity >= 1);
+    return sizeof(MpmcQueueData<T>) +
+           GetPerElementStorageSize() * (capacity - 1);
   }
 
  private:
+  static constexpr uint32_t kBusyBit = 1 << 0;
+  static constexpr uint32_t kFullBit = 1 << 1;
+
   struct Cell {
-    DataType data;
+    T data;
     std::atomic<uint32_t> status{0};
   };
 
-  // Index of the current head of the queue in `cells_`. Only written by
-  // consumers (PopBack()).
-  std::atomic<uint32_t> head_{0};
+  Cell& cell(size_t index) { return *(&first_cell_ + index); }
 
-  // Index of the current tail of the queue in `cells_`. Only written by
-  // producers (PushBack()).
+  std::atomic<uint32_t> head_{0};
   std::atomic<uint32_t> tail_{0};
 
-  Cell cells_[kCapacity];
+  // The first cell of the queue. Remaining cells follow in contiguous memory,
+  Cell first_cell_;
+};
+
+}  // namespace internal
+
+// MpmcQueue is a multiple-producer, multiple-consumer, bounded, lock-free queue
+// structure suitable for use by any number of concurrent producers and
+// consumers. The underlying data type T must be trivially copyable, and
+// consumers should pop frequently to avoid starving producers.
+//
+// MpmcQueue itself should live in a process's private memory, but the
+// underlying data structure may live in untrusted shared memory.
+template <typename T>
+class MpmcQueue {
+ public:
+  enum { kInitializeData };
+  enum { kAlreadyInitialized };
+
+  static_assert(std::is_trivially_copyable<T>::value,
+                "data must be trivially copyable");
+
+  static size_t ComputeStorageSize(size_t capacity) {
+    return internal::MpmcQueueData<T>::ComputeStorageSize(capacity);
+  }
+
+  MpmcQueue(void* memory, size_t capacity, decltype(kInitializeData))
+      : MpmcQueue(memory, capacity, kAlreadyInitialized) {
+    data_.Initialize(capacity);
+  }
+
+  MpmcQueue(void* memory, size_t capacity, decltype(kAlreadyInitialized))
+      : capacity_(capacity),
+        data_(*static_cast<internal::MpmcQueueData<T>*>(memory)) {}
+  ~MpmcQueue() = default;
+
+  bool Push(const T& value) { return data_.Push(value, capacity_); }
+
+  bool Pop(T& value) { return data_.Pop(value, capacity_); }
+
+  static size_t GetFixedStorageSize() {
+    return internal::MpmcQueueData<T>::GetFixedStorageSize();
+  }
+
+  static size_t GetPerElementStorageSize() {
+    return internal::MpmcQueueData<T>::GetPerElementStorageSize();
+  }
+
+ private:
+  const size_t capacity_;
+  internal::MpmcQueueData<T>& data_;
 };
 
 }  // namespace mem

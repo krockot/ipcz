@@ -29,15 +29,15 @@ constexpr size_t kNumConsumers = kNumProducers;
 constexpr size_t kNumElementsPerConsumer = kNumElementsPerProducer;
 constexpr size_t kQueueLength = 15;
 
-using TestQueue = MpmcQueue<size_t, kQueueLength>;
+using TestQueue = MpmcQueue<size_t>;
 
 class MpmcQueueClient;
 
 TEST_F(MpmcQueueTest, Basic) {
   test::TestClient client("MpmcQueueClient");
-  os::Memory memory(sizeof(TestQueue));
+  os::Memory memory(TestQueue::ComputeStorageSize(kQueueLength));
   os::Memory::Mapping mapping = memory.Map();
-  TestQueue& queue = *mapping.As<TestQueue>();
+  TestQueue queue(mapping.base(), kQueueLength, TestQueue::kInitializeData);
   os::Handle handle = memory.TakeHandle();
   client.channel().Send({{"yo"}, {&handle, 1}});
 
@@ -47,7 +47,7 @@ TEST_F(MpmcQueueTest, Basic) {
     consumers[i] = std::make_unique<std::thread>([id = i, &queue, &elements] {
       for (size_t i = 0; i < kNumElementsPerConsumer; ++i) {
         const size_t index = i * kNumConsumers + id;
-        while (!queue.PopFront(elements[index]))
+        while (!queue.Pop(elements[index]))
           ;
       }
     });
@@ -86,13 +86,13 @@ TEST_CLIENT(MpmcQueueClient, c) {
   });
   ready.WaitForNotification();
   c.StopListening();
-  TestQueue& queue = *mapping.As<TestQueue>();
+  TestQueue queue(mapping.base(), kQueueLength, TestQueue::kAlreadyInitialized);
 
   std::unique_ptr<std::thread> producers[kNumProducers];
   for (size_t i = 0; i < kNumProducers; ++i) {
     producers[i] = std::make_unique<std::thread>([id = i, &queue] {
       for (size_t i = 0; i < kNumElementsPerProducer; ++i) {
-        while (!queue.PushBack(i * kNumProducers + id))
+        while (!queue.Push(i * kNumProducers + id))
           ;
       }
     });
