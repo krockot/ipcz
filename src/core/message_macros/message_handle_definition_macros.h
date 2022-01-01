@@ -14,13 +14,9 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name)                   \
-  name##_Handles::~name##_Handles() = default; \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
+  name##_Handles::~name##_Handles() = default;      \
   name##_Handles::name##_Handles(os::Handle* storage) :
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) IPCZ_MSG_BEGIN(name)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) IPCZ_MSG_BEGIN(name)
-#define IPCZ_MSG_REPLY(name, version_decl) IPCZ_MSG_BEGIN(name##_Reply)
 
 #define IPCZ_MSG_END() \
   sentinel_macro_helper(0) {}

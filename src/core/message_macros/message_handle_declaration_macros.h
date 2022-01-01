@@ -15,14 +15,10 @@
 #define IPCZ_MSG_VERSION(x)
 
 // NOTE: not a wire structure
-#define IPCZ_MSG_BEGIN(name)                      \
-  struct name##_Handles {                         \
-    explicit name##_Handles(os::Handle* storage); \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
+  struct name##_Handles {                           \
+    explicit name##_Handles(os::Handle* storage);   \
     ~name##_Handles();
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) IPCZ_MSG_BEGIN(name)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) IPCZ_MSG_BEGIN(name)
-#define IPCZ_MSG_REPLY(name, version_decl) IPCZ_MSG_BEGIN(name##_Reply)
 
 #define IPCZ_MSG_END()           \
   uint8_t sentinel_macro_helper; \

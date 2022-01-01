@@ -14,43 +14,22 @@
 #define IPCZ_MSG_ID(x) static constexpr uint8_t kId = x
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
-#define IPCZ_MSG_BEGIN(name, id_decl, version_decl, reply_decl) \
-  struct IPCZ_ALIGN(16) name {                                  \
-    using HandlesType = name##_Handles;                         \
-    id_decl;                                                    \
-    version_decl;                                               \
-    reply_decl;                                                 \
-    name();                                                     \
-    ~name();                                                    \
-    void Serialize();                                           \
-    bool Deserialize(const DriverTransport::Message&);          \
-    internal::MessageHeader header;                             \
-    name##_Params params;                                       \
-                                                                \
-   private:                                                     \
-    name##_HandleData handle_data;                              \
-                                                                \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)    \
+  struct IPCZ_ALIGN(16) name {                         \
+    using HandlesType = name##_Handles;                \
+    id_decl;                                           \
+    version_decl;                                      \
+    name();                                            \
+    ~name();                                           \
+    void Serialize();                                  \
+    bool Deserialize(const DriverTransport::Message&); \
+    internal::MessageHeader header;                    \
+    name##_Params params;                              \
+                                                       \
+   private:                                            \
+    name##_HandleData handle_data;                     \
+                                                       \
    public:
-
-#define IPCZ_MSG_NO_REPLY_DECL()               \
-  static constexpr bool kExpectsReply = false; \
-  static constexpr bool kIsReply = false
-#define IPCZ_MSG_EXPECTS_REPLY_DECL(name)     \
-  static constexpr bool kExpectsReply = true; \
-  static constexpr bool kIsReply = false;     \
-  using Reply = name##_Reply
-#define IPCZ_MSG_IS_REPLY_DECL()               \
-  static constexpr bool kExpectsReply = false; \
-  static constexpr bool kIsReply = true
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, id_decl, version_decl, IPCZ_MSG_NO_REPLY_DECL())
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
-  struct name##_Reply;                                   \
-  IPCZ_MSG_BEGIN(name, id_decl, version_decl, IPCZ_MSG_EXPECTS_REPLY_DECL(name))
-#define IPCZ_MSG_REPLY(name, version_decl)                               \
-  IPCZ_MSG_BEGIN(name##_Reply, static constexpr uint8_t kId = name::kId, \
-                 version_decl, IPCZ_MSG_IS_REPLY_DECL())
 
 #define IPCZ_MSG_END()                                          \
   static constexpr size_t kNumHandles =                         \
@@ -58,13 +37,13 @@
   os::Handle handle_storage[kNumHandles + 1];                   \
   HandlesType handles{&handle_storage[0]};                      \
                                                                 \
-  absl ::Span<uint8_t> params_view() {                          \
-    return absl ::MakeSpan(                                     \
+  absl::Span<uint8_t> params_view() {                           \
+    return absl::MakeSpan(                                      \
         reinterpret_cast<uint8_t*>(&header),                    \
         sizeof(header) + sizeof(params) + sizeof(handle_data)); \
   }                                                             \
-  absl ::Span<os ::Handle> handles_view() {                     \
-    return absl ::MakeSpan(&handle_storage[0], kNumHandles);    \
+  absl::Span<os::Handle> handles_view() {                       \
+    return absl::MakeSpan(&handle_storage[0], kNumHandles);     \
   }                                                             \
   }                                                             \
   ;

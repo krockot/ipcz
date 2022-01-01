@@ -225,16 +225,7 @@ IpczResult DriverTransport::Notify(const Message& message) {
   }
 
   ABSL_ASSERT(listener_);
-  IpczResult result = listener_->OnTransportMessage(message);
-  if (result == IPCZ_RESULT_UNIMPLEMENTED && header.expects_reply) {
-    internal::MessageHeader nope = {sizeof(nope)};
-    nope.message_id = header.message_id;
-    nope.request_id = header.request_id;
-    nope.wont_reply = true;
-    TransmitData(nope);
-  }
-
-  return result;
+  return listener_->OnTransportMessage(message);
 }
 
 void DriverTransport::NotifyError() {

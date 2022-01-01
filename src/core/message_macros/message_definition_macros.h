@@ -14,7 +14,7 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)                              \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                     \
   constexpr size_t kDataSize_##name = sizeof(internal::MessageHeader) + \
                                       sizeof(name##_Params) +           \
                                       sizeof(name##_HandleData);        \
@@ -23,8 +23,6 @@
     header.size = sizeof(header);                                       \
     header.version = 0;                                                 \
     header.message_id = kId;                                            \
-    header.expects_reply = kExpectsReply;                               \
-    header.is_reply = kIsReply;                                         \
     params.header.size = sizeof(params);                                \
     params.header.version = kVersion;                                   \
     handle_data.header.size = sizeof(handle_data);                      \
@@ -55,13 +53,6 @@
   }
 
 #define IPCZ_MSG_END()
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_REPLY(name, version_decl) \
-  IPCZ_MSG_BEGIN(name##_Reply, version_decl)
 
 #define IPCZ_MSG_PARAM(type, name)
 #define IPCZ_MSG_HANDLE_OPTIONAL(name)

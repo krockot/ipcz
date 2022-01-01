@@ -17,19 +17,12 @@
 #define IPCZ_MSG_ID(x) static constexpr uint8_t kId = x
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
-#define IPCZ_MSG_BEGIN(name, version_decl) \
-  struct IPCZ_ALIGN(16) name##_Params {    \
-    name##_Params();                       \
-    ~name##_Params();                      \
-    version_decl;                          \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
+  struct IPCZ_ALIGN(16) name##_Params {             \
+    name##_Params();                                \
+    ~name##_Params();                               \
+    version_decl;                                   \
     internal::StructHeader header;
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_REPLY(name, version_decl) \
-  IPCZ_MSG_BEGIN(name##_Reply, version_decl)
 
 #define IPCZ_MSG_END() \
   }                    \

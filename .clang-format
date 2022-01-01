@@ -3,13 +3,9 @@ Standard: Cpp11
 ColumnLimit: 80
 
 MacroBlockBegin: "^\
-IPCZ_ENUM_BEGIN|\
-IPCZ_MSG_NO_REPLY|\
-IPCZ_MSG_WITH_REPLY|\
-IPCZ_MSG_REPLY\
+IPCZ_MSG_BEGIN\
 $"
 
 MacroBlockEnd: "^\
-IPCZ_ENUM_END|\
 IPCZ_MSG_END\
 $"

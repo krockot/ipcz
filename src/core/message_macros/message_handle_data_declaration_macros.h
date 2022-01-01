@@ -15,18 +15,11 @@
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
 // TODO: this is not version safe
-#define IPCZ_MSG_BEGIN(name, version_decl) \
-  struct IPCZ_ALIGN(8) name##_HandleData { \
-    version_decl;                          \
-    internal::StructHeader header;         \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
+  struct IPCZ_ALIGN(8) name##_HandleData {          \
+    version_decl;                                   \
+    internal::StructHeader header;                  \
     static constexpr uint8_t kHandleCounter[] = {
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_REPLY(name, version_decl) \
-  IPCZ_MSG_BEGIN(name##_Reply, version_decl)
-
 #define IPCZ_MSG_END()                                         \
   }                                                            \
   ;                                                            \

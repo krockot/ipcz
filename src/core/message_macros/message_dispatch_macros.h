@@ -14,17 +14,11 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, version_decl)        \
-  case msg::name::kId: {                          \
-    msg::name m;                                  \
-    return m.Deserialize(message) && On##name(m); \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
+  case msg::name::kId: {                            \
+    msg::name m;                                    \
+    return m.Deserialize(message) && On##name(m);   \
   }
-
-#define IPCZ_MSG_NO_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_WITH_REPLY(name, id_decl, version_decl) \
-  IPCZ_MSG_BEGIN(name, version_decl)
-#define IPCZ_MSG_REPLY(name, version_decl)
 
 #define IPCZ_MSG_END()
 
