@@ -10,10 +10,6 @@
 // no-include-guard-because-multiply-included
 
 #undef IPCZ_PROTOCOL_VERSION
-#undef IPCZ_ENUM_BEGIN
-#undef IPCZ_ENUM_VALUE
-#undef IPCZ_ENUM_VALUE_DEFAULT
-#undef IPCZ_ENUM_END
 #undef IPCZ_MSG_ID
 #undef IPCZ_MSG_VERSION
 #undef IPCZ_MSG_BEGIN

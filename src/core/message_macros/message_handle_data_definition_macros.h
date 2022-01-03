@@ -6,11 +6,6 @@
 
 #define IPCZ_PROTOCOL_VERSION(n)
 
-#define IPCZ_ENUM_BEGIN(name, type)
-#define IPCZ_ENUM_VALUE(name, value)
-#define IPCZ_ENUM_VALUE_DEFAULT(name, value)
-#define IPCZ_ENUM_END()
-
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 

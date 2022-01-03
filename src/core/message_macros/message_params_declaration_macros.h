@@ -6,14 +6,6 @@
 
 #define IPCZ_PROTOCOL_VERSION(n)
 
-#define IPCZ_ENUM_BEGIN(name, type) enum name : type {
-#define IPCZ_ENUM_VALUE(name, value) name = value,
-#define IPCZ_ENUM_VALUE_DEFAULT(name, value) name = value, kDefaultValue = name,
-#define IPCZ_ENUM_END()                                   \
-  kFirstUnknownValue, kMaxValue = kFirstUnknownValue - 1, \
-  }                                                       \
-  ;
-
 #define IPCZ_MSG_ID(x) static constexpr uint8_t kId = x
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
