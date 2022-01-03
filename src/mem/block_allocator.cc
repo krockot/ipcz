@@ -54,21 +54,6 @@ BlockAllocator::BlockAllocator(absl::Span<uint8_t> region,
 
 BlockAllocator::~BlockAllocator() = default;
 
-// static
-size_t BlockAllocator::ComputeRequiredMemorySize(size_t block_size,
-                                                 size_t num_blocks) {
-  return IndexQueue::ComputeStorageSize(num_blocks) + num_blocks * block_size;
-}
-
-// static
-size_t BlockAllocator::ComputeMaximumCapacity(const size_t region_size,
-                                              const size_t block_size) {
-  const size_t fixed_queue_size = IndexQueue::GetFixedStorageSize();
-  const size_t total_size_per_element =
-      IndexQueue::GetPerElementStorageSize() + block_size;
-  return (region_size - fixed_queue_size) / total_size_per_element;
-}
-
 void* BlockAllocator::Alloc() {
   uint32_t index;
   if (!free_indices_.Pop(index)) {

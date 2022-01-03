@@ -50,9 +50,21 @@ class BlockAllocator {
   size_t block_size() const { return block_size_; }
   size_t num_blocks() const { return num_blocks_; }
 
-  static size_t ComputeRequiredMemorySize(size_t block_size, size_t num_blocks);
-  static size_t ComputeMaximumCapacity(const size_t region_size,
-                                       const size_t block_size);
+  void* first_block() const { return first_block_; }
+  void* end() const { return first_block_ + num_blocks_ * block_size_; }
+
+  static constexpr size_t ComputeRequiredMemorySize(size_t block_size,
+                                                    size_t num_blocks) {
+    return IndexQueue::ComputeStorageSize(num_blocks) + num_blocks * block_size;
+  }
+
+  static constexpr size_t ComputeMaximumCapacity(const size_t region_size,
+                                                 const size_t block_size) {
+    const size_t fixed_queue_size = IndexQueue::GetFixedStorageSize();
+    const size_t total_size_per_element =
+        IndexQueue::GetPerElementStorageSize() + block_size;
+    return (region_size - fixed_queue_size) / total_size_per_element;
+  }
 
   void* Alloc();
   bool Free(void* memory);

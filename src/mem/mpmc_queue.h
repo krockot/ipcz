@@ -109,14 +109,13 @@ struct MpmcQueueData {
     }
   }
 
-  static size_t GetFixedStorageSize() {
+  static constexpr size_t GetFixedStorageSize() {
     return ComputeStorageSize(1) - GetPerElementStorageSize();
   }
 
-  static size_t GetPerElementStorageSize() { return sizeof(Cell); }
+  static constexpr size_t GetPerElementStorageSize() { return sizeof(Cell); }
 
-  static size_t ComputeStorageSize(size_t capacity) {
-    ABSL_ASSERT(capacity >= 1);
+  static constexpr size_t ComputeStorageSize(size_t capacity) {
     return sizeof(MpmcQueueData<T>) +
            GetPerElementStorageSize() * (capacity - 1);
   }
@@ -157,7 +156,7 @@ class MpmcQueue {
   static_assert(std::is_trivially_copyable<T>::value,
                 "data must be trivially copyable");
 
-  static size_t ComputeStorageSize(size_t capacity) {
+  static constexpr size_t ComputeStorageSize(size_t capacity) {
     return internal::MpmcQueueData<T>::ComputeStorageSize(capacity);
   }
 
@@ -175,11 +174,11 @@ class MpmcQueue {
 
   bool Pop(T& value) { return data_.Pop(value, capacity_); }
 
-  static size_t GetFixedStorageSize() {
+  static constexpr size_t GetFixedStorageSize() {
     return internal::MpmcQueueData<T>::GetFixedStorageSize();
   }
 
-  static size_t GetPerElementStorageSize() {
+  static constexpr size_t GetPerElementStorageSize() {
     return internal::MpmcQueueData<T>::GetPerElementStorageSize();
   }
 
