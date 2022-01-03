@@ -17,7 +17,7 @@ NodeLinkAddress::NodeLinkAddress(const NodeLinkAddress&) = default;
 NodeLinkAddress& NodeLinkAddress::operator=(const NodeLinkAddress&) = default;
 
 NodeLinkAddress::NodeLinkAddress(BufferId buffer_id, uint64_t offset)
-    : buffer_id(buffer_id), offset(offset) {}
+    : buffer_id_(buffer_id), offset_(offset) {}
 
 NodeLinkAddress::~NodeLinkAddress() = default;
 

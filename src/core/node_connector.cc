@@ -83,7 +83,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
   const NodeName broker_name_{node_->GetAssignedName()};
   const NodeName new_remote_node_name_{NodeName::kRandom};
   os::Memory link_memory_to_share_;
-  NodeLinkMemory link_memory_;
+  mem::Ref<NodeLinkMemory> link_memory_;
 };
 
 class NodeConnectorForNonBrokerToBroker : public NodeConnector {
@@ -277,7 +277,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
   uint32_t num_remote_portals_;
   os::Process remote_process_;
   os::Memory link_memory_to_share_;
-  NodeLinkMemory link_memory_;
+  mem::Ref<NodeLinkMemory> link_memory_;
 };
 
 class NodeConnectorForBrokerToBroker : public NodeConnector {
@@ -326,11 +326,11 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
              << local_name_.ToString() << " from broker "
              << connect.params.sender_name.ToString();
 
-    NodeLinkMemory their_link_memory =
+    mem::Ref<NodeLinkMemory> their_link_memory =
         NodeLinkMemory::Adopt(std::move(connect.handles.primary_buffer_memory));
 
     const bool we_win = local_name_ < connect.params.sender_name;
-    NodeLinkMemory link_memory =
+    mem::Ref<NodeLinkMemory> link_memory =
         we_win ? std::move(our_link_memory_) : std::move(their_link_memory);
     LinkSide link_side = we_win ? LinkSide::kA : LinkSide::kB;
     AcceptConnection(mem::MakeRefCounted<NodeLink>(
@@ -344,7 +344,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
  private:
   const NodeName local_name_{node_->GetAssignedName()};
   os::Memory our_link_memory_to_share_;
-  NodeLinkMemory our_link_memory_;
+  mem::Ref<NodeLinkMemory> our_link_memory_;
 };
 
 std::pair<mem::Ref<NodeConnector>, IpczResult> CreateConnector(

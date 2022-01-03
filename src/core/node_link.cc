@@ -32,7 +32,7 @@ NodeLink::NodeLink(mem::Ref<Node> node,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    mem::Ref<DriverTransport> transport,
-                   NodeLinkMemory memory)
+                   mem::Ref<NodeLinkMemory> memory)
     : node_(std::move(node)),
       local_node_name_(local_node_name),
       remote_node_name_(remote_node_name),

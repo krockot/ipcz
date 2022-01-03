@@ -56,7 +56,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
            mem::Ref<DriverTransport> transport,
-           NodeLinkMemory memory);
+           mem::Ref<NodeLinkMemory> memory);
 
   const mem::Ref<Node>& node() const { return node_; }
   const NodeName& local_node_name() const { return local_node_name_; }
@@ -65,8 +65,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
   const mem::Ref<DriverTransport>& transport() const { return transport_; }
 
-  NodeLinkMemory& memory() { return memory_; }
-  const NodeLinkMemory& memory() const { return memory_; }
+  NodeLinkMemory& memory() { return *memory_; }
+  const NodeLinkMemory& memory() const { return *memory_; }
 
   // Allocates a routing ID from the NodeLink's shared state. This atomically
   // increments the shared routing ID counter shared by both ends of the link by
@@ -191,7 +191,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
   const mem::Ref<DriverTransport> transport_;
-  NodeLinkMemory memory_;
+  const mem::Ref<NodeLinkMemory> memory_;
 
   absl::Mutex mutex_;
   bool active_ = true;

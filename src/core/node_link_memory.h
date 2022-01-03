@@ -9,6 +9,7 @@
 
 #include "core/node_link_address.h"
 #include "core/routing_id.h"
+#include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/memory.h"
 
@@ -19,16 +20,15 @@ namespace core {
 // single NodeLink. Each end of a NodeLink has its own NodeLinkMemory instance
 // cooperatively managing the same dynamic pool of memory, shared exclusively
 // between the two endpoint nodes/
-class NodeLinkMemory {
+class NodeLinkMemory : public mem::RefCounted {
  public:
   NodeLinkMemory(NodeLinkMemory&&);
-  NodeLinkMemory& operator=(NodeLinkMemory&&);
-  ~NodeLinkMemory();
 
-  static NodeLinkMemory Allocate(size_t num_initial_portals,
-                                 os::Memory& primary_buffer_memory);
-  static NodeLinkMemory Adopt(os::Memory::Mapping primary_buffer_mapping);
-  static NodeLinkMemory Adopt(os::Handle primary_buffer_handle);
+  static mem::Ref<NodeLinkMemory> Allocate(size_t num_initial_portals,
+                                           os::Memory& primary_buffer_memory);
+  static mem::Ref<NodeLinkMemory> Adopt(
+      os::Memory::Mapping primary_buffer_mapping);
+  static mem::Ref<NodeLinkMemory> Adopt(os::Handle primary_buffer_handle);
 
   // Resolves a NodeLinkAddress (a buffer ID and offset) to a real memory
   // address mapped within the calling process. May return null if the given
@@ -52,12 +52,13 @@ class NodeLinkMemory {
   // primary buffer.
   NodeLinkAddress GetInitialRouterLinkState(size_t i);
 
-  // Allocates a new RouterLinkState in NodeLink memory. The returned address
-  // may not be valid immediately if the operation required allocating a new
-  // internal shared buffer.
+  // Allocates a new RouterLinkState in NodeLink memory and returns its future
+  // address. This is useful when constructing a new central RemoteRouterLink.
   NodeLinkAddress AllocateRouterLinkState();
 
  private:
+  ~NodeLinkMemory() override;
+
   explicit NodeLinkMemory(os::Memory::Mapping primary_buffer);
 
   NodeLinkAddress AllocateUninitializedRouterLinkState();

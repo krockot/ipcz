@@ -41,38 +41,39 @@ uint64_t GetRouterLinkStateOffset(const os::Memory::Mapping& mapping,
 NodeLinkMemory::NodeLinkMemory(os::Memory::Mapping primary_buffer_mapping)
     : primary_buffer_mapping_(std::move(primary_buffer_mapping)) {}
 
-NodeLinkMemory::NodeLinkMemory(NodeLinkMemory&&) = default;
-
-NodeLinkMemory& NodeLinkMemory::operator=(NodeLinkMemory&&) = default;
-
 NodeLinkMemory::~NodeLinkMemory() = default;
 
 // static
-NodeLinkMemory NodeLinkMemory::Allocate(size_t num_initial_portals,
-                                        os::Memory& primary_buffer_memory) {
+mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
+    size_t num_initial_portals,
+    os::Memory& primary_buffer_memory) {
   primary_buffer_memory = os::Memory(sizeof(PrimaryBufferLayout));
   os::Memory::Mapping mapping(primary_buffer_memory.Map());
   PrimaryBufferLayout& buffer = PrimaryBuffer(mapping);
   buffer.next_routing_id = num_initial_portals;
   buffer.next_router_link_state_index = num_initial_portals;
-  return NodeLinkMemory(std::move(mapping));
+  return mem::WrapRefCounted(new NodeLinkMemory(std::move(mapping)));
 }
 
 // static
-NodeLinkMemory NodeLinkMemory::Adopt(
+mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
     os::Memory::Mapping primary_buffer_mapping) {
-  return NodeLinkMemory(std::move(primary_buffer_mapping));
+  return mem::WrapRefCounted(
+      new NodeLinkMemory(std::move(primary_buffer_mapping)));
 }
 
 // static
-NodeLinkMemory NodeLinkMemory::Adopt(os::Handle primary_buffer_handle) {
-  return NodeLinkMemory(
+mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
+    os::Handle primary_buffer_handle) {
+  return mem::WrapRefCounted(new NodeLinkMemory(
       os::Memory(std::move(primary_buffer_handle), sizeof(PrimaryBufferLayout))
-          .Map());
+          .Map()));
 }
 
 void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
-  return static_cast<uint8_t*>(primary_buffer_mapping_.base()) + address.offset;
+  ABSL_ASSERT(address.buffer_id() == 0);
+  return static_cast<uint8_t*>(primary_buffer_mapping_.base()) +
+      address.offset();
 }
 
 RoutingId NodeLinkMemory::AllocateRoutingIds(size_t count) {
@@ -87,13 +88,11 @@ NodeLinkAddress NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
 
 NodeLinkAddress NodeLinkMemory::AllocateRouterLinkState() {
   NodeLinkAddress addr = AllocateUninitializedRouterLinkState();
-  RouterLinkState& state = *GetMapped<RouterLinkState>(addr);
-  RouterLinkState::Initialize(&state);
+  RouterLinkState::Initialize(GetMappedAddress(addr));
   return addr;
 }
 
 NodeLinkAddress NodeLinkMemory::AllocateUninitializedRouterLinkState() {
-  NodeLinkAddress addr;
   PrimaryBufferLayout& buffer = PrimaryBuffer(primary_buffer_mapping_);
   const uint64_t index = buffer.next_router_link_state_index.fetch_add(
       1, std::memory_order_relaxed);

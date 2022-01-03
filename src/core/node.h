@@ -133,7 +133,7 @@ class Node : public mem::RefCounted {
   // from the named node.
   bool OnIntroduceNode(const NodeName& name,
                        bool known,
-                       NodeLinkMemory link_memory,
+                       mem::Ref<NodeLinkMemory> link_memory,
                        absl::Span<const uint8_t> serialized_transport_data,
                        absl::Span<os::Handle> serialized_transport_handles);
 
