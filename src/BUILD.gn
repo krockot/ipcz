@@ -77,6 +77,7 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
+    "core/buffer_id.h",
     "core/direction.cc",
     "core/direction.h",
     "core/driver_transport.cc",
@@ -106,10 +107,10 @@ source_set("core") {
     "core/node_connector.h",
     "core/node_link.cc",
     "core/node_link.h",
-    "core/node_link_buffer.cc",
-    "core/node_link_buffer.h",
-    "core/node_link_state.cc",
-    "core/node_link_state.h",
+    "core/node_link_address.cc",
+    "core/node_link_address.h",
+    "core/node_link_memory.cc",
+    "core/node_link_memory.h",
     "core/node_message_defs.h",
     "core/node_messages.cc",
     "core/node_messages.h",

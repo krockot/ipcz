@@ -11,7 +11,6 @@
 
 #include "core/direction.h"
 #include "core/node.h"
-#include "core/node_link_buffer.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
 #include "core/remote_router_link.h"
@@ -33,14 +32,14 @@ NodeLink::NodeLink(mem::Ref<Node> node,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    mem::Ref<DriverTransport> transport,
-                   os::Memory::Mapping link_memory)
+                   NodeLinkMemory memory)
     : node_(std::move(node)),
       local_node_name_(local_node_name),
       remote_node_name_(remote_node_name),
       remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
       transport_(std::move(transport)),
-      link_memory_(std::move(link_memory)) {
+      memory_(std::move(memory)) {
   transport_->set_listener(this);
 }
 
@@ -49,16 +48,25 @@ NodeLink::~NodeLink() {
 }
 
 RoutingId NodeLink::AllocateRoutingIds(size_t count) {
-  return buffer().AllocateRoutingIds(count);
+  return memory().AllocateRoutingIds(count);
 }
 
-mem::Ref<RemoteRouterLink> NodeLink::AddRoute(RoutingId routing_id,
-                                              size_t link_state_index,
-                                              LinkType type,
-                                              LinkSide side,
-                                              mem::Ref<Router> router) {
+NodeLinkAddress NodeLink::GetInitialRouterLinkState(size_t i) {
+  return memory().GetInitialRouterLinkState(i);
+}
+
+NodeLinkAddress NodeLink::AllocateRouterLinkState() {
+  return memory().AllocateRouterLinkState();
+}
+
+mem::Ref<RemoteRouterLink> NodeLink::AddRoute(
+    RoutingId routing_id,
+    absl::optional<NodeLinkAddress> link_state_address,
+    LinkType type,
+    LinkSide side,
+    mem::Ref<Router> router) {
   auto link = mem::MakeRefCounted<RemoteRouterLink>(
-      mem::WrapRefCounted(this), routing_id, link_state_index, type, side);
+      mem::WrapRefCounted(this), routing_id, link_state_address, type, side);
   absl::MutexLock lock(&mutex_);
   auto result = routes_.try_emplace(routing_id,
                                     Route(std::move(link), std::move(router)));
@@ -224,9 +232,10 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
   RoutingId new_routing_id = AllocateRoutingIds(1);
+  NodeLinkAddress new_link_state_address = AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
-      AddRoute(new_routing_id, new_routing_id, LinkType::kCentral, LinkSide::kA,
-               new_peer);
+      AddRoute(new_routing_id, new_link_state_address, LinkType::kCentral,
+               LinkSide::kA, new_peer);
 
   DVLOG(4) << "Sending BypassProxy from " << local_node_name_.ToString()
            << " to " << remote_node_name_.ToString() << " with new routing ID "
@@ -237,6 +246,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
+  bypass.params.new_link_state_address = new_link_state_address;
   bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   Transmit(bypass);
 
@@ -545,10 +555,9 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
     return false;
   }
 
-  os::Memory link_buffer_memory(std::move(message.handles[0]),
-                                sizeof(NodeLinkBuffer));
   return node_->OnIntroduceNode(
-      intro.name, intro.known, std::move(link_buffer_memory),
+      intro.name, intro.known,
+      NodeLinkMemory::Adopt(std::move(message.handles[0])),
       absl::Span<const uint8_t>(bytes, num_transport_bytes),
       message.handles.subspan(1));
 }
@@ -588,9 +597,9 @@ bool NodeLink::OnBypassProxyToSameNode(
     return true;
   }
 
-  mem::Ref<RouterLink> new_link =
-      AddRoute(bypass.params.new_routing_id, bypass.params.new_routing_id,
-               LinkType::kCentral, LinkSide::kB, router);
+  mem::Ref<RouterLink> new_link = AddRoute(
+      bypass.params.new_routing_id, bypass.params.new_link_state_address,
+      LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params.proxy_inbound_sequence_length);
 }

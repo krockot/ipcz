@@ -5,6 +5,7 @@
 #ifndef IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
 #define IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
 
+#include "core/node_link_address.h"
 #include "core/node_name.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
@@ -36,11 +37,13 @@ struct IPCZ_ALIGN(16) RouterDescriptor {
   // end.
   SequenceNumber closed_peer_sequence_length;
 
-  // A new routing ID allocated by the sender on the NodeLink which sends this
-  // descriptor. This routing ID may be used either as a peripheral link (the
-  // default case) or the route's new central link in the optimized case where
-  // `proxy_already_bypassed` is true below.
+  // A new routing ID and RouterLinkState address allocated by the sender on the
+  // NodeLink which sends this descriptor. The routing ID may be used either as
+  // a peripheral link (the default case) or the route's new central link in the
+  // optimized case where `proxy_already_bypassed` is true below. Only in the
+  // latter case is the RouterLinkState address used.
   RoutingId new_routing_id;
+  NodeLinkAddress new_link_state_address;
 
   // When `proxy_already_bypassed` is true, this is another new routing ID
   // allocated by the sender on the NodeLink which sends this descriptor. This

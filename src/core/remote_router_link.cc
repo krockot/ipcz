@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "core/node_link.h"
-#include "core/node_link_buffer.h"
 #include "core/node_messages.h"
 #include "core/parcel.h"
 #include "core/portal.h"
@@ -31,14 +30,15 @@
 namespace ipcz {
 namespace core {
 
-RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
-                                   RoutingId routing_id,
-                                   uint32_t link_state_index,
-                                   LinkType type,
-                                   LinkSide side)
+RemoteRouterLink::RemoteRouterLink(
+    mem::Ref<NodeLink> node_link,
+    RoutingId routing_id,
+    absl::optional<NodeLinkAddress> link_state_address,
+    LinkType type,
+    LinkSide side)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
-      link_state_index_(link_state_index),
+      link_state_address_(link_state_address),
       type_(type),
       side_(side) {}
 
@@ -171,10 +171,12 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
 
 void RemoteRouterLink::BypassProxyToSameNode(
     RoutingId new_routing_id,
+    const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
   bypass.params.routing_id = routing_id_;
   bypass.params.new_routing_id = new_routing_id;
+  bypass.params.new_link_state_address = new_link_state_address;
   bypass.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
 }
@@ -221,7 +223,10 @@ void RemoteRouterLink::LogRouteTrace() {
 }
 
 RouterLinkState* RemoteRouterLink::GetLinkState() {
-  return &node_link_->buffer().router_link_state(link_state_index_);
+  if (!link_state_address_) {
+    return nullptr;
+  }
+  return node_link()->memory().GetMapped<RouterLinkState>(*link_state_address_);
 }
 
 }  // namespace core

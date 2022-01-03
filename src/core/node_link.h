@@ -9,8 +9,11 @@
 #include <cstdint>
 #include <functional>
 
+#include "core/buffer_id.h"
 #include "core/driver_transport.h"
 #include "core/node.h"
+#include "core/node_link_address.h"
+#include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/remote_router_link.h"
@@ -29,7 +32,6 @@ namespace ipcz {
 namespace core {
 
 class Node;
-struct NodeLinkBuffer;
 class RemoteRouterLink;
 class Router;
 class RouterLink;
@@ -54,7 +56,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
            mem::Ref<DriverTransport> transport,
-           os::Memory::Mapping link_memory);
+           NodeLinkMemory memory);
 
   const mem::Ref<Node>& node() const { return node_; }
   const NodeName& local_node_name() const { return local_node_name_; }
@@ -62,7 +64,9 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   Node::Type remote_node_type() const { return remote_node_type_; }
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
   const mem::Ref<DriverTransport>& transport() const { return transport_; }
-  NodeLinkBuffer& buffer() const { return *link_memory_.As<NodeLinkBuffer>(); }
+
+  NodeLinkMemory& memory() { return memory_; }
+  const NodeLinkMemory& memory() const { return memory_; }
 
   // Allocates a routing ID from the NodeLink's shared state. This atomically
   // increments the shared routing ID counter shared by both ends of the link by
@@ -71,15 +75,27 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // (inclusive) up to `N + count` (exclusive).
   RoutingId AllocateRoutingIds(size_t count);
 
+  // Retrieves the address of the RouterLinkState reserved by the i'th initial
+  // portal on this NodeLink.
+  NodeLinkAddress GetInitialRouterLinkState(size_t i);
+
+  // Allocates a new RouterLinkState from the NodeLink's shared state.
+  NodeLinkAddress AllocateRouterLinkState();
+
   // Binds `routing_id` on this NodeLink to the given `router`. `link_side`
   // specifies which side of the link this end identifies as (A or B), and
   // `type` specifies the type of link this is from the receiving router's
   // perspective.
-  mem::Ref<RemoteRouterLink> AddRoute(RoutingId routing_id,
-                                      size_t link_state_index,
-                                      LinkType type,
-                                      LinkSide side,
-                                      mem::Ref<Router> router);
+  //
+  // If `link_state_address` is non-null, the given address identifies the
+  // location of the shared RouterLinkState structure for the new route. Only
+  // central links require a RouterLinkState.
+  mem::Ref<RemoteRouterLink> AddRoute(
+      RoutingId routing_id,
+      absl::optional<NodeLinkAddress> link_state_address,
+      LinkType type,
+      LinkSide side,
+      mem::Ref<Router> router);
 
   // Removes the route specified by `routing_id`. Once removed, any messages
   // received for that routing ID are ignored.
@@ -129,7 +145,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // DriverTransport it can use to communicate with that node.
   void IntroduceNode(const NodeName& name,
                      mem::Ref<DriverTransport> transport,
-                     os::Memory link_buffer_memory);
+                     os::Memory primary_buffer);
 
   // Sends a request to the remote node to have one of its routers reconfigured
   // with a new peer link. Specifically, whatever router has a peer
@@ -175,7 +191,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
   const mem::Ref<DriverTransport> transport_;
-  const os::Memory::Mapping link_memory_;
+  NodeLinkMemory memory_;
 
   absl::Mutex mutex_;
   bool active_ = true;

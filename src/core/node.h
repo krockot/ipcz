@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "core/driver_transport.h"
+#include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/portal.h"
@@ -125,14 +126,14 @@ class Node : public mem::RefCounted {
 
   // Handles an incoming introduction to the named node. If `known` is false,
   // then introduction has failed and the rest of the parameters can be ignored.
-  // Otherwise `link_buffer_memory` establishes an initial memory buffer shared
-  // between the nodes, and `serialized_transport_data` and
+  // Otherwise `primary_buffer_memory` establishes an initial memory buffer
+  // shared between the nodes, and `serialized_transport_data` and
   // `serialized_transport_handles` comprise the complete serialized
   // representation of a new driver transport which can be used for I/O to and
   // from the named node.
   bool OnIntroduceNode(const NodeName& name,
                        bool known,
-                       os::Memory link_buffer_memory,
+                       NodeLinkMemory link_memory,
                        absl::Span<const uint8_t> serialized_transport_data,
                        absl::Span<os::Handle> serialized_transport_handles);
 

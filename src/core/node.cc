@@ -16,7 +16,7 @@
 #include "core/message_internal.h"
 #include "core/node_connector.h"
 #include "core/node_link.h"
-#include "core/node_link_buffer.h"
+#include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
 #include "core/router.h"
@@ -91,6 +91,12 @@ void Node::SetPortalsWaitingForLink(
     absl::Span<const mem::Ref<Portal>> portals) {
   absl::MutexLock lock(&mutex_);
 
+  // TODO: this could be less arbitrary. gist is that an initial NodeLink will
+  // have a limited supply of RouterLinkState memory available and we want to
+  // keep their allocation simple for bootstrap portals, so we place a hard cap
+  // on the number of initial portals we support.
+  ABSL_ASSERT(portals.size() < 64);
+
   DVLOG(4) << "Holding on to " << portals.size() << " portal(s) waiting for a "
            << "link to " << node_name.ToString();
 
@@ -111,9 +117,9 @@ void Node::SetPortalsWaitingForLink(
 
     for (size_t i = 0; i < waiting_portals.size(); ++i) {
       const mem::Ref<Router> router = waiting_portals[i]->router();
-      router->SetOutwardLink(link->AddRoute(static_cast<RoutingId>(i), i,
-                                            LinkType::kCentral, LinkSide::kB,
-                                            router));
+      router->SetOutwardLink(link->AddRoute(
+          static_cast<RoutingId>(i), link->GetInitialRouterLinkState(i),
+          LinkType::kCentral, LinkSide::kB, router));
     }
   });
 }
@@ -247,18 +253,17 @@ bool Node::OnRequestIndirectBrokerConnection(
 
         const uint32_t num_portals =
             std::min(num_initial_portals, num_remote_portals);
-        os::Memory link_buffer_memory(sizeof(NodeLinkBuffer));
-        os::Memory::Mapping link_buffer_mapping = link_buffer_memory.Map();
-        NodeLinkBuffer::Init(link_buffer_mapping.base(), num_portals);
+        os::Memory primary_buffer_memory;
+        NodeLinkMemory::Allocate(num_portals, primary_buffer_memory);
         std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
             transports = DriverTransport::CreatePair(node->driver(),
                                                      node->driver_node());
         new_link->IntroduceNode(source_link->remote_node_name(),
                                 std::move(transports.first),
-                                link_buffer_memory.Clone());
+                                primary_buffer_memory.Clone());
         source_link->IntroduceNode(new_link->remote_node_name(),
                                    std::move(transports.second),
-                                   std::move(link_buffer_memory));
+                                   std::move(primary_buffer_memory));
       });
   if (result != IPCZ_RESULT_OK) {
     return false;
@@ -287,24 +292,23 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
     return true;
   }
 
-  os::Memory link_buffer_memory(sizeof(NodeLinkBuffer));
-  os::Memory::Mapping link_buffer_mapping = link_buffer_memory.Map();
-  NodeLinkBuffer::Init(link_buffer_mapping.base(), /*num_initial_portals=*/0);
+  os::Memory primary_buffer_memory;
+  NodeLinkMemory::Allocate(/*num_initial_portals=*/0, primary_buffer_memory);
   std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
       DriverTransport::CreatePair(driver_, driver_node_);
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
                                  std::move(transports.first),
-                                 link_buffer_memory.Clone());
+                                 primary_buffer_memory.Clone());
   from_node_link.IntroduceNode(request.params.name,
                                std::move(transports.second),
-                               std::move(link_buffer_memory));
+                               std::move(primary_buffer_memory));
   return true;
 }
 
 bool Node::OnIntroduceNode(
     const NodeName& name,
     bool known,
-    os::Memory link_buffer_memory,
+    NodeLinkMemory link_memory,
     absl::Span<const uint8_t> serialized_transport_data,
     absl::Span<os::Handle> serialized_transport_handles) {
   mem::Ref<DriverTransport> transport;
@@ -320,7 +324,7 @@ bool Node::OnIntroduceNode(
                << " received introduction to " << name.ToString();
       new_link = mem::MakeRefCounted<NodeLink>(
           mem::WrapRefCounted(this), assigned_name_, name, Type::kNormal, 0,
-          transport, link_buffer_memory.Map());
+          transport, std::move(link_memory));
     }
   }
 
@@ -371,7 +375,7 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
   mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRoute(
-      bypass.params.new_routing_id, bypass.params.new_routing_id,
+      bypass.params.new_routing_id, bypass.params.new_link_state_address,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
       new_peer_link, bypass.params.proxy_outbound_sequence_length);

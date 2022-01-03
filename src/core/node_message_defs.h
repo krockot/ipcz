@@ -33,7 +33,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToNonBroker,
 
   // A handle to an initial shared memory buffer which can be used to allocate
   // shared state between the two connecting nodes.
-  IPCZ_MSG_HANDLE_REQUIRED(initial_link_buffer_memory)
+  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // Initial greeting sent by a non-broker node when ConnectNode() is invoked with
@@ -100,7 +100,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerIndirect, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
 
   // A handle to an initial shared memory buffer which can be used to allocate
   // shared state between the broker and the recipient.
-  IPCZ_MSG_HANDLE_REQUIRED(initial_link_buffer_memory)
+  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // Message sent from a broker to another broker, to establish a link between
@@ -124,7 +124,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToBroker, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
   // lesser NodeName is adopted as the primary link buffer (buffer ID 0). The
   // other buffer is adopted by convention as the first secondary link buffer,
   // with a buffer ID of 1.
-  IPCZ_MSG_HANDLE_REQUIRED(initial_link_buffer_memory)
+  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // A reply to RequestIndirectBrokerConnection. If `success` is true, this
@@ -225,6 +225,9 @@ IPCZ_MSG_BEGIN(BypassProxy, IPCZ_MSG_ID(31), IPCZ_MSG_VERSION(0))
   // bypasses the above link along the route.
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
 
+  // Location of the new route's RouterLinkState.
+  IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
+
   // The total number of parcels sent from the proxy's side of the route to the
   // recipient's side of the route before the proxy's side stopped sending
   // parcels through the proxy and started sending directly on the new link
@@ -286,6 +289,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(BypassProxyToSameNode, IPCZ_MSG_ID(34), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
   IPCZ_MSG_PARAM(RoutingId, new_routing_id)
+  IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
   IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 IPCZ_MSG_END()
 

@@ -5,12 +5,12 @@
 #ifndef IPCZ_SRC_CORE_REMOTE_ROUTER_LINK_H_
 #define IPCZ_SRC_CORE_REMOTE_ROUTER_LINK_H_
 
-#include <cstdint>
-
 #include "core/link_side.h"
 #include "core/link_type.h"
+#include "core/node_link_address.h"
 #include "core/router_link.h"
 #include "core/routing_id.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -34,9 +34,12 @@ class RemoteRouterLink : public RouterLink {
   // this RemoteRouterLink falls (side A or B), and `type` indicates what type
   // of link it is -- which for remote links must be either kCentral,
   // kPeripheralInward, or kPeripheralOutward.
+  //
+  // `link_state_address` is the shared memory location of this link's
+  // RouterLinkState.
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
-                   uint32_t link_state_index,
+                   absl::optional<NodeLinkAddress> link_state_address,
                    LinkType type,
                    LinkSide side);
 
@@ -63,6 +66,7 @@ class RemoteRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       RoutingId new_routing_id,
+      const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
@@ -78,7 +82,7 @@ class RemoteRouterLink : public RouterLink {
 
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
-  const uint32_t link_state_index_;
+  const absl::optional<NodeLinkAddress> link_state_address_;
   const LinkType type_;
   const LinkSide side_;
 };
