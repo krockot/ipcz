@@ -530,9 +530,10 @@ void NodeConnector::EstablishWaitingPortals(mem::Ref<NodeLink> to_link,
       std::min(max_valid_portals, waiting_portals_.size());
   for (size_t i = 0; i < num_valid_portals; ++i) {
     const mem::Ref<Router> router = waiting_portals_[i]->router();
-    router->SetOutwardLink(to_link->AddRoute(
-        static_cast<RoutingId>(i), to_link->GetInitialRouterLinkState(i),
-        LinkType::kCentral, link_side, router));
+    router->SetOutwardLink(
+        to_link->AddRoute(static_cast<RoutingId>(i),
+                          to_link->memory().GetInitialRouterLinkState(i),
+                          LinkType::kCentral, link_side, router));
   }
   for (size_t i = num_valid_portals; i < waiting_portals_.size(); ++i) {
     waiting_portals_[i]->router()->AcceptRouteClosureFrom(Direction::kOutward,

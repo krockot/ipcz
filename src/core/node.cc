@@ -117,9 +117,10 @@ void Node::SetPortalsWaitingForLink(
 
     for (size_t i = 0; i < waiting_portals.size(); ++i) {
       const mem::Ref<Router> router = waiting_portals[i]->router();
-      router->SetOutwardLink(link->AddRoute(
-          static_cast<RoutingId>(i), link->GetInitialRouterLinkState(i),
-          LinkType::kCentral, LinkSide::kB, router));
+      router->SetOutwardLink(
+          link->AddRoute(static_cast<RoutingId>(i),
+                         link->memory().GetInitialRouterLinkState(i),
+                         LinkType::kCentral, LinkSide::kB, router));
     }
   });
 }

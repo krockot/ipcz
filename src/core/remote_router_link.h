@@ -45,6 +45,9 @@ class RemoteRouterLink : public RouterLink {
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
+  absl::optional<NodeLinkAddress> link_state_address() const {
+    return link_state_address_;
+  }
 
   // RouterLink:
   LinkType GetType() const override;
@@ -82,9 +85,10 @@ class RemoteRouterLink : public RouterLink {
 
   const mem::Ref<NodeLink> node_link_;
   const RoutingId routing_id_;
-  const absl::optional<NodeLinkAddress> link_state_address_;
   const LinkType type_;
   const LinkSide side_;
+
+  absl::optional<NodeLinkAddress> link_state_address_;
 };
 
 }  // namespace core

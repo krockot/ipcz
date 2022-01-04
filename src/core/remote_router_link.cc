@@ -38,9 +38,9 @@ RemoteRouterLink::RemoteRouterLink(
     LinkSide side)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
-      link_state_address_(link_state_address),
       type_(type),
-      side_(side) {}
+      side_(side),
+      link_state_address_(link_state_address) {}
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 

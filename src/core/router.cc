@@ -1261,9 +1261,9 @@ bool Router::MaybeInitiateSelfRemoval() {
 
   SequenceNumber sequence_length;
   const RoutingId new_routing_id =
-      successor->node_link()->AllocateRoutingIds(1);
+      successor->node_link()->memory().AllocateRoutingIds(1);
   const NodeLinkAddress new_link_state_address =
-      successor->node_link()->AllocateRouterLinkState();
+      successor->node_link()->memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link = successor->node_link()->AddRoute(
       new_routing_id, new_link_state_address, LinkType::kCentral, LinkSide::kA,
       local_peer);
@@ -1400,9 +1400,9 @@ void Router::MaybeInitiateBridgeBypass() {
         remote_link_to_second_peer->node_link();
     SequenceNumber length_from_local_peer;
     const RoutingId bypass_routing_id =
-        node_link_to_second_peer->AllocateRoutingIds(1);
+        node_link_to_second_peer->memory().AllocateRoutingIds(1);
     const NodeLinkAddress bypass_link_state_address =
-        node_link_to_second_peer->AllocateRouterLinkState();
+        node_link_to_second_peer->memory().AllocateRouterLinkState();
     mem::Ref<RouterLink> new_link = node_link_to_second_peer->AddRoute(
         bypass_routing_id, bypass_link_state_address, LinkType::kCentral,
         LinkSide::kA, first_local_peer);
@@ -1493,9 +1493,9 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
   // An additional route is allocated to act as a decaying inward link between
   // us and the new router, to forward any parcels already queued here or
   // in-flight from our local peer.
-  const RoutingId new_routing_id = to_node_link.AllocateRoutingIds(2);
+  const RoutingId new_routing_id = to_node_link.memory().AllocateRoutingIds(2);
   const NodeLinkAddress new_link_state_address =
-      to_node_link.AllocateRouterLinkState();
+      to_node_link.memory().AllocateRouterLinkState();
   const RoutingId decaying_routing_id = new_routing_id + 1;
 
   // Register the new routes on the NodeLink. Note that we don't provide them to
@@ -1593,7 +1593,7 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
     }
   }
 
-  const RoutingId new_routing_id = to_node_link.AllocateRoutingIds(1);
+  const RoutingId new_routing_id = to_node_link.memory().AllocateRoutingIds(1);
   descriptor.new_routing_id = new_routing_id;
 
   // Register the new route with the NodeLink. We don't provide this to the

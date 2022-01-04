@@ -68,20 +68,6 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   NodeLinkMemory& memory() { return *memory_; }
   const NodeLinkMemory& memory() const { return *memory_; }
 
-  // Allocates a routing ID from the NodeLink's shared state. This atomically
-  // increments the shared routing ID counter shared by both ends of the link by
-  // `count` and returns the value it had just before incrementing. The caller
-  // can assume successful allocation of routing IDs from the returned value N
-  // (inclusive) up to `N + count` (exclusive).
-  RoutingId AllocateRoutingIds(size_t count);
-
-  // Retrieves the address of the RouterLinkState reserved by the i'th initial
-  // portal on this NodeLink.
-  NodeLinkAddress GetInitialRouterLinkState(size_t i);
-
-  // Allocates a new RouterLinkState from the NodeLink's shared state.
-  NodeLinkAddress AllocateRouterLinkState();
-
   // Binds `routing_id` on this NodeLink to the given `router`. `link_side`
   // specifies which side of the link this end identifies as (A or B), and
   // `type` specifies the type of link this is from the receiving router's

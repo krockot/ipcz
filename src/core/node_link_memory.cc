@@ -73,7 +73,7 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
 void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
   ABSL_ASSERT(address.buffer_id() == 0);
   return static_cast<uint8_t*>(primary_buffer_mapping_.base()) +
-      address.offset();
+         address.offset();
 }
 
 RoutingId NodeLinkMemory::AllocateRoutingIds(size_t count) {

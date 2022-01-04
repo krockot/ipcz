@@ -47,18 +47,6 @@ NodeLink::~NodeLink() {
   Deactivate();
 }
 
-RoutingId NodeLink::AllocateRoutingIds(size_t count) {
-  return memory().AllocateRoutingIds(count);
-}
-
-NodeLinkAddress NodeLink::GetInitialRouterLinkState(size_t i) {
-  return memory().GetInitialRouterLinkState(i);
-}
-
-NodeLinkAddress NodeLink::AllocateRouterLinkState() {
-  return memory().AllocateRouterLinkState();
-}
-
 mem::Ref<RemoteRouterLink> NodeLink::AddRoute(
     RoutingId routing_id,
     absl::optional<NodeLinkAddress> link_state_address,
@@ -231,8 +219,8 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
-  RoutingId new_routing_id = AllocateRoutingIds(1);
-  NodeLinkAddress new_link_state_address = AllocateRouterLinkState();
+  RoutingId new_routing_id = memory().AllocateRoutingIds(1);
+  NodeLinkAddress new_link_state_address = memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
       AddRoute(new_routing_id, new_link_state_address, LinkType::kCentral,
                LinkSide::kA, new_peer);
