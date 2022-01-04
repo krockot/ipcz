@@ -5,6 +5,8 @@
 #ifndef IPCZ_SRC_CORE_REMOTE_ROUTER_LINK_H_
 #define IPCZ_SRC_CORE_REMOTE_ROUTER_LINK_H_
 
+#include <atomic>
+
 #include "core/link_side.h"
 #include "core/link_type.h"
 #include "core/node_link_address.h"
@@ -37,11 +39,12 @@ class RemoteRouterLink : public RouterLink {
   //
   // `link_state_address` is the shared memory location of this link's
   // RouterLinkState.
-  RemoteRouterLink(mem::Ref<NodeLink> node_link,
-                   RoutingId routing_id,
-                   absl::optional<NodeLinkAddress> link_state_address,
-                   LinkType type,
-                   LinkSide side);
+  static mem::Ref<RemoteRouterLink> Create(
+      mem::Ref<NodeLink> node_link,
+      RoutingId routing_id,
+      absl::optional<NodeLinkAddress> link_state_address,
+      LinkType type,
+      LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
@@ -69,7 +72,7 @@ class RemoteRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       RoutingId new_routing_id,
-      const NodeLinkAddress& new_link_state_address,
+      const absl::optional<NodeLinkAddress>& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
@@ -79,7 +82,16 @@ class RemoteRouterLink : public RouterLink {
   void LogRouteTrace() override;
 
  private:
+  RemoteRouterLink(mem::Ref<NodeLink> node_link,
+                   RoutingId routing_id,
+                   absl::optional<NodeLinkAddress> link_state_address,
+                   LinkType type,
+                   LinkSide side);
+
   ~RemoteRouterLink() override;
+
+  void AllocateLinkState();
+  void SetLinkStateAddress(const NodeLinkAddress& address);
 
   RouterLinkState* GetLinkState();
 
@@ -88,7 +100,15 @@ class RemoteRouterLink : public RouterLink {
   const LinkType type_;
   const LinkSide side_;
 
+  enum class LinkStatePhase {
+    kNotPresent,
+    kBusy,
+    kPresent,
+  };
+
+  std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
   absl::optional<NodeLinkAddress> link_state_address_;
+  std::atomic<RouterLinkState*> link_state_{nullptr};
 };
 
 }  // namespace core

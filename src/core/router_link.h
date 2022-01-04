@@ -15,6 +15,7 @@
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -145,7 +146,7 @@ class RouterLink : public mem::RefCounted {
   // to call back to the sender with StopProxyingToLocalPeer().
   virtual void BypassProxyToSameNode(
       RoutingId new_routing_id,
-      const NodeLinkAddress& new_link_state_address,
+      const absl::optional<NodeLinkAddress>& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) = 0;
 
   // Essentially a reply to BypassProxyToSameNode, this informs the receiving

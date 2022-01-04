@@ -154,7 +154,7 @@ void LocalRouterLink::ProxyWillStop(
 
 void LocalRouterLink::BypassProxyToSameNode(
     RoutingId new_routing_id,
-    const NodeLinkAddress& new_link_state_address,
+    const absl::optional<NodeLinkAddress>& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);
 }

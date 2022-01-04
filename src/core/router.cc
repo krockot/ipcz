@@ -1262,7 +1262,7 @@ bool Router::MaybeInitiateSelfRemoval() {
   SequenceNumber sequence_length;
   const RoutingId new_routing_id =
       successor->node_link()->memory().AllocateRoutingIds(1);
-  const NodeLinkAddress new_link_state_address =
+  const absl::optional<NodeLinkAddress> new_link_state_address =
       successor->node_link()->memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link = successor->node_link()->AddRoute(
       new_routing_id, new_link_state_address, LinkType::kCentral, LinkSide::kA,
@@ -1401,7 +1401,7 @@ void Router::MaybeInitiateBridgeBypass() {
     SequenceNumber length_from_local_peer;
     const RoutingId bypass_routing_id =
         node_link_to_second_peer->memory().AllocateRoutingIds(1);
-    const NodeLinkAddress bypass_link_state_address =
+    const absl::optional<NodeLinkAddress> bypass_link_state_address =
         node_link_to_second_peer->memory().AllocateRouterLinkState();
     mem::Ref<RouterLink> new_link = node_link_to_second_peer->AddRoute(
         bypass_routing_id, bypass_link_state_address, LinkType::kCentral,
@@ -1494,7 +1494,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
   // us and the new router, to forward any parcels already queued here or
   // in-flight from our local peer.
   const RoutingId new_routing_id = to_node_link.memory().AllocateRoutingIds(2);
-  const NodeLinkAddress new_link_state_address =
+  const absl::optional<NodeLinkAddress> new_link_state_address =
       to_node_link.memory().AllocateRouterLinkState();
   const RoutingId decaying_routing_id = new_routing_id + 1;
 
@@ -1515,7 +1515,8 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
                         mem::WrapRefCounted(this));
 
   descriptor.new_routing_id = new_routing_id;
-  descriptor.new_link_state_address = new_link_state_address;
+  descriptor.new_link_state_address =
+      new_link_state_address.value_or(NodeLinkAddress());
   descriptor.new_decaying_routing_id = decaying_routing_id;
   descriptor.proxy_already_bypassed = true;
 

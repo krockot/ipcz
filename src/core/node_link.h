@@ -78,7 +78,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // central links require a RouterLinkState.
   mem::Ref<RemoteRouterLink> AddRoute(
       RoutingId routing_id,
-      absl::optional<NodeLinkAddress> link_state_address,
+      const absl::optional<NodeLinkAddress>& link_state_address,
       LinkType type,
       LinkSide side,
       mem::Ref<Router> router);

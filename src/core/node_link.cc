@@ -49,12 +49,13 @@ NodeLink::~NodeLink() {
 
 mem::Ref<RemoteRouterLink> NodeLink::AddRoute(
     RoutingId routing_id,
-    absl::optional<NodeLinkAddress> link_state_address,
+    const absl::optional<NodeLinkAddress>& link_state_address,
     LinkType type,
     LinkSide side,
     mem::Ref<Router> router) {
-  auto link = mem::MakeRefCounted<RemoteRouterLink>(
-      mem::WrapRefCounted(this), routing_id, link_state_address, type, side);
+  auto link = RemoteRouterLink::Create(mem::WrapRefCounted(this), routing_id,
+                                       link_state_address, type, side);
+
   absl::MutexLock lock(&mutex_);
   auto result = routes_.try_emplace(routing_id,
                                     Route(std::move(link), std::move(router)));
@@ -219,8 +220,9 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
-  RoutingId new_routing_id = memory().AllocateRoutingIds(1);
-  NodeLinkAddress new_link_state_address = memory().AllocateRouterLinkState();
+  const RoutingId new_routing_id = memory().AllocateRoutingIds(1);
+  const absl::optional<NodeLinkAddress> new_link_state_address =
+      memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
       AddRoute(new_routing_id, new_link_state_address, LinkType::kCentral,
                LinkSide::kA, new_peer);
@@ -234,7 +236,8 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.new_link_state_address = new_link_state_address;
+  bypass.params.new_link_state_address =
+      new_link_state_address.value_or(NodeLinkAddress());
   bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   Transmit(bypass);
 
