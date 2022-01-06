@@ -63,12 +63,6 @@ class Router : public mem::RefCounted {
 
   Router();
 
-  // Returns the total number of Routers living in the calling process.
-  static size_t GetNumRoutersForTesting();
-
-  // Logs a description of every router instance in the calling process.
-  static void DumpAllRoutersForDebugging();
-
   // Returns true iff the other side of this Router's route is known to be
   // closed.
   bool IsPeerClosed();
@@ -213,18 +207,18 @@ class Router : public mem::RefCounted {
   // direction from whence it was received.
   void AcceptLogRouteTraceFrom(Direction source);
 
- private:
-  friend class LocalRouterLink;
-  friend class NodeLink;
-
-  ~Router() override;
-
   // Flushes any inbound or outbound parcels to be proxied, as well as any route
   // closure notifications. If the result of the flush is that one or more
   // RouterLinks is no longer necessary, they will be deactivated here. As a
   // result, Flush() may delete `this` if it happens to cause this Router's last
   // reference to be dropped.
   void Flush();
+
+ private:
+  friend class LocalRouterLink;
+  friend class NodeLink;
+
+  ~Router() override;
 
   // Attempts to mark this side of the outward link as decaying and, if
   // successful, asks its inward peer to initiate our bypass along the route.

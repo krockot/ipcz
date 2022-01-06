@@ -54,11 +54,12 @@ class LocalRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       RoutingId new_routing_id,
-      const absl::optional<NodeLinkAddress>& new_link_state_address,
+      const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
   void NotifyBypassPossible() override;
+  void Flush() override;
   void Deactivate() override;
   std::string Describe() const override;
   void LogRouteTrace() override;

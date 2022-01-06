@@ -146,6 +146,13 @@ class Node : public mem::RefCounted {
   using BrokerCallback = std::function<void(mem::Ref<NodeLink> broker_link)>;
   void AddBrokerCallback(BrokerCallback callback);
 
+  // Requests allocation of a new shared memory object of the given size.
+  // `callback` is invoked with the new object when allocation is complete.
+  // This operation is asynchronous, since it may be delegated to a broker node
+  // within some runtime environments.
+  using AllocateSharedMemoryCallback = std::function<void(os::Memory memory)>;
+  void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
+
  private:
   ~Node() override;
 

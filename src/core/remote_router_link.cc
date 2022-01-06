@@ -30,12 +30,11 @@
 namespace ipcz {
 namespace core {
 
-RemoteRouterLink::RemoteRouterLink(
-    mem::Ref<NodeLink> node_link,
-    RoutingId routing_id,
-    absl::optional<NodeLinkAddress> link_state_address,
-    LinkType type,
-    LinkSide side)
+RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
+                                   RoutingId routing_id,
+                                   const NodeLinkAddress& link_state_address,
+                                   LinkType type,
+                                   LinkSide side)
     : node_link_(std::move(node_link)),
       routing_id_(routing_id),
       type_(type),
@@ -48,22 +47,63 @@ RemoteRouterLink::~RemoteRouterLink() = default;
 mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
     mem::Ref<NodeLink> node_link,
     RoutingId routing_id,
-    absl::optional<NodeLinkAddress> link_state_address,
+    const NodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side) {
   auto link = mem::WrapRefCounted(new RemoteRouterLink(
       std::move(node_link), routing_id, link_state_address, type, side));
-  if (link_state_address) {
+  if (!link_state_address.is_null()) {
     link->link_state_ = link->node_link()->memory().GetMapped<RouterLinkState>(
-        *link_state_address);
+        link_state_address);
   } else if (type == LinkType::kCentral && side == LinkSide::kA) {
     // If this link needs a shared RouterLinkState but one could not be provided
     // at construction time, kick off an asynchronous allocation request for
     // more link memory capacity.
-    ABSL_ASSERT(false);
+    link->must_share_link_state_address_ = true;
     link->AllocateLinkState();
   }
   return link;
+}
+
+void RemoteRouterLink::SetLinkStateAddress(const NodeLinkAddress& address) {
+  ABSL_ASSERT(type_ == LinkType::kCentral);
+  RouterLinkState* const state =
+      node_link()->memory().GetMapped<RouterLinkState>(address);
+  if (!state) {
+    node_link()->memory().OnBufferAvailable(
+        address.buffer_id(), [self = mem::WrapRefCounted(this), address] {
+          self->SetLinkStateAddress(address);
+        });
+    return;
+  }
+
+  LinkStatePhase expected_phase = LinkStatePhase::kNotPresent;
+  if (!link_state_phase_.compare_exchange_strong(
+          expected_phase, LinkStatePhase::kBusy, std::memory_order_relaxed)) {
+    return;
+  }
+
+  link_state_address_ = address;
+  RouterLinkState* expected_state = nullptr;
+  if (!link_state_.compare_exchange_strong(expected_state, state,
+                                           std::memory_order_relaxed)) {
+    return;
+  }
+
+  expected_phase = LinkStatePhase::kBusy;
+  std::atomic_thread_fence(std::memory_order_release);
+  bool ok = link_state_phase_.compare_exchange_strong(
+      expected_phase, LinkStatePhase::kPresent, std::memory_order_relaxed);
+  ABSL_ASSERT(ok);
+
+  if (side_can_support_bypass_.load(std::memory_order_acquire)) {
+    SetSideCanSupportBypass();
+  }
+
+  mem::Ref<Router> router = node_link()->GetRouter(routing_id_);
+  if (router) {
+    router->Flush();
+  }
 }
 
 LinkType RemoteRouterLink::GetType() const {
@@ -85,6 +125,7 @@ bool RemoteRouterLink::CanLockForBypass() {
 }
 
 bool RemoteRouterLink::SetSideCanSupportBypass() {
+  side_can_support_bypass_.store(true, std::memory_order_release);
   RouterLinkState* state = GetLinkState();
   return state && state->SetSideReady(side_);
 }
@@ -193,13 +234,12 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
 
 void RemoteRouterLink::BypassProxyToSameNode(
     RoutingId new_routing_id,
-    const absl::optional<NodeLinkAddress>& new_link_state_address,
+    const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
   bypass.params.routing_id = routing_id_;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.new_link_state_address =
-      new_link_state_address.value_or(NodeLinkAddress());
+  bypass.params.new_link_state_address = new_link_state_address;
   bypass.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
 }
@@ -227,15 +267,38 @@ void RemoteRouterLink::NotifyBypassPossible() {
   node_link()->Transmit(unblocked);
 }
 
+void RemoteRouterLink::Flush() {
+  if (!must_share_link_state_address_.load(std::memory_order_relaxed)) {
+    return;
+  }
+
+  if (link_state_phase_.load(std::memory_order_acquire) !=
+      LinkStatePhase::kPresent) {
+    return;
+  }
+
+  bool expected = true;
+  if (!must_share_link_state_address_.compare_exchange_strong(
+          expected, false, std::memory_order_relaxed)) {
+    return;
+  }
+
+  msg::SetRouterLinkStateAddress set;
+  set.params.routing_id = routing_id_;
+  set.params.address = link_state_address_;
+  node_link()->Transmit(set);
+}
+
 void RemoteRouterLink::Deactivate() {
   node_link_->RemoveRoute(routing_id_);
 }
 
 std::string RemoteRouterLink::Describe() const {
   std::stringstream ss;
-  ss << "link on " << node_link_->local_node_name().ToString() << " to "
+  ss << type_.ToString() << " link on "
+     << node_link_->local_node_name().ToString() << " to "
      << node_link_->remote_node_name().ToString() << " via routing ID "
-     << routing_id_;
+     << routing_id_ << " with link state @" << link_state_address_.ToString();
   return ss.str();
 }
 
@@ -247,41 +310,17 @@ void RemoteRouterLink::LogRouteTrace() {
 
 void RemoteRouterLink::AllocateLinkState() {
   node_link()->memory().RequestCapacity([self = mem::WrapRefCounted(this)]() {
-    absl::optional<NodeLinkAddress> address =
+    NodeLinkAddress address =
         self->node_link()->memory().AllocateRouterLinkState();
-    if (!address) {
+    if (address.is_null()) {
       // We got some new link memory capacity but it's already used up. Try
       // again.
       self->AllocateLinkState();
       return;
     }
 
-    self->SetLinkStateAddress(*address);
+    self->SetLinkStateAddress(address);
   });
-}
-
-void RemoteRouterLink::SetLinkStateAddress(const NodeLinkAddress& address) {
-  ABSL_ASSERT(type_ == LinkType::kCentral);
-  LinkStatePhase expected_phase = LinkStatePhase::kNotPresent;
-  if (!link_state_phase_.compare_exchange_strong(
-          expected_phase, LinkStatePhase::kBusy, std::memory_order_relaxed)) {
-    return;
-  }
-
-  link_state_address_ = address;
-  RouterLinkState* expected_state = nullptr;
-  if (!link_state_.compare_exchange_strong(
-          expected_state,
-          node_link()->memory().GetMapped<RouterLinkState>(address),
-          std::memory_order_relaxed)) {
-    return;
-  }
-
-  expected_phase = LinkStatePhase::kBusy;
-  std::atomic_thread_fence(std::memory_order_release);
-  bool ok = link_state_phase_.compare_exchange_strong(
-      expected_phase, LinkStatePhase::kPresent, std::memory_order_relaxed);
-  ABSL_ASSERT(ok);
 }
 
 RouterLinkState* RemoteRouterLink::GetLinkState() {

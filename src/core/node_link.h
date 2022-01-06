@@ -50,13 +50,13 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
     mem::Ref<Router> receiver;
   };
 
-  NodeLink(mem::Ref<Node> node,
-           const NodeName& local_node_name,
-           const NodeName& remote_node_name,
-           Node::Type remote_node_type,
-           uint32_t remote_protocol_version,
-           mem::Ref<DriverTransport> transport,
-           mem::Ref<NodeLinkMemory> memory);
+  static mem::Ref<NodeLink> Create(mem::Ref<Node> node,
+                                   const NodeName& local_node_name,
+                                   const NodeName& remote_node_name,
+                                   Node::Type remote_node_type,
+                                   uint32_t remote_protocol_version,
+                                   mem::Ref<DriverTransport> transport,
+                                   mem::Ref<NodeLinkMemory> memory);
 
   const mem::Ref<Node>& node() const { return node_; }
   const NodeName& local_node_name() const { return local_node_name_; }
@@ -76,12 +76,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // If `link_state_address` is non-null, the given address identifies the
   // location of the shared RouterLinkState structure for the new route. Only
   // central links require a RouterLinkState.
-  mem::Ref<RemoteRouterLink> AddRoute(
-      RoutingId routing_id,
-      const absl::optional<NodeLinkAddress>& link_state_address,
-      LinkType type,
-      LinkSide side,
-      mem::Ref<Router> router);
+  mem::Ref<RemoteRouterLink> AddRoute(RoutingId routing_id,
+                                      const NodeLinkAddress& link_state_address,
+                                      LinkType type,
+                                      LinkSide side,
+                                      mem::Ref<Router> router);
 
   // Removes the route specified by `routing_id`. Once removed, any messages
   // received for that routing ID are ignored.
@@ -145,7 +144,19 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
                    SequenceNumber proxy_outbound_sequence_length,
                    mem::Ref<Router> new_peer);
 
+  // Sends a new shared memory object to the remote endpoint to be associated
+  // with BufferId within this link's associated NodeLinkMemory. The BufferId
+  // must have already been reserved locally by this NodeLink.
+  void AddLinkBuffer(BufferId buffer_id, os::Memory memory);
+
  private:
+  NodeLink(mem::Ref<Node> node,
+           const NodeName& local_node_name,
+           const NodeName& remote_node_name,
+           Node::Type remote_node_type,
+           uint32_t remote_protocol_version,
+           mem::Ref<DriverTransport> transport,
+           mem::Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
   // DriverTransport::Listener:
@@ -162,7 +173,9 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
       const msg::AcceptIndirectBrokerConnection& accept);
   bool OnAcceptParcel(const DriverTransport::Message& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
+  bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
   bool OnIntroduceNode(const DriverTransport::Message& message);
+  bool OnAddLinkBuffer(const msg::AddLinkBuffer& add);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);

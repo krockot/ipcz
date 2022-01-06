@@ -18,10 +18,12 @@
 #include "os/memory.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
+
+class Node;
+class NodeLink;
 
 // NodeLinkMemory owns and manages all shared memory resource allocation on a
 // single NodeLink. Each end of a NodeLink has its own NodeLinkMemory instance
@@ -31,11 +33,19 @@ class NodeLinkMemory : public mem::RefCounted {
  public:
   NodeLinkMemory(NodeLinkMemory&&);
 
-  static mem::Ref<NodeLinkMemory> Allocate(size_t num_initial_portals,
+  static mem::Ref<NodeLinkMemory> Allocate(mem::Ref<Node> node,
+                                           size_t num_initial_portals,
                                            os::Memory& primary_buffer_memory);
   static mem::Ref<NodeLinkMemory> Adopt(
+      mem::Ref<Node> node,
       os::Memory::Mapping primary_buffer_mapping);
-  static mem::Ref<NodeLinkMemory> Adopt(os::Handle primary_buffer_handle);
+  static mem::Ref<NodeLinkMemory> Adopt(mem::Ref<Node> node,
+                                        os::Handle primary_buffer_handle);
+
+  // Sets a weak reference to a local NodeLink which shares ownership of this
+  // NodeLinkMemory with some remote NodeLink. This must be reset to null when
+  // `node_link` is deactivated.
+  void SetNodeLink(mem::Ref<NodeLink> node_link);
 
   // Resolves a NodeLinkAddress (a buffer ID and offset) to a real memory
   // address mapped within the calling process. May return null if the given
@@ -63,7 +73,7 @@ class NodeLinkMemory : public mem::RefCounted {
   // address. This is useful when constructing a new central RemoteRouterLink.
   // May return null if there is no more capacity to allocate new
   /// RouterLinkState instances.
-  absl::optional<NodeLinkAddress> AllocateRouterLinkState();
+  NodeLinkAddress AllocateRouterLinkState();
 
   // Requests allocation of additional capacity for this NodeLink memory.
   // `callback` is invoked once new capacity is available, which may require
@@ -71,16 +81,31 @@ class NodeLinkMemory : public mem::RefCounted {
   using CapacityCallback = std::function<void()>;
   void RequestCapacity(CapacityCallback callback);
 
+  // Introduces a new buffer associated with BufferId. This BufferId must have
+  // been allocated via AllocateBufferId() on this NodeLinkMemory or the
+  // corresponding remote NodeLinkMemory associated with the same conceptual
+  // link.
+  void AddBuffer(BufferId id, os::Memory memory);
+
+  void OnBufferAvailable(BufferId id, std::function<void()> callback);
+
  private:
   ~NodeLinkMemory() override;
 
   os::Memory::Mapping& primary_buffer() { return buffers_.front(); }
 
-  explicit NodeLinkMemory(os::Memory::Mapping primary_buffer);
+  NodeLinkMemory(mem::Ref<Node> node, os::Memory::Mapping primary_buffer);
 
-  absl::optional<NodeLinkAddress> AllocateUninitializedRouterLinkState();
+  BufferId AllocateBufferId();
+  NodeLinkAddress AllocateUninitializedRouterLinkState();
+
+  const mem::Ref<Node> node_;
 
   absl::Mutex mutex_;
+
+  // The local NodeLink which shares ownership of this object. May be null if
+  // the link has been deactivated and is set for destruction.
+  mem::Ref<NodeLink> node_link_ ABSL_GUARDED_BY(mutex_);
 
   // List of all allocated buffers for this object. Once elements are appended
   // to this list, they remain indefinitely. The head of the list is initialized
@@ -98,6 +123,10 @@ class NodeLinkMemory : public mem::RefCounted {
   // Mapping from BufferId to some buffer in `buffers_` above.
   absl::flat_hash_map<BufferId, os::Memory::Mapping*> buffer_map_
       ABSL_GUARDED_BY(mutex_);
+
+  // Callbacks to be invoked when an identified buffer becomes available.
+  absl::flat_hash_map<BufferId, std::vector<std::function<void()>>>
+      buffer_callbacks_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

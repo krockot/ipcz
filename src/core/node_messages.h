@@ -91,17 +91,6 @@ struct IPCZ_ALIGN(16) IntroduceNode {
   uint32_t num_transport_os_handles;
 };
 
-// Shares a new link buffer with the receiver. The buffer may be referenced by
-// the given `buffer_id` in the scope of the NodeLink which transmits this
-// message. Buffers shared with this message are read-writable to both sides
-// of a NodeLink and shared exclusively between the two nodes on either side of
-// the transmitting link.
-struct IPCZ_ALIGN(16) AddLinkBuffer {
-  static constexpr uint8_t kId = 14;
-  internal::MessageHeader message_header;
-  BufferId buffer_id;
-};
-
 // Conveys the contents of a parcel from one router to another across a node
 // boundary. Also contains a variable number of OS handles and
 // RouterDescriptors.

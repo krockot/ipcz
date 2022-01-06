@@ -4,22 +4,27 @@
 
 #include "core/node_link_address.h"
 
+#include <sstream>
+
 #include "core/buffer_id.h"
 #include "ipcz/ipcz.h"
 
 namespace ipcz {
 namespace core {
 
-NodeLinkAddress::NodeLinkAddress() = default;
-
 NodeLinkAddress::NodeLinkAddress(const NodeLinkAddress&) = default;
 
 NodeLinkAddress& NodeLinkAddress::operator=(const NodeLinkAddress&) = default;
 
-NodeLinkAddress::NodeLinkAddress(BufferId buffer_id, uint64_t offset)
-    : buffer_id_(buffer_id), offset_(offset) {}
+std::string NodeLinkAddress::ToString() const {
+  if (is_null()) {
+    return "(null)";
+  }
 
-NodeLinkAddress::~NodeLinkAddress() = default;
+  std::stringstream ss;
+  ss << "<" << buffer_id_ << ":" << offset_ << ">";
+  return ss.str();
+}
 
 }  // namespace core
 }  // namespace ipcz

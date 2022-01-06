@@ -34,6 +34,9 @@ TestBase::TestBase() {
 }
 
 TestBase::~TestBase() {
+  if (core::RouterTracker::GetNumRouters() != 0) {
+    core::RouterTracker::DumpRouters();
+  }
   ABSL_ASSERT(core::RouterTracker::GetNumRouters() == 0);
 }
 

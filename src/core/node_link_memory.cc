@@ -8,6 +8,8 @@
 #include <atomic>
 #include <cstdint>
 
+#include "core/node.h"
+#include "core/node_link.h"
 #include "core/router_link_state.h"
 #include "ipcz/ipcz.h"
 
@@ -16,10 +18,14 @@ namespace core {
 
 namespace {
 
+constexpr size_t kAuxBufferSize = 16384;
+
 struct IPCZ_ALIGN(16) PrimaryBufferLayout {
   std::atomic<uint64_t> next_routing_id{0};
+  std::atomic<uint64_t> next_buffer_id{1};
   std::atomic<uint64_t> next_router_link_state_index{0};
-  std::array<RouterLinkState, 2047> router_link_states;
+  uint64_t padding = 0;
+  std::array<RouterLinkState, 64> router_link_states;
 };
 
 PrimaryBufferLayout& PrimaryBufferView(const os::Memory::Mapping& mapping) {
@@ -38,7 +44,9 @@ uint64_t GetRouterLinkStateOffset(const os::Memory::Mapping& mapping,
 
 }  // namespace
 
-NodeLinkMemory::NodeLinkMemory(os::Memory::Mapping primary_buffer_mapping) {
+NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
+                               os::Memory::Mapping primary_buffer_mapping)
+    : node_(std::move(node)) {
   buffers_.push_back(std::move(primary_buffer_mapping));
 }
 
@@ -46,29 +54,40 @@ NodeLinkMemory::~NodeLinkMemory() = default;
 
 // static
 mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
+    mem::Ref<Node> node,
     size_t num_initial_portals,
     os::Memory& primary_buffer_memory) {
   primary_buffer_memory = os::Memory(sizeof(PrimaryBufferLayout));
   os::Memory::Mapping mapping(primary_buffer_memory.Map());
   PrimaryBufferLayout& buffer = PrimaryBufferView(mapping);
   buffer.next_routing_id = num_initial_portals;
+  buffer.next_buffer_id = 1;
   buffer.next_router_link_state_index = num_initial_portals;
-  return mem::WrapRefCounted(new NodeLinkMemory(std::move(mapping)));
+  return mem::WrapRefCounted(
+      new NodeLinkMemory(std::move(node), std::move(mapping)));
 }
 
 // static
 mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
+    mem::Ref<Node> node,
     os::Memory::Mapping primary_buffer_mapping) {
   return mem::WrapRefCounted(
-      new NodeLinkMemory(std::move(primary_buffer_mapping)));
+      new NodeLinkMemory(std::move(node), std::move(primary_buffer_mapping)));
 }
 
 // static
 mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
+    mem::Ref<Node> node,
     os::Handle primary_buffer_handle) {
   return mem::WrapRefCounted(new NodeLinkMemory(
+      std::move(node),
       os::Memory(std::move(primary_buffer_handle), sizeof(PrimaryBufferLayout))
           .Map()));
+}
+
+void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
+  absl::MutexLock lock(&mutex_);
+  node_link_ = std::move(node_link);
 }
 
 void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
@@ -96,10 +115,10 @@ NodeLinkAddress NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
   return NodeLinkAddress(0, GetRouterLinkStateOffset(primary_buffer(), i));
 }
 
-absl::optional<NodeLinkAddress> NodeLinkMemory::AllocateRouterLinkState() {
-  absl::optional<NodeLinkAddress> addr = AllocateUninitializedRouterLinkState();
-  if (addr) {
-    RouterLinkState::Initialize(GetMappedAddress(*addr));
+NodeLinkAddress NodeLinkMemory::AllocateRouterLinkState() {
+  NodeLinkAddress addr = AllocateUninitializedRouterLinkState();
+  if (!addr.is_null()) {
+    RouterLinkState::Initialize(GetMappedAddress(addr));
   }
   return addr;
 }
@@ -114,16 +133,88 @@ void NodeLinkMemory::RequestCapacity(CapacityCallback callback) {
     awaiting_capacity_ = true;
   }
 
-  // todo:
-  ABSL_ASSERT(false);
+  node_->AllocateSharedMemory(
+      kAuxBufferSize, [self = mem::WrapRefCounted(this)](os::Memory memory) {
+        mem::Ref<NodeLink> link;
+        const BufferId new_buffer_id = self->AllocateBufferId();
+        std::vector<CapacityCallback> callbacks;
+        {
+          absl::MutexLock lock(&self->mutex_);
+          self->buffers_.push_back(memory.Map());
+          self->buffer_map_[new_buffer_id] = &self->buffers_.back();
+          self->awaiting_capacity_ = false;
+          std::swap(callbacks, self->capacity_callbacks_);
+          link = self->node_link_;
+        }
+
+        for (CapacityCallback& callback : callbacks) {
+          callback();
+        }
+
+        if (link) {
+          link->AddLinkBuffer(new_buffer_id, std::move(memory));
+        }
+      });
 }
 
-absl::optional<NodeLinkAddress>
-NodeLinkMemory::AllocateUninitializedRouterLinkState() {
+void NodeLinkMemory::AddBuffer(BufferId id, os::Memory memory) {
+  std::vector<std::function<void()>> buffer_callbacks;
+  {
+    absl::MutexLock lock(&mutex_);
+    buffers_.push_back(memory.Map());
+    buffer_map_[id] = &buffers_.back();
+
+    auto it = buffer_callbacks_.find(id);
+    if (it != buffer_callbacks_.end()) {
+      std::swap(it->second, buffer_callbacks);
+      buffer_callbacks_.erase(it);
+    }
+  }
+
+  for (std::function<void()>& callback : buffer_callbacks) {
+    callback();
+  }
+}
+
+void NodeLinkMemory::OnBufferAvailable(BufferId id,
+                                       std::function<void()> callback) {
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = buffer_map_.find(id);
+    if (it == buffer_map_.end()) {
+      buffer_callbacks_[id].push_back(std::move(callback));
+      return;
+    }
+  }
+
+  callback();
+}
+
+BufferId NodeLinkMemory::AllocateBufferId() {
+  return PrimaryBufferView(primary_buffer())
+      .next_buffer_id.fetch_add(1, std::memory_order_relaxed);
+}
+
+NodeLinkAddress NodeLinkMemory::AllocateUninitializedRouterLinkState() {
   PrimaryBufferLayout& buffer = PrimaryBufferView(primary_buffer());
   const uint64_t index = buffer.next_router_link_state_index.fetch_add(
       1, std::memory_order_relaxed);
-  return NodeLinkAddress(0, GetRouterLinkStateOffset(primary_buffer(), index));
+  if (index < buffer.router_link_states.size()) {
+    return NodeLinkAddress(0,
+                           GetRouterLinkStateOffset(primary_buffer(), index));
+  }
+  uint64_t adjusted_index = index - buffer.router_link_states.size();
+  constexpr size_t kStatesPerBuffer = kAuxBufferSize / sizeof(RouterLinkState);
+  BufferId buffer_id = 1 + adjusted_index / kStatesPerBuffer;
+  uint64_t offset =
+      (adjusted_index % kStatesPerBuffer) * sizeof(RouterLinkState);
+  absl::MutexLock lock(&mutex_);
+  auto it = buffer_map_.find(buffer_id);
+  if (it == buffer_map_.end()) {
+    return NodeLinkAddress();
+  }
+
+  return NodeLinkAddress(buffer_id, offset);
 }
 
 }  // namespace core

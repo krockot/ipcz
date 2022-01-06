@@ -4,6 +4,7 @@
 
 #include "core/node.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -49,8 +50,8 @@ void Node::ShutDown() {
   absl::flat_hash_map<NodeName, mem::Ref<NodeLink>> node_links;
   {
     absl::MutexLock lock(&mutex_);
-    node_links = std::move(node_links_);
-    node_links_.clear();
+    std::swap(node_links_, node_links);
+    broker_link_.reset();
   }
 
   for (const auto& entry : node_links) {
@@ -255,7 +256,7 @@ bool Node::OnRequestIndirectBrokerConnection(
         const uint32_t num_portals =
             std::min(num_initial_portals, num_remote_portals);
         os::Memory primary_buffer_memory;
-        NodeLinkMemory::Allocate(num_portals, primary_buffer_memory);
+        NodeLinkMemory::Allocate(node, num_portals, primary_buffer_memory);
         std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
             transports = DriverTransport::CreatePair(node->driver(),
                                                      node->driver_node());
@@ -294,7 +295,8 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   }
 
   os::Memory primary_buffer_memory;
-  NodeLinkMemory::Allocate(/*num_initial_portals=*/0, primary_buffer_memory);
+  NodeLinkMemory::Allocate(mem::WrapRefCounted(this), /*num_initial_portals=*/0,
+                           primary_buffer_memory);
   std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
       DriverTransport::CreatePair(driver_, driver_node_);
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
@@ -323,9 +325,9 @@ bool Node::OnIntroduceNode(
       ABSL_ASSERT(assigned_name_.is_valid());
       DVLOG(3) << "Node " << assigned_name_.ToString()
                << " received introduction to " << name.ToString();
-      new_link = mem::MakeRefCounted<NodeLink>(
-          mem::WrapRefCounted(this), assigned_name_, name, Type::kNormal, 0,
-          transport, std::move(link_memory));
+      new_link =
+          NodeLink::Create(mem::WrapRefCounted(this), assigned_name_, name,
+                           Type::kNormal, 0, transport, std::move(link_memory));
     }
   }
 
@@ -393,6 +395,13 @@ void Node::AddBrokerCallback(BrokerCallback callback) {
     broker_link = broker_link_;
   }
   callback(std::move(broker_link));
+}
+
+void Node::AllocateSharedMemory(size_t size,
+                                AllocateSharedMemoryCallback callback) {
+  // TODO: delegate allocation to another node if configured to do so
+  os::Memory memory(size);
+  callback(std::move(memory));
 }
 
 }  // namespace core

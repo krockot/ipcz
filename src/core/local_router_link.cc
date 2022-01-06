@@ -154,7 +154,7 @@ void LocalRouterLink::ProxyWillStop(
 
 void LocalRouterLink::BypassProxyToSameNode(
     RoutingId new_routing_id,
-    const absl::optional<NodeLinkAddress>& new_link_state_address,
+    const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);
 }
@@ -167,6 +167,8 @@ void LocalRouterLink::StopProxyingToLocalPeer(
 void LocalRouterLink::NotifyBypassPossible() {
   state_->side(side_.opposite())->OnBypassPossible();
 }
+
+void LocalRouterLink::Flush() {}
 
 void LocalRouterLink::Deactivate() {
   mem::Ref<Router> left = state_->side(LinkSide::kA);

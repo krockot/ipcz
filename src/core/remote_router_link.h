@@ -12,7 +12,6 @@
 #include "core/node_link_address.h"
 #include "core/router_link.h"
 #include "core/routing_id.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 
 namespace ipcz {
 namespace core {
@@ -42,15 +41,15 @@ class RemoteRouterLink : public RouterLink {
   static mem::Ref<RemoteRouterLink> Create(
       mem::Ref<NodeLink> node_link,
       RoutingId routing_id,
-      absl::optional<NodeLinkAddress> link_state_address,
+      const NodeLinkAddress& link_state_address,
       LinkType type,
       LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   RoutingId routing_id() const { return routing_id_; }
-  absl::optional<NodeLinkAddress> link_state_address() const {
-    return link_state_address_;
-  }
+  NodeLinkAddress link_state_address() const { return link_state_address_; }
+
+  void SetLinkStateAddress(const NodeLinkAddress& address);
 
   // RouterLink:
   LinkType GetType() const override;
@@ -72,11 +71,12 @@ class RemoteRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       RoutingId new_routing_id,
-      const absl::optional<NodeLinkAddress>& new_link_state_address,
+      const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
   void NotifyBypassPossible() override;
+  void Flush() override;
   void Deactivate() override;
   std::string Describe() const override;
   void LogRouteTrace() override;
@@ -84,14 +84,13 @@ class RemoteRouterLink : public RouterLink {
  private:
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    RoutingId routing_id,
-                   absl::optional<NodeLinkAddress> link_state_address,
+                   const NodeLinkAddress& link_state_address,
                    LinkType type,
                    LinkSide side);
 
   ~RemoteRouterLink() override;
 
   void AllocateLinkState();
-  void SetLinkStateAddress(const NodeLinkAddress& address);
 
   RouterLinkState* GetLinkState();
 
@@ -106,8 +105,10 @@ class RemoteRouterLink : public RouterLink {
     kPresent,
   };
 
+  std::atomic<bool> must_share_link_state_address_{false};
+  std::atomic<bool> side_can_support_bypass_{false};
   std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
-  absl::optional<NodeLinkAddress> link_state_address_;
+  NodeLinkAddress link_state_address_;
   std::atomic<RouterLinkState*> link_state_{nullptr};
 };
 

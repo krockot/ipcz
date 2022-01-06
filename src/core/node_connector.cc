@@ -35,8 +35,9 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
                       std::move(transport),
                       std::move(waiting_portals),
                       std::move(callback)),
-        link_memory_(
-            NodeLinkMemory::Allocate(num_portals(), link_memory_to_share_)) {}
+        link_memory_(NodeLinkMemory::Allocate(node_,
+                                              num_portals(),
+                                              link_memory_to_share_)) {}
 
   ~NodeConnectorForBrokerToNonBroker() override = default;
 
@@ -71,11 +72,11 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     DVLOG(4) << "Accepting ConnectFromNonBrokerToBroker on broker "
              << broker_name_.ToString() << " from new node "
              << new_remote_node_name_.ToString();
-    AcceptConnection(mem::MakeRefCounted<NodeLink>(
-                         node_, broker_name_, new_remote_node_name_,
+    AcceptConnection(
+        NodeLink::Create(node_, broker_name_, new_remote_node_name_,
                          Node::Type::kNormal, connect.params.protocol_version,
                          transport_, std::move(link_memory_)),
-                     LinkSide::kA, connect.params.num_initial_portals);
+        LinkSide::kA, connect.params.num_initial_portals);
     return true;
   }
 
@@ -124,11 +125,11 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
              << "name " << connect.params.receiver_name.ToString()
              << " from broker " << connect.params.broker_name.ToString();
 
-    auto new_link = mem::MakeRefCounted<NodeLink>(
+    auto new_link = NodeLink::Create(
         node_, connect.params.receiver_name, connect.params.broker_name,
         Node::Type::kBroker, connect.params.protocol_version, transport_,
         NodeLinkMemory::Adopt(
-            std::move(connect.handles.primary_buffer_memory)));
+            node_, std::move(connect.handles.primary_buffer_memory)));
     node_->SetBrokerLink(new_link);
     node_->SetAssignedName(connect.params.receiver_name);
     AcceptConnection(std::move(new_link), LinkSide::kB,
@@ -177,11 +178,11 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
              << connect.params.receiver_name.ToString() << " referred by "
              << connect.params.connected_node_name.ToString();
 
-    auto new_link = mem::MakeRefCounted<NodeLink>(
+    auto new_link = NodeLink::Create(
         node_, connect.params.receiver_name, connect.params.broker_name,
         Node::Type::kBroker, connect.params.protocol_version, transport_,
         NodeLinkMemory::Adopt(
-            std::move(connect.handles.primary_buffer_memory)));
+            node_, std::move(connect.handles.primary_buffer_memory)));
 
     absl::Span<const mem::Ref<Portal>> portals =
         absl::MakeSpan(waiting_portals_);
@@ -222,7 +223,8 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
         num_initial_portals_(num_initial_portals),
         referrer_(std::move(referrer)),
         remote_process_(std::move(remote_process)),
-        link_memory_(NodeLinkMemory::Allocate(0, link_memory_to_share_)) {}
+        link_memory_(
+            NodeLinkMemory::Allocate(node_, 0, link_memory_to_share_)) {}
 
   ~NodeConnectorForIndirectBrokerToNonBroker() override = default;
 
@@ -260,11 +262,11 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
 
     num_remote_portals_ = connect.params.num_initial_portals;
 
-    AcceptConnection(mem::MakeRefCounted<NodeLink>(
-                         node_, broker_name_, new_remote_node_name_,
+    AcceptConnection(
+        NodeLink::Create(node_, broker_name_, new_remote_node_name_,
                          Node::Type::kNormal, connect.params.protocol_version,
                          transport_, std::move(link_memory_)),
-                     LinkSide::kA, num_remote_portals_);
+        LinkSide::kA, num_remote_portals_);
     return true;
   }
 
@@ -290,7 +292,8 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
                       std::move(transport),
                       std::move(waiting_portals),
                       std::move(callback)),
-        our_link_memory_(NodeLinkMemory::Allocate(num_portals(),
+        our_link_memory_(NodeLinkMemory::Allocate(node_,
+                                                  num_portals(),
                                                   our_link_memory_to_share_)) {}
 
   ~NodeConnectorForBrokerToBroker() override = default;
@@ -326,18 +329,18 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
              << local_name_.ToString() << " from broker "
              << connect.params.sender_name.ToString();
 
-    mem::Ref<NodeLinkMemory> their_link_memory =
-        NodeLinkMemory::Adopt(std::move(connect.handles.primary_buffer_memory));
+    mem::Ref<NodeLinkMemory> their_link_memory = NodeLinkMemory::Adopt(
+        node_, std::move(connect.handles.primary_buffer_memory));
 
     const bool we_win = local_name_ < connect.params.sender_name;
     mem::Ref<NodeLinkMemory> link_memory =
         we_win ? std::move(our_link_memory_) : std::move(their_link_memory);
     LinkSide link_side = we_win ? LinkSide::kA : LinkSide::kB;
-    AcceptConnection(mem::MakeRefCounted<NodeLink>(
-                         node_, local_name_, connect.params.sender_name,
+    AcceptConnection(
+        NodeLink::Create(node_, local_name_, connect.params.sender_name,
                          Node::Type::kBroker, connect.params.protocol_version,
                          transport_, std::move(link_memory)),
-                     link_side, connect.params.num_initial_portals);
+        link_side, connect.params.num_initial_portals);
     return true;
   }
 

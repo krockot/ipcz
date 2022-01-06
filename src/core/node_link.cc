@@ -26,6 +26,21 @@
 namespace ipcz {
 namespace core {
 
+// static
+mem::Ref<NodeLink> NodeLink::Create(mem::Ref<Node> node,
+                                    const NodeName& local_node_name,
+                                    const NodeName& remote_node_name,
+                                    Node::Type remote_node_type,
+                                    uint32_t remote_protocol_version,
+                                    mem::Ref<DriverTransport> transport,
+                                    mem::Ref<NodeLinkMemory> memory) {
+  auto link = mem::WrapRefCounted(new NodeLink(
+      std::move(node), local_node_name, remote_node_name, remote_node_type,
+      remote_protocol_version, std::move(transport), std::move(memory)));
+  link->memory().SetNodeLink(link);
+  return link;
+}
+
 NodeLink::NodeLink(mem::Ref<Node> node,
                    const NodeName& local_node_name,
                    const NodeName& remote_node_name,
@@ -49,7 +64,7 @@ NodeLink::~NodeLink() {
 
 mem::Ref<RemoteRouterLink> NodeLink::AddRoute(
     RoutingId routing_id,
-    const absl::optional<NodeLinkAddress>& link_state_address,
+    const NodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side,
     mem::Ref<Router> router) {
@@ -103,6 +118,7 @@ void NodeLink::Deactivate() {
     active_ = false;
   }
 
+  memory_->SetNodeLink(nullptr);
   routes.clear();
   transport_->Deactivate();
 }
@@ -221,7 +237,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
   const RoutingId new_routing_id = memory().AllocateRoutingIds(1);
-  const absl::optional<NodeLinkAddress> new_link_state_address =
+  const NodeLinkAddress new_link_state_address =
       memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
       AddRoute(new_routing_id, new_link_state_address, LinkType::kCentral,
@@ -236,8 +252,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params.proxy_name = proxy_name;
   bypass.params.proxy_routing_id = proxy_routing_id;
   bypass.params.new_routing_id = new_routing_id;
-  bypass.params.new_link_state_address =
-      new_link_state_address.value_or(NodeLinkAddress());
+  bypass.params.new_link_state_address = new_link_state_address;
   bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   Transmit(bypass);
 
@@ -247,6 +262,14 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   new_peer->SetOutwardLink(new_link);
 
   return true;
+}
+
+void NodeLink::AddLinkBuffer(BufferId buffer_id, os::Memory memory) {
+  msg::AddLinkBuffer add;
+  add.params.buffer_id = buffer_id;
+  add.params.buffer_size = static_cast<uint32_t>(memory.size());
+  add.handles.buffer_handle = memory.TakeHandle();
+  Transmit(add);
 }
 
 IpczResult NodeLink::OnTransportMessage(
@@ -284,6 +307,14 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    case msg::SetRouterLinkStateAddress::kId: {
+      msg::SetRouterLinkStateAddress set;
+      if (set.Deserialize(message) && OnSetRouterLinkStateAddress(set)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     case msg::RequestIntroduction::kId: {
       msg::RequestIntroduction request;
       if (request.Deserialize(message) &&
@@ -298,6 +329,14 @@ IpczResult NodeLink::OnTransportMessage(
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
+
+    case msg::AddLinkBuffer::kId: {
+      msg::AddLinkBuffer add;
+      if (add.Deserialize(message) && OnAddLinkBuffer(add)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     case msg::BypassProxy::kId: {
       msg::BypassProxy bypass;
@@ -522,6 +561,17 @@ bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
   return true;
 }
 
+bool NodeLink::OnSetRouterLinkStateAddress(
+    const msg::SetRouterLinkStateAddress& set) {
+  absl::optional<Route> route = GetRoute(set.params.routing_id);
+  if (!route) {
+    return true;
+  }
+
+  route->link->SetLinkStateAddress(set.params.address);
+  return true;
+}
+
 bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
   if (remote_node_type_ != Node::Type::kBroker) {
     return false;
@@ -546,11 +596,19 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
     return false;
   }
 
+  const NodeName name = intro.name;
+  const bool known = intro.known;
   return node_->OnIntroduceNode(
-      intro.name, intro.known,
-      NodeLinkMemory::Adopt(std::move(message.handles[0])),
+      name, known, NodeLinkMemory::Adopt(node_, std::move(message.handles[0])),
       absl::Span<const uint8_t>(bytes, num_transport_bytes),
       message.handles.subspan(1));
+}
+
+bool NodeLink::OnAddLinkBuffer(const msg::AddLinkBuffer& add) {
+  memory().AddBuffer(
+      add.params.buffer_id,
+      os::Memory(std::move(add.handles.buffer_handle), add.params.buffer_size));
+  return true;
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {

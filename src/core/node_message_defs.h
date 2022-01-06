@@ -170,6 +170,17 @@ IPCZ_MSG_BEGIN(RequestIntroduction, IPCZ_MSG_ID(12), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
 IPCZ_MSG_END()
 
+// Shares a new link buffer with the receiver. The buffer may be referenced by
+// the given `buffer_id` in the scope of the NodeLink which transmits this
+// message. Buffers shared with this message are read-writable to both sides
+// of a NodeLink and shared exclusively between the two nodes on either side of
+// the transmitting link.
+IPCZ_MSG_BEGIN(AddLinkBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(BufferId, buffer_id)
+  IPCZ_MSG_PARAM(uint32_t, buffer_size)
+  IPCZ_MSG_HANDLE_REQUIRED(buffer_handle)
+IPCZ_MSG_END()
+
 // Notifies a node that the route has been closed on one side. If this arrives
 // at a router from an inward-facing or bridge link, it pertains to the router's
 // own side of the route; otherwise it indicates that the other side of the
@@ -182,6 +193,15 @@ IPCZ_MSG_BEGIN(RouteClosed, IPCZ_MSG_ID(21), IPCZ_MSG_VERSION(0))
   // The total number of parcels sent from the side of the route which closed,
   // before closing.
   IPCZ_MSG_PARAM(SequenceNumber, sequence_length)
+IPCZ_MSG_END()
+
+// Notifies a node that one of its routes now has an allocated RouterLinkState
+// in the shared NodeLinkMemory buffer identified by `buffer_id`. The receiving
+// node may not yet have a handle to the identified buffer, but if not, it can
+// expect to receive one imminently via an AddLinkBuffer message.
+IPCZ_MSG_BEGIN(SetRouterLinkStateAddress, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(NodeLinkAddress, address)
 IPCZ_MSG_END()
 
 // Informs the recipient that its outward peer is a proxy which has locked its
