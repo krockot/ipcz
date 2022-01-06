@@ -25,8 +25,9 @@ class MultinodeTest : public TestBase {
   // Selects which driver a new node will use. Interconnecting nodes must use
   // the same driver.
   enum class DriverMode {
-    kSynchronous,
-    kAsynchronous,
+    kSync,
+    kAsync,
+    kAsyncDelegatedAlloc,
   };
 
   MultinodeTest();
@@ -39,7 +40,8 @@ class MultinodeTest : public TestBase {
                         IpczDriverHandle* transport0,
                         IpczDriverHandle* transport1);
 
-  IpczHandle ConnectToBroker(IpczHandle non_broker_node,
+  IpczHandle ConnectToBroker(DriverMode mode,
+                             IpczHandle non_broker_node,
                              IpczDriverHandle transport);
   IpczHandle ConnectToNonBroker(IpczHandle broker_node,
                                 IpczDriverHandle transport);
@@ -74,6 +76,12 @@ class MultinodeTestWithDriver
     MultinodeTest::CreateTransports(GetParam(), transport0, transport1);
   }
 
+  IpczHandle ConnectToBroker(IpczHandle non_broker_node,
+                             IpczDriverHandle transport) {
+    return MultinodeTest::ConnectToBroker(GetParam(), non_broker_node,
+                                          transport);
+  }
+
   void Connect(IpczHandle broker_node,
                IpczHandle non_broker_node,
                IpczHandle* broker_portal,
@@ -86,10 +94,12 @@ class MultinodeTestWithDriver
 }  // namespace test
 }  // namespace ipcz
 
-#define INSTANTIATE_MULTINODE_TEST_SUITE_P(suite)                            \
-  INSTANTIATE_TEST_SUITE_P(                                                  \
-      , suite,                                                               \
-      ::testing::Values(ipcz::test::MultinodeTest::DriverMode::kSynchronous, \
-                        ipcz::test::MultinodeTest::DriverMode::kAsynchronous))
+#define INSTANTIATE_MULTINODE_TEST_SUITE_P(suite)        \
+  INSTANTIATE_TEST_SUITE_P(                              \
+      , suite,                                           \
+      ::testing::Values(                                 \
+          ipcz::test::MultinodeTest::DriverMode::kSync,  \
+          ipcz::test::MultinodeTest::DriverMode::kAsync, \
+          ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc))
 
 #endif  // IPCZ_SRC_TEST_MULTINODE_TEST_H_

@@ -329,6 +329,18 @@ IPCZ_MSG_BEGIN(NotifyBypassPossible, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(RoutingId, routing_id)
 IPCZ_MSG_END()
 
+// Requests allocation of a shared memory region of a given size. If the
+// recipient can comply, they will send back a corresponding ProvideMemory
+// message with a serialized memory region
+IPCZ_MSG_BEGIN(RequestMemory, IPCZ_MSG_ID(64), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(uint32_t, size)
+IPCZ_MSG_END()
+
+IPCZ_MSG_BEGIN(ProvideMemory, IPCZ_MSG_ID(65), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(uint32_t, size)
+  IPCZ_MSG_HANDLE_REQUIRED(handle)
+IPCZ_MSG_END()
+
 // Requests that the receiving Router log a description of itself and forward
 // this request along the same direction in which it was received.
 IPCZ_MSG_BEGIN(LogRouteTrace, IPCZ_MSG_ID(240), IPCZ_MSG_VERSION(0))

@@ -17,12 +17,22 @@ namespace {
 
 const IpczDriver* GetDriver(MultinodeTest::DriverMode mode) {
   switch (mode) {
-    case MultinodeTest::DriverMode::kSynchronous:
+    case MultinodeTest::DriverMode::kSync:
       return &drivers::kSingleProcessReferenceDriver;
 
-    case MultinodeTest::DriverMode::kAsynchronous:
+    case MultinodeTest::DriverMode::kAsync:
+      return &drivers::kMultiprocessReferenceDriver;
+
+    case ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc:
       return &drivers::kMultiprocessReferenceDriver;
   }
+}
+
+IpczConnectNodeFlags GetExtraNonBrokerFlags(MultinodeTest::DriverMode mode) {
+  if (mode == ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc) {
+    return IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE;
+  }
+  return IPCZ_NO_FLAGS;
 }
 
 }  // namespace
@@ -54,12 +64,14 @@ void MultinodeTest::CreateTransports(DriverMode mode,
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 }
 
-IpczHandle MultinodeTest::ConnectToBroker(IpczHandle non_broker_node,
+IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
+                                          IpczHandle non_broker_node,
                                           IpczDriverHandle transport) {
   IpczHandle portal;
-  IpczResult result =
-      ipcz.ConnectNode(non_broker_node, transport, nullptr, 1,
-                       IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
+  IpczConnectNodeFlags flags = IPCZ_CONNECT_NODE_TO_BROKER;
+  flags |= GetExtraNonBrokerFlags(mode);
+  IpczResult result = ipcz.ConnectNode(non_broker_node, transport, nullptr, 1,
+                                       flags, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }
@@ -86,7 +98,7 @@ void MultinodeTest::Connect(IpczHandle broker_node,
   CreateTransports(mode, &transport0, &transport1);
 
   *broker_portal = ConnectToNonBroker(broker_node, transport0);
-  *non_broker_portal = ConnectToBroker(non_broker_node, transport1);
+  *non_broker_portal = ConnectToBroker(mode, non_broker_node, transport1);
 }
 
 }  // namespace test

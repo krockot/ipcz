@@ -272,6 +272,17 @@ void NodeLink::AddLinkBuffer(BufferId buffer_id, os::Memory memory) {
   Transmit(add);
 }
 
+void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
+  {
+    absl::MutexLock lock(&mutex_);
+    pending_memory_requests_[size].push_back(std::move(callback));
+  }
+
+  msg::RequestMemory request;
+  request.params.size = size;
+  Transmit(request);
+}
+
 IpczResult NodeLink::OnTransportMessage(
     const DriverTransport::Message& message) {
   const auto& header =
@@ -389,6 +400,22 @@ IpczResult NodeLink::OnTransportMessage(
     case msg::NotifyBypassPossible::kId: {
       msg::NotifyBypassPossible notify;
       if (notify.Deserialize(message) && OnNotifyBypassPossible(notify)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::RequestMemory::kId: {
+      msg::RequestMemory request;
+      if (request.Deserialize(message) && OnRequestMemory(request)) {
+        return IPCZ_RESULT_OK;
+      }
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    case msg::ProvideMemory::kId: {
+      msg::ProvideMemory provide;
+      if (provide.Deserialize(message) && OnProvideMemory(provide)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -680,6 +707,40 @@ bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
   }
 
   return router->OnBypassPossible();
+}
+
+bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
+  os::Memory memory(request.params.size);
+  msg::ProvideMemory provide;
+  provide.params.size = request.params.size;
+  provide.handles.handle = memory.TakeHandle();
+  Transmit(provide);
+  return true;
+}
+
+bool NodeLink::OnProvideMemory(const msg::ProvideMemory& provide) {
+  os::Memory memory(std::move(provide.handles.handle), provide.params.size);
+  RequestMemoryCallback callback;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = pending_memory_requests_.find(provide.params.size);
+    if (it == pending_memory_requests_.end()) {
+      return false;
+    }
+
+    std::list<RequestMemoryCallback>& callbacks = it->second;
+    ABSL_ASSERT(!callbacks.empty());
+    callback = std::move(callbacks.front());
+    callbacks.pop_front();
+    if (callbacks.empty()) {
+      pending_memory_requests_.erase(it);
+    }
+  }
+
+  LOG(ERROR) << "YES!";
+
+  callback(std::move(memory));
+  return true;
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {

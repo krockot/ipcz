@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <list>
 
 #include "core/buffer_id.h"
 #include "core/driver_transport.h"
@@ -149,6 +150,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // must have already been reserved locally by this NodeLink.
   void AddLinkBuffer(BufferId buffer_id, os::Memory memory);
 
+  // Sends a request to allocate a new shared memory region and invokes
+  // `callback` once the request is fulfilled.
+  using RequestMemoryCallback = std::function<void(os::Memory)>;
+  void RequestMemory(uint32_t size, RequestMemoryCallback callback);
+
  private:
   NodeLink(mem::Ref<Node> node,
            const NodeName& local_node_name,
@@ -182,6 +188,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnStopProxyingToLocalPeer(const msg::StopProxyingToLocalPeer& stop);
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
   bool OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify);
+  bool OnRequestMemory(const msg::RequestMemory& request);
+  bool OnProvideMemory(const msg::ProvideMemory& provide);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
 
   const mem::Ref<Node> node_;
@@ -203,6 +211,10 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
       absl::flat_hash_map<uint64_t, IndirectBrokerConnectionCallback>;
   IndirectBrokerConnectionMap pending_indirect_broker_connections_
       ABSL_GUARDED_BY(mutex_);
+
+  using MemortRequestMap =
+      absl::flat_hash_map<uint32_t, std::list<RequestMemoryCallback>>;
+  MemortRequestMap pending_memory_requests_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

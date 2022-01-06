@@ -153,6 +153,13 @@ class Node : public mem::RefCounted {
   using AllocateSharedMemoryCallback = std::function<void(os::Memory memory)>;
   void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
 
+  // Sets a NodeLink to use for asynchronous shared memory allocation requests.
+  // This is configured when the ConnectNode() API is called with
+  // IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE, useful for configuring a node
+  // whose runtime environment cannot support direct shared memory allocation
+  // due to, e.g., security restrictions.
+  void SetAllocationDelegate(mem::Ref<NodeLink> link);
+
  private:
   ~Node() override;
 
@@ -169,6 +176,11 @@ class Node : public mem::RefCounted {
   // A link to the first broker this node connected to. If this link is broken,
   // the node will lose all its other links too.
   mem::Ref<NodeLink> broker_link_ ABSL_GUARDED_BY(mutex_);
+
+  // A node link over which all internal shared memory allocation is delegated.
+  // If null, this Node will always attempt to allocate shared memory directly
+  // through the ipcz driver.
+  mem::Ref<NodeLink> allocation_delegate_link_ ABSL_GUARDED_BY(mutex_);
 
   // Lookup table of broker-assigned node names and links to those nodes. All of
   // these links and their associated names are received by the `broker_link_`

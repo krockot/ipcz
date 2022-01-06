@@ -399,9 +399,24 @@ void Node::AddBrokerCallback(BrokerCallback callback) {
 
 void Node::AllocateSharedMemory(size_t size,
                                 AllocateSharedMemoryCallback callback) {
-  // TODO: delegate allocation to another node if configured to do so
-  os::Memory memory(size);
-  callback(std::move(memory));
+  mem::Ref<NodeLink> delegate;
+  {
+    absl::MutexLock lock(&mutex_);
+    delegate = allocation_delegate_link_;
+  }
+
+  if (!delegate) {
+    callback(os::Memory(size));
+    return;
+  }
+
+  delegate->RequestMemory(static_cast<uint32_t>(size), std::move(callback));
+}
+
+void Node::SetAllocationDelegate(mem::Ref<NodeLink> link) {
+  absl::MutexLock lock(&mutex_);
+  ABSL_ASSERT(!allocation_delegate_link_);
+  allocation_delegate_link_ = std::move(link);
 }
 
 }  // namespace core
