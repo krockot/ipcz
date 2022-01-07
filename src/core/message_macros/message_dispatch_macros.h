@@ -12,7 +12,10 @@
 #define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
   case msg::name::kId: {                            \
     msg::name m;                                    \
-    return m.Deserialize(message) && On##name(m);   \
+    if (m.Deserialize(message) && On##name(m)) {    \
+      return IPCZ_RESULT_OK;                        \
+    }                                               \
+    return IPCZ_RESULT_INVALID_ARGUMENT;            \
   }
 
 #define IPCZ_MSG_END()

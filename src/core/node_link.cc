@@ -267,152 +267,11 @@ IpczResult NodeLink::OnTransportMessage(
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
 
   switch (header.message_id) {
-    case msg::RequestIndirectBrokerConnection::kId: {
-      msg::RequestIndirectBrokerConnection request;
-      if (request.Deserialize(message) &&
-          OnRequestIndirectBrokerConnection(request)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::AcceptIndirectBrokerConnection::kId: {
-      msg::AcceptIndirectBrokerConnection accept;
-      if (accept.Deserialize(message) &&
-          OnAcceptIndirectBrokerConnection(accept)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::AcceptParcel::kId: {
-      msg::AcceptParcel accept;
-      if (accept.Deserialize(message) && OnAcceptParcel(accept)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::RouteClosed::kId: {
-      msg::RouteClosed route_closed;
-      if (route_closed.Deserialize(message) && OnRouteClosed(route_closed)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::SetRouterLinkStateAddress::kId: {
-      msg::SetRouterLinkStateAddress set;
-      if (set.Deserialize(message) && OnSetRouterLinkStateAddress(set)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::RequestIntroduction::kId: {
-      msg::RequestIntroduction request;
-      if (request.Deserialize(message) &&
-          node_->OnRequestIntroduction(*this, request)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::IntroduceNode::kId: {
-      msg::IntroduceNode intro;
-      if (intro.Deserialize(message) && OnIntroduceNode(intro)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::AddLinkBuffer::kId: {
-      msg::AddLinkBuffer add;
-      if (add.Deserialize(message) && OnAddLinkBuffer(add)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::BypassProxy::kId: {
-      msg::BypassProxy bypass;
-      if (bypass.Deserialize(message) && node_->OnBypassProxy(*this, bypass)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::StopProxying::kId: {
-      msg::StopProxying stop;
-      if (stop.Deserialize(message) && OnStopProxying(stop)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::StopProxyingToLocalPeer::kId: {
-      msg::StopProxyingToLocalPeer stop;
-      if (stop.Deserialize(message) && OnStopProxyingToLocalPeer(stop)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::InitiateProxyBypass::kId: {
-      msg::InitiateProxyBypass request;
-      if (request.Deserialize(message) && OnInitiateProxyBypass(request)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::BypassProxyToSameNode::kId: {
-      msg::BypassProxyToSameNode bypass;
-      if (bypass.Deserialize(message) && OnBypassProxyToSameNode(bypass)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::ProxyWillStop::kId: {
-      msg::ProxyWillStop will_stop;
-      if (will_stop.Deserialize(message) && OnProxyWillStop(will_stop)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::NotifyBypassPossible::kId: {
-      msg::NotifyBypassPossible notify;
-      if (notify.Deserialize(message) && OnNotifyBypassPossible(notify)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::RequestMemory::kId: {
-      msg::RequestMemory request;
-      if (request.Deserialize(message) && OnRequestMemory(request)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::ProvideMemory::kId: {
-      msg::ProvideMemory provide;
-      if (provide.Deserialize(message) && OnProvideMemory(provide)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    case msg::LogRouteTrace::kId: {
-      msg::LogRouteTrace log_request;
-      if (log_request.Deserialize(message) && OnLogRouteTrace(log_request)) {
-        return IPCZ_RESULT_OK;
-      }
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
+// clang-format off
+#include "core/message_macros/message_dispatch_macros.h"
+#include "core/node_message_defs.h"
+#include "core/message_macros/undef_message_macros.h"
+      // clang-format on
 
     default:
       DLOG(WARNING) << "Ignoring unknown transport message with ID "
@@ -424,6 +283,41 @@ IpczResult NodeLink::OnTransportMessage(
 }
 
 void NodeLink::OnTransportError() {}
+
+bool NodeLink::OnConnectFromBrokerToNonBroker(
+    msg::ConnectFromBrokerToNonBroker& connect) {
+  // Only accepted early in a transport's lifetime, before any NodeLink is
+  // listening. See NodeConnector.
+  return false;
+}
+
+bool NodeLink::OnConnectFromNonBrokerToBroker(
+    msg::ConnectFromNonBrokerToBroker& connect) {
+  // Only accepted early in a transport's lifetime, before any NodeLink is
+  // listening. See NodeConnector.
+  return false;
+}
+
+bool NodeLink::OnConnectToBrokerIndirect(
+    msg::ConnectToBrokerIndirect& connect) {
+  // Only accepted early in a transport's lifetime, before any NodeLink is
+  // listening. See NodeConnector.
+  return false;
+}
+
+bool NodeLink::OnConnectFromBrokerIndirect(
+    msg::ConnectFromBrokerIndirect& connect) {
+  // Only accepted early in a transport's lifetime, before any NodeLink is
+  // listening. See NodeConnector.
+  return false;
+}
+
+bool NodeLink::OnConnectFromBrokerToBroker(
+    msg::ConnectFromBrokerToBroker& connect) {
+  // Only accepted early in a transport's lifetime, before any NodeLink is
+  // listening. See NodeConnector.
+  return false;
+}
 
 bool NodeLink::OnRequestIndirectBrokerConnection(
     msg::RequestIndirectBrokerConnection& request) {
@@ -560,6 +454,10 @@ bool NodeLink::OnSetRouterLinkStateAddress(
   return true;
 }
 
+bool NodeLink::OnRequestIntroduction(const msg::RequestIntroduction& request) {
+  return node_->OnRequestIntroduction(*this, request);
+}
+
 bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
   if (remote_node_type_ != Node::Type::kBroker) {
     return false;
@@ -618,6 +516,10 @@ bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
   return router->InitiateProxyBypass(*this, request.params().routing_id,
                                      request.params().proxy_peer_name,
                                      request.params().proxy_peer_routing_id);
+}
+
+bool NodeLink::OnBypassProxy(const msg::BypassProxy& bypass) {
+  return node_->OnBypassProxy(*this, bypass);
 }
 
 bool NodeLink::OnBypassProxyToSameNode(

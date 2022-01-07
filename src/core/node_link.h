@@ -173,6 +173,13 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // All of these methods correspond directly to remote calls from another node,
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
   // everything else).
+  bool OnConnectFromBrokerToNonBroker(
+      msg::ConnectFromBrokerToNonBroker& connect);
+  bool OnConnectFromNonBrokerToBroker(
+      msg::ConnectFromNonBrokerToBroker& connect);
+  bool OnConnectToBrokerIndirect(msg::ConnectToBrokerIndirect& connect);
+  bool OnConnectFromBrokerIndirect(msg::ConnectFromBrokerIndirect& connect);
+  bool OnConnectFromBrokerToBroker(msg::ConnectFromBrokerToBroker& connect);
   bool OnRequestIndirectBrokerConnection(
       msg::RequestIndirectBrokerConnection& request);
   bool OnAcceptIndirectBrokerConnection(
@@ -180,10 +187,12 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnAcceptParcel(msg::AcceptParcel& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
+  bool OnRequestIntroduction(const msg::RequestIntroduction& request);
   bool OnIntroduceNode(msg::IntroduceNode& intro);
   bool OnAddLinkBuffer(msg::AddLinkBuffer& add);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);
+  bool OnBypassProxy(const msg::BypassProxy& bypass);
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);
   bool OnStopProxyingToLocalPeer(const msg::StopProxyingToLocalPeer& stop);
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
