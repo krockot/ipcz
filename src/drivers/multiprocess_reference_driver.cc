@@ -13,6 +13,7 @@
 #include "mem/ref_counted.h"
 #include "os/channel.h"
 #include "os/handle.h"
+#include "os/memory.h"
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
@@ -114,6 +115,42 @@ class MultiprocessTransport : public mem::RefCounted {
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
   std::unique_ptr<os::Channel> channel_;
+};
+
+class MultiprocessMemoryMapping {
+ public:
+  MultiprocessMemoryMapping(os::Memory::Mapping mapping)
+      : mapping_(std::move(mapping)) {}
+  ~MultiprocessMemoryMapping() = default;
+
+  void* address() const { return mapping_.base(); }
+
+ private:
+  const os::Memory::Mapping mapping_;
+};
+
+class MultiprocessMemory {
+ public:
+  explicit MultiprocessMemory(size_t num_bytes) : memory_(num_bytes) {}
+  MultiprocessMemory(os::Handle handle, size_t num_bytes)
+      : memory_(std::move(handle), num_bytes) {}
+  ~MultiprocessMemory() = default;
+
+  size_t size() const { return memory_.size(); }
+
+  std::unique_ptr<MultiprocessMemory> Clone() {
+    return std::make_unique<MultiprocessMemory>(memory_.Clone().TakeHandle(),
+                                                memory_.size());
+  }
+
+  std::unique_ptr<MultiprocessMemoryMapping> Map() {
+    return std::make_unique<MultiprocessMemoryMapping>(memory_.Map());
+  }
+
+  os::Handle TakeHandle() { return memory_.TakeHandle(); }
+
+ private:
+  os::Memory memory_;
 };
 
 IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
@@ -226,6 +263,101 @@ IpczResult CDECL Transmit(IpczDriverHandle driver_transport,
                 absl::Span<const IpczOSHandle>(os_handles, num_os_handles));
 }
 
+IpczResult CDECL AllocateSharedMemory(uint32_t num_bytes,
+                                      uint32_t flags,
+                                      const void* options,
+                                      IpczDriverHandle* driver_memory) {
+  auto memory = std::make_unique<MultiprocessMemory>(num_bytes);
+  *driver_memory = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL DuplicateSharedMemory(IpczDriverHandle driver_memory,
+                                       uint32_t flags,
+                                       const void* options,
+                                       IpczDriverHandle* new_driver_memory) {
+  auto memory = ToRef<MultiprocessMemory>(driver_memory).Clone();
+  *new_driver_memory = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL ReleaseSharedMemory(IpczDriverHandle driver_memory,
+                                     uint32_t flags,
+                                     const void* options) {
+  std::unique_ptr<MultiprocessMemory> memory(
+      ToPtr<MultiprocessMemory>(driver_memory));
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
+                                       uint32_t flags,
+                                       const void* options,
+                                       uint8_t* data,
+                                       uint32_t* num_bytes,
+                                       struct IpczOSHandle* os_handles,
+                                       uint32_t* num_os_handles) {
+  const bool need_more_space = *num_os_handles < 1 || *num_bytes < 4;
+  *num_bytes = 4;
+  *num_os_handles = 1;
+  if (need_more_space) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  std::unique_ptr<MultiprocessMemory> memory(
+      ToPtr<MultiprocessMemory>(driver_memory));
+  reinterpret_cast<uint32_t*>(data)[0] = static_cast<uint32_t>(memory->size());
+  if (!os::Handle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0])) {
+    (void)memory.release();
+    return IPCZ_RESULT_UNKNOWN;
+  }
+
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL DeserializeSharedMemory(const uint8_t* data,
+                                         uint32_t num_bytes,
+                                         const IpczOSHandle* os_handles,
+                                         uint32_t num_os_handles,
+                                         uint32_t flags,
+                                         const void* options,
+                                         uint32_t* region_size,
+                                         IpczDriverHandle* driver_memory) {
+  if (num_bytes != 4 || num_os_handles != 1 || !region_size) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  os::Handle handle = os::Handle::FromIpczOSHandle(os_handles[0]);
+  if (!handle.is_valid()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  const uint32_t size = reinterpret_cast<const uint32_t*>(data)[0];
+  auto memory = std::make_unique<MultiprocessMemory>(std::move(handle), size);
+
+  *region_size = size;
+  *driver_memory = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL MapSharedMemory(IpczDriverHandle driver_memory,
+                                 uint32_t flags,
+                                 const void* options,
+                                 void** address,
+                                 IpczDriverHandle* driver_mapping) {
+  auto mapping = ToRef<MultiprocessMemory>(driver_memory).Map();
+  *address = mapping->address();
+  *driver_mapping = ToDriverHandle(mapping.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL UnmapSharedMemory(IpczDriverHandle driver_mapping,
+                                   uint32_t flags,
+                                   const void* options) {
+  std::unique_ptr<MultiprocessMemoryMapping> mapping(
+      ToPtr<MultiprocessMemoryMapping>(driver_mapping));
+  return IPCZ_RESULT_OK;
+}
+
 }  // namespace
 
 const IpczDriver kMultiprocessReferenceDriver = {
@@ -237,6 +369,13 @@ const IpczDriver kMultiprocessReferenceDriver = {
     ActivateTransport,
     DeactivateTransport,
     Transmit,
+    AllocateSharedMemory,
+    DuplicateSharedMemory,
+    ReleaseSharedMemory,
+    SerializeSharedMemory,
+    DeserializeSharedMemory,
+    MapSharedMemory,
+    UnmapSharedMemory,
 };
 
 }  // namespace drivers

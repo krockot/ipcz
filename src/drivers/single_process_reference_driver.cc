@@ -176,6 +176,23 @@ class InProcessTransport : public mem::RefCounted {
   std::vector<SavedMessage> saved_messages_ ABSL_GUARDED_BY(mutex_);
 };
 
+class InProcessMemory : public mem::RefCounted {
+ public:
+  explicit InProcessMemory(size_t size)
+      : size_(size), data_(new uint8_t[size]) {
+    memset(&data_[0], 0, size_);
+  }
+
+  size_t size() const { return size_; }
+  void* address() const { return &data_[0]; }
+
+ private:
+  ~InProcessMemory() override = default;
+
+  const size_t size_;
+  const std::unique_ptr<uint8_t[]> data_;
+};
+
 IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
                                   uint32_t flags,
                                   const void* options,
@@ -262,6 +279,89 @@ IpczResult CDECL Transmit(IpczDriverHandle driver_transport,
                 absl::Span<const IpczOSHandle>(os_handles, num_os_handles));
 }
 
+IpczResult CDECL AllocateSharedMemory(uint32_t num_bytes,
+                                      uint32_t flags,
+                                      const void* options,
+                                      IpczDriverHandle* driver_memory) {
+  auto memory = mem::MakeRefCounted<InProcessMemory>(num_bytes);
+  *driver_memory = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL DuplicateSharedMemory(IpczDriverHandle driver_memory,
+                                       uint32_t flags,
+                                       const void* options,
+                                       IpczDriverHandle* new_driver_memory) {
+  mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
+  *new_driver_memory = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL ReleaseSharedMemory(IpczDriverHandle driver_memory,
+                                     uint32_t flags,
+                                     const void* options) {
+  mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
+                                   ToPtr<InProcessMemory>(driver_memory));
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
+                                       uint32_t flags,
+                                       const void* options,
+                                       uint8_t* data,
+                                       uint32_t* num_bytes,
+                                       struct IpczOSHandle* os_handles,
+                                       uint32_t* num_os_handles) {
+  const bool need_more_space = *num_bytes < sizeof(void*);
+  *num_bytes = sizeof(void*);
+  *num_os_handles = 0;
+  if (need_more_space) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  InProcessMemory* memory = ToPtr<InProcessMemory>(driver_memory);
+  *reinterpret_cast<void**>(data) = memory;
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL DeserializeSharedMemory(const uint8_t* data,
+                                         uint32_t num_bytes,
+                                         const IpczOSHandle* os_handles,
+                                         uint32_t num_os_handles,
+                                         uint32_t flags,
+                                         const void* options,
+                                         uint32_t* region_size,
+                                         IpczDriverHandle* driver_memory) {
+  if (num_bytes != sizeof(void*) || num_os_handles != 0 || !region_size) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  void* const* ptr_data = reinterpret_cast<void* const*>(data);
+  auto& memory = *static_cast<InProcessMemory*>(*ptr_data);
+  *region_size = memory.size();
+  *driver_memory = ToDriverHandle(&memory);
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL MapSharedMemory(IpczDriverHandle driver_memory,
+                                 uint32_t flags,
+                                 const void* options,
+                                 void** address,
+                                 IpczDriverHandle* driver_mapping) {
+  mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
+  *address = memory->address();
+  *driver_mapping = ToDriverHandle(memory.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult CDECL UnmapSharedMemory(IpczDriverHandle driver_mapping,
+                                   uint32_t flags,
+                                   const void* options) {
+  mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
+                                   ToPtr<InProcessMemory>(driver_mapping));
+  return IPCZ_RESULT_OK;
+}
+
 }  // namespace
 
 const IpczDriver kSingleProcessReferenceDriver = {
@@ -273,6 +373,13 @@ const IpczDriver kSingleProcessReferenceDriver = {
     ActivateTransport,
     DeactivateTransport,
     Transmit,
+    AllocateSharedMemory,
+    DuplicateSharedMemory,
+    ReleaseSharedMemory,
+    SerializeSharedMemory,
+    DeserializeSharedMemory,
+    MapSharedMemory,
+    UnmapSharedMemory,
 };
 
 }  // namespace drivers

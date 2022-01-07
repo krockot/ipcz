@@ -7,12 +7,16 @@
 
 #include <cstdint>
 #include <cstring>
+#include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
+#include "core/driver_memory.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 #pragma pack(push, 1)
@@ -88,6 +92,8 @@ struct ParamMetadata {
 
 class IPCZ_ALIGN(16) MessageBuilderBase {
  public:
+  using SharedMemoryParams = std::tuple<uint32_t, uint32_t>;
+
   MessageBuilderBase(uint8_t message_id, size_t params_size);
   ~MessageBuilderBase();
 
@@ -107,9 +113,16 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
 
   uint32_t AllocateGenericArray(size_t element_size, size_t num_elements);
   uint32_t AppendHandles(absl::Span<os::Handle> handles);
-  uint32_t AppendHandle(os::Handle handle) {
-    return AppendHandles({&handle, 1});
+
+  template <typename ElementType>
+  uint32_t AllocateArray(size_t num_elements) {
+    return AllocateGenericArray(sizeof(ElementType), num_elements);
   }
+
+  SharedMemoryParams AppendSharedMemory(const IpczDriver& driver,
+                                        DriverMemory memory);
+  DriverMemory TakeSharedMemory(const IpczDriver& driver,
+                                const SharedMemoryParams& params);
 
   void* GetArrayData(uint32_t offset) {
     ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
@@ -134,8 +147,6 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
     return absl::MakeSpan(handles_).subspan(handle_data[0].index,
                                             handle_data.size());
   }
-
-  os::Handle& GetHandle(uint32_t offset) { return GetHandlesView(offset)[0]; }
 
  protected:
   size_t Align(size_t x) { return (x + 15) & 0xfffffffffffffff0ull; }
@@ -175,11 +186,6 @@ class MessageBuilder : public MessageBuilderBase {
 
   const ParamDataType& params() const {
     return *reinterpret_cast<const ParamDataType*>(&data_[header().size]);
-  }
-
-  template <typename ElementType>
-  uint32_t AllocateArray(size_t num_elements) {
-    return AllocateGenericArray(sizeof(ElementType), num_elements);
   }
 
   void SerializeHandleArrays(absl::Span<const ParamMetadata> params) {

@@ -323,6 +323,66 @@ struct IPCZ_ALIGN(8) IpczDriver {
                          uint32_t num_os_handles,
                          uint32_t flags,
                          const void* options);
+
+  // Allocates a shared memory region and returns a driver handle in
+  // `driver_memory` which can be used to reference it in other calls to the
+  // driver.
+  IpczResult (*AllocateSharedMemory)(uint32_t num_bytes,
+                                     uint32_t flags,
+                                     const void* options,
+                                     IpczDriverHandle* driver_memory);
+
+  // Duplicates a shared memory region handle into a new distinct handle
+  // referencing the same underlying region.
+  IpczResult (*DuplicateSharedMemory)(IpczDriverHandle driver_memory,
+                                      uint32_t flags,
+                                      const void* options,
+                                      IpczDriverHandle* new_driver_memory);
+
+  // Releases a handle to a shared memory region previously allocated by
+  // AllocateSharedMemory() or deserialized by DeserializeSharedMemory().
+  // Existing mappings of the region remain intact until explicitly unmapped.
+  IpczResult (*ReleaseSharedMemory)(IpczDriverHandle driver_memory,
+                                    uint32_t flags,
+                                    const void* options);
+
+  // Serializes a shared memory region for transmission over a driver transport.
+  // Semantics are similar to SerializeTransport() above. A serialized memory
+  // region does not need to be (and must not be) released by
+  // ReleaseSharedMemory().
+  IpczResult (*SerializeSharedMemory)(IpczDriverHandle driver_memory,
+                                      uint32_t flags,
+                                      const void* options,
+                                      uint8_t* data,
+                                      uint32_t* num_bytes,
+                                      struct IpczOSHandle* os_handles,
+                                      uint32_t* num_os_handles);
+
+  // Deserializes a shared memory region received over a driver transport.
+  // Semantics are similar to DeserializeTransport() above. The size of the
+  // region is output in `*region_size` on success.
+  IpczResult (*DeserializeSharedMemory)(const uint8_t* data,
+                                        uint32_t num_bytes,
+                                        const IpczOSHandle* os_handles,
+                                        uint32_t num_os_handles,
+                                        uint32_t flags,
+                                        const void* options,
+                                        uint32_t* region_size,
+                                        IpczDriverHandle* driver_memory);
+
+  // Maps a shared memory region identified by `driver_memory` and returns its
+  // mapped address in `address` on success and a driver handle in
+  // `driver_mapping` which can be used to unmap the region later.
+  IpczResult (*MapSharedMemory)(IpczDriverHandle driver_memory,
+                                uint32_t flags,
+                                const void* options,
+                                void** address,
+                                IpczDriverHandle* driver_mapping);
+
+  // Unmaps the shared memory region mapping identified by `driver_mapping`.
+  IpczResult (*UnmapSharedMemory)(IpczDriverHandle driver_mapping,
+                                  uint32_t flags,
+                                  const void* options);
 };
 
 }  // extern "C"

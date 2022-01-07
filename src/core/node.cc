@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/link_side.h"
 #include "core/link_type.h"
@@ -255,7 +256,7 @@ bool Node::OnRequestIndirectBrokerConnection(
 
         const uint32_t num_portals =
             std::min(num_initial_portals, num_remote_portals);
-        os::Memory primary_buffer_memory;
+        DriverMemory primary_buffer_memory;
         NodeLinkMemory::Allocate(node, num_portals, primary_buffer_memory);
         std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
             transports = DriverTransport::CreatePair(node->driver(),
@@ -290,11 +291,12 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   }
 
   if (!other_node_link) {
-    from_node_link.IntroduceNode(request.params().name, nullptr, os::Memory());
+    from_node_link.IntroduceNode(request.params().name, nullptr,
+                                 DriverMemory());
     return true;
   }
 
-  os::Memory primary_buffer_memory;
+  DriverMemory primary_buffer_memory;
   NodeLinkMemory::Allocate(mem::WrapRefCounted(this), /*num_initial_portals=*/0,
                            primary_buffer_memory);
   std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
@@ -406,7 +408,7 @@ void Node::AllocateSharedMemory(size_t size,
   }
 
   if (!delegate) {
-    callback(os::Memory(size));
+    callback(DriverMemory(driver_, size));
     return;
   }
 

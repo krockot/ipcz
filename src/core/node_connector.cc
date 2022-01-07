@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "core/direction.h"
+#include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/node_link.h"
 #include "core/node_link_memory.h"
@@ -56,8 +57,11 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     connect.params().receiver_name = new_remote_node_name_;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    connect.params().primary_buffer_memory =
-        connect.AppendHandle(link_memory_to_share_.TakeHandle());
+
+    auto buffer = connect.AppendSharedMemory(node_->driver(),
+                                             std::move(link_memory_to_share_));
+    connect.params().set_buffer(buffer);
+
     transport_->Transmit(connect);
   }
 
@@ -86,7 +90,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
  private:
   const NodeName broker_name_{node_->GetAssignedName()};
   const NodeName new_remote_node_name_{NodeName::kRandom};
-  os::Memory link_memory_to_share_;
+  DriverMemory link_memory_to_share_;
   mem::Ref<NodeLinkMemory> link_memory_;
 };
 
@@ -130,12 +134,16 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
              << "name " << connect.params().receiver_name.ToString()
              << " from broker " << connect.params().broker_name.ToString();
 
+    DriverMemory buffer_memory =
+        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+    if (!buffer_memory.is_valid()) {
+      return false;
+    }
+
     auto new_link = NodeLink::Create(
         node_, connect.params().receiver_name, connect.params().broker_name,
         Node::Type::kBroker, connect.params().protocol_version, transport_,
-        NodeLinkMemory::Adopt(node_,
-                              std::move(connect.GetHandle(
-                                  connect.params().primary_buffer_memory))));
+        NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
     node_->SetAssignedName(connect.params().receiver_name);
     node_->SetBrokerLink(new_link);
     if (flags_ & IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE) {
@@ -189,12 +197,16 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
              << connect.params().receiver_name.ToString() << " referred by "
              << connect.params().connected_node_name.ToString();
 
+    DriverMemory buffer_memory =
+        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+    if (!buffer_memory.is_valid()) {
+      return false;
+    }
+
     auto new_link = NodeLink::Create(
         node_, connect.params().receiver_name, connect.params().broker_name,
         Node::Type::kBroker, connect.params().protocol_version, transport_,
-        NodeLinkMemory::Adopt(node_,
-                              std::move(connect.GetHandle(
-                                  connect.params().primary_buffer_memory))));
+        NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
 
     absl::Span<const mem::Ref<Portal>> portals =
         absl::MakeSpan(waiting_portals_);
@@ -256,8 +268,11 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     connect.params().connected_node_name = referrer_->remote_node_name();
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_remote_portals = num_initial_portals_;
-    connect.params().primary_buffer_memory =
-        connect.AppendHandle(link_memory_to_share_.TakeHandle());
+
+    auto buffer = connect.AppendSharedMemory(node_->driver(),
+                                             std::move(link_memory_to_share_));
+    connect.params().set_buffer(buffer);
+
     transport_->Transmit(connect);
   }
 
@@ -295,7 +310,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
   const mem::Ref<NodeLink> referrer_;
   uint32_t num_remote_portals_;
   os::Process remote_process_;
-  os::Memory link_memory_to_share_;
+  DriverMemory link_memory_to_share_;
   mem::Ref<NodeLinkMemory> link_memory_;
 };
 
@@ -328,8 +343,11 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     connect.params().sender_name = local_name_;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    connect.params().primary_buffer_memory =
-        connect.AppendHandle(our_link_memory_to_share_.TakeHandle());
+
+    auto buffer = connect.AppendSharedMemory(
+        node_->driver(), std::move(our_link_memory_to_share_));
+    connect.params().set_buffer(buffer);
+
     transport_->Transmit(connect);
   }
 
@@ -348,9 +366,14 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
              << local_name_.ToString() << " from broker "
              << connect.params().sender_name.ToString();
 
-    mem::Ref<NodeLinkMemory> their_link_memory = NodeLinkMemory::Adopt(
-        node_,
-        std::move(connect.GetHandle(connect.params().primary_buffer_memory)));
+    DriverMemory buffer_memory =
+        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+    if (!buffer_memory.is_valid()) {
+      return false;
+    }
+
+    mem::Ref<NodeLinkMemory> their_link_memory =
+        NodeLinkMemory::Adopt(node_, std::move(buffer_memory));
 
     const bool we_win = local_name_ < connect.params().sender_name;
     mem::Ref<NodeLinkMemory> link_memory =
@@ -366,7 +389,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
 
  private:
   const NodeName local_name_{node_->GetAssignedName()};
-  os::Memory our_link_memory_to_share_;
+  DriverMemory our_link_memory_to_share_;
   mem::Ref<NodeLinkMemory> our_link_memory_;
 };
 

@@ -8,6 +8,7 @@
 #include <functional>
 #include <utility>
 
+#include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
@@ -150,7 +151,7 @@ class Node : public mem::RefCounted {
   // `callback` is invoked with the new object when allocation is complete.
   // This operation is asynchronous, since it may be delegated to a broker node
   // within some runtime environments.
-  using AllocateSharedMemoryCallback = std::function<void(os::Memory memory)>;
+  using AllocateSharedMemoryCallback = std::function<void(DriverMemory memory)>;
   void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
 
   // Sets a NodeLink to use for asynchronous shared memory allocation requests.

@@ -31,9 +31,9 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToNonBroker,
   // as if its excess portals have observed peer closure.
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
 
-  // A handle to an initial shared memory buffer which can be used to allocate
-  // shared state between the two connecting nodes.
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
+  // A serialized shared memory region to serve as the new NodeLink's primary
+  // buffer.
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Initial greeting sent by a non-broker node when ConnectNode() is invoked with
@@ -98,9 +98,9 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerIndirect, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
   // message.
   IPCZ_MSG_PARAM(uint32_t, num_remote_portals)
 
-  // A handle to an initial shared memory buffer which can be used to allocate
-  // shared state between the broker and the recipient.
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
+  // A serialized shared memory region to serve as the new NodeLink's primary
+  // buffer.
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Message sent from a broker to another broker, to establish a link between
@@ -118,13 +118,12 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToBroker, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
   // as if its excess portals have observed peer closure.
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
 
-  // A handle to an initial shared memory buffer which can be used to allocate
-  // shared state between the two connecting nodes. As both nodes are expected
-  // to provide such a buffer, the one from the broker with the numericlly
-  // lesser NodeName is adopted as the primary link buffer (buffer ID 0). The
-  // other buffer is adopted by convention as the first secondary link buffer,
-  // with a buffer ID of 1.
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
+  // A serialized shared memory region to serve as the new NodeLink's primary
+  // buffer. As both nodes are expected to provide such a buffer, the one from
+  // the broker with the numericlly lesser NodeName is adopted as the primary
+  // link buffer (buffer ID 0). The other buffer is adopted by convention as
+  // the first auxilliary NodeLinkMemory buffer, with a BufferId of 1.
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Requests that a broker node accept a new non-broker client, introduced
@@ -206,7 +205,7 @@ IPCZ_MSG_BEGIN(IntroduceNode, IPCZ_MSG_ID(13), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(bool, known)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, transport_data)
   IPCZ_MSG_PARAM_HANDLE_ARRAY(transport_os_handles)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(buffer_handle)
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Shares a new link buffer with the receiver. The buffer may be referenced by
@@ -217,7 +216,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(AddLinkBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(BufferId, buffer_id)
   IPCZ_MSG_PARAM(uint32_t, buffer_size)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(buffer_handle)
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Conveys the contents of a parcel from one router to another across a node
@@ -387,7 +386,7 @@ IPCZ_MSG_END()
 
 IPCZ_MSG_BEGIN(ProvideMemory, IPCZ_MSG_ID(65), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, size)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(handle)
+  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
 // Requests that the receiving Router log a description of itself and forward

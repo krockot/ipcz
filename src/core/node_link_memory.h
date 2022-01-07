@@ -7,17 +7,20 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <vector>
 
 #include "core/buffer_id.h"
+#include "core/driver_memory.h"
+#include "core/driver_memory_mapping.h"
 #include "core/node_link_address.h"
 #include "core/routing_id.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
-#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
@@ -35,12 +38,9 @@ class NodeLinkMemory : public mem::RefCounted {
 
   static mem::Ref<NodeLinkMemory> Allocate(mem::Ref<Node> node,
                                            size_t num_initial_portals,
-                                           os::Memory& primary_buffer_memory);
-  static mem::Ref<NodeLinkMemory> Adopt(
-      mem::Ref<Node> node,
-      os::Memory::Mapping primary_buffer_mapping);
+                                           DriverMemory& primary_buffer_memory);
   static mem::Ref<NodeLinkMemory> Adopt(mem::Ref<Node> node,
-                                        os::Handle primary_buffer_handle);
+                                        DriverMemory primary_buffer_memory);
 
   // Sets a weak reference to a local NodeLink which shares ownership of this
   // NodeLinkMemory with some remote NodeLink. This must be reset to null when
@@ -85,16 +85,16 @@ class NodeLinkMemory : public mem::RefCounted {
   // been allocated via AllocateBufferId() on this NodeLinkMemory or the
   // corresponding remote NodeLinkMemory associated with the same conceptual
   // link.
-  void AddBuffer(BufferId id, os::Memory memory);
+  void AddBuffer(BufferId id, DriverMemory memory);
 
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
  private:
   ~NodeLinkMemory() override;
 
-  os::Memory::Mapping& primary_buffer() { return buffers_.front(); }
+  DriverMemoryMapping& primary_buffer() { return buffers_.front(); }
 
-  NodeLinkMemory(mem::Ref<Node> node, os::Memory::Mapping primary_buffer);
+  NodeLinkMemory(mem::Ref<Node> node, DriverMemoryMapping primary_buffer);
 
   BufferId AllocateBufferId();
   NodeLinkAddress AllocateUninitializedRouterLinkState();
@@ -112,7 +112,7 @@ class NodeLinkMemory : public mem::RefCounted {
   // at construction time and is therefore always stable, so its read access is
   // not guarded by `mutex_` (hence no annotation). All other accesses must be
   // guarded.
-  std::list<os::Memory::Mapping> buffers_;
+  std::list<DriverMemoryMapping> buffers_;
 
   // Indicates whether a request is already in flight for new memory capacity.
   bool awaiting_capacity_ ABSL_GUARDED_BY(mutex_) = false;
@@ -121,7 +121,7 @@ class NodeLinkMemory : public mem::RefCounted {
   std::vector<CapacityCallback> capacity_callbacks_ ABSL_GUARDED_BY(mutex_);
 
   // Mapping from BufferId to some buffer in `buffers_` above.
-  absl::flat_hash_map<BufferId, os::Memory::Mapping*> buffer_map_
+  absl::flat_hash_map<BufferId, DriverMemoryMapping*> buffer_map_
       ABSL_GUARDED_BY(mutex_);
 
   // Callbacks to be invoked when an identified buffer becomes available.

@@ -5,6 +5,9 @@
 #include "core/message_internal.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
@@ -44,6 +47,35 @@ uint32_t MessageBuilderBase::AppendHandles(absl::Span<os::Handle> handles) {
     handles_.push_back(std::move(handle));
   }
   return offset;
+}
+
+MessageBuilderBase::SharedMemoryParams MessageBuilderBase::AppendSharedMemory(
+    const IpczDriver& driver,
+    DriverMemory memory) {
+  SharedMemoryParams params{0, 0};
+  if (!memory.is_valid()) {
+    return params;
+  }
+
+  std::vector<uint8_t> data;
+  std::vector<os::Handle> handles;
+  IpczResult result = memory.Serialize(data, handles);
+  if (result != IPCZ_RESULT_OK) {
+    return params;
+  }
+
+  uint32_t data_param = AllocateArray<uint8_t>(data.size());
+  memcpy(GetArrayData(data_param), data.data(), data.size());
+  uint32_t handles_param = AppendHandles(absl::MakeSpan(handles));
+  return {data_param, handles_param};
+}
+
+DriverMemory MessageBuilderBase::TakeSharedMemory(
+    const IpczDriver& driver,
+    const SharedMemoryParams& params) {
+  return DriverMemory::Deserialize(driver,
+                                   GetArrayView<uint8_t>(std::get<0>(params)),
+                                   GetHandlesView(std::get<1>(params)));
 }
 
 size_t MessageBuilderBase::SerializeHandleArray(

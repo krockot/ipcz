@@ -24,3 +24,14 @@
 #define IPCZ_MSG_PARAM(type, name) type name;
 #define IPCZ_MSG_PARAM_ARRAY(type, name) uint32_t name;
 #define IPCZ_MSG_PARAM_HANDLE_ARRAY(name) uint32_t name;
+
+#define IPCZ_MSG_PARAM_SHARED_MEMORY(name)                              \
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, name##_data)                            \
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(name##_handles)                           \
+  internal::MessageBuilderBase::SharedMemoryParams name() {             \
+    return std::tie(name##_data, name##_handles);                       \
+  }                                                                     \
+  void set_##name(                                                      \
+      const internal::MessageBuilderBase::SharedMemoryParams& params) { \
+    std::tie(name##_data, name##_handles) = params;                     \
+  }

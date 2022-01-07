@@ -11,6 +11,7 @@
 #include <list>
 
 #include "core/buffer_id.h"
+#include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/node.h"
 #include "core/node_link_address.h"
@@ -22,7 +23,6 @@
 #include "core/sequence_number.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
-#include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -131,7 +131,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // DriverTransport it can use to communicate with that node.
   void IntroduceNode(const NodeName& name,
                      mem::Ref<DriverTransport> transport,
-                     os::Memory primary_buffer);
+                     DriverMemory primary_buffer);
 
   // Sends a request to the remote node to have one of its routers reconfigured
   // with a new peer link. Specifically, whatever router has a peer
@@ -148,11 +148,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // Sends a new shared memory object to the remote endpoint to be associated
   // with BufferId within this link's associated NodeLinkMemory. The BufferId
   // must have already been reserved locally by this NodeLink.
-  void AddLinkBuffer(BufferId buffer_id, os::Memory memory);
+  void AddLinkBuffer(BufferId buffer_id, DriverMemory memory);
 
   // Sends a request to allocate a new shared memory region and invokes
   // `callback` once the request is fulfilled.
-  using RequestMemoryCallback = std::function<void(os::Memory)>;
+  using RequestMemoryCallback = std::function<void(DriverMemory)>;
   void RequestMemory(uint32_t size, RequestMemoryCallback callback);
 
  private:

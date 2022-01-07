@@ -28,24 +28,24 @@ struct IPCZ_ALIGN(16) PrimaryBufferLayout {
   std::array<RouterLinkState, 64> router_link_states;
 };
 
-PrimaryBufferLayout& PrimaryBufferView(const os::Memory::Mapping& mapping) {
-  return *static_cast<PrimaryBufferLayout*>(mapping.base());
+PrimaryBufferLayout& PrimaryBufferView(const DriverMemoryMapping& mapping) {
+  return *static_cast<PrimaryBufferLayout*>(mapping.address());
 }
 
 uint64_t ToOffset(void* ptr, void* base) {
   return static_cast<uint8_t*>(ptr) - static_cast<uint8_t*>(base);
 }
 
-uint64_t GetRouterLinkStateOffset(const os::Memory::Mapping& mapping,
+uint64_t GetRouterLinkStateOffset(const DriverMemoryMapping& mapping,
                                   size_t index) {
   return ToOffset(&PrimaryBufferView(mapping).router_link_states[index],
-                  mapping.base());
+                  mapping.address());
 }
 
 }  // namespace
 
 NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
-                               os::Memory::Mapping primary_buffer_mapping)
+                               DriverMemoryMapping primary_buffer_mapping)
     : node_(std::move(node)) {
   buffers_.push_back(std::move(primary_buffer_mapping));
 }
@@ -56,9 +56,10 @@ NodeLinkMemory::~NodeLinkMemory() = default;
 mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
     mem::Ref<Node> node,
     size_t num_initial_portals,
-    os::Memory& primary_buffer_memory) {
-  primary_buffer_memory = os::Memory(sizeof(PrimaryBufferLayout));
-  os::Memory::Mapping mapping(primary_buffer_memory.Map());
+    DriverMemory& primary_buffer_memory) {
+  primary_buffer_memory =
+      DriverMemory(node->driver(), sizeof(PrimaryBufferLayout));
+  DriverMemoryMapping mapping(primary_buffer_memory.Map());
   PrimaryBufferLayout& buffer = PrimaryBufferView(mapping);
   buffer.next_routing_id = num_initial_portals;
   buffer.next_buffer_id = 1;
@@ -70,19 +71,9 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
 // static
 mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
     mem::Ref<Node> node,
-    os::Memory::Mapping primary_buffer_mapping) {
+    DriverMemory primary_buffer_memory) {
   return mem::WrapRefCounted(
-      new NodeLinkMemory(std::move(node), std::move(primary_buffer_mapping)));
-}
-
-// static
-mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
-    mem::Ref<Node> node,
-    os::Handle primary_buffer_handle) {
-  return mem::WrapRefCounted(new NodeLinkMemory(
-      std::move(node),
-      os::Memory(std::move(primary_buffer_handle), sizeof(PrimaryBufferLayout))
-          .Map()));
+      new NodeLinkMemory(std::move(node), primary_buffer_memory.Map()));
 }
 
 void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
@@ -94,7 +85,7 @@ void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
   if (address.buffer_id() == 0) {
     // Fast path for primary buffer access.
     ABSL_ASSERT(!buffers_.empty());
-    return static_cast<uint8_t*>(buffers_.front().base()) + address.offset();
+    return static_cast<uint8_t*>(buffers_.front().address()) + address.offset();
   }
 
   absl::MutexLock lock(&mutex_);
@@ -103,7 +94,7 @@ void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
     return nullptr;
   }
 
-  return static_cast<uint8_t*>(it->second->base()) + address.offset();
+  return static_cast<uint8_t*>(it->second->address()) + address.offset();
 }
 
 RoutingId NodeLinkMemory::AllocateRoutingIds(size_t count) {
@@ -134,7 +125,7 @@ void NodeLinkMemory::RequestCapacity(CapacityCallback callback) {
   }
 
   node_->AllocateSharedMemory(
-      kAuxBufferSize, [self = mem::WrapRefCounted(this)](os::Memory memory) {
+      kAuxBufferSize, [self = mem::WrapRefCounted(this)](DriverMemory memory) {
         mem::Ref<NodeLink> link;
         const BufferId new_buffer_id = self->AllocateBufferId();
         std::vector<CapacityCallback> callbacks;
@@ -157,7 +148,7 @@ void NodeLinkMemory::RequestCapacity(CapacityCallback callback) {
       });
 }
 
-void NodeLinkMemory::AddBuffer(BufferId id, os::Memory memory) {
+void NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
   std::vector<std::function<void()>> buffer_callbacks;
   {
     absl::MutexLock lock(&mutex_);

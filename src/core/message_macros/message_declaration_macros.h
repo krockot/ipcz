@@ -35,3 +35,7 @@
 #define IPCZ_MSG_PARAM_HANDLE_ARRAY(name)                \
   {offsetof(ParamsType, name), sizeof(ParamsType::name), \
    sizeof(internal::OSHandleData), true},
+
+#define IPCZ_MSG_PARAM_SHARED_MEMORY(name)   \
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, name##_data) \
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(name##_handles)

@@ -179,7 +179,7 @@ void NodeLink::RequestIntroduction(const NodeName& name) {
 
 void NodeLink::IntroduceNode(const NodeName& name,
                              mem::Ref<DriverTransport> transport,
-                             os::Memory link_buffer_memory) {
+                             DriverMemory link_buffer_memory) {
   std::vector<uint8_t> transport_data;
   std::vector<os::Handle> transport_handles;
   if (transport) {
@@ -190,6 +190,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
   msg::IntroduceNode intro;
   intro.params().name = name;
   intro.params().known = (transport != nullptr);
+
   intro.params().transport_data =
       intro.AllocateArray<uint8_t>(transport_data.size());
   memcpy(intro.GetArrayData(intro.params().transport_data),
@@ -197,12 +198,9 @@ void NodeLink::IntroduceNode(const NodeName& name,
   intro.params().transport_os_handles =
       intro.AppendHandles(absl::MakeSpan(transport_handles));
 
-  std::vector<os::Handle> buffer_handles;
-  if (link_buffer_memory.is_valid()) {
-    buffer_handles.push_back(link_buffer_memory.TakeHandle());
-  }
-  intro.params().buffer_handle =
-      intro.AppendHandles(absl::MakeSpan(buffer_handles));
+  auto buffer =
+      intro.AppendSharedMemory(node_->driver(), std::move(link_buffer_memory));
+  intro.params().set_buffer(buffer);
 
   Transmit(intro);
 }
@@ -242,11 +240,14 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   return true;
 }
 
-void NodeLink::AddLinkBuffer(BufferId buffer_id, os::Memory memory) {
+void NodeLink::AddLinkBuffer(BufferId buffer_id, DriverMemory memory) {
   msg::AddLinkBuffer add;
   add.params().buffer_id = buffer_id;
   add.params().buffer_size = static_cast<uint32_t>(memory.size());
-  add.params().buffer_handle = add.AppendHandle(memory.TakeHandle());
+
+  auto buffer = add.AppendSharedMemory(node_->driver(), std::move(memory));
+  add.params().set_buffer(buffer);
+
   Transmit(add);
 }
 
@@ -473,20 +474,25 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
       intro.GetArrayView<uint8_t>(intro.params().transport_data);
   absl::Span<os::Handle> transport_os_handles =
       intro.GetHandlesView(intro.params().transport_os_handles);
-  absl::Span<os::Handle> buffer_handles =
-      intro.GetHandlesView(intro.params().buffer_handle);
-  ABSL_ASSERT(!buffer_handles.empty());
-  os::Handle buffer_handle = std::move(buffer_handles[0]);
-  return node_->OnIntroduceNode(
-      name, known, NodeLinkMemory::Adopt(node_, std::move(buffer_handle)),
-      transport_data, transport_os_handles);
+
+  DriverMemory memory =
+      intro.TakeSharedMemory(node_->driver(), intro.params().buffer());
+  if (!memory.is_valid()) {
+    return false;
+  }
+  return node_->OnIntroduceNode(name, known,
+                                NodeLinkMemory::Adopt(node_, std::move(memory)),
+                                transport_data, transport_os_handles);
 }
 
 bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {
-  memory().AddBuffer(
-      add.params().buffer_id,
-      os::Memory(std::move(add.GetHandle(add.params().buffer_handle)),
-                 add.params().buffer_size));
+  DriverMemory buffer_memory =
+      add.TakeSharedMemory(node_->driver(), add.params().buffer());
+  if (!buffer_memory.is_valid()) {
+    return false;
+  }
+
+  memory().AddBuffer(add.params().buffer_id, std::move(buffer_memory));
   return true;
 }
 
@@ -566,17 +572,24 @@ bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
 }
 
 bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
-  os::Memory memory(request.params().size);
+  DriverMemory memory(node_->driver(), request.params().size);
   msg::ProvideMemory provide;
   provide.params().size = request.params().size;
-  provide.params().handle = provide.AppendHandle(memory.TakeHandle());
+
+  auto buffer = provide.AppendSharedMemory(node_->driver(), std::move(memory));
+  provide.params().set_buffer(buffer);
+
   Transmit(provide);
   return true;
 }
 
 bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
-  os::Memory memory(std::move(provide.GetHandle(provide.params().handle)),
-                    provide.params().size);
+  DriverMemory memory =
+      provide.TakeSharedMemory(node_->driver(), provide.params().buffer());
+  if (!memory.is_valid()) {
+    return false;
+  }
+
   RequestMemoryCallback callback;
   {
     absl::MutexLock lock(&mutex_);
@@ -593,8 +606,6 @@ bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
       pending_memory_requests_.erase(it);
     }
   }
-
-  LOG(ERROR) << "YES!";
 
   callback(std::move(memory));
   return true;
