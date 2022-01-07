@@ -305,11 +305,13 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    case msg::AcceptParcel::kId:
-      if (OnAcceptParcel(message)) {
+    case msg::AcceptParcel::kId: {
+      msg::AcceptParcel accept;
+      if (accept.Deserialize(message) && OnAcceptParcel(accept)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     case msg::RouteClosed::kId: {
       msg::RouteClosed route_closed;
@@ -523,44 +525,36 @@ bool NodeLink::OnAcceptIndirectBrokerConnection(
   return true;
 }
 
-bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
-  if (message.data.size() < sizeof(msg::AcceptParcel)) {
-    return false;
-  }
-  const auto& accept =
-      *reinterpret_cast<const msg::AcceptParcel*>(message.data.data());
-  const uint32_t num_bytes = accept.num_bytes;
-  const uint32_t num_portals = accept.num_portals;
-  const uint32_t num_os_handles = accept.num_os_handles;
-  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&accept + 1);
-  const auto* descriptors = reinterpret_cast<const RouterDescriptor*>(
-      bytes + IPCZ_ALIGNED(num_bytes, 16));
+bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
+  const absl::Span<uint8_t> parcel_data =
+      accept.GetArrayView<uint8_t>(accept.params().parcel_data);
+  const absl::Span<RouterDescriptor> new_routers =
+      accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
+  absl::Span<os::Handle> handles =
+      accept.GetHandlesView(accept.params().os_handles);
 
-  if (message.handles.size() != num_os_handles) {
-    return false;
-  }
-
-  Parcel::PortalVector portals(num_portals);
-  for (size_t i = 0; i < num_portals; ++i) {
+  Parcel::PortalVector portals(new_routers.size());
+  for (size_t i = 0; i < new_routers.size(); ++i) {
     portals[i] = mem::MakeRefCounted<Portal>(
-        node_, Router::Deserialize(descriptors[i], *this));
+        node_, Router::Deserialize(new_routers[i], *this));
   }
 
-  std::vector<os::Handle> os_handles(num_os_handles);
-  for (size_t i = 0; i < num_os_handles; ++i) {
-    os_handles[i] = std::move(message.handles[i]);
+  std::vector<os::Handle> os_handles;
+  os_handles.reserve(handles.size());
+  for (os::Handle& handle : handles) {
+    os_handles.push_back(std::move(handle));
   }
 
-  Parcel parcel(accept.sequence_number);
-  parcel.SetData(std::vector<uint8_t>(bytes, bytes + num_bytes));
+  Parcel parcel(accept.params().sequence_number);
+  parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  absl::optional<Route> route = GetRoute(accept.routing_id);
+  absl::optional<Route> route = GetRoute(accept.params().routing_id);
   if (!route) {
     DVLOG(4) << "Dropping " << parcel.Describe() << " at "
              << local_node_name_.ToString() << ", arriving from "
              << remote_node_name_.ToString() << " via unknown routing ID "
-             << accept.routing_id;
+             << accept.params().routing_id;
     return true;
   }
 

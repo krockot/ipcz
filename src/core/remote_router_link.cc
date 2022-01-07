@@ -161,41 +161,31 @@ bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
 }
 
 void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
-  absl::InlinedVector<uint8_t, 256> serialized_data;
-  const size_t num_portals = parcel.portals_view().size();
-  const size_t num_os_handles = parcel.os_handles_view().size();
-  const size_t serialized_size =
-      sizeof(msg::AcceptParcel) + IPCZ_ALIGNED(parcel.data_view().size(), 16) +
-      num_portals * sizeof(RouterDescriptor) +
-      num_os_handles * sizeof(internal::OSHandleData);
-  serialized_data.resize(serialized_size);
-
-  auto& accept = *reinterpret_cast<msg::AcceptParcel*>(serialized_data.data());
-  accept.message_header.size = sizeof(accept.message_header);
-  accept.message_header.message_id = msg::AcceptParcel::kId;
-  accept.routing_id = routing_id_;
-  accept.sequence_number = parcel.sequence_number();
-  accept.num_bytes = parcel.data_view().size();
-  accept.num_portals = static_cast<uint32_t>(num_portals);
-  accept.num_os_handles = static_cast<uint32_t>(num_os_handles);
-  auto* data = reinterpret_cast<uint8_t*>(&accept + 1);
-  memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  auto* descriptors = reinterpret_cast<RouterDescriptor*>(
-      data + IPCZ_ALIGNED(accept.num_bytes, 16));
-
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
-  std::vector<os::Handle> os_handles;
-  os_handles.reserve(num_os_handles);
-  for (size_t i = 0; i < num_portals; ++i) {
+
+  msg::AcceptParcel accept;
+  accept.params().routing_id = routing_id_;
+  accept.params().sequence_number = parcel.sequence_number();
+  accept.params().parcel_data =
+      accept.AllocateArray<uint8_t>(parcel.data_view().size());
+  accept.params().new_routers =
+      accept.AllocateArray<RouterDescriptor>(portals.size());
+  accept.params().os_handles = accept.AppendHandles(parcel.os_handles_view());
+
+  memcpy(accept.GetArrayView<uint8_t>(accept.params().parcel_data).data(),
+         parcel.data_view().data(), parcel.data_view().size());
+
+  absl::Span<RouterDescriptor> descriptors =
+      accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
+  for (size_t i = 0; i < descriptors.size(); ++i) {
     portals[i]->router()->SerializeNewRouter(*node_link(), descriptors[i]);
   }
 
   DVLOG(4) << "Transmitting " << parcel.Describe() << " over " << Describe();
 
-  node_link()->Transmit(absl::MakeSpan(serialized_data),
-                        parcel.os_handles_view());
+  node_link()->Transmit(accept);
 
-  for (size_t i = 0; i < num_portals; ++i) {
+  for (size_t i = 0; i < portals.size(); ++i) {
     // It's important to move out references to any transferred portals, because
     // when a parcel is destroyed, it will attempt to close any non-null portals
     // it has. Transferred portals should be forgotten, not closed.

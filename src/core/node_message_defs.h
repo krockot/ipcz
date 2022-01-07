@@ -180,7 +180,7 @@ IPCZ_MSG_BEGIN(AddLinkBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, buffer_size)
   IPCZ_MSG_PARAM_HANDLE_ARRAY(buffer_handle)
 IPCZ_MSG_END()
-/*
+
 // Conveys the contents of a parcel from one router to another across a node
 // boundary.
 IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
@@ -190,7 +190,7 @@ IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM_ARRAY(RouterDescriptor, new_routers)
   IPCZ_MSG_PARAM_HANDLE_ARRAY(os_handles)
 IPCZ_MSG_END()
-*/
+
 // Notifies a node that the route has been closed on one side. If this arrives
 // at a router from an inward-facing or bridge link, it pertains to the router's
 // own side of the route; otherwise it indicates that the other side of the

@@ -12,6 +12,7 @@
 #include "core/message_internal.h"
 #include "core/node_link_address.h"
 #include "core/node_name.h"
+#include "core/router_descriptor.h"
 #include "core/routing_id.h"
 #include "core/sequence_number.h"
 #include "ipcz/ipcz.h"
@@ -81,19 +82,6 @@ struct IPCZ_ALIGN(16) IntroduceNode {
   NodeName name;
   uint32_t num_transport_bytes;
   uint32_t num_transport_os_handles;
-};
-
-// Conveys the contents of a parcel from one router to another across a node
-// boundary. Also contains a variable number of OS handles and
-// RouterDescriptors.
-struct IPCZ_ALIGN(16) AcceptParcel {
-  static constexpr uint8_t kId = 20;
-  internal::MessageHeader message_header;
-  RoutingId routing_id;
-  SequenceNumber sequence_number;
-  uint32_t num_bytes;
-  uint32_t num_portals;
-  uint32_t num_os_handles;
 };
 
 }  // namespace msg

@@ -177,7 +177,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
       const DriverTransport::Message& message);
   bool OnAcceptIndirectBrokerConnection(
       const msg::AcceptIndirectBrokerConnection& accept);
-  bool OnAcceptParcel(const DriverTransport::Message& message);
+  bool OnAcceptParcel(msg::AcceptParcel& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
   bool OnIntroduceNode(const DriverTransport::Message& message);

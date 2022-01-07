@@ -31,7 +31,7 @@
 #define IPCZ_MSG_PARAM(type, name) \
   {offsetof(ParamsType, name), sizeof(ParamsType::name), 0, false},
 #define IPCZ_MSG_PARAM_ARRAY(type, name) \
-  {offsetof(ParamsType, name), sizeof(ParamsType::name) sizeof(type), false},
+  {offsetof(ParamsType, name), sizeof(ParamsType::name), sizeof(type), false},
 #define IPCZ_MSG_PARAM_HANDLE_ARRAY(name)                \
   {offsetof(ParamsType, name), sizeof(ParamsType::name), \
    sizeof(internal::OSHandleData), true},
