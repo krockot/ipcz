@@ -188,46 +188,31 @@ void NodeLink::RequestIntroduction(const NodeName& name) {
 void NodeLink::IntroduceNode(const NodeName& name,
                              mem::Ref<DriverTransport> transport,
                              os::Memory link_buffer_memory) {
-  std::vector<uint8_t> serialized_transport_data;
-  std::vector<os::Handle> serialized_transport_handles;
+  std::vector<uint8_t> transport_data;
+  std::vector<os::Handle> transport_handles;
   if (transport) {
-    IpczResult result = transport->Serialize(serialized_transport_data,
-                                             serialized_transport_handles);
+    IpczResult result = transport->Serialize(transport_data, transport_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_OK);
   }
 
-  const size_t num_memory_handles = link_buffer_memory.is_valid() ? 1 : 0;
-  absl::InlinedVector<uint8_t, 256> serialized_data;
-  const size_t serialized_size =
-      sizeof(msg::IntroduceNode) + serialized_transport_data.size() +
-      (serialized_transport_handles.size() + num_memory_handles) *
-          sizeof(internal::OSHandleData);
-  serialized_data.resize(serialized_size);
+  msg::IntroduceNode intro;
+  intro.params().name = name;
+  intro.params().known = (transport != nullptr);
+  intro.params().transport_data =
+      intro.AllocateArray<uint8_t>(transport_data.size());
+  memcpy(intro.GetArrayData(intro.params().transport_data),
+         transport_data.data(), transport_data.size());
+  intro.params().transport_os_handles =
+      intro.AppendHandles(absl::MakeSpan(transport_handles));
 
-  auto& intro = *reinterpret_cast<msg::IntroduceNode*>(serialized_data.data());
-  new (&intro) msg::IntroduceNode();
-  intro.message_header.size = sizeof(intro.message_header);
-  intro.message_header.message_id = msg::IntroduceNode::kId;
-  intro.known = (transport != nullptr);
-  intro.name = name;
-  intro.num_transport_bytes =
-      static_cast<uint32_t>(serialized_transport_data.size());
-  intro.num_transport_os_handles =
-      static_cast<uint32_t>(serialized_transport_handles.size());
-  memcpy(&intro + 1, serialized_transport_data.data(),
-         serialized_transport_data.size());
-
-  std::vector<os::Handle> handles(serialized_transport_handles.size() +
-                                  num_memory_handles);
+  std::vector<os::Handle> buffer_handles;
   if (link_buffer_memory.is_valid()) {
-    handles[0] = link_buffer_memory.TakeHandle();
+    buffer_handles.push_back(link_buffer_memory.TakeHandle());
   }
-  if (!serialized_transport_handles.empty()) {
-    std::move(serialized_transport_handles.begin(),
-              serialized_transport_handles.end(), &handles[num_memory_handles]);
-  }
+  intro.params().buffer_handle =
+      intro.AppendHandles(absl::MakeSpan(buffer_handles));
 
-  Transmit(absl::MakeSpan(serialized_data), absl::MakeSpan(handles));
+  Transmit(intro);
 }
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
@@ -338,11 +323,13 @@ IpczResult NodeLink::OnTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    case msg::IntroduceNode::kId:
-      if (OnIntroduceNode(message)) {
+    case msg::IntroduceNode::kId: {
+      msg::IntroduceNode intro;
+      if (intro.Deserialize(message) && OnIntroduceNode(intro)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     case msg::AddLinkBuffer::kId: {
       msg::AddLinkBuffer add;
@@ -595,36 +582,24 @@ bool NodeLink::OnSetRouterLinkStateAddress(
   return true;
 }
 
-bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
-  if (remote_node_type_ != Node::Type::kBroker) {
-    return false;
+bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
+  const NodeName name = intro.params().name;
+  const bool known = intro.params().known;
+  if (!known) {
+    return true;
   }
 
-  if (message.data.size() < sizeof(msg::IntroduceNode)) {
-    return false;
-  }
-  const auto& intro =
-      *reinterpret_cast<const msg::IntroduceNode*>(message.data.data());
-  const uint32_t num_transport_bytes = intro.num_transport_bytes;
-  const uint32_t num_transport_os_handles = intro.num_transport_os_handles;
-  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&intro + 1);
-
-  const size_t serialized_size =
-      sizeof(intro) + num_transport_bytes +
-      (num_transport_os_handles + 1) * sizeof(internal::OSHandleData);
-  if (message.data.size() < serialized_size) {
-    return false;
-  }
-  if (message.handles.size() != num_transport_os_handles + 1) {
-    return false;
-  }
-
-  const NodeName name = intro.name;
-  const bool known = intro.known;
+  absl::Span<uint8_t> transport_data =
+      intro.GetArrayView<uint8_t>(intro.params().transport_data);
+  absl::Span<os::Handle> transport_os_handles =
+      intro.GetHandlesView(intro.params().transport_os_handles);
+  absl::Span<os::Handle> buffer_handles =
+      intro.GetHandlesView(intro.params().buffer_handle);
+  ABSL_ASSERT(!buffer_handles.empty());
+  os::Handle buffer_handle = std::move(buffer_handles[0]);
   return node_->OnIntroduceNode(
-      name, known, NodeLinkMemory::Adopt(node_, std::move(message.handles[0])),
-      absl::Span<const uint8_t>(bytes, num_transport_bytes),
-      message.handles.subspan(1));
+      name, known, NodeLinkMemory::Adopt(node_, std::move(buffer_handle)),
+      transport_data, transport_os_handles);
 }
 
 bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {

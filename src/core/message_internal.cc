@@ -48,21 +48,21 @@ uint32_t MessageBuilderBase::AppendHandles(absl::Span<os::Handle> handles) {
 
 size_t MessageBuilderBase::SerializeHandleArray(
     uint32_t param_offset,
+    uint32_t base_handle_index,
     absl::Span<os::Handle> handles) {
-  uint8_t* const params_data = reinterpret_cast<uint8_t*>(&header() + 1);
   uint32_t array_offset =
-      *reinterpret_cast<uint32_t*>(params_data + param_offset);
+      *reinterpret_cast<uint32_t*>(&params_data_view()[param_offset]);
   absl::Span<OSHandleData> handle_data =
       GetArrayView<OSHandleData>(array_offset);
 
 #if defined(OS_POSIX)
-  for (size_t i = 0; i < handles.size(); ++i) {
+  for (size_t i = 0; i < handle_data.size(); ++i) {
     OSHandleData& this_data = handle_data[i];
     this_data.header.size = sizeof(this_data);
     this_data.header.version = 0;
     ABSL_ASSERT(handles[i].is_valid());
     this_data.type = OSHandleDataType::kFileDescriptor;
-    this_data.index = static_cast<uint32_t>(i);
+    this_data.index = static_cast<uint32_t>(base_handle_index + i);
     this_data.value = 0;
   }
 #endif

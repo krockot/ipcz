@@ -72,18 +72,6 @@ struct IPCZ_ALIGN(16) RequestIndirectBrokerConnection {
   uint32_t num_transport_os_handles;
 };
 
-// Introduces one node to another. Sent only by broker nodes and must only be
-// accepted from broker nodes. Includes a serialized driver transport descriptor
-// which the recipient can use to communicate with the new named node.
-struct IPCZ_ALIGN(16) IntroduceNode {
-  static constexpr uint8_t kId = 13;
-  internal::MessageHeader message_header;
-  bool known : 1;
-  NodeName name;
-  uint32_t num_transport_bytes;
-  uint32_t num_transport_os_handles;
-};
-
 }  // namespace msg
 }  // namespace core
 }  // namespace ipcz

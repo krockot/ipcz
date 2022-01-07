@@ -170,6 +170,17 @@ IPCZ_MSG_BEGIN(RequestIntroduction, IPCZ_MSG_ID(12), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
 IPCZ_MSG_END()
 
+// Introduces one node to another. Sent only by broker nodes and must only be
+// accepted from broker nodes. Includes a serialized driver transport descriptor
+// which the recipient can use to communicate with the new named node.
+IPCZ_MSG_BEGIN(IntroduceNode, IPCZ_MSG_ID(13), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(NodeName, name)
+  IPCZ_MSG_PARAM(bool, known)
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, transport_data)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(transport_os_handles)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(buffer_handle)
+IPCZ_MSG_END()
+
 // Shares a new link buffer with the receiver. The buffer may be referenced by
 // the given `buffer_id` in the scope of the NodeLink which transmits this
 // message. Buffers shared with this message are read-writable to both sides

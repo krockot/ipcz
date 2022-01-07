@@ -180,7 +180,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnAcceptParcel(msg::AcceptParcel& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
-  bool OnIntroduceNode(const DriverTransport::Message& message);
+  bool OnIntroduceNode(msg::IntroduceNode& intro);
   bool OnAddLinkBuffer(msg::AddLinkBuffer& add);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);

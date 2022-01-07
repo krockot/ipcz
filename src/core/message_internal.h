@@ -111,6 +111,11 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
     return AppendHandles({&handle, 1});
   }
 
+  void* GetArrayData(uint32_t offset) {
+    ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
+    return &header + 1;
+  }
+
   template <typename ElementType>
   absl::Span<ElementType> GetArrayView(uint32_t offset) {
     ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
@@ -136,6 +141,7 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
   size_t Align(size_t x) { return (x + 15) & 0xfffffffffffffff0ull; }
 
   size_t SerializeHandleArray(uint32_t param_offset,
+                              uint32_t base_handle_index,
                               absl::Span<os::Handle> handles);
   bool DeserializeDataAndHandles(
       size_t params_size,
@@ -178,10 +184,13 @@ class MessageBuilder : public MessageBuilderBase {
 
   void SerializeHandleArrays(absl::Span<const ParamMetadata> params) {
     absl::Span<os::Handle> handles = handles_view();
+    size_t base_handle_index = 0;
     for (const ParamMetadata& param : params) {
       if (param.is_handle_array) {
-        size_t num_handles = SerializeHandleArray(param.offset, handles);
+        size_t num_handles =
+            SerializeHandleArray(param.offset, base_handle_index, handles);
         handles = handles.subspan(num_handles);
+        base_handle_index += num_handles;
       }
     }
   }
