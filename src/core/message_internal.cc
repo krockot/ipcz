@@ -14,156 +14,156 @@ namespace ipcz {
 namespace core {
 namespace internal {
 
-void SerializeHandles(absl::Span<os::Handle> handles,
-                      absl::Span<OSHandleData> out_handle_data) {
-#if defined(OS_POSIX)
-  // Only valid handles are attached, but all handle fields in a message have
-  // a descriptor. Ensure each descriptor is properly encoded: descriptors for
-  // valid handle fields encode the index of the attached handle, and other
-  // descriptors encode a their type as kNone.
-  uint64_t next_valid_handle_index = 0;
-  for (size_t i = 0; i < handles.size(); ++i) {
-    OSHandleData& this_data = out_handle_data[i];
-    this_data.header.size = sizeof(this_data);
-    this_data.header.version = 0;
-    if (handles[i].is_valid()) {
-      this_data.type = OSHandleDataType::kFileDescriptor;
-      this_data.value = next_valid_handle_index++;
-    } else {
-      this_data.type = OSHandleDataType::kNone;
-      this_data.value = 0;
-    }
-  }
-#endif
+MessageBuilderBase::MessageBuilderBase(uint8_t message_id, size_t params_size)
+    : data_(sizeof(MessageHeader) + params_size),
+      message_id_(message_id),
+      params_size_(params_size) {
+  MessageHeader& h = header();
+  h.size = sizeof(h);
+  h.version = 0;
+  h.message_id = message_id;
 }
 
-bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
-                     uint32_t current_params_version,
-                     absl::Span<uint8_t> out_header_storage,
-                     absl::Span<uint8_t> out_params_storage,
-                     absl::Span<uint8_t> out_handle_data_storage) {
-  // Step 1: copy and validate the header. The message must at least be large
-  // enough to encode a v0 MessageHeader, and the encoded header size and
-  // version must make sense (e.g. version 0 size must be sizeof(MessageHeader))
+MessageBuilderBase::~MessageBuilderBase() = default;
 
-  // Callers will always deserialize into the newest header type.
-  ABSL_ASSERT(out_header_storage.size() == sizeof(LatestMessageHeaderVersion));
-  ABSL_ASSERT(out_header_storage.size() >= sizeof(MessageHeaderV0));
-  auto& out_header =
-      *reinterpret_cast<LatestMessageHeaderVersion*>(out_header_storage.data());
+uint32_t MessageBuilderBase::AllocateGenericArray(size_t element_size,
+                                                  size_t num_elements) {
+  size_t offset = Align(data_.size());
+  size_t num_bytes = Align(sizeof(ArrayHeader) + element_size * num_elements);
+  data_.resize(offset + num_bytes);
+  ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
+  header.num_bytes = static_cast<uint32_t>(num_bytes);
+  header.num_elements = static_cast<uint32_t>(num_elements);
+  return offset;
+}
 
-  if (incoming_bytes.size() < sizeof(MessageHeaderV0)) {
+uint32_t MessageBuilderBase::AppendHandles(absl::Span<os::Handle> handles) {
+  uint32_t offset = AllocateGenericArray(sizeof(OSHandleData), handles.size());
+  handles_.reserve(handles_.size() + handles.size());
+  for (os::Handle& handle : handles) {
+    handles_.push_back(std::move(handle));
+  }
+  return offset;
+}
+
+size_t MessageBuilderBase::SerializeHandleArray(
+    uint32_t param_offset,
+    absl::Span<os::Handle> handles) {
+  uint8_t* const params_data = reinterpret_cast<uint8_t*>(&header() + 1);
+  uint32_t array_offset =
+      *reinterpret_cast<uint32_t*>(params_data + param_offset);
+  absl::Span<OSHandleData> handle_data =
+      GetArrayView<OSHandleData>(array_offset);
+
+#if defined(OS_POSIX)
+  for (size_t i = 0; i < handles.size(); ++i) {
+    OSHandleData& this_data = handle_data[i];
+    this_data.header.size = sizeof(this_data);
+    this_data.header.version = 0;
+    ABSL_ASSERT(handles[i].is_valid());
+    this_data.type = OSHandleDataType::kFileDescriptor;
+    this_data.index = static_cast<uint32_t>(i);
+    this_data.value = 0;
+  }
+#endif
+
+  return handle_data.size();
+}
+
+bool MessageBuilderBase::DeserializeDataAndHandles(
+    size_t params_size,
+    uint32_t params_current_version,
+    absl::Span<const ParamMetadata> params_metadata,
+    absl::Span<const uint8_t> data,
+    absl::Span<os::Handle> handles) {
+  // Copy the data into a local message object to avoid any TOCTOU issues in
+  // case `data` is in unsafe shared memory.
+  data_.resize(data.size());
+  memcpy(data_.data(), data.data(), data.size());
+
+  // Validate the header. The message must at least be large enough to encode a
+  // v0 MessageHeader, and the encoded header size and version must make sense
+  // (e.g. version 0 size must be sizeof(MessageHeader))
+  if (data_.size() < sizeof(MessageHeaderV0)) {
     return false;
   }
-  const auto& in_header =
-      *reinterpret_cast<const MessageHeaderV0*>(incoming_bytes.data());
-
-  memcpy(&out_header, &in_header, sizeof(in_header));
-
-  if (out_header.version == 0) {
-    if (out_header.size != sizeof(MessageHeaderV0)) {
+  const auto& header = *reinterpret_cast<const MessageHeaderV0*>(data_.data());
+  if (header.version == 0) {
+    if (header.size != sizeof(MessageHeaderV0)) {
       return false;
     }
   } else {
-    if (out_header.size < sizeof(MessageHeaderV0)) {
+    if (header.size < sizeof(MessageHeaderV0)) {
       return false;
     }
   }
 
-  // TODO: validate flags somewhere
+  // Validate parameter data. There must be at least enough bytes following the
+  // header to encode a StructHeader and to account for all parameter data.
 
-  // Step 2: copy and validate parameter data. There must be at least enough
-  // bytes following the header to encode a StructHeader.
-
-  absl::Span<const uint8_t> bytes_after_header(
-      incoming_bytes.data() + out_header.size,
-      incoming_bytes.size() - out_header.size);
-  if (bytes_after_header.size() < sizeof(StructHeader)) {
+  absl::Span<uint8_t> params_data = params_data_view();
+  if (params_data.size() < sizeof(StructHeader)) {
     return false;
   }
 
-  const StructHeader& in_params_header =
-      *reinterpret_cast<const StructHeader*>(bytes_after_header.data());
-  StructHeader& out_params_header =
-      *reinterpret_cast<StructHeader*>(out_params_storage.data());
-  ABSL_ASSERT(out_params_storage.size() >= sizeof(StructHeader));
-
-  memcpy(&out_params_header, &in_params_header, sizeof(StructHeader));
-  if (current_params_version < out_params_header.version) {
-    out_params_header.version = current_params_version;
+  StructHeader& params_header =
+      *reinterpret_cast<StructHeader*>(params_data.data());
+  if (params_current_version < params_header.version) {
+    params_header.version = params_current_version;
   }
 
   // The param struct's header claims to consist of more data than is present in
   // the message. CAP.
-  if (bytes_after_header.size() < out_params_header.size) {
+  if (params_data.size() < params_header.size) {
     return false;
   }
 
-  // Sender may be older or newer than this version, so copy the minimum between
-  // the current known version's size and the received header's claimed size.
-  memcpy(&out_params_header + 1, &in_params_header + 1,
-         std::min(static_cast<size_t>(out_params_header.size),
-                  out_params_storage.size()) -
-             sizeof(StructHeader));
-
-  // Step 3: copy and validate handle data. There must be at least enough bytes
-  // following the parameter data to encode a StructHeader.
-
-  absl::Span<const uint8_t> bytes_after_params(
-      bytes_after_header.data() + out_params_header.size,
-      bytes_after_header.size() - out_params_header.size);
-  if (bytes_after_params.size() < sizeof(StructHeader)) {
-    return false;
-  }
-
-  // TODO handle data needs to be versioned properly. probably more generically
-  // something like a common MessageMetadata struct following the params struct,
-  // with v0 MessageMetadata containing an optional array of OSHandleData as its
-  // only field.
-
-  if (bytes_after_params.size() != out_handle_data_storage.size()) {
-    return false;
-  }
-  memcpy(out_handle_data_storage.data(), bytes_after_params.data(),
-         out_handle_data_storage.size());
-  return true;
-}
-
-bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
-                        absl::Span<const OSHandleData> incoming_data,
-                        absl::Span<const bool> handle_required_flags,
-                        absl::Span<os::Handle> out_handles) {
-  for (size_t i = 0; i < incoming_data.size(); ++i) {
-    const OSHandleData& data = incoming_data[i];
-    if (data.header.size < sizeof(OSHandleData)) {
+  // Finally, validate each parameter.
+  handles_.resize(handles.size());
+  for (const ParamMetadata& param : params_metadata) {
+    if (param.offset + param.size > params_header.size) {
       return false;
     }
 
-    if (data.type == OSHandleDataType::kNone) {
-      out_handles[i].reset();
-      if (handle_required_flags[i]) {
-        // A required handle was not present.
+    if (param.array_element_size > 0) {
+      const uint32_t array_offset =
+          *reinterpret_cast<uint32_t*>(&params_data[param.offset]);
+      if (array_offset >= data_.size()) {
         return false;
       }
-      continue;
+
+      size_t bytes_available = data_.size() - array_offset;
+      if (bytes_available < sizeof(ArrayHeader)) {
+        return false;
+      }
+
+      ArrayHeader& header =
+          *reinterpret_cast<ArrayHeader*>(&data_[array_offset]);
+      if (bytes_available < header.num_bytes) {
+        return false;
+      }
+
+      size_t max_num_elements =
+          (header.num_bytes - sizeof(ArrayHeader)) / param.array_element_size;
+      if (header.num_elements > max_num_elements) {
+        return false;
+      }
+
+      if (param.is_handle_array) {
+        OSHandleData* handle_data =
+            reinterpret_cast<OSHandleData*>(&header + 1);
+        for (size_t i = 0; i < header.num_elements; ++i) {
+          const size_t index = handle_data[i].index;
+          if (index >= handles.size() || handles_[index].is_valid()) {
+            return false;
+          }
+
+          handles_[index] = std::move(handles[index]);
+        }
+      }
     }
-
-#if defined(OS_POSIX)
-    if (data.type == OSHandleDataType::kFileDescriptor) {
-      size_t fd_index = static_cast<size_t>(data.value);
-      if (fd_index >= incoming_handles.size()) {
-        return false;
-      }
-
-      os::Handle& handle = incoming_handles[fd_index];
-      if (!handle.is_valid()) {
-        return false;
-      }
-
-      out_handles[i] = std::move(handle);
-    }
-#endif
   }
+
   return true;
 }
 

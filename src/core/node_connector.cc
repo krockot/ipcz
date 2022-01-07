@@ -52,11 +52,12 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
 
     ABSL_ASSERT(node_->type() == Node::Type::kBroker);
     msg::ConnectFromBrokerToNonBroker connect;
-    connect.params.broker_name = broker_name_;
-    connect.params.receiver_name = new_remote_node_name_;
-    connect.params.protocol_version = msg::kProtocolVersion;
-    connect.params.num_initial_portals = num_portals();
-    connect.handles.primary_buffer_memory = link_memory_to_share_.TakeHandle();
+    connect.params().broker_name = broker_name_;
+    connect.params().receiver_name = new_remote_node_name_;
+    connect.params().protocol_version = msg::kProtocolVersion;
+    connect.params().num_initial_portals = num_portals();
+    connect.params().primary_buffer_memory =
+        connect.AppendHandle(link_memory_to_share_.TakeHandle());
     transport_->Transmit(connect);
   }
 
@@ -76,9 +77,9 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
              << new_remote_node_name_.ToString();
     AcceptConnection(
         NodeLink::Create(node_, broker_name_, new_remote_node_name_,
-                         Node::Type::kNormal, connect.params.protocol_version,
+                         Node::Type::kNormal, connect.params().protocol_version,
                          transport_, std::move(link_memory_)),
-        LinkSide::kA, connect.params.num_initial_portals);
+        LinkSide::kA, connect.params().num_initial_portals);
     return true;
   }
 
@@ -109,8 +110,8 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
   void Connect() override {
     ABSL_ASSERT(node_->type() == Node::Type::kNormal);
     msg::ConnectFromNonBrokerToBroker connect;
-    connect.params.protocol_version = msg::kProtocolVersion;
-    connect.params.num_initial_portals = num_portals();
+    connect.params().protocol_version = msg::kProtocolVersion;
+    connect.params().num_initial_portals = num_portals();
     transport_->Transmit(connect);
   }
 
@@ -126,21 +127,22 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     }
 
     DVLOG(4) << "New node accepting ConnectFromBrokerToNonBroker with assigned "
-             << "name " << connect.params.receiver_name.ToString()
-             << " from broker " << connect.params.broker_name.ToString();
+             << "name " << connect.params().receiver_name.ToString()
+             << " from broker " << connect.params().broker_name.ToString();
 
     auto new_link = NodeLink::Create(
-        node_, connect.params.receiver_name, connect.params.broker_name,
-        Node::Type::kBroker, connect.params.protocol_version, transport_,
-        NodeLinkMemory::Adopt(
-            node_, std::move(connect.handles.primary_buffer_memory)));
-    node_->SetAssignedName(connect.params.receiver_name);
+        node_, connect.params().receiver_name, connect.params().broker_name,
+        Node::Type::kBroker, connect.params().protocol_version, transport_,
+        NodeLinkMemory::Adopt(node_,
+                              std::move(connect.GetHandle(
+                                  connect.params().primary_buffer_memory))));
+    node_->SetAssignedName(connect.params().receiver_name);
     node_->SetBrokerLink(new_link);
     if (flags_ & IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE) {
       node_->SetAllocationDelegate(new_link);
     }
     AcceptConnection(std::move(new_link), LinkSide::kB,
-                     connect.params.num_initial_portals);
+                     connect.params().num_initial_portals);
     return true;
   }
 };
@@ -166,8 +168,8 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     DVLOG(4) << "Sending ConnectToBrokerIndirect";
 
     msg::ConnectToBrokerIndirect connect;
-    connect.params.protocol_version = msg::kProtocolVersion;
-    connect.params.num_initial_portals = num_portals();
+    connect.params().protocol_version = msg::kProtocolVersion;
+    connect.params().num_initial_portals = num_portals();
     transport_->Transmit(connect);
   }
 
@@ -183,34 +185,35 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     }
 
     DVLOG(4) << "Accepting ConnectFromBrokerIndirect from broker "
-             << connect.params.broker_name.ToString() << " on new node "
-             << connect.params.receiver_name.ToString() << " referred by "
-             << connect.params.connected_node_name.ToString();
+             << connect.params().broker_name.ToString() << " on new node "
+             << connect.params().receiver_name.ToString() << " referred by "
+             << connect.params().connected_node_name.ToString();
 
     auto new_link = NodeLink::Create(
-        node_, connect.params.receiver_name, connect.params.broker_name,
-        Node::Type::kBroker, connect.params.protocol_version, transport_,
-        NodeLinkMemory::Adopt(
-            node_, std::move(connect.handles.primary_buffer_memory)));
+        node_, connect.params().receiver_name, connect.params().broker_name,
+        Node::Type::kBroker, connect.params().protocol_version, transport_,
+        NodeLinkMemory::Adopt(node_,
+                              std::move(connect.GetHandle(
+                                  connect.params().primary_buffer_memory))));
 
     absl::Span<const mem::Ref<Portal>> portals =
         absl::MakeSpan(waiting_portals_);
     const uint32_t num_portals =
-        std::min(connect.params.num_remote_portals,
+        std::min(connect.params().num_remote_portals,
                  static_cast<uint32_t>(portals.size()));
 
-    node_->SetPortalsWaitingForLink(connect.params.connected_node_name,
+    node_->SetPortalsWaitingForLink(connect.params().connected_node_name,
                                     portals.subspan(0, num_portals));
     for (const mem::Ref<Portal>& portal : portals.subspan(num_portals)) {
       portal->router()->AcceptRouteClosureFrom(Direction::kOutward, 0);
     }
 
-    node_->SetAssignedName(connect.params.receiver_name);
+    node_->SetAssignedName(connect.params().receiver_name);
     node_->SetBrokerLink(new_link);
     if (flags_ & IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE) {
       node_->SetAllocationDelegate(new_link);
     }
-    node_->AddLink(connect.params.broker_name, std::move(new_link));
+    node_->AddLink(connect.params().broker_name, std::move(new_link));
     active_self_.reset();
     return true;
   }
@@ -248,12 +251,13 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
              << new_remote_node_name_.ToString();
 
     msg::ConnectFromBrokerIndirect connect;
-    connect.params.broker_name = broker_name_;
-    connect.params.receiver_name = new_remote_node_name_;
-    connect.params.connected_node_name = referrer_->remote_node_name();
-    connect.params.protocol_version = msg::kProtocolVersion;
-    connect.params.num_remote_portals = num_initial_portals_;
-    connect.handles.primary_buffer_memory = link_memory_to_share_.TakeHandle();
+    connect.params().broker_name = broker_name_;
+    connect.params().receiver_name = new_remote_node_name_;
+    connect.params().connected_node_name = referrer_->remote_node_name();
+    connect.params().protocol_version = msg::kProtocolVersion;
+    connect.params().num_remote_portals = num_initial_portals_;
+    connect.params().primary_buffer_memory =
+        connect.AppendHandle(link_memory_to_share_.TakeHandle());
     transport_->Transmit(connect);
   }
 
@@ -273,11 +277,11 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
              << new_remote_node_name_.ToString() << " referred by "
              << referrer_->remote_node_name().ToString();
 
-    num_remote_portals_ = connect.params.num_initial_portals;
+    num_remote_portals_ = connect.params().num_initial_portals;
 
     AcceptConnection(
         NodeLink::Create(node_, broker_name_, new_remote_node_name_,
-                         Node::Type::kNormal, connect.params.protocol_version,
+                         Node::Type::kNormal, connect.params().protocol_version,
                          transport_, std::move(link_memory_)),
         LinkSide::kA, num_remote_portals_);
     return true;
@@ -321,11 +325,11 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
 
     ABSL_ASSERT(node_->type() == Node::Type::kBroker);
     msg::ConnectFromBrokerToBroker connect;
-    connect.params.sender_name = local_name_;
-    connect.params.protocol_version = msg::kProtocolVersion;
-    connect.params.num_initial_portals = num_portals();
-    connect.handles.primary_buffer_memory =
-        our_link_memory_to_share_.TakeHandle();
+    connect.params().sender_name = local_name_;
+    connect.params().protocol_version = msg::kProtocolVersion;
+    connect.params().num_initial_portals = num_portals();
+    connect.params().primary_buffer_memory =
+        connect.AppendHandle(our_link_memory_to_share_.TakeHandle());
     transport_->Transmit(connect);
   }
 
@@ -342,20 +346,21 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
 
     DVLOG(4) << "Accepting ConnectFromBrokerToBroker on broker "
              << local_name_.ToString() << " from broker "
-             << connect.params.sender_name.ToString();
+             << connect.params().sender_name.ToString();
 
     mem::Ref<NodeLinkMemory> their_link_memory = NodeLinkMemory::Adopt(
-        node_, std::move(connect.handles.primary_buffer_memory));
+        node_,
+        std::move(connect.GetHandle(connect.params().primary_buffer_memory)));
 
-    const bool we_win = local_name_ < connect.params.sender_name;
+    const bool we_win = local_name_ < connect.params().sender_name;
     mem::Ref<NodeLinkMemory> link_memory =
         we_win ? std::move(our_link_memory_) : std::move(their_link_memory);
     LinkSide link_side = we_win ? LinkSide::kA : LinkSide::kB;
     AcceptConnection(
-        NodeLink::Create(node_, local_name_, connect.params.sender_name,
-                         Node::Type::kBroker, connect.params.protocol_version,
+        NodeLink::Create(node_, local_name_, connect.params().sender_name,
+                         Node::Type::kBroker, connect.params().protocol_version,
                          transport_, std::move(link_memory)),
-        link_side, connect.params.num_initial_portals);
+        link_side, connect.params().num_initial_portals);
     return true;
   }
 

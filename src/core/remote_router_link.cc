@@ -207,8 +207,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
 void RemoteRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   msg::RouteClosed route_closed;
-  route_closed.params.routing_id = routing_id_;
-  route_closed.params.sequence_length = sequence_length;
+  route_closed.params().routing_id = routing_id_;
+  route_closed.params().sequence_length = sequence_length;
   node_link()->Transmit(route_closed);
 }
 
@@ -216,9 +216,9 @@ void RemoteRouterLink::StopProxying(
     SequenceNumber proxy_inbound_sequence_length,
     SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxying stop;
-  stop.params.routing_id = routing_id_;
-  stop.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
-  stop.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
+  stop.params().routing_id = routing_id_;
+  stop.params().proxy_inbound_sequence_length = proxy_inbound_sequence_length;
+  stop.params().proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
 }
 
@@ -226,9 +226,9 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
     const NodeName& to_new_peer,
     RoutingId proxy_peer_routing_id) {
   msg::InitiateProxyBypass request;
-  request.params.routing_id = routing_id_;
-  request.params.proxy_peer_name = to_new_peer;
-  request.params.proxy_peer_routing_id = proxy_peer_routing_id;
+  request.params().routing_id = routing_id_;
+  request.params().proxy_peer_name = to_new_peer;
+  request.params().proxy_peer_routing_id = proxy_peer_routing_id;
   node_link()->Transmit(request);
 }
 
@@ -237,33 +237,33 @@ void RemoteRouterLink::BypassProxyToSameNode(
     const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
-  bypass.params.routing_id = routing_id_;
-  bypass.params.new_routing_id = new_routing_id;
-  bypass.params.new_link_state_address = new_link_state_address;
-  bypass.params.proxy_inbound_sequence_length = proxy_inbound_sequence_length;
+  bypass.params().routing_id = routing_id_;
+  bypass.params().new_routing_id = new_routing_id;
+  bypass.params().new_link_state_address = new_link_state_address;
+  bypass.params().proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
 }
 
 void RemoteRouterLink::StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxyingToLocalPeer stop;
-  stop.params.routing_id = routing_id_;
-  stop.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
+  stop.params().routing_id = routing_id_;
+  stop.params().proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
 }
 
 void RemoteRouterLink::ProxyWillStop(
     SequenceNumber proxy_inbound_sequence_length) {
   msg::ProxyWillStop will_stop;
-  will_stop.params.routing_id = routing_id_;
-  will_stop.params.proxy_inbound_sequence_length =
+  will_stop.params().routing_id = routing_id_;
+  will_stop.params().proxy_inbound_sequence_length =
       proxy_inbound_sequence_length;
   node_link()->Transmit(will_stop);
 }
 
 void RemoteRouterLink::NotifyBypassPossible() {
   msg::NotifyBypassPossible unblocked;
-  unblocked.params.routing_id = routing_id_;
+  unblocked.params().routing_id = routing_id_;
   node_link()->Transmit(unblocked);
 }
 
@@ -284,8 +284,8 @@ void RemoteRouterLink::Flush() {
   }
 
   msg::SetRouterLinkStateAddress set;
-  set.params.routing_id = routing_id_;
-  set.params.address = link_state_address_;
+  set.params().routing_id = routing_id_;
+  set.params().address = link_state_address_;
   node_link()->Transmit(set);
 }
 
@@ -304,7 +304,7 @@ std::string RemoteRouterLink::Describe() const {
 
 void RemoteRouterLink::LogRouteTrace() {
   msg::LogRouteTrace log_request;
-  log_request.params.routing_id = routing_id_;
+  log_request.params().routing_id = routing_id_;
   node_link()->Transmit(log_request);
 }
 

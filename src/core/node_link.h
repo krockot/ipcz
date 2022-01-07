@@ -181,7 +181,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
   bool OnIntroduceNode(const DriverTransport::Message& message);
-  bool OnAddLinkBuffer(const msg::AddLinkBuffer& add);
+  bool OnAddLinkBuffer(msg::AddLinkBuffer& add);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);
@@ -189,7 +189,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
   bool OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify);
   bool OnRequestMemory(const msg::RequestMemory& request);
-  bool OnProvideMemory(const msg::ProvideMemory& provide);
+  bool OnProvideMemory(msg::ProvideMemory& provide);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
 
   const mem::Ref<Node> node_;

@@ -8,9 +8,11 @@
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
+#include <vector>
 
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 #pragma pack(push, 1)
@@ -43,6 +45,11 @@ struct IPCZ_ALIGN(8) StructHeader {
 };
 static_assert(sizeof(StructHeader) == 8, "Unexpected size");
 
+struct IPCZ_ALIGN(8) ArrayHeader {
+  uint32_t num_bytes;
+  uint32_t num_elements;
+};
+
 enum OSHandleDataType : uint8_t {
   // No handle. Only valid if the handle slot was designated as optional.
   kNone = 0,
@@ -62,6 +69,8 @@ struct IPCZ_ALIGN(8) OSHandleData {
   StructHeader header;
 
   OSHandleDataType type;
+  uint8_t padding[3];
+  uint32_t index;
   uint64_t value;
 };
 
@@ -70,31 +79,113 @@ constexpr size_t GetNumOSHandles() {
   return (sizeof(T) - sizeof(StructHeader)) / sizeof(OSHandleData);
 }
 
-// Serializes handles from a locally created message, into that message's handle
-// data. Depending on how handle transmission is implemented on the platform,
-// this may either leave the handles intact and fill in only metadata within the
-// message, or it may consume the handles and encode them directly into the
-// message data in a way that is useful to the destination process.
-void SerializeHandles(absl::Span<os::Handle> handles,
-                      absl::Span<OSHandleData> out_handle_data_storage);
+struct ParamMetadata {
+  uint32_t offset;
+  uint32_t size;
+  uint32_t array_element_size;
+  bool is_handle_array;
+};
 
-// Attempts to deserialize a message from `incoming_bytes`. Only the full
-// addressability of the input span has been validated, and it may be located
-// within untrusted shared memory.
-bool DeserializeData(absl::Span<const uint8_t> incoming_bytes,
-                     uint32_t current_params_version,
-                     absl::Span<uint8_t> out_header_storage,
-                     absl::Span<uint8_t> out_params_storage,
-                     absl::Span<uint8_t> out_handle_data_storage);
+class IPCZ_ALIGN(16) MessageBuilderBase {
+ public:
+  MessageBuilderBase(uint8_t message_id, size_t params_size);
+  ~MessageBuilderBase();
 
-// Deserializes handles and handle data to produce the set of os::Handles
-// attached to an incoming message. `incoming_handles` are handles that were
-// attached out-of-bad (if any, which depends on platform) and `incoming_data`
-// is handle data from the same message, already copied out.
-bool DeserializeHandles(absl::Span<os::Handle> incoming_handles,
-                        absl::Span<const OSHandleData> incoming_handle_data,
-                        absl::Span<const bool> handle_required_flags,
-                        absl::Span<os::Handle> out_handle_storage);
+  MessageHeader& header() {
+    return *reinterpret_cast<MessageHeader*>(data_.data());
+  }
+
+  const MessageHeader& header() const {
+    return *reinterpret_cast<const MessageHeader*>(data_.data());
+  }
+
+  absl::Span<uint8_t> data_view() { return absl::MakeSpan(data_); }
+  absl::Span<uint8_t> params_data_view() {
+    return absl::MakeSpan(&data_[header().size], data_.size() - header().size);
+  }
+  absl::Span<os::Handle> handles_view() { return absl::MakeSpan(handles_); }
+
+  uint32_t AllocateGenericArray(size_t element_size, size_t num_elements);
+  uint32_t AppendHandles(absl::Span<os::Handle> handles);
+  uint32_t AppendHandle(os::Handle handle) {
+    return AppendHandles({&handle, 1});
+  }
+
+  template <typename ElementType>
+  absl::Span<ElementType> GetArrayView(uint32_t offset) {
+    ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
+    return absl::MakeSpan(reinterpret_cast<ElementType*>(&header + 1),
+                          header.num_elements);
+  }
+
+  absl::Span<os::Handle> GetHandlesView(uint32_t offset) {
+    absl::Span<OSHandleData> handle_data = GetArrayView<OSHandleData>(offset);
+    if (handle_data.empty()) {
+      return {};
+    }
+
+    // Each handle array is encoded as a contiguous series of handles, so we
+    // only need the index of the first handle to index all of the handles.
+    return absl::MakeSpan(handles_).subspan(handle_data[0].index,
+                                            handle_data.size());
+  }
+
+  os::Handle& GetHandle(uint32_t offset) { return GetHandlesView(offset)[0]; }
+
+ protected:
+  size_t Align(size_t x) { return (x + 15) & 0xfffffffffffffff0ull; }
+
+  size_t SerializeHandleArray(uint32_t param_offset,
+                              absl::Span<os::Handle> handles);
+  bool DeserializeDataAndHandles(
+      size_t params_size,
+      uint32_t params_current_version,
+      absl::Span<const ParamMetadata> params_metadata,
+      absl::Span<const uint8_t> data,
+      absl::Span<os::Handle> handles);
+
+  absl::InlinedVector<uint8_t, 128> data_;
+  absl::InlinedVector<os::Handle, 2> handles_;
+
+  const uint8_t message_id_;
+  const uint32_t params_size_;
+};
+
+template <typename ParamDataType>
+class MessageBuilder : public MessageBuilderBase {
+ public:
+  MessageBuilder()
+      : MessageBuilderBase(ParamDataType::kId, sizeof(ParamDataType)) {
+    ParamDataType& p = *(new (&params()) ParamDataType());
+    p.header.size = sizeof(p);
+    p.header.version = ParamDataType::kVersion;
+  }
+
+  ~MessageBuilder() = default;
+
+  ParamDataType& params() {
+    return *reinterpret_cast<ParamDataType*>(&data_[header().size]);
+  }
+
+  const ParamDataType& params() const {
+    return *reinterpret_cast<const ParamDataType*>(&data_[header().size]);
+  }
+
+  template <typename ElementType>
+  uint32_t AllocateArray(size_t num_elements) {
+    return AllocateGenericArray(sizeof(ElementType), num_elements);
+  }
+
+  void SerializeHandleArrays(absl::Span<const ParamMetadata> params) {
+    absl::Span<os::Handle> handles = handles_view();
+    for (const ParamMetadata& param : params) {
+      if (param.is_handle_array) {
+        size_t num_handles = SerializeHandleArray(param.offset, handles);
+        handles = handles.subspan(num_handles);
+      }
+    }
+  }
+};
 
 }  // namespace internal
 }  // namespace core

@@ -181,7 +181,7 @@ void NodeLink::RequestIndirectBrokerConnection(
 
 void NodeLink::RequestIntroduction(const NodeName& name) {
   msg::RequestIntroduction request;
-  request.params.name = name;
+  request.params().name = name;
   Transmit(request);
 }
 
@@ -249,11 +249,12 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
            << proxy_name.ToString() << " on routing ID " << proxy_routing_id;
 
   msg::BypassProxy bypass;
-  bypass.params.proxy_name = proxy_name;
-  bypass.params.proxy_routing_id = proxy_routing_id;
-  bypass.params.new_routing_id = new_routing_id;
-  bypass.params.new_link_state_address = new_link_state_address;
-  bypass.params.proxy_outbound_sequence_length = proxy_outbound_sequence_length;
+  bypass.params().proxy_name = proxy_name;
+  bypass.params().proxy_routing_id = proxy_routing_id;
+  bypass.params().new_routing_id = new_routing_id;
+  bypass.params().new_link_state_address = new_link_state_address;
+  bypass.params().proxy_outbound_sequence_length =
+      proxy_outbound_sequence_length;
   Transmit(bypass);
 
   // This link is only provided after we transmit the bypass request, ensuring
@@ -266,9 +267,9 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
 
 void NodeLink::AddLinkBuffer(BufferId buffer_id, os::Memory memory) {
   msg::AddLinkBuffer add;
-  add.params.buffer_id = buffer_id;
-  add.params.buffer_size = static_cast<uint32_t>(memory.size());
-  add.handles.buffer_handle = memory.TakeHandle();
+  add.params().buffer_id = buffer_id;
+  add.params().buffer_size = static_cast<uint32_t>(memory.size());
+  add.params().buffer_handle = add.AppendHandle(memory.TakeHandle());
   Transmit(add);
 }
 
@@ -279,7 +280,7 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
   }
 
   msg::RequestMemory request;
-  request.params.size = size;
+  request.params().size = size;
   Transmit(request);
 }
 
@@ -504,7 +505,7 @@ bool NodeLink::OnAcceptIndirectBrokerConnection(
   {
     absl::MutexLock lock(&mutex_);
     auto it =
-        pending_indirect_broker_connections_.find(accept.params.request_id);
+        pending_indirect_broker_connections_.find(accept.params().request_id);
     if (it == pending_indirect_broker_connections_.end()) {
       return false;
     }
@@ -513,11 +514,11 @@ bool NodeLink::OnAcceptIndirectBrokerConnection(
     pending_indirect_broker_connections_.erase(it);
   }
 
-  if (!accept.params.success) {
+  if (!accept.params().success) {
     callback(NodeName(), 0);
   } else {
-    callback(accept.params.connected_node_name,
-             accept.params.num_remote_portals);
+    callback(accept.params().connected_node_name,
+             accept.params().num_remote_portals);
   }
   return true;
 }
@@ -578,24 +579,25 @@ bool NodeLink::OnAcceptParcel(const DriverTransport::Message& message) {
 }
 
 bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
-  absl::optional<Route> route = GetRoute(route_closed.params.routing_id);
+  absl::optional<Route> route = GetRoute(route_closed.params().routing_id);
   if (!route) {
     return true;
   }
 
-  route->receiver->AcceptRouteClosureFrom(route->link->GetType().direction(),
-                                          route_closed.params.sequence_length);
+  route->receiver->AcceptRouteClosureFrom(
+      route->link->GetType().direction(),
+      route_closed.params().sequence_length);
   return true;
 }
 
 bool NodeLink::OnSetRouterLinkStateAddress(
     const msg::SetRouterLinkStateAddress& set) {
-  absl::optional<Route> route = GetRoute(set.params.routing_id);
+  absl::optional<Route> route = GetRoute(set.params().routing_id);
   if (!route) {
     return true;
   }
 
-  route->link->SetLinkStateAddress(set.params.address);
+  route->link->SetLinkStateAddress(set.params().address);
   return true;
 }
 
@@ -631,77 +633,78 @@ bool NodeLink::OnIntroduceNode(const DriverTransport::Message& message) {
       message.handles.subspan(1));
 }
 
-bool NodeLink::OnAddLinkBuffer(const msg::AddLinkBuffer& add) {
+bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {
   memory().AddBuffer(
-      add.params.buffer_id,
-      os::Memory(std::move(add.handles.buffer_handle), add.params.buffer_size));
+      add.params().buffer_id,
+      os::Memory(std::move(add.GetHandle(add.params().buffer_handle)),
+                 add.params().buffer_size));
   return true;
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
-  mem::Ref<Router> router = GetRouter(stop.params.routing_id);
+  mem::Ref<Router> router = GetRouter(stop.params().routing_id);
   if (!router) {
     DVLOG(4) << "Received StopProxying for unknown route";
     return true;
   }
 
   DVLOG(4) << "Received StopProxying on " << local_node_name_.ToString()
-           << " routing ID " << stop.params.routing_id << " with inbound"
-           << " length " << stop.params.proxy_inbound_sequence_length
+           << " routing ID " << stop.params().routing_id << " with inbound"
+           << " length " << stop.params().proxy_inbound_sequence_length
            << " and outbound length "
-           << stop.params.proxy_outbound_sequence_length;
+           << stop.params().proxy_outbound_sequence_length;
 
-  return router->StopProxying(stop.params.proxy_inbound_sequence_length,
-                              stop.params.proxy_outbound_sequence_length);
+  return router->StopProxying(stop.params().proxy_inbound_sequence_length,
+                              stop.params().proxy_outbound_sequence_length);
 }
 
 bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
-  mem::Ref<Router> router = GetRouter(request.params.routing_id);
+  mem::Ref<Router> router = GetRouter(request.params().routing_id);
   if (!router) {
     return true;
   }
 
-  return router->InitiateProxyBypass(*this, request.params.routing_id,
-                                     request.params.proxy_peer_name,
-                                     request.params.proxy_peer_routing_id);
+  return router->InitiateProxyBypass(*this, request.params().routing_id,
+                                     request.params().proxy_peer_name,
+                                     request.params().proxy_peer_routing_id);
 }
 
 bool NodeLink::OnBypassProxyToSameNode(
     const msg::BypassProxyToSameNode& bypass) {
-  mem::Ref<Router> router = GetRouter(bypass.params.routing_id);
+  mem::Ref<Router> router = GetRouter(bypass.params().routing_id);
   if (!router) {
     return true;
   }
 
   mem::Ref<RouterLink> new_link = AddRoute(
-      bypass.params.new_routing_id, bypass.params.new_link_state_address,
+      bypass.params().new_routing_id, bypass.params().new_link_state_address,
       LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
-      std::move(new_link), bypass.params.proxy_inbound_sequence_length);
+      std::move(new_link), bypass.params().proxy_inbound_sequence_length);
 }
 
 bool NodeLink::OnStopProxyingToLocalPeer(
     const msg::StopProxyingToLocalPeer& stop) {
-  mem::Ref<Router> router = GetRouter(stop.params.routing_id);
+  mem::Ref<Router> router = GetRouter(stop.params().routing_id);
   if (!router) {
     return true;
   }
   return router->StopProxyingToLocalPeer(
-      stop.params.proxy_outbound_sequence_length);
+      stop.params().proxy_outbound_sequence_length);
 }
 
 bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
-  mem::Ref<Router> router = GetRouter(will_stop.params.routing_id);
+  mem::Ref<Router> router = GetRouter(will_stop.params().routing_id);
   if (!router) {
     return true;
   }
 
   return router->OnProxyWillStop(
-      will_stop.params.proxy_inbound_sequence_length);
+      will_stop.params().proxy_inbound_sequence_length);
 }
 
 bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
-  mem::Ref<Router> router = GetRouter(notify.params.routing_id);
+  mem::Ref<Router> router = GetRouter(notify.params().routing_id);
   if (!router) {
     return true;
   }
@@ -710,20 +713,21 @@ bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
 }
 
 bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
-  os::Memory memory(request.params.size);
+  os::Memory memory(request.params().size);
   msg::ProvideMemory provide;
-  provide.params.size = request.params.size;
-  provide.handles.handle = memory.TakeHandle();
+  provide.params().size = request.params().size;
+  provide.params().handle = provide.AppendHandle(memory.TakeHandle());
   Transmit(provide);
   return true;
 }
 
-bool NodeLink::OnProvideMemory(const msg::ProvideMemory& provide) {
-  os::Memory memory(std::move(provide.handles.handle), provide.params.size);
+bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
+  os::Memory memory(std::move(provide.GetHandle(provide.params().handle)),
+                    provide.params().size);
   RequestMemoryCallback callback;
   {
     absl::MutexLock lock(&mutex_);
-    auto it = pending_memory_requests_.find(provide.params.size);
+    auto it = pending_memory_requests_.find(provide.params().size);
     if (it == pending_memory_requests_.end()) {
       return false;
     }
@@ -744,7 +748,7 @@ bool NodeLink::OnProvideMemory(const msg::ProvideMemory& provide) {
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
-  absl::optional<Route> route = GetRoute(log_request.params.routing_id);
+  absl::optional<Route> route = GetRoute(log_request.params().routing_id);
   if (!route) {
     return true;
   }

@@ -33,7 +33,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToNonBroker,
 
   // A handle to an initial shared memory buffer which can be used to allocate
   // shared state between the two connecting nodes.
-  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // Initial greeting sent by a non-broker node when ConnectNode() is invoked with
@@ -100,7 +100,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerIndirect, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
 
   // A handle to an initial shared memory buffer which can be used to allocate
   // shared state between the broker and the recipient.
-  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // Message sent from a broker to another broker, to establish a link between
@@ -124,7 +124,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToBroker, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
   // lesser NodeName is adopted as the primary link buffer (buffer ID 0). The
   // other buffer is adopted by convention as the first secondary link buffer,
   // with a buffer ID of 1.
-  IPCZ_MSG_HANDLE_REQUIRED(primary_buffer_memory)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
 IPCZ_MSG_END()
 
 // A reply to RequestIndirectBrokerConnection. If `success` is true, this
@@ -178,9 +178,19 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(AddLinkBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(BufferId, buffer_id)
   IPCZ_MSG_PARAM(uint32_t, buffer_size)
-  IPCZ_MSG_HANDLE_REQUIRED(buffer_handle)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(buffer_handle)
 IPCZ_MSG_END()
-
+/*
+// Conveys the contents of a parcel from one router to another across a node
+// boundary.
+IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_number)
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, parcel_data)
+  IPCZ_MSG_PARAM_ARRAY(RouterDescriptor, new_routers)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(os_handles)
+IPCZ_MSG_END()
+*/
 // Notifies a node that the route has been closed on one side. If this arrives
 // at a router from an inward-facing or bridge link, it pertains to the router's
 // own side of the route; otherwise it indicates that the other side of the
@@ -338,7 +348,7 @@ IPCZ_MSG_END()
 
 IPCZ_MSG_BEGIN(ProvideMemory, IPCZ_MSG_ID(65), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, size)
-  IPCZ_MSG_HANDLE_REQUIRED(handle)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(handle)
 IPCZ_MSG_END()
 
 // Requests that the receiving Router log a description of itself and forward

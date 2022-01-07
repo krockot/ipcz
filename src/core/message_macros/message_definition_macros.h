@@ -9,46 +9,19 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                     \
-  constexpr size_t kDataSize_##name = sizeof(internal::MessageHeader) + \
-                                      sizeof(name##_Params) +           \
-                                      sizeof(name##_HandleData);        \
-  name::name() {                                                        \
-    memset(&header, 0, kDataSize_##name);                               \
-    header.size = sizeof(header);                                       \
-    header.version = 0;                                                 \
-    header.message_id = kId;                                            \
-    params.header.size = sizeof(params);                                \
-    params.header.version = kVersion;                                   \
-    handle_data.header.size = sizeof(handle_data);                      \
-    handle_data.header.version = 0;                                     \
-  }                                                                     \
-  name::~name() = default;                                              \
-  void name::Serialize() {                                              \
-    internal::SerializeHandles(                                         \
-        absl::MakeSpan(&handle_storage[0], kNumHandles),                \
-        absl::MakeSpan(&handle_data.handles[0], kNumHandles));          \
-  }                                                                     \
-  bool name::Deserialize(const DriverTransport::Message& message) {     \
-    using HandleData = decltype(handle_data);                           \
-    return internal::DeserializeData(                                   \
-               message.data, kVersion,                                  \
-               absl::MakeSpan(reinterpret_cast<uint8_t*>(&header),      \
-                              sizeof(header)),                          \
-               absl::MakeSpan(reinterpret_cast<uint8_t*>(&params),      \
-                              sizeof(params)),                          \
-               absl::MakeSpan(reinterpret_cast<uint8_t*>(&handle_data), \
-                              sizeof(handle_data))) &&                  \
-           internal::DeserializeHandles(                                \
-               message.handles,                                         \
-               absl::MakeSpan(&handle_data.handles[0], kNumHandles),    \
-               absl::MakeSpan(HandleData::kRequiredBits,                \
-                              sizeof(HandleData::kRequiredBits)),       \
-               handles_view());                                         \
-  }
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                            \
+  name::name() = default;                                                      \
+  name::~name() = default;                                                     \
+  void name::Serialize() { SerializeHandleArrays(absl::MakeSpan(kMetadata)); } \
+  bool name::Deserialize(const DriverTransport::Message& message) {            \
+    return DeserializeDataAndHandles(sizeof(ParamsType), kVersion,             \
+                                     absl::MakeSpan(kMetadata), message.data,  \
+                                     message.handles);                         \
+  }                                                                            \
+  constexpr internal::ParamMetadata name::kMetadata[];
 
 #define IPCZ_MSG_END()
 
 #define IPCZ_MSG_PARAM(type, name)
-#define IPCZ_MSG_HANDLE_OPTIONAL(name)
-#define IPCZ_MSG_HANDLE_REQUIRED(name)
+#define IPCZ_MSG_PARAM_ARRAY(type, name)
+#define IPCZ_MSG_PARAM_HANDLE_ARRAY(name)

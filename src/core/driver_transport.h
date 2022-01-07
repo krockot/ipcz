@@ -90,7 +90,7 @@ class DriverTransport : public mem::RefCounted {
   IpczResult Transmit(T& message) {
     message.Serialize();
     return TransmitMessage(
-        Message(Data(message.params_view()), message.handles_view()));
+        Message(Data(message.data_view()), message.handles_view()));
   }
 
   template <typename T>

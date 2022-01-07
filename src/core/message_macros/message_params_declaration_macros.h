@@ -13,6 +13,7 @@
   struct IPCZ_ALIGN(16) name##_Params {             \
     name##_Params();                                \
     ~name##_Params();                               \
+    id_decl;                                        \
     version_decl;                                   \
     internal::StructHeader header;
 
@@ -21,5 +22,5 @@
   ;
 
 #define IPCZ_MSG_PARAM(type, name) type name;
-#define IPCZ_MSG_HANDLE_OPTIONAL(name)
-#define IPCZ_MSG_HANDLE_REQUIRED(name)
+#define IPCZ_MSG_PARAM_ARRAY(type, name) uint32_t name;
+#define IPCZ_MSG_PARAM_HANDLE_ARRAY(name) uint32_t name;

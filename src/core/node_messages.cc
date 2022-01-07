@@ -19,14 +19,6 @@ namespace msg {
 #include "core/node_message_defs.h"
 #include "core/message_macros/undef_message_macros.h"
 
-#include "core/message_macros/message_handle_data_definition_macros.h"
-#include "core/node_message_defs.h"
-#include "core/message_macros/undef_message_macros.h"
-
-#include "core/message_macros/message_handle_definition_macros.h"
-#include "core/node_message_defs.h"
-#include "core/message_macros/undef_message_macros.h"
-
 #include "core/message_macros/message_definition_macros.h"
 #include "core/node_message_defs.h"
 #include "core/message_macros/undef_message_macros.h"

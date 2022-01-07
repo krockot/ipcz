@@ -18,5 +18,5 @@
 #define IPCZ_MSG_END()
 
 #define IPCZ_MSG_PARAM(type, name)
-#define IPCZ_MSG_HANDLE_OPTIONAL(name)
-#define IPCZ_MSG_HANDLE_REQUIRED(name)
+#define IPCZ_MSG_PARAM_ARRAY(type, name)
+#define IPCZ_MSG_PARAM_HANDLE_ARRAY(name)

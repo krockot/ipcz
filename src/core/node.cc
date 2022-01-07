@@ -246,10 +246,10 @@ bool Node::OnRequestIndirectBrokerConnection(
        source_link = mem::WrapRefCounted(&from_node_link), num_initial_portals,
        request_id](mem::Ref<NodeLink> new_link, uint32_t num_remote_portals) {
         msg::AcceptIndirectBrokerConnection accept;
-        accept.params.request_id = request_id;
-        accept.params.success = new_link != nullptr;
-        accept.params.num_remote_portals = num_remote_portals;
-        accept.params.connected_node_name =
+        accept.params().request_id = request_id;
+        accept.params().success = new_link != nullptr;
+        accept.params().num_remote_portals = num_remote_portals;
+        accept.params().connected_node_name =
             new_link ? new_link->remote_node_name() : NodeName();
         source_link->Transmit(accept);
 
@@ -283,14 +283,14 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   mem::Ref<NodeLink> other_node_link;
   {
     absl::MutexLock lock(&mutex_);
-    auto it = node_links_.find(request.params.name);
+    auto it = node_links_.find(request.params().name);
     if (it != node_links_.end()) {
       other_node_link = it->second;
     }
   }
 
   if (!other_node_link) {
-    from_node_link.IntroduceNode(request.params.name, nullptr, os::Memory());
+    from_node_link.IntroduceNode(request.params().name, nullptr, os::Memory());
     return true;
   }
 
@@ -302,7 +302,7 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
                                  std::move(transports.first),
                                  primary_buffer_memory.Clone());
-  from_node_link.IntroduceNode(request.params.name,
+  from_node_link.IntroduceNode(request.params().name,
                                std::move(transports.second),
                                std::move(primary_buffer_memory));
   return true;
@@ -359,18 +359,18 @@ bool Node::OnIntroduceNode(
 
 bool Node::OnBypassProxy(NodeLink& from_node_link,
                          const msg::BypassProxy& bypass) {
-  mem::Ref<NodeLink> proxy_node_link = GetLink(bypass.params.proxy_name);
+  mem::Ref<NodeLink> proxy_node_link = GetLink(bypass.params().proxy_name);
   if (!proxy_node_link) {
     return true;
   }
 
   mem::Ref<Router> proxy_peer =
-      proxy_node_link->GetRouter(bypass.params.proxy_routing_id);
+      proxy_node_link->GetRouter(bypass.params().proxy_routing_id);
   if (!proxy_peer) {
     DLOG(ERROR) << "Invalid BypassProxy request for unknown link from "
                 << proxy_node_link->local_node_name().ToString() << " to "
                 << proxy_node_link->remote_node_name().ToString()
-                << " on routing ID " << bypass.params.proxy_routing_id;
+                << " on routing ID " << bypass.params().proxy_routing_id;
     return false;
   }
 
@@ -378,10 +378,10 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
   mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRoute(
-      bypass.params.new_routing_id, bypass.params.new_link_state_address,
+      bypass.params().new_routing_id, bypass.params().new_link_state_address,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
-      new_peer_link, bypass.params.proxy_outbound_sequence_length);
+      new_peer_link, bypass.params().proxy_outbound_sequence_length);
 }
 
 void Node::AddBrokerCallback(BrokerCallback callback) {
