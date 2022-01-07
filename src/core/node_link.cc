@@ -133,11 +133,10 @@ void NodeLink::RequestIndirectBrokerConnection(
     os::Process new_node_process,
     size_t num_initial_portals,
     IndirectBrokerConnectionCallback callback) {
-  std::vector<uint8_t> serialized_transport_data;
-  std::vector<os::Handle> serialized_transport_handles;
+  std::vector<uint8_t> transport_data;
+  std::vector<os::Handle> transport_handles;
   if (transport) {
-    IpczResult result = transport->Serialize(serialized_transport_data,
-                                             serialized_transport_handles);
+    IpczResult result = transport->Serialize(transport_data, transport_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_OK);
   }
 
@@ -148,35 +147,28 @@ void NodeLink::RequestIndirectBrokerConnection(
     pending_indirect_broker_connections_[request_id] = std::move(callback);
   }
 
-  absl::InlinedVector<uint8_t, 256> serialized_data;
-  size_t num_os_handles = serialized_transport_handles.size() + 1;
-  const size_t serialized_size =
-      sizeof(msg::RequestIndirectBrokerConnection) +
-      serialized_transport_data.size() +
-      num_os_handles * sizeof(internal::OSHandleData);
-  serialized_data.resize(serialized_size);
+  msg::RequestIndirectBrokerConnection request;
+  request.params().request_id = request_id;
+  request.params().num_initial_portals =
+      static_cast<uint32_t>(num_initial_portals);
 
-  auto& request = *reinterpret_cast<msg::RequestIndirectBrokerConnection*>(
-      serialized_data.data());
-  new (&request) msg::RequestIndirectBrokerConnection();
-  request.message_header.size = sizeof(request.message_header);
-  request.message_header.message_id = msg::RequestIndirectBrokerConnection::kId;
-  request.request_id = request_id;
-  request.num_initial_portals = static_cast<uint32_t>(num_initial_portals);
-  request.num_transport_bytes =
-      static_cast<uint32_t>(serialized_transport_data.size());
-  request.num_transport_os_handles =
-      static_cast<uint32_t>(serialized_transport_handles.size());
-  memcpy(&request + 1, serialized_transport_data.data(),
-         serialized_transport_data.size());
+  request.params().transport_data =
+      request.AllocateArray<uint8_t>(transport_data.size());
+  memcpy(request.GetArrayData(request.params().transport_data),
+         transport_data.data(), transport_data.size());
 
-  std::vector<os::Handle> handles(num_os_handles);
-  handles[0] = new_node_process.TakeAsHandle();
-  for (size_t i = 0; i < serialized_transport_handles.size(); ++i) {
-    handles[i + 1] = std::move(serialized_transport_handles[i]);
+  request.params().transport_os_handles =
+      request.AppendHandles(absl::MakeSpan(transport_handles));
+
+  os::Handle process_handle = new_node_process.TakeAsHandle();
+  std::vector<os::Handle> process_handles;
+  if (process_handle.is_valid()) {
+    process_handles.push_back(std::move(process_handle));
   }
+  request.params().process_handle =
+      request.AppendHandles(absl::MakeSpan(process_handles));
 
-  Transmit(absl::MakeSpan(serialized_data), absl::MakeSpan(handles));
+  Transmit(request);
 }
 
 void NodeLink::RequestIntroduction(const NodeName& name) {
@@ -275,11 +267,14 @@ IpczResult NodeLink::OnTransportMessage(
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
 
   switch (header.message_id) {
-    case msg::RequestIndirectBrokerConnection::kId:
-      if (OnRequestIndirectBrokerConnection(message)) {
+    case msg::RequestIndirectBrokerConnection::kId: {
+      msg::RequestIndirectBrokerConnection request;
+      if (request.Deserialize(message) &&
+          OnRequestIndirectBrokerConnection(request)) {
         return IPCZ_RESULT_OK;
       }
       return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
 
     case msg::AcceptIndirectBrokerConnection::kId: {
       msg::AcceptIndirectBrokerConnection accept;
@@ -431,56 +426,39 @@ IpczResult NodeLink::OnTransportMessage(
 void NodeLink::OnTransportError() {}
 
 bool NodeLink::OnRequestIndirectBrokerConnection(
-    const DriverTransport::Message& message) {
+    msg::RequestIndirectBrokerConnection& request) {
   if (node_->type() != Node::Type::kBroker) {
     return false;
   }
 
-  if (message.data.size() < sizeof(msg::RequestIndirectBrokerConnection)) {
-    return false;
-  }
-  const auto& request =
-      *reinterpret_cast<const msg::RequestIndirectBrokerConnection*>(
-          message.data.data());
-  const uint32_t num_transport_bytes = request.num_transport_bytes;
-  const uint32_t num_transport_os_handles = request.num_transport_os_handles;
-  const uint32_t num_os_handles = num_transport_os_handles + 1;
-  const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&request + 1);
+  absl::Span<uint8_t> transport_data =
+      request.GetArrayView<uint8_t>(request.params().transport_data);
+  absl::Span<os::Handle> transport_os_handles =
+      request.GetHandlesView(request.params().transport_os_handles);
+  absl::Span<os::Handle> process_handles =
+      request.GetHandlesView(request.params().process_handle);
 
-  const size_t serialized_size =
-      sizeof(request) + num_transport_bytes +
-      num_os_handles * sizeof(internal::OSHandleData);
-  if (message.data.size() < serialized_size) {
-    return false;
-  }
-  if (message.handles.size() < num_transport_os_handles) {
-    return false;
-  }
-
-  const size_t num_extra_handles =
-      message.handles.size() - num_transport_os_handles;
-  if (num_extra_handles > 1) {
+  if (process_handles.size() > 1) {
     return false;
   }
 
   os::Process new_node_process;
 #if defined(OS_WIN) || defined(OS_FUCHSIA)
-  if (num_extra_handles == 1 && message.handles[0]) {
-    new_node_process = os::Process(message.handles[0].release());
+  if (process_handles.size() == 1) {
+    new_node_process = os::Process(process_handles[0].release());
   }
 #endif
 
-  auto transport = DriverTransport::Deserialize(
-      node_->driver(), node_->driver_node(),
-      absl::Span<const uint8_t>(bytes, num_transport_bytes),
-      message.handles.subspan(num_extra_handles));
+  auto transport =
+      DriverTransport::Deserialize(node_->driver(), node_->driver_node(),
+                                   transport_data, transport_os_handles);
   if (!transport) {
     return false;
   }
 
   return node_->OnRequestIndirectBrokerConnection(
-      *this, request.request_id, std::move(transport),
-      std::move(new_node_process), request.num_initial_portals);
+      *this, request.params().request_id, std::move(transport),
+      std::move(new_node_process), request.params().num_initial_portals);
 }
 
 bool NodeLink::OnAcceptIndirectBrokerConnection(
@@ -583,6 +561,10 @@ bool NodeLink::OnSetRouterLinkStateAddress(
 }
 
 bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
   const NodeName name = intro.params().name;
   const bool known = intro.params().known;
   if (!known) {

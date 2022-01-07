@@ -127,6 +127,34 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToBroker, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM_HANDLE_ARRAY(primary_buffer_memory)
 IPCZ_MSG_END()
 
+// Requests that a broker node accept a new non-broker client, introduced
+// indirectly by some established non-broker client on the new client's behalf.
+// This message supports ConnectNode() calls which specify
+// IPCZ_CONNECT_NODE_SHARE_BROKER. The calling node in that case sends this
+// message -- which also contains a serialized representation of the transport
+// given to the call -- to its broker.
+//
+// The broker then uses the transport to complete a special handshake with the
+// new client node (via ConnectFromBrokerIndirect and ConnectToBrokerIndirect),
+// and it responds to the sender of this message with an
+// AcceptIndirectBrokerConnection.
+//
+// Finally the broker then introduces the sender of this message to the new
+// client using the usual IntroduceNode messages. Each non-broker node by that
+// point has enough information (by receiving either ConnectFromBrokerIndirect
+// or AcceptIndirectBrokerConnection) to expect that introduction and use it to
+// establish initial portals between the two non-broker nodes as their original
+// ConnectNode() calls intended.
+IPCZ_MSG_BEGIN(RequestIndirectBrokerConnection,
+               IPCZ_MSG_ID(10),
+               IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(uint64_t, request_id)
+  IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, transport_data)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(transport_os_handles)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(process_handle)
+IPCZ_MSG_END()
+
 // A reply to RequestIndirectBrokerConnection. If `success` is true, this
 // message will be followed immediately by an IntroduceNode message to introduce
 // the recipient of this message to the newly connected node. See

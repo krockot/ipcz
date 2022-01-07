@@ -174,7 +174,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
   // everything else).
   bool OnRequestIndirectBrokerConnection(
-      const DriverTransport::Message& message);
+      msg::RequestIndirectBrokerConnection& request);
   bool OnAcceptIndirectBrokerConnection(
       const msg::AcceptIndirectBrokerConnection& accept);
   bool OnAcceptParcel(msg::AcceptParcel& message);

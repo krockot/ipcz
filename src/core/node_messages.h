@@ -41,37 +41,6 @@ namespace msg {
 
 #pragma pack(pop)
 
-// TODO: Messages defined here are dynamically size due to variable-length
-// array fields. Support dynamic message sizing and array-typed fields with the
-// cheesy message macro scheme so that we can avoid the one-offs.
-
-// Requests that a broker node accept a new non-broker client, introduced
-// indirectly by some established non-broker client on the new client's behalf.
-// This message supports ConnectNode() calls which specify
-// IPCZ_CONNECT_NODE_SHARE_BROKER. The calling node in that case sends this
-// message -- which also contains a serialized representation of the transport
-// given to the call -- to its broker.
-//
-// The broker then uses the transport to complete a special handshake with the
-// new client node (via ConnectFromBrokerIndirect and ConnectToBrokerIndirect),
-// and it responds to the sender of this message with an
-// AcceptIndirectBrokerConnection.
-//
-// Finally the broker then introduces the sender of this message to the new
-// client using the usual IntroduceNode messages. Each non-broker node by that
-// point has enough information (by receiving either ConnectFromBrokerIndirect
-// or AcceptIndirectBrokerConnection) to expect that introduction and use it to
-// establish initial portals between the two non-broker nodes as their original
-// ConnectNode() calls intended.
-struct IPCZ_ALIGN(16) RequestIndirectBrokerConnection {
-  static constexpr uint8_t kId = 10;
-  internal::MessageHeader message_header;
-  uint64_t request_id;
-  uint32_t num_initial_portals;
-  uint32_t num_transport_bytes;
-  uint32_t num_transport_os_handles;
-};
-
 }  // namespace msg
 }  // namespace core
 }  // namespace ipcz
