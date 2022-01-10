@@ -5,11 +5,11 @@
 #ifndef IPCZ_SRC_UTIL_RANDOM_H_
 #define IPCZ_SRC_UTIL_RANDOM_H_
 
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
+#include <cstdint>
 
 namespace ipcz {
 
-absl::uint128 RandomUint128();
+uint64_t RandomUint64();
 
 }  // namespace ipcz
 

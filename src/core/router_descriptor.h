@@ -18,7 +18,7 @@ namespace core {
 // transferred to a new node, we use this structure to serialize a description
 // of a new Router to back that moved portal. This new router is an inward peer
 // of the portal's previous router at the sending location.
-struct IPCZ_ALIGN(16) RouterDescriptor {
+struct IPCZ_ALIGN(8) RouterDescriptor {
   RouterDescriptor();
   RouterDescriptor(const RouterDescriptor&);
   RouterDescriptor& operator=(const RouterDescriptor&);

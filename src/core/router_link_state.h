@@ -19,7 +19,7 @@ namespace core {
 // RouterLink to synchronously query and reflect router state. Note that each
 // instance of this structure is only shared between at most two routers on two
 // nodes.
-struct IPCZ_ALIGN(16) RouterLinkState {
+struct IPCZ_ALIGN(8) RouterLinkState {
   RouterLinkState();
   ~RouterLinkState();
 
@@ -103,7 +103,7 @@ struct IPCZ_ALIGN(16) RouterLinkState {
   bool CancelBypassLock();
 };
 
-static_assert(sizeof(RouterLinkState) == 32, "Invalid RouterLinkState size");
+static_assert(sizeof(RouterLinkState) == 24, "Invalid RouterLinkState size");
 
 }  // namespace core
 }  // namespace ipcz

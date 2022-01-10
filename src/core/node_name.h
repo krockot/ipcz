@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "ipcz/ipcz.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 namespace ipcz {
 namespace core {
@@ -20,42 +19,49 @@ namespace core {
 //
 // Names are assigned by a broker node to any connecting client, and clients are
 // introduced to each other by name, exclusively through a broker. This means
-// that every NodeLink a node has to a remote node is authoritatively associated
-// with a unique NodeName for the remote node. This association cannot be
-// spoofed and without compromising a broker node it is impossible to
-// impersonate one node to another.
+// that the remote node identity on every NodeLink is authoritative and node
+// identities cannot be spoofed without the help of a broker node.
 //
 // NodeNames are randomly generated and hard to guess, but they are not kept
 // secret and their knowledge alone is not enough to exfiltrate messages from or
 // otherwise interfere with any existing routes running through the named node.
-class IPCZ_ALIGN(16) NodeName {
+class IPCZ_ALIGN(8) NodeName {
  public:
   enum { kRandom };
 
-  constexpr NodeName() : value_(0) {}
+  constexpr NodeName() : high_(0), low_(0) {}
   explicit NodeName(decltype(kRandom));
-  constexpr NodeName(absl::uint128 value) : value_(value) {}
+  constexpr NodeName(uint64_t high, uint64_t low) : high_(high), low_(low) {}
   ~NodeName();
 
-  bool is_valid() const { return value_ != 0; }
+  bool is_valid() const { return high_ != 0 || low_ != 0; }
 
-  uint64_t high() const { return absl::Uint128High64(value_); }
-  uint64_t low() const { return absl::Uint128Low64(value_); }
+  uint64_t high() const { return high_; }
+  uint64_t low() const { return low_; }
 
-  bool operator==(const NodeName& rhs) const { return value_ == rhs.value_; }
-  bool operator!=(const NodeName& rhs) const { return value_ != rhs.value_; }
-  bool operator<(const NodeName& rhs) const { return value_ < rhs.value_; }
+  bool operator==(const NodeName& rhs) const {
+    return std::tie(high_, low_) == std::tie(rhs.high_, rhs.low_);
+  }
+
+  bool operator!=(const NodeName& rhs) const {
+    return std::tie(high_, low_) != std::tie(rhs.high_, rhs.low_);
+  }
+
+  bool operator<(const NodeName& rhs) const {
+    return std::tie(high_, low_) < std::tie(rhs.high_, rhs.low_);
+  }
 
   // Support for absl::Hash.
   template <typename H>
   friend H AbslHashValue(H h, const NodeName& name) {
-    return H::combine(std::move(h), name.value_);
+    return H::combine(std::move(h), name.high_, name.low_);
   }
 
   std::string ToString() const;
 
  public:
-  absl::uint128 value_ = 0;
+  uint64_t high_ = 0;
+  uint64_t low_ = 0;
 };
 
 }  // namespace core

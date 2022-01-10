@@ -8,7 +8,6 @@
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "third_party/abseil-cpp/absl/numeric/int128.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -32,8 +31,8 @@
 
 namespace ipcz {
 
-absl::uint128 RandomUint128() {
-  absl::uint128 value;
+uint64_t RandomUint64() {
+  uint64_t value;
 #if defined(OS_WIN)
   char* output = reinterpret_cast<char*>(words.data());
   const bool ok = RtlGenRandom(&value, sizeof(value));

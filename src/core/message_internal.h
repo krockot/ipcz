@@ -90,12 +90,12 @@ struct ParamMetadata {
   bool is_handle_array;
 };
 
-class IPCZ_ALIGN(16) MessageBuilderBase {
+class IPCZ_ALIGN(8) MessageBase {
  public:
   using SharedMemoryParams = std::tuple<uint32_t, uint32_t>;
 
-  MessageBuilderBase(uint8_t message_id, size_t params_size);
-  ~MessageBuilderBase();
+  MessageBase(uint8_t message_id, size_t params_size);
+  ~MessageBase();
 
   MessageHeader& header() {
     return *reinterpret_cast<MessageHeader*>(data_.data());
@@ -149,7 +149,7 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
   }
 
  protected:
-  size_t Align(size_t x) { return (x + 15) & 0xfffffffffffffff0ull; }
+  size_t Align(size_t x) { return (x + 7) & ~7; }
 
   size_t SerializeHandleArray(uint32_t param_offset,
                               uint32_t base_handle_index,
@@ -169,16 +169,15 @@ class IPCZ_ALIGN(16) MessageBuilderBase {
 };
 
 template <typename ParamDataType>
-class MessageBuilder : public MessageBuilderBase {
+class Message : public MessageBase {
  public:
-  MessageBuilder()
-      : MessageBuilderBase(ParamDataType::kId, sizeof(ParamDataType)) {
+  Message() : MessageBase(ParamDataType::kId, sizeof(ParamDataType)) {
     ParamDataType& p = *(new (&params()) ParamDataType());
     p.header.size = sizeof(p);
     p.header.version = ParamDataType::kVersion;
   }
 
-  ~MessageBuilder() = default;
+  ~Message() = default;
 
   ParamDataType& params() {
     return *reinterpret_cast<ParamDataType*>(&data_[header().size]);

@@ -17,7 +17,7 @@ namespace ipcz {
 namespace core {
 namespace internal {
 
-MessageBuilderBase::MessageBuilderBase(uint8_t message_id, size_t params_size)
+MessageBase::MessageBase(uint8_t message_id, size_t params_size)
     : data_(sizeof(MessageHeader) + params_size),
       message_id_(message_id),
       params_size_(params_size) {
@@ -27,10 +27,10 @@ MessageBuilderBase::MessageBuilderBase(uint8_t message_id, size_t params_size)
   h.message_id = message_id;
 }
 
-MessageBuilderBase::~MessageBuilderBase() = default;
+MessageBase::~MessageBase() = default;
 
-uint32_t MessageBuilderBase::AllocateGenericArray(size_t element_size,
-                                                  size_t num_elements) {
+uint32_t MessageBase::AllocateGenericArray(size_t element_size,
+                                           size_t num_elements) {
   size_t offset = Align(data_.size());
   size_t num_bytes = Align(sizeof(ArrayHeader) + element_size * num_elements);
   data_.resize(offset + num_bytes);
@@ -40,7 +40,7 @@ uint32_t MessageBuilderBase::AllocateGenericArray(size_t element_size,
   return offset;
 }
 
-uint32_t MessageBuilderBase::AppendHandles(absl::Span<os::Handle> handles) {
+uint32_t MessageBase::AppendHandles(absl::Span<os::Handle> handles) {
   uint32_t offset = AllocateGenericArray(sizeof(OSHandleData), handles.size());
   handles_.reserve(handles_.size() + handles.size());
   for (os::Handle& handle : handles) {
@@ -49,7 +49,7 @@ uint32_t MessageBuilderBase::AppendHandles(absl::Span<os::Handle> handles) {
   return offset;
 }
 
-MessageBuilderBase::SharedMemoryParams MessageBuilderBase::AppendSharedMemory(
+MessageBase::SharedMemoryParams MessageBase::AppendSharedMemory(
     const IpczDriver& driver,
     DriverMemory memory) {
   SharedMemoryParams params{0, 0};
@@ -70,18 +70,16 @@ MessageBuilderBase::SharedMemoryParams MessageBuilderBase::AppendSharedMemory(
   return {data_param, handles_param};
 }
 
-DriverMemory MessageBuilderBase::TakeSharedMemory(
-    const IpczDriver& driver,
-    const SharedMemoryParams& params) {
+DriverMemory MessageBase::TakeSharedMemory(const IpczDriver& driver,
+                                           const SharedMemoryParams& params) {
   return DriverMemory::Deserialize(driver,
                                    GetArrayView<uint8_t>(std::get<0>(params)),
                                    GetHandlesView(std::get<1>(params)));
 }
 
-size_t MessageBuilderBase::SerializeHandleArray(
-    uint32_t param_offset,
-    uint32_t base_handle_index,
-    absl::Span<os::Handle> handles) {
+size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
+                                         uint32_t base_handle_index,
+                                         absl::Span<os::Handle> handles) {
   uint32_t array_offset =
       *reinterpret_cast<uint32_t*>(&params_data_view()[param_offset]);
   absl::Span<OSHandleData> handle_data =
@@ -102,7 +100,7 @@ size_t MessageBuilderBase::SerializeHandleArray(
   return handle_data.size();
 }
 
-bool MessageBuilderBase::DeserializeDataAndHandles(
+bool MessageBase::DeserializeDataAndHandles(
     size_t params_size,
     uint32_t params_current_version,
     absl::Span<const ParamMetadata> params_metadata,
