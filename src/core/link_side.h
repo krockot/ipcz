@@ -14,7 +14,7 @@ namespace core {
 // A simple wrapper around an A/B enum to consistently distinguish between two
 // sides of a single conceptual link between routers. Side A and side B are
 // arbitrary choices, but it's important that each side of a link identify as
-// one or the other respectively.
+// one or the other.
 struct LinkSide {
   enum class Value : uint8_t {
     kA = 0,

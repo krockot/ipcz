@@ -17,9 +17,8 @@ namespace ipcz {
 namespace core {
 
 // Local link between two Routers on the same node. A LocalRouterLink is always
-// connected to the other side of the route. Several RouterLink overrides are
-// unimplemented by LocalRouterLink as they are unnecessary and unused for local
-// links.
+// a central link. Several RouterLink overrides are unimplemented by
+// LocalRouterLink as they are unnecessary and unused for local links.
 class LocalRouterLink : public RouterLink {
  public:
   enum class InitialState {

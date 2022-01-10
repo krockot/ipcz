@@ -21,6 +21,8 @@ namespace core {
 class Node;
 class Router;
 
+// A Portal owns a terminal Router along a route. Portals are manipulated
+// directly by public ipcz API calls.
 class Portal : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<Portal>, mem::Ref<Portal>>;

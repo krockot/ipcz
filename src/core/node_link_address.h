@@ -14,9 +14,9 @@
 namespace ipcz {
 namespace core {
 
-// Represents the location of a block of memory shared between the two nodes on
-// either end of a NodeLink. A NodeLinkAddress can be resolved to a real memory
-// address by passing it to NodeLinKMemory:;GetMappedAddress() or
+// Represents a memory location within the shared memory regions owned by a
+// NodeLinkMemory. A NodeLinkAddress can be resolved to a real memory address by
+// passing it to NodeLinKMemory::GetMappedAddress() or
 // NodeLinkMemory::GetMapped<T>().
 struct IPCZ_ALIGN(8) NodeLinkAddress {
   constexpr NodeLinkAddress() = default;

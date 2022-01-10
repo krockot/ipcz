@@ -24,9 +24,8 @@ class NodeLink;
 class Portal;
 
 // A NodeConnector activates and temporarily attaches itself to a
-// DriverTransport to listen listen for and transmit introductory messages
-// between two nodes invoking ConnectNode() on opposite ends of the same
-// transport pair.
+// DriverTransport to listen for and transmit introductory messages between two
+// nodes invoking ConnectNode() on opposite ends of the same transport pair.
 //
 // Once an initial handshake is complete the underlying transport is adopted by
 // a new NodeLink and handed off to the local Node to communicate with the

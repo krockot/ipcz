@@ -25,7 +25,7 @@ namespace core {
 // by portal relocation or bridged via portal merges may grow into arbitrarily
 // long chains of bridged routes with many peripheral links, but over time all
 // interior routers are bypassed by incrementally decaying and replacing central
-// links and bridge links.
+// links and bridge links with new central links.
 struct LinkType {
   enum class Value {
     // The link along a route which connects one side of the route to the other.

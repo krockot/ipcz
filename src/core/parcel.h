@@ -23,14 +23,7 @@ namespace core {
 class Portal;
 
 // Represents a parcel queued within a portal, either for inbound retrieval or
-// outgoing transfer. Each parcel contains an optional link to the next Parcel
-// in its queue.
-//
-// TODO: These will need sequence numbers assigned by the sender so they can be
-// ordered by the receiver. This is necessary because some parcels will have to
-// be relayed through the broker and some may be sent from different nodes (due
-// to portal relocation), so we can't guarantee that they'll arrive in the same
-// order they were sent.
+// outgoing transfer.
 class Parcel {
  public:
   using PortalVector = absl::InlinedVector<mem::Ref<Portal>, 4>;

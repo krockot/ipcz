@@ -14,9 +14,13 @@ namespace core {
 class DriverMemoryMapping {
  public:
   DriverMemoryMapping();
+
+  // Tracks the driver-produced handle and base address of an active memory
+  // mapping.
   DriverMemoryMapping(const IpczDriver& driver,
                       IpczDriverHandle mapping_handle,
                       void* address);
+
   DriverMemoryMapping(DriverMemoryMapping&& other);
   DriverMemoryMapping(const DriverMemoryMapping&) = delete;
   DriverMemoryMapping& operator=(DriverMemoryMapping&& other);

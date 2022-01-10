@@ -10,7 +10,11 @@
 namespace ipcz {
 namespace core {
 
-// TODO: strong alias?
+// Identifies a shared memory buffer scoped to a NodeLink and owned by its
+// NodeLinkMemory. New BufferIds are allocated atomically by either side of the
+// NodeLink.
+//
+// TODO: Use a strong alias?
 using BufferId = uint64_t;
 
 }  // namespace core

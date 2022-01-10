@@ -20,7 +20,7 @@ namespace {
 
 constexpr size_t kAuxBufferSize = 16384;
 
-struct IPCZ_ALIGN(16) PrimaryBufferLayout {
+struct IPCZ_ALIGN(8) PrimaryBufferLayout {
   std::atomic<uint64_t> next_routing_id{0};
   std::atomic<uint64_t> next_buffer_id{1};
   std::atomic<uint64_t> next_router_link_state_index{0};

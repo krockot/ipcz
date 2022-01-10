@@ -19,6 +19,8 @@
 namespace ipcz {
 namespace core {
 
+// Encapsulates shared ownership of a transport endpoint created by an ipcz
+// driver..
 class DriverTransport : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>;
@@ -78,18 +80,36 @@ class DriverTransport : public mem::RefCounted {
   // DriverTranport.
   IpczDriverHandle Release();
 
+  // Begins listening on the transport for incoming data and OS handles. Once
+  // this is called, the transport's Listener may be invoked by the driver at
+  // any time from arbitrary threads. The driver will continue listening until
+  // Deactivate() is called.
   IpczResult Activate();
+
+  // Requests that the driver cease listening for incoming data and OS handles
+  // on this transport. Once a transport is deactivated, it can never be
+  // reactivated.
   IpczResult Deactivate();
+
+  // Asks the driver to submit the data and/or OS handles in `message` for
+  // transmission from this transport endpoint to the corresponding opposite
+  // endpoint.
   IpczResult TransmitMessage(const Message& message);
 
+  // Serializes this transport into a collection of `data` and `handles` for
+  // transmission over some other transport. A transport must not be serialized
+  // once it has been activated.
   IpczResult Serialize(std::vector<uint8_t>& data,
                        std::vector<os::Handle>& handles);
 
+  // Deserializes a new transport from data and OS handles previously serialized
+  // by Serialize() above.
   static mem::Ref<DriverTransport> Deserialize(const IpczDriver& driver,
                                                IpczDriverHandle driver_node,
                                                absl::Span<const uint8_t> data,
                                                absl::Span<os::Handle> handles);
 
+  // Transmits a Node message over this transport.
   template <typename T>
   IpczResult Transmit(T& message) {
     message.Serialize();
@@ -97,12 +117,8 @@ class DriverTransport : public mem::RefCounted {
         Message(Data(message.data_view()), message.handles_view()));
   }
 
-  template <typename T>
-  IpczResult TransmitData(const T& data) {
-    return TransmitMessage(Message(Data(absl::MakeSpan(
-        reinterpret_cast<const uint8_t*>(&data), sizeof(data)))));
-  }
-
+  // Invoked by the driver any time this transport receives data and/or OS
+  // handles to be passed back into ipcz.
   IpczResult Notify(const Message& message);
   void NotifyError();
 

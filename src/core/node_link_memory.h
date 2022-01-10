@@ -31,7 +31,7 @@ class NodeLink;
 // NodeLinkMemory owns and manages all shared memory resource allocation on a
 // single NodeLink. Each end of a NodeLink has its own NodeLinkMemory instance
 // cooperatively managing the same dynamic pool of memory, shared exclusively
-// between the two endpoint nodes/
+// between the two endpoint nodes.
 class NodeLinkMemory : public mem::RefCounted {
  public:
   NodeLinkMemory(NodeLinkMemory&&);

@@ -11,9 +11,9 @@ namespace ipcz {
 namespace core {
 
 // A direction of travel along a route, relative to a frame of reference such as
-// a router along the route. Moving inward from a router means moving further
-// toward the terminal endpoint on its side of the route. Moving outward means
-// moving instead toward the terminal endpoint of the opposite side.
+// a specific router. Moving inward from a router means moving further toward
+// the terminal endpoint on its side of the route. Moving outward means moving
+// toward the terminal endpoint of the opposite side.
 struct Direction {
   enum class Value {
     kInward,
