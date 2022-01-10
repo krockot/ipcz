@@ -10,6 +10,9 @@
 namespace ipcz {
 namespace core {
 
+// Used to order parcels relative to other parcels in the same conceptual queue,
+// i.e. originating from the same portal and arriving at the same portal.
+//
 // TODO: strong alias?
 using SequenceNumber = uint64_t;
 

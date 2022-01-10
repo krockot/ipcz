@@ -25,7 +25,7 @@ struct IPCZ_ALIGN(8) NodeLinkAddress {
   constexpr NodeLinkAddress(BufferId buffer_id, uint64_t offset)
       : buffer_id_(buffer_id), offset_(offset) {}
 
-  bool is_null() const { return buffer_id_ == 0xffffffffffffffffull; }
+  bool is_null() const { return buffer_id_ == kInvalidBufferId; }
 
   BufferId buffer_id() const { return buffer_id_; }
   uint64_t offset() const { return offset_; }
@@ -35,10 +35,10 @@ struct IPCZ_ALIGN(8) NodeLinkAddress {
  private:
   // Identifies the shared memory buffer in which the memory resides. This ID is
   // scoped to a specific NodeLink.
-  BufferId buffer_id_ = 0xffffffffffffffffull;
+  BufferId buffer_id_ = kInvalidBufferId;
 
   // An offset from the start of the identified shared memory buffer.
-  uint64_t offset_ = 0xffffffffffffffffull;
+  uint64_t offset_ = 0;
 };
 
 constexpr NodeLinkAddress kNullNodeLinkAddress;

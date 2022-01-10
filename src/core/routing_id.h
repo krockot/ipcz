@@ -10,6 +10,10 @@
 namespace ipcz {
 namespace core {
 
+// Identifies a route along a NodeLink. Each route is a path between a unique
+// pair of Router instances, one in each linked node. New RoutingIds are
+// allocated atomically by either side of the NodeLink.
+//
 // TODO: strong alias?
 using RoutingId = uint64_t;
 

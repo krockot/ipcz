@@ -10,7 +10,7 @@
 #define IPCZ_MSG_VERSION(x) static constexpr uint32_t kVersion = x
 
 #define IPCZ_MSG_BEGIN(name, id_decl, version_decl) \
-  struct IPCZ_ALIGN(8) name##_Params {             \
+  struct IPCZ_ALIGN(8) name##_Params {              \
     name##_Params();                                \
     ~name##_Params();                               \
     id_decl;                                        \

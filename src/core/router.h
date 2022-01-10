@@ -36,6 +36,14 @@ struct RouterDescriptor;
 class RouterLink;
 class RemoteRouterLink;
 
+// The Router is the main primitive responsible for routing parcels between ipcz
+// portals. Each portal directly controls a terminal router along its route, and
+// all routes stabilize to eventually consist of only two interconnected
+// terminal routers.
+//
+// When a portal moves, its side of the route is extended by creating a new
+// terminal router at the portal's new location. The previous terminal router
+// remains as a proxying hop to be phased out eventually.
 class Router : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<Router>, mem::Ref<Router>>;

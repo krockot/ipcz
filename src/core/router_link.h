@@ -26,7 +26,7 @@ class Router;
 
 // A RouterLink represents one endpoint of a link between two Routers. Each
 // conceptual link along a route has two RouterLink objects associated with it,
-// one on other side of the link, connecting the link to a Router on that side.
+// one on either side of the link, connecting the link to a Router on that side.
 class RouterLink : public mem::RefCounted {
  public:
   using Pair = std::pair<mem::Ref<RouterLink>, mem::Ref<RouterLink>>;

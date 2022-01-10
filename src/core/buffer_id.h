@@ -17,6 +17,8 @@ namespace core {
 // TODO: Use a strong alias?
 using BufferId = uint64_t;
 
+constexpr BufferId kInvalidBufferId = ~0;
+
 }  // namespace core
 }  // namespace ipcz
 

@@ -12,6 +12,7 @@
 namespace ipcz {
 namespace debug {
 
+// Stringifies a span of bytes as a string of hex octets.
 std::string HexDump(absl::Span<const uint8_t> bytes);
 
 }  // namespace debug

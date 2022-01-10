@@ -15,6 +15,7 @@ namespace core {
 class Trap;
 class TrapEventDispatcher;
 
+// A set of Trap objects managed on a single portal.
 class TrapSet {
  public:
   TrapSet();

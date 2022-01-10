@@ -18,8 +18,15 @@ namespace core {
 class Portal;
 class TrapEventDispatcher;
 
+// Encapsulates state and behavior of an individual trap object as created and
+// managed by public ipcz API calls. A trap watches for state changes on a
+// single portal and invokes a fixed callback when certain changes are observed.
+// Traps must be armed in order to invoke a callback, and arming is only
+// possible while interesting conditions remain unmet.
 class Trap : public mem::RefCounted {
  public:
+  // Constructs a trap to watch for `conditions` on `portal`. If such conditions
+  // become met while the trap is armed, `handler` is invoked with `context`.
   Trap(mem::Ref<Portal> portal,
        const IpczTrapConditions& conditions,
        IpczTrapEventHandler handler,
@@ -27,10 +34,20 @@ class Trap : public mem::RefCounted {
 
   const mem::Ref<Portal>& portal() const { return portal_; }
 
+  // Attempts to arm this trap, which can only succeed if its observed
+  // conditions are currently unmet on the portal. If this fails due to the
+  // conditions being met already, it returns IPCZ_RESULT_FAILED_PRECONDITION
+  // and `satisfied_condition_flags` and/or `status` are populated if non-null.
   IpczResult Arm(IpczTrapConditionFlags* satisfied_condition_flags,
                  IpczPortalStatus* status);
+
+  // Disables the trap to immediately and permanently prevent any further
+  // handler invocations.
   void Disable(IpczDestroyTrapFlags flags);
 
+  // Notifies the trap about a state change on its observed portal. If the trap
+  // is currently armed and the state change should elicit an event handler
+  // invocation, said invocation is queued on `dispatcher`.
   void UpdatePortalStatus(const IpczPortalStatus& status,
                           TrapEventDispatcher& dispatcher);
 
