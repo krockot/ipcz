@@ -117,13 +117,14 @@ bool MessageBase::DeserializeDataAndHandles(
   if (data_.size() < sizeof(MessageHeaderV0)) {
     return false;
   }
-  const auto& header = *reinterpret_cast<const MessageHeaderV0*>(data_.data());
-  if (header.version == 0) {
-    if (header.size != sizeof(MessageHeaderV0)) {
+  const auto& message_header =
+      *reinterpret_cast<const MessageHeaderV0*>(data_.data());
+  if (message_header.version == 0) {
+    if (message_header.size != sizeof(MessageHeaderV0)) {
       return false;
     }
   } else {
-    if (header.size < sizeof(MessageHeaderV0)) {
+    if (message_header.size < sizeof(MessageHeaderV0)) {
       return false;
     }
   }

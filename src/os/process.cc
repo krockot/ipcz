@@ -6,6 +6,11 @@
 
 #include <algorithm>
 
+#if defined(OS_POSIX)
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 #include "build/build_config.h"
 
 namespace ipcz {
