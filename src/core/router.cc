@@ -466,9 +466,13 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
   const uint32_t portals_size = static_cast<uint32_t>(p.portals_view().size());
   const uint32_t os_handles_size =
       static_cast<uint32_t>(p.os_handles_view().size());
+  if (data) {
+    *data = p.data_view().data();
+  }
   if (num_data_bytes) {
     *num_data_bytes = data_size;
-  } else if (data_size) {
+  }
+  if (data_size && (!data || !num_data_bytes)) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
@@ -520,11 +524,12 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
     p.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
   } else {
     p.Consume(portals, os_handles);
+
+    Parcel consumed_parcel;
+    bool ok = inbound_parcels_.Pop(consumed_parcel);
+    ABSL_ASSERT(ok);
   }
 
-  Parcel consumed_parcel;
-  bool ok = inbound_parcels_.Pop(consumed_parcel);
-  ABSL_ASSERT(ok);
 
   status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();

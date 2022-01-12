@@ -91,5 +91,40 @@ TEST_F(EndGetAPITest, Abort) {
                                           &num_bytes, nullptr, nullptr));
 }
 
+TEST_F(EndGetAPITest, PartialData) {
+  Put(q, "abcdef");
+
+  const auto get_string = [](const void* data, size_t length) -> std::string {
+    const uint8_t* bytes = static_cast<const uint8_t*>(data);
+    return std::string(bytes, bytes + length);
+  };
+
+  const void* data = nullptr;
+  uint32_t num_bytes = 0;
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
+                                          &num_bytes, nullptr, nullptr));
+  ASSERT_TRUE(data);
+  ASSERT_EQ(6u, num_bytes);
+  EXPECT_EQ("ab", get_string(data, 2));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr));
+
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
+                                          &num_bytes, nullptr, nullptr));
+  ASSERT_TRUE(data);
+  ASSERT_EQ(4u, num_bytes);
+  EXPECT_EQ("cd", get_string(data, 2));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr));
+
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
+                                          &num_bytes, nullptr, nullptr));
+  ASSERT_TRUE(data);
+  ASSERT_EQ(2u, num_bytes);
+  EXPECT_EQ("ef", get_string(data, 2));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                        nullptr, nullptr, nullptr));
+}
+
 }  // namespace
 }  // namespace ipcz
