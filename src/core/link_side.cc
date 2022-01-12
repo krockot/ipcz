@@ -14,7 +14,7 @@ constexpr LinkSide::Value LinkSide::kA;
 constexpr LinkSide::Value LinkSide::kB;
 
 std::string LinkSide::ToString() const {
-  return value_ == Value::kA ? "left" : "right";
+  return value_ == Value::kA ? "A" : "B";
 }
 
 }  // namespace core

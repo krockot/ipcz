@@ -19,6 +19,7 @@
 #include "core/router.h"
 #include "core/router_link_state.h"
 #include "core/trap.h"
+#include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -59,6 +60,9 @@ Portal::~Portal() = default;
 Portal::Pair Portal::CreatePair(mem::Ref<Node> node) {
   Router::Pair routers{mem::MakeRefCounted<Router>(),
                        mem::MakeRefCounted<Router>()};
+  DVLOG(5) << "Created new portal pair with routers " << routers.first.get()
+           << " and " << routers.second.get();
+
   RouterLink::Pair links = LocalRouterLink::CreatePair(
       LinkType::kCentral, LocalRouterLink::InitialState::kCanBypass, routers);
   routers.first->SetOutwardLink(std::move(links.first));

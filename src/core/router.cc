@@ -155,13 +155,14 @@ void Router::CloseRoute() {
     ABSL_ASSERT(!inward_edge_);
     traps_.DisableAllAndClear();
 
+    final_sequence_length = outbound_parcels_.GetCurrentSequenceLength();
+    outbound_parcels_.SetFinalSequenceLength(final_sequence_length);
+
     forwarding_link = outward_edge_.primary_link();
     if (!forwarding_link) {
       return;
     }
 
-    final_sequence_length = outbound_parcels_.GetCurrentSequenceLength();
-    outbound_parcels_.SetFinalSequenceLength(final_sequence_length);
     if (outbound_parcels_.IsDead()) {
       dead_outward_link = outward_edge_.ReleasePrimaryLink();
     }
@@ -328,7 +329,8 @@ void Router::AcceptRouteClosureFrom(Direction source,
                                     SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
   mem::Ref<RouterLink> forwarding_link;
-  mem::Ref<RouterLink> dead_outward_link;
+  mem::Ref<RouterLink> dead_primary_link;
+  mem::Ref<RouterLink> dead_decaying_link;
   mem::Ref<RouterLink> bridge_link;
   if (source.is_inward()) {
     // If we're being notified of our own side's closure, we want to propagate
@@ -336,6 +338,10 @@ void Router::AcceptRouteClosureFrom(Direction source,
     absl::MutexLock lock(&mutex_);
     outbound_parcels_.SetFinalSequenceLength(sequence_length);
     forwarding_link = outward_edge_.GetLinkToPropagateRouteClosure();
+    if (!outbound_parcels_.IsExpectingMoreParcels()) {
+      dead_primary_link = outward_edge_.ReleasePrimaryLink();
+      dead_decaying_link = outward_edge_.ReleaseDecayingLink();
+    }
 
     // If we're receiving this, it's coming from the other side of the bridge
     // which is already reset by now.
@@ -350,10 +356,8 @@ void Router::AcceptRouteClosureFrom(Direction source,
       forwarding_link = inward_edge_->GetLinkToPropagateRouteClosure();
     } else if (bridge_) {
       forwarding_link = bridge_->GetLinkToPropagateRouteClosure();
-      dead_outward_link = bridge_->ReleasePrimaryLink();
-      if (!dead_outward_link) {
-        dead_outward_link = bridge_->ReleaseDecayingLink();
-      }
+      dead_primary_link = bridge_->ReleasePrimaryLink();
+      dead_decaying_link = bridge_->ReleaseDecayingLink();
     } else {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       if (inbound_parcels_.IsDead()) {
@@ -365,7 +369,8 @@ void Router::AcceptRouteClosureFrom(Direction source,
         // We can drop our outward link if we know there are no more in-flight
         // parcels coming our way. Otherwise it'll be dropped as soon as that's
         // the case.
-        dead_outward_link = outward_edge_.ReleasePrimaryLink();
+        dead_primary_link = outward_edge_.ReleasePrimaryLink();
+        dead_decaying_link = outward_edge_.ReleaseDecayingLink();
       }
     }
   }
@@ -374,9 +379,15 @@ void Router::AcceptRouteClosureFrom(Direction source,
     forwarding_link->AcceptRouteClosure(sequence_length);
   }
 
-  if (dead_outward_link) {
-    dead_outward_link->Deactivate();
+  if (dead_primary_link) {
+    dead_primary_link->Deactivate();
   }
+
+  if (dead_decaying_link) {
+    dead_decaying_link->Deactivate();
+  }
+
+  Flush();
 }
 
 IpczResult Router::GetNextIncomingParcel(void* data,
@@ -1004,7 +1015,13 @@ void Router::LogDescription() {
     DLOG(INFO) << " - inward edge:";
     inward_edge_->LogDescription();
   } else {
-    DLOG(INFO) << " - inward edge: (none)";
+    DLOG(INFO) << " - no inward edge";
+  }
+  if (bridge_) {
+    DLOG(INFO) << " - bridge:";
+    bridge_->LogDescription();
+  } else {
+    DLOG(INFO) << " - no bridge";
   }
 }
 
@@ -1141,12 +1158,17 @@ void Router::Flush() {
     if (inward_edge_ && inbound_parcels_.final_sequence_length()) {
       inward_link_for_closure_propagation =
           inward_edge_->GetLinkToPropagateRouteClosure();
+    } else if (bridge_ && inbound_parcels_.final_sequence_length()) {
+      inward_link_for_closure_propagation =
+          bridge_->GetLinkToPropagateRouteClosure();
     }
 
     if (inward_link_for_closure_propagation) {
       final_inward_sequence_length = *inbound_parcels_.final_sequence_length();
-      if (inbound_parcels_.IsDead()) {
+      if (inbound_parcels_.IsDead() && inward_edge_) {
         dead_inward_link = inward_edge_->ReleasePrimaryLink();
+      } else if (inbound_parcels_.IsDead() && bridge_) {
+        bridge_.reset();
       }
     }
   }

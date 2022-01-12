@@ -4,6 +4,7 @@
 
 #include "core/local_router_link.h"
 
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -184,8 +185,11 @@ void LocalRouterLink::Deactivate() {
 }
 
 std::string LocalRouterLink::Describe() const {
-  return side_.ToString() + "-side link to local peer on " +
-         side_.opposite().ToString() + " side";
+  std::stringstream ss;
+  ss << side_.ToString() << "-side link to local peer "
+     << state_->side(side_.opposite()).get() << " on "
+     << side_.opposite().ToString() << " side";
+  return ss.str();
 }
 
 void LocalRouterLink::LogRouteTrace() {

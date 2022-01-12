@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <thread>
+
 #include "ipcz/ipcz.h"
 #include "test/multinode_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -64,6 +66,50 @@ TEST_P(MergePortalsTest, MergeWithConnectNodePortal) {
   }
 
   ClosePortals({a, d});
+  DestroyNodes({node0, node1});
+}
+
+TEST_P(MergePortalsTest, MergeWithClosedPeer) {
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle a, b, c, d;
+  OpenPortals(node, &a, &b);
+  OpenPortals(node, &c, &d);
+  ClosePortals({a});
+
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.MergePortals(b, c, IPCZ_NO_FLAGS, nullptr));
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(d, p));
+
+  while (GetNumRouters() > 1) {
+    std::this_thread::yield();
+  }
+
+  ClosePortals({d});
+  DestroyNodes({node});
+}
+
+TEST_P(MergePortalsTest, MergeWithClosedRemotePeer) {
+  IpczHandle node0 = CreateBrokerNode();
+  IpczHandle node1 = CreateNonBrokerNode();
+
+  IpczHandle a, b;
+  Connect(node0, node1, &a, &b);
+
+  IpczHandle c, d;
+  OpenPortals(node1, &c, &d);
+
+  ClosePortals({a});
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.MergePortals(b, c, IPCZ_NO_FLAGS, nullptr));
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(d, p));
+
+  while (GetNumRouters() > 1) {
+    std::this_thread::yield();
+  }
+
+  ClosePortals({d});
   DestroyNodes({node0, node1});
 }
 
