@@ -175,7 +175,7 @@ void Router::CloseRoute() {
 }
 
 IpczResult Router::Merge(mem::Ref<Router> other) {
-  if (HasLocalPeer(other)) {
+  if (HasLocalPeer(other) || other == this) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -184,6 +184,13 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
     if (inward_edge_ || other->inward_edge_ || bridge_ || other->bridge_) {
       // It's not legit to call this on non-terminal routers.
       return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (inbound_parcels_.current_sequence_number() > 0 ||
+        outbound_parcels_.GetCurrentSequenceLength() > 0 ||
+        other->inbound_parcels_.current_sequence_number() > 0 ||
+        other->outbound_parcels_.GetCurrentSequenceLength() > 0) {
+      return IPCZ_RESULT_FAILED_PRECONDITION;
     }
 
     bridge_ = std::make_unique<RouteEdge>();

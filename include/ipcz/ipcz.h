@@ -893,8 +893,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        merged portals' respective peers, including any parcels that were
   //        in flight or queued at the time of this merge.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `first` or `second` is invalid, or if
-  //        `first` and `second` are each others' peer.
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `first` or `second` is invalid, if
+  //        `first` and `second` are each others' peer, or `first` and `second`
+  //        refer to the same portal.
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if either `first` or `second` has
   //        already had one or more parcels put into or gotten out of them.
