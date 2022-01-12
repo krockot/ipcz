@@ -130,9 +130,8 @@ IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
   os::Event event;
   os::Event::Notifier notifier = event.MakeNotifier();
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags =
-      IPCZ_TRAP_CONDITION_LOCAL_PARCELS | IPCZ_TRAP_CONDITION_DEAD;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD;
+  conditions.min_local_parcels = 0;
   const auto handler = [](const IpczTrapEvent* event) {
     reinterpret_cast<os::Event::Notifier*>(event->context)->Notify();
   };

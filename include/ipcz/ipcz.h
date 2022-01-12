@@ -579,33 +579,41 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
 typedef uint32_t IpczTrapConditionFlags;
 
 // Triggers a trap event whenever the opposite portal is closed. Typically
-// applications are interested in the more specific IPCZ_TRAP_CONDITION_DEAD.
-#define IPCZ_TRAP_CONDITION_PEER_CLOSED IPCZ_FLAG_BIT(1)
+// applications are interested in the more specific IPCZ_TRAP_DEAD.
+#define IPCZ_TRAP_PEER_CLOSED IPCZ_FLAG_BIT(1)
 
 // Triggers a trap event whenever there are no more parcels available to
 // retrieve from this portal AND the opposite portal is closed. This means the
 // portal will never again have parcels to retrieve and is effectively useless.
-#define IPCZ_TRAP_CONDITION_DEAD IPCZ_FLAG_BIT(2)
+#define IPCZ_TRAP_DEAD IPCZ_FLAG_BIT(2)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
 // this portal meets or exceeds the threshold given by `min_local_parcels` in
 // IpczTrapConditions.
-#define IPCZ_TRAP_CONDITION_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
+#define IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval by
 // this portal meets or exceeds the threshold given by `min_local_bytes` in
 // IpczTrapConditions.
-#define IPCZ_TRAP_CONDITION_LOCAL_BYTES IPCZ_FLAG_BIT(4)
+#define IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES IPCZ_FLAG_BIT(4)
+
+// Triggers a trap event whenever the number of parcels queued for retrieval by
+// this portal increases by any amount.
+#define IPCZ_TRAP_NEW_LOCAL_PARCEL IPCZ_FLAG_BIT(5)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_parcels`
 // in IpczTrapConditions.
-#define IPCZ_TRAP_CONDITION_REMOTE_PARCELS IPCZ_FLAG_BIT(5)
+#define IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS IPCZ_FLAG_BIT(6)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_bytes` in
 // in IpczTrapConditions.
-#define IPCZ_TRAP_CONDITION_REMOTE_BYTES IPCZ_FLAG_BIT(6)
+#define IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES IPCZ_FLAG_BIT(7)
+
+// Triggers a trap event whenever the number of queued remote parcels decreases
+// by any amount.
+#define IPCZ_TRAP_CONSUMED_REMOTE_PARCEL IPCZ_FLAG_BIT(8)
 
 // A structure describing portal conditions necessary to trigger a trap and
 // invoke its event handler.
@@ -614,23 +622,23 @@ struct IPCZ_ALIGN(8) IpczTrapConditions {
   // passing the structure to CreateTrap() or ArmTrap().
   uint32_t size;
 
-  // See the IPCZ_TRAP_CONDITION_* flags described above.
+  // See the IPCZ_TRAP_* flags described above.
   IpczTrapConditionFlags flags;
 
-  // See IPCZ_TRAP_CONDITION_LOCAL_PARCELS. If that flag is not set in
-  // `flags`, this field is ignored.
+  // See IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS. If that flag is not set in `flags`,
+  // this field is ignord.
   uint32_t min_local_parcels;
 
-  // See IPCZ_TRAP_CONDITION_LOCAL_BYTES. If that flag is not set in
-  // `flags`, this field is ignored.
+  // See IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES. If that flag is not set in `flags`,
+  // this field is ignored.
   uint32_t min_local_bytes;
 
-  // See IPCZ_TRAP_CONDITION_REMOTE_PARCELS. If that flag is not set in
-  // `flags`, this field is ignored.
+  // See IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS. If that flag is not set in `flags`,
+  // this field is ignored.
   uint32_t max_remote_parcels;
 
-  // See IPCZ_TRAP_CONDITION_REMOTE_BYTES. If that flag is not set in
-  // `flags`, this field is ignored.
+  // See IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES. If that flag is not set in `flags`,
+  // this field is ignored.
   uint32_t max_remote_bytes;
 };
 
@@ -1273,7 +1281,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // An armed trap will invoke its `handler` as soon as any condition described
   // by `conditions` becomes satisfied. For example if `conditions` specifies an
-  // interest in IPCZ_TRAP_CONDITION_LOCAL_PARCELS with a value of 1 in
+  // interest in IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS with a value of 0 in
   // `min_local_parcels` and the trap is armed, then `handler` will be invoked
   // as soon as there is at least one incoming parcel available for retrieval on
   // `portal`.

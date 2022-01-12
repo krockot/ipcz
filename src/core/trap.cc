@@ -81,29 +81,29 @@ void Trap::UpdatePortalStatus(const IpczPortalStatus& status,
 
 IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
   IpczTrapConditionFlags event_flags = 0;
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_PEER_CLOSED) &&
+  if ((conditions_.flags & IPCZ_TRAP_PEER_CLOSED) &&
       (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
-    event_flags |= IPCZ_TRAP_CONDITION_PEER_CLOSED;
+    event_flags |= IPCZ_TRAP_PEER_CLOSED;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_DEAD) &&
+  if ((conditions_.flags & IPCZ_TRAP_DEAD) &&
       (status.flags & IPCZ_PORTAL_STATUS_DEAD)) {
-    event_flags |= IPCZ_TRAP_CONDITION_DEAD;
+    event_flags |= IPCZ_TRAP_DEAD;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) &&
-      status.num_local_parcels >= conditions_.min_local_parcels) {
-    event_flags |= IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
+  if ((conditions_.flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) &&
+      status.num_local_parcels > conditions_.min_local_parcels) {
+    event_flags |= IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_LOCAL_BYTES) &&
-      status.num_local_bytes >= conditions_.min_local_bytes) {
-    event_flags |= IPCZ_TRAP_CONDITION_LOCAL_BYTES;
+  if ((conditions_.flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES) &&
+      status.num_local_bytes > conditions_.min_local_bytes) {
+    event_flags |= IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_REMOTE_PARCELS) &&
+  if ((conditions_.flags & IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS) &&
       status.num_remote_parcels < conditions_.max_remote_parcels) {
-    event_flags |= IPCZ_TRAP_CONDITION_REMOTE_PARCELS;
+    event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS;
   }
-  if ((conditions_.flags & IPCZ_TRAP_CONDITION_REMOTE_BYTES) &&
+  if ((conditions_.flags & IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES) &&
       status.num_remote_bytes < conditions_.max_remote_bytes) {
-    event_flags |= IPCZ_TRAP_CONDITION_REMOTE_BYTES;
+    event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES;
   }
   return event_flags;
 }

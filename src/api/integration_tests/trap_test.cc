@@ -84,11 +84,11 @@ TEST_F(TrapTest, BasicTrigger) {
 
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
     EXPECT_EQ(trap.context(), e.context);
-    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) != 0);
+    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) != 0);
     tripped = true;
   });
 
@@ -105,8 +105,8 @@ TEST_F(TrapTest, NestedTrigger) {
   bool tripped_a = false;
   bool tripped_b = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap_a(ipcz, a, conditions,
                   [&trap_a, &tripped_a, &tripped_b](const IpczTrapEvent& e) {
                     EXPECT_EQ(trap_a.context(), e.context);
@@ -138,12 +138,12 @@ TEST_F(TrapTest, DestroyInTrigger) {
 
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
     EXPECT_FALSE(tripped);
     EXPECT_EQ(trap.context(), e.context);
-    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) != 0);
+    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) != 0);
     tripped = true;
     trap.Destroy();
   });
@@ -160,13 +160,13 @@ TEST_F(TrapTest, RearmInEventHandler) {
 
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(
       ipcz, b, conditions, [this, b, &trap, &tripped](const IpczTrapEvent& e) {
         EXPECT_FALSE(tripped);
         EXPECT_EQ(trap.context(), e.context);
-        EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) !=
+        EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) !=
                     0);
         tripped = true;
         EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION, trap.Arm());
@@ -194,8 +194,8 @@ TEST_F(TrapTest, ArmWithConditionsMet) {
   OpenPortals(node, &a, &b);
 
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(ipcz, b, conditions, [](const IpczTrapEvent& e) {});
 
   Put(a, "hello");
@@ -203,7 +203,7 @@ TEST_F(TrapTest, ArmWithConditionsMet) {
   IpczTrapConditionFlags flags;
   IpczPortalStatus status = {sizeof(status)};
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION, trap.Arm(&flags, &status));
-  EXPECT_TRUE((flags & IPCZ_TRAP_CONDITION_LOCAL_PARCELS) != 0);
+  EXPECT_TRUE((flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) != 0);
   EXPECT_EQ(1u, status.num_local_parcels);
 
   ClosePortals({a, b});
@@ -215,8 +215,8 @@ TEST_F(TrapTest, NoDispatchAfterDestroy) {
 
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(ipcz, b, conditions,
                 [&tripped](const IpczTrapEvent& e) { tripped = true; });
 
@@ -236,8 +236,8 @@ TEST_F(TrapTest, DestroyBlocking) {
   os::Event::Notifier trap_event_notifier = trap_event_fired.MakeNotifier();
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_CONDITION_LOCAL_PARCELS;
-  conditions.min_local_parcels = 1;
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 0;
   TestTrap trap(ipcz, b, conditions,
                 [&trap_event_notifier, &tripped](const IpczTrapEvent& e) {
                   using namespace std::chrono_literals;
