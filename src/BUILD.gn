@@ -52,7 +52,6 @@ source_set("support") {
 
   sources = [
     "debug/hex_dump.cc",
-    "debug/log.cc",
     "debug/stack_trace.cc",
     "mem/atomic_memcpy.cc",
     "mem/block_allocator.cc",
@@ -71,6 +70,11 @@ source_set("support") {
 
   public_configs = [ ":ipcz_include_dir" ]
   configs += [ ":ipcz_include_src_dir" ]
+
+  if (build_ipcz_standalone) {
+    public_deps += [ "${ipcz_src_root}/standalone" ]
+    public_configs += [ ":ipcz_standalone_config" ]
+  }
 }
 
 source_set("core") {
@@ -189,6 +193,10 @@ config("ipcz_include_dir") {
 
 config("ipcz_include_src_dir") {
   include_dirs = [ "${ipcz_src_root}" ]
+}
+
+config("ipcz_standalone_config") {
+  include_dirs = [ "${ipcz_src_root}/standalone" ]
 }
 
 test("ipcz_tests") {

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "debug/log.h"
+#include "base/logging.h"
 
 #include <atomic>
 #include <iostream>
@@ -16,7 +16,7 @@
 #endif
 
 namespace ipcz {
-namespace debug {
+namespace standalone {
 
 namespace {
 
@@ -48,5 +48,5 @@ int GetVerbosityLevel() {
   return g_verbosity_level.load(std::memory_order_relaxed);
 }
 
-}  // namespace debug
+}  // namespace standalone
 }  // namespace ipcz
