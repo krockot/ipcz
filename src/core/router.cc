@@ -356,22 +356,21 @@ void Router::AcceptRouteClosureFrom(Direction source,
       forwarding_link = inward_edge_->GetLinkToPropagateRouteClosure();
     } else if (bridge_) {
       forwarding_link = bridge_->GetLinkToPropagateRouteClosure();
-      dead_primary_link = bridge_->ReleasePrimaryLink();
-      dead_decaying_link = bridge_->ReleaseDecayingLink();
     } else {
       status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
       if (inbound_parcels_.IsDead()) {
         status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
       traps_.UpdatePortalStatus(status_, dispatcher);
+    }
 
-      if (!inbound_parcels_.IsExpectingMoreParcels()) {
-        // We can drop our outward link if we know there are no more in-flight
-        // parcels coming our way. Otherwise it'll be dropped as soon as that's
-        // the case.
-        dead_primary_link = outward_edge_.ReleasePrimaryLink();
-        dead_decaying_link = outward_edge_.ReleaseDecayingLink();
-      }
+    if (!inbound_parcels_.IsExpectingMoreParcels()) {
+      // We can drop our outward link if we know there are no more in-flight
+      // parcels coming our way. Otherwise it'll be dropped as soon as that's
+      // the case.
+      dead_primary_link = outward_edge_.ReleasePrimaryLink();
+      dead_decaying_link = outward_edge_.ReleaseDecayingLink();
+      bridge_.reset();
     }
   }
 
