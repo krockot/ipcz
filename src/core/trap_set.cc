@@ -30,9 +30,10 @@ void TrapSet::Remove(Trap& trap) {
 }
 
 void TrapSet::UpdatePortalStatus(const IpczPortalStatus& status,
+                                 Trap::UpdateReason reason,
                                  TrapEventDispatcher& dispatcher) {
   for (const mem::Ref<Trap>& trap : traps_) {
-    trap->UpdatePortalStatus(status, dispatcher);
+    trap->UpdatePortalStatus(status, reason, dispatcher);
   }
 }
 

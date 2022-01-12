@@ -25,6 +25,13 @@ class TrapEventDispatcher;
 // possible while interesting conditions remain unmet.
 class Trap : public mem::RefCounted {
  public:
+  enum class UpdateReason {
+    kParcelReceived,
+    kParcelConsumed,
+    kStatusQuery,
+    kRouteClosed,
+  };
+
   // Constructs a trap to watch for `conditions` on `portal`. If such conditions
   // become met while the trap is armed, `handler` is invoked with `context`.
   Trap(mem::Ref<Portal> portal,
@@ -49,6 +56,7 @@ class Trap : public mem::RefCounted {
   // is currently armed and the state change should elicit an event handler
   // invocation, said invocation is queued on `dispatcher`.
   void UpdatePortalStatus(const IpczPortalStatus& status,
+                          UpdateReason reason,
                           TrapEventDispatcher& dispatcher);
 
  private:
@@ -56,7 +64,8 @@ class Trap : public mem::RefCounted {
 
   ~Trap() override;
 
-  IpczTrapConditionFlags GetEventFlags(const IpczPortalStatus& status);
+  IpczTrapConditionFlags GetEventFlags(const IpczPortalStatus& status,
+                                       UpdateReason reason);
   void MaybeDispatchEvent(IpczTrapConditionFlags condition_flags,
                           const IpczPortalStatus& status);
   bool HasNoCurrentDispatches() const;

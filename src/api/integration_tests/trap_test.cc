@@ -98,6 +98,91 @@ TEST_F(TrapTest, BasicTrigger) {
   ClosePortals({a, b});
 }
 
+TEST_F(TrapTest, MinLocalParcels) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  bool tripped = false;
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  conditions.min_local_parcels = 2;
+  TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
+    EXPECT_EQ(trap.context(), e.context);
+    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) != 0);
+    tripped = true;
+  });
+
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+  Put(a, "hello");
+  EXPECT_FALSE(tripped);
+  Put(a, "ummmm...hello?");
+  EXPECT_FALSE(tripped);
+  Put(a, "HEY.");
+  EXPECT_TRUE(tripped);
+  ClosePortals({a, b});
+}
+
+TEST_F(TrapTest, MinLocalBytes) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  bool tripped = false;
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES;
+  conditions.min_local_bytes = 10;
+  TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
+    EXPECT_EQ(trap.context(), e.context);
+    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES) != 0);
+    tripped = true;
+  });
+
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+  Put(a, "abcde");
+  EXPECT_FALSE(tripped);
+  Put(a, "fghij");
+  EXPECT_FALSE(tripped);
+  Put(a, "k");
+  EXPECT_TRUE(tripped);
+  ClosePortals({a, b});
+}
+
+TEST_F(TrapTest, NewLocalParcel) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  Put(a, "it's very sunny");
+  Put(a, "there's lots of pineapples there");
+
+  bool tripped = false;
+  IpczTrapConditions conditions = {sizeof(conditions)};
+  conditions.flags = IPCZ_TRAP_NEW_LOCAL_PARCEL;
+  TestTrap trap(ipcz, b, conditions, [&trap, &tripped](const IpczTrapEvent& e) {
+    EXPECT_EQ(trap.context(), e.context);
+    EXPECT_TRUE((e.condition_flags & IPCZ_TRAP_NEW_LOCAL_PARCEL) != 0);
+    tripped = true;
+  });
+
+  // There are already parcels queued locally, but arming must succeed because
+  // the only trapped condition is the arrival of a new parcel.
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+
+  Put(a, "boop");
+  EXPECT_TRUE(tripped);
+
+  // It's not armed anymore, so it shouldn't trip again.
+  tripped = false;
+  Put(a, "beep");
+  EXPECT_FALSE(tripped);
+
+  // But it should be immediately re-armable and should trip with a new parcel
+  // again.
+  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
+  Put(a, "bzzzzzt");
+  EXPECT_TRUE(tripped);
+
+  ClosePortals({a, b});
+}
+
 TEST_F(TrapTest, NestedTrigger) {
   IpczHandle a, b;
   OpenPortals(node, &a, &b);

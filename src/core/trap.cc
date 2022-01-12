@@ -39,7 +39,8 @@ IpczResult Trap::Arm(IpczTrapConditionFlags* satisfied_condition_flags,
   }
 
   const IpczPortalStatus& current_status = locked_router.status();
-  const IpczTrapConditionFlags flags = GetEventFlags(current_status);
+  const IpczTrapConditionFlags flags =
+      GetEventFlags(current_status, UpdateReason::kStatusQuery);
   if (flags != 0) {
     if (status) {
       const size_t size = std::min(current_status.size, status->size);
@@ -66,20 +67,22 @@ void Trap::Disable(IpczDestroyTrapFlags flags) {
 }
 
 void Trap::UpdatePortalStatus(const IpczPortalStatus& status,
+                              UpdateReason reason,
                               TrapEventDispatcher& dispatcher) {
   absl::MutexLock lock(&mutex_);
   if (!is_enabled_ || !is_armed_) {
     return;
   }
 
-  const IpczTrapConditionFlags event_flags = GetEventFlags(status);
+  const IpczTrapConditionFlags event_flags = GetEventFlags(status, reason);
   if (event_flags != 0) {
     is_armed_ = false;
     dispatcher.DeferEvent(mem::WrapRefCounted(this), event_flags, status);
   }
 }
 
-IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
+IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status,
+                                           UpdateReason reason) {
   IpczTrapConditionFlags event_flags = 0;
   if ((conditions_.flags & IPCZ_TRAP_PEER_CLOSED) &&
       (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
@@ -104,6 +107,10 @@ IpczTrapConditionFlags Trap::GetEventFlags(const IpczPortalStatus& status) {
   if ((conditions_.flags & IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES) &&
       status.num_remote_bytes < conditions_.max_remote_bytes) {
     event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES;
+  }
+  if (reason == UpdateReason::kParcelReceived &&
+      (conditions_.flags & IPCZ_TRAP_NEW_LOCAL_PARCEL)) {
+    event_flags |= IPCZ_TRAP_NEW_LOCAL_PARCEL;
   }
   return event_flags;
 }
