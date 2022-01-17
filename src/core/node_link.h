@@ -37,6 +37,15 @@ class RemoteRouterLink;
 class Router;
 class RouterLink;
 
+// A NodeLink instance encapsulates all communication from its owning node to
+// exactly one other remote node in the sytem. Each NodeLink manages a
+// DriverTransport for general-purpose I/O to and from the remote node, as well
+// as a NodeLinkMemory instance for dynamic allocation from a pool of memory
+// shared between the two nodes.
+//
+// NodeLinks may also allocate an arbitrary number of routing IDs which are used
+// to multiplex the link and facilitate point-to-point communication between
+// specific Router instances on either end.
 class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  public:
   struct Route {
@@ -109,7 +118,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   // Asks the broker on the other end of this link to accept a new node for
   // introduction into the network. Normally nodes connect directly to a broker,
-  // but in some cases a non-broker may connect directly another non-broker to
+  // but in some cases a non-broker may connect instead to another non-broker to
   // request inheritance of its broker in order to join the same network. This
   // message is sent to the broker by an established non-broker on behalf of the
   // new non-broker attempting to join the network.
