@@ -26,7 +26,6 @@
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "os/memory.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"

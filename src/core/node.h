@@ -16,7 +16,6 @@
 #include "core/portal.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "os/memory.h"
 #include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
