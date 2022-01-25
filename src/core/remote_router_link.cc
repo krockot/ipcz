@@ -18,7 +18,7 @@
 #include "core/router.h"
 #include "core/router_descriptor.h"
 #include "core/router_link_state.h"
-#include "core/routing_id.h"
+#include "core/sublink_id.h"
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -31,12 +31,12 @@ namespace ipcz {
 namespace core {
 
 RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
-                                   RoutingId routing_id,
+                                   SublinkId sublink,
                                    const NodeLinkAddress& link_state_address,
                                    LinkType type,
                                    LinkSide side)
     : node_link_(std::move(node_link)),
-      routing_id_(routing_id),
+      sublink_(sublink),
       type_(type),
       side_(side),
       link_state_address_(link_state_address) {}
@@ -46,12 +46,12 @@ RemoteRouterLink::~RemoteRouterLink() = default;
 // static
 mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
     mem::Ref<NodeLink> node_link,
-    RoutingId routing_id,
+    SublinkId sublink,
     const NodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side) {
   auto link = mem::WrapRefCounted(new RemoteRouterLink(
-      std::move(node_link), routing_id, link_state_address, type, side));
+      std::move(node_link), sublink, link_state_address, type, side));
   if (!link_state_address.is_null()) {
     link->link_state_ = link->node_link()->memory().GetMapped<RouterLinkState>(
         link_state_address);
@@ -100,7 +100,7 @@ void RemoteRouterLink::SetLinkStateAddress(const NodeLinkAddress& address) {
     SetSideCanSupportBypass();
   }
 
-  mem::Ref<Router> router = node_link()->GetRouter(routing_id_);
+  mem::Ref<Router> router = node_link()->GetRouter(sublink_);
   if (router) {
     router->Flush();
   }
@@ -114,9 +114,8 @@ mem::Ref<Router> RemoteRouterLink::GetLocalTarget() {
   return nullptr;
 }
 
-bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link,
-                                      RoutingId routing_id) {
-  return node_link_.get() == &node_link && routing_id_ == routing_id;
+bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
+  return node_link_.get() == &node_link && sublink_ == sublink;
 }
 
 bool RemoteRouterLink::CanLockForBypass() {
@@ -164,7 +163,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const absl::Span<mem::Ref<Portal>> portals = parcel.portals_view();
 
   msg::AcceptParcel accept;
-  accept.params().routing_id = routing_id_;
+  accept.params().sublink = sublink_;
   accept.params().sequence_number = parcel.sequence_number();
   accept.params().parcel_data =
       accept.AllocateArray<uint8_t>(parcel.data_view().size());
@@ -197,7 +196,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
 void RemoteRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   msg::RouteClosed route_closed;
-  route_closed.params().routing_id = routing_id_;
+  route_closed.params().sublink = sublink_;
   route_closed.params().sequence_length = sequence_length;
   node_link()->Transmit(route_closed);
 }
@@ -206,7 +205,7 @@ void RemoteRouterLink::StopProxying(
     SequenceNumber proxy_inbound_sequence_length,
     SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxying stop;
-  stop.params().routing_id = routing_id_;
+  stop.params().sublink = sublink_;
   stop.params().proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   stop.params().proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
@@ -214,21 +213,21 @@ void RemoteRouterLink::StopProxying(
 
 void RemoteRouterLink::RequestProxyBypassInitiation(
     const NodeName& to_new_peer,
-    RoutingId proxy_peer_routing_id) {
+    SublinkId proxy_peer_sublink) {
   msg::InitiateProxyBypass request;
-  request.params().routing_id = routing_id_;
+  request.params().sublink = sublink_;
   request.params().proxy_peer_name = to_new_peer;
-  request.params().proxy_peer_routing_id = proxy_peer_routing_id;
+  request.params().proxy_peer_sublink = proxy_peer_sublink;
   node_link()->Transmit(request);
 }
 
 void RemoteRouterLink::BypassProxyToSameNode(
-    RoutingId new_routing_id,
+    SublinkId new_sublink,
     const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
-  bypass.params().routing_id = routing_id_;
-  bypass.params().new_routing_id = new_routing_id;
+  bypass.params().sublink = sublink_;
+  bypass.params().new_sublink = new_sublink;
   bypass.params().new_link_state_address = new_link_state_address;
   bypass.params().proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
@@ -237,7 +236,7 @@ void RemoteRouterLink::BypassProxyToSameNode(
 void RemoteRouterLink::StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) {
   msg::StopProxyingToLocalPeer stop;
-  stop.params().routing_id = routing_id_;
+  stop.params().sublink = sublink_;
   stop.params().proxy_outbound_sequence_length = proxy_outbound_sequence_length;
   node_link()->Transmit(stop);
 }
@@ -245,7 +244,7 @@ void RemoteRouterLink::StopProxyingToLocalPeer(
 void RemoteRouterLink::ProxyWillStop(
     SequenceNumber proxy_inbound_sequence_length) {
   msg::ProxyWillStop will_stop;
-  will_stop.params().routing_id = routing_id_;
+  will_stop.params().sublink = sublink_;
   will_stop.params().proxy_inbound_sequence_length =
       proxy_inbound_sequence_length;
   node_link()->Transmit(will_stop);
@@ -253,7 +252,7 @@ void RemoteRouterLink::ProxyWillStop(
 
 void RemoteRouterLink::NotifyBypassPossible() {
   msg::NotifyBypassPossible unblocked;
-  unblocked.params().routing_id = routing_id_;
+  unblocked.params().sublink = sublink_;
   node_link()->Transmit(unblocked);
 }
 
@@ -274,27 +273,27 @@ void RemoteRouterLink::Flush() {
   }
 
   msg::SetRouterLinkStateAddress set;
-  set.params().routing_id = routing_id_;
+  set.params().sublink = sublink_;
   set.params().address = link_state_address_;
   node_link()->Transmit(set);
 }
 
 void RemoteRouterLink::Deactivate() {
-  node_link_->RemoveRoute(routing_id_);
+  node_link_->RemoveRemoteRouterLink(sublink_);
 }
 
 std::string RemoteRouterLink::Describe() const {
   std::stringstream ss;
   ss << type_.ToString() << " link on "
      << node_link_->local_node_name().ToString() << " to "
-     << node_link_->remote_node_name().ToString() << " via routing ID "
-     << routing_id_ << " with link state @" << link_state_address_.ToString();
+     << node_link_->remote_node_name().ToString() << " via sublink " << sublink_
+     << " with link state @" << link_state_address_.ToString();
   return ss.str();
 }
 
 void RemoteRouterLink::LogRouteTrace() {
   msg::LogRouteTrace log_request;
-  log_request.params().routing_id = routing_id_;
+  log_request.params().sublink = sublink_;
   node_link()->Transmit(log_request);
 }
 

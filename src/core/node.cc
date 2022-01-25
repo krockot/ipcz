@@ -22,7 +22,7 @@
 #include "core/node_messages.h"
 #include "core/portal.h"
 #include "core/router.h"
-#include "core/routing_id.h"
+#include "core/sublink_id.h"
 #include "debug/log.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
@@ -119,9 +119,9 @@ void Node::SetPortalsWaitingForLink(
     for (size_t i = 0; i < waiting_portals.size(); ++i) {
       const mem::Ref<Router> router = waiting_portals[i]->router();
       router->SetOutwardLink(
-          link->AddRoute(static_cast<RoutingId>(i),
-                         link->memory().GetInitialRouterLinkState(i),
-                         LinkType::kCentral, LinkSide::kB, router));
+          link->AddRemoteRouterLink(static_cast<SublinkId>(i),
+                                    link->memory().GetInitialRouterLinkState(i),
+                                    LinkType::kCentral, LinkSide::kB, router));
     }
   });
 }
@@ -366,20 +366,20 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   }
 
   mem::Ref<Router> proxy_peer =
-      proxy_node_link->GetRouter(bypass.params().proxy_routing_id);
+      proxy_node_link->GetRouter(bypass.params().proxy_sublink);
   if (!proxy_peer) {
     DLOG(ERROR) << "Invalid BypassProxy request for unknown link from "
                 << proxy_node_link->local_node_name().ToString() << " to "
                 << proxy_node_link->remote_node_name().ToString()
-                << " on routing ID " << bypass.params().proxy_routing_id;
+                << " on sublink " << bypass.params().proxy_sublink;
     return false;
   }
 
   // By convention, the initiator of a bypass uses the side A of the bypass
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
-  mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRoute(
-      bypass.params().new_routing_id, bypass.params().new_link_state_address,
+  mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRemoteRouterLink(
+      bypass.params().new_sublink, bypass.params().new_link_state_address,
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
       new_peer_link, bypass.params().proxy_outbound_sequence_length);

@@ -7,8 +7,8 @@
 
 #include "core/node_link_address.h"
 #include "core/node_name.h"
-#include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/sublink_id.h"
 #include "ipcz/ipcz.h"
 
 namespace ipcz {
@@ -27,31 +27,31 @@ struct IPCZ_ALIGN(8) RouterDescriptor {
   // These fields are set if and only if proxy bypass should be initiated
   // immediately on deserialization of the new Router. The deserializing node
   // must contact `proxy_peer_node_name` with the name of the node who sent this
-  // descriptor, along with `proxy_peer_routing_id` (an existing routing ID
+  // descriptor, along with `proxy_peer_sublink` (an existing sublink
   // between those two nodes, identifying the link we want to bypass).
   NodeName proxy_peer_node_name;
-  RoutingId proxy_peer_routing_id;
+  SublinkId proxy_peer_sublink;
 
   // If the other end of the route is already known to be closed when this
   // router is serialized, this is the total number of parcels sent from that
   // end.
   SequenceNumber closed_peer_sequence_length;
 
-  // A new routing ID and RouterLinkState address allocated by the sender on the
-  // NodeLink which sends this descriptor. The routing ID may be used either as
+  // A new sublink and RouterLinkState address allocated by the sender on the
+  // NodeLink which sends this descriptor. The sublink may be used either as
   // a peripheral link (the default case) or the route's new central link in the
   // optimized case where `proxy_already_bypassed` is true below. Only in the
   // latter case is the RouterLinkState address used.
-  RoutingId new_routing_id;
+  SublinkId new_sublink;
   NodeLinkAddress new_link_state_address;
 
-  // When `proxy_already_bypassed` is true, this is another new routing ID
+  // When `proxy_already_bypassed` is true, this is another new sublink
   // allocated by the sender on the NodeLink which sends this descriptor. This
-  // routing ID is used as peripheral link to the new router's outward peer back
+  // sublink is used as peripheral link to the new router's outward peer back
   // on the sending node, as a way for that router to forward any inbound
   // parcels that were still queued or in flight when this router was
   // serialized.
-  RoutingId new_decaying_routing_id;
+  SublinkId new_decaying_sublink;
 
   // The SequenceNumber of the next outbound parcel which can be produced by
   // this router.
@@ -61,11 +61,11 @@ struct IPCZ_ALIGN(8) RouterDescriptor {
   SequenceNumber next_incoming_sequence_number;
 
   // The total length of the sequence of parcels expected on the decaying link
-  // established by `new_decaying_routing_id`, if and only if
+  // established by `new_decaying_sublink`, if and only if
   // `proxy_already_bypassed` is true. The decaying link is expected to receive
   // only parcels between `next_incoming_sequence_number` (inclusive) and
   // `decaying_incoming_sequence_length` (exclusive). If those fields are equal
-  // then the decaying link should be ignored and `new_decaying_routing_id` may
+  // then the decaying link should be ignored and `new_decaying_sublink` may
   // not be valid.
   SequenceNumber decaying_incoming_sequence_length;
 

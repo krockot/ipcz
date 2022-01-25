@@ -81,8 +81,7 @@ mem::Ref<Router> LocalRouterLink::GetLocalTarget() {
   return state_->side(side_.opposite());
 }
 
-bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link,
-                                     RoutingId routing_id) {
+bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
   return false;
 }
 
@@ -138,7 +137,7 @@ void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
 
 void LocalRouterLink::RequestProxyBypassInitiation(
     const NodeName& to_new_peer,
-    RoutingId proxy_peer_routing_id) {
+    SublinkId proxy_peer_sublink) {
   ABSL_ASSERT(false);
 }
 
@@ -154,7 +153,7 @@ void LocalRouterLink::ProxyWillStop(
 }
 
 void LocalRouterLink::BypassProxyToSameNode(
-    RoutingId new_routing_id,
+    SublinkId new_sublink,
     const NodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);

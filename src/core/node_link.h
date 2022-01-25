@@ -19,8 +19,8 @@
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/remote_router_link.h"
-#include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/sublink_id.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "os/process.h"
@@ -43,20 +43,20 @@ class RouterLink;
 // as a NodeLinkMemory instance for dynamic allocation from a pool of memory
 // shared between the two nodes.
 //
-// NodeLinks may also allocate an arbitrary number of routing IDs which are used
+// NodeLinks may also allocate an arbitrary number of sublinks which are used
 // to multiplex the link and facilitate point-to-point communication between
 // specific Router instances on either end.
 class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
  public:
-  struct Route {
-    Route(mem::Ref<RemoteRouterLink> link, mem::Ref<Router> receiver);
-    Route(Route&&);
-    Route(const Route&);
-    Route& operator=(Route&&);
-    Route& operator=(const Route&);
-    ~Route();
+  struct Sublink {
+    Sublink(mem::Ref<RemoteRouterLink> link, mem::Ref<Router> receiver);
+    Sublink(Sublink&&);
+    Sublink(const Sublink&);
+    Sublink& operator=(Sublink&&);
+    Sublink& operator=(const Sublink&);
+    ~Sublink();
 
-    mem::Ref<RemoteRouterLink> link;
+    mem::Ref<RemoteRouterLink> router_link;
     mem::Ref<Router> receiver;
   };
 
@@ -78,30 +78,31 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   NodeLinkMemory& memory() { return *memory_; }
   const NodeLinkMemory& memory() const { return *memory_; }
 
-  // Binds `routing_id` on this NodeLink to the given `router`. `link_side`
+  // Binds `sublink` on this NodeLink to the given `router`. `link_side`
   // specifies which side of the link this end identifies as (A or B), and
-  // `type` specifies the type of link this is from the receiving router's
-  // perspective.
+  // `type` specifies the type of link this is, from the perspective of
+  // `router`.
   //
   // If `link_state_address` is non-null, the given address identifies the
   // location of the shared RouterLinkState structure for the new route. Only
   // central links require a RouterLinkState.
-  mem::Ref<RemoteRouterLink> AddRoute(RoutingId routing_id,
-                                      const NodeLinkAddress& link_state_address,
-                                      LinkType type,
-                                      LinkSide side,
-                                      mem::Ref<Router> router);
+  mem::Ref<RemoteRouterLink> AddRemoteRouterLink(
+      SublinkId sublink,
+      const NodeLinkAddress& link_state_address,
+      LinkType type,
+      LinkSide side,
+      mem::Ref<Router> router);
 
-  // Removes the route specified by `routing_id`. Once removed, any messages
-  // received for that routing ID are ignored.
-  bool RemoveRoute(RoutingId routing_id);
+  // Removes the route specified by `sublink`. Once removed, any messages
+  // received for that sublink are ignored.
+  bool RemoveRemoteRouterLink(SublinkId sublink);
 
-  // Retrieves the Router and RemoteRouterLink currently bound to `routing_id`
+  // Retrieves the Router and RemoteRouterLink currently bound to `sublink`
   // on this NodeLink.
-  absl::optional<Route> GetRoute(RoutingId routing_id);
+  absl::optional<Sublink> GetSublink(SublinkId sublink);
 
-  // Retrieves only the Router currently bound to `routing_id` on this NodeLink.
-  mem::Ref<Router> GetRouter(RoutingId routing_id);
+  // Retrieves only the Router currently bound to `sublink` on this NodeLink.
+  mem::Ref<Router> GetRouter(SublinkId sublink);
 
   // Permanently deactivates this NodeLink. Once this call returns the NodeLink
   // will no longer receive transport messages. It may still be used to transmit
@@ -144,13 +145,13 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   // Sends a request to the remote node to have one of its routers reconfigured
   // with a new peer link. Specifically, whatever router has a peer
-  // RemoteRouterLink to `proxy_peer_node_name` on `proxy_peer_routing_id` is
+  // RemoteRouterLink to `proxy_peer_node_name` on `proxy_peer_sublink` is
   // reconfigured to instead adopt a new RemoteRouterLink as its peer, on this
-  // NodeLink with a newly allocated routing ID.  `new_peer` becomes the new
+  // NodeLink with a newly allocated sublink.  `new_peer` becomes the new
   // peer of the reconfigured remote router, assuming it's able to authenticate
   // the source of this request.
   bool BypassProxy(const NodeName& proxy_name,
-                   RoutingId proxy_routing_id,
+                   SublinkId proxy_sublink,
                    SequenceNumber proxy_outbound_sequence_length,
                    mem::Ref<Router> new_peer);
 
@@ -221,8 +222,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   absl::Mutex mutex_;
   bool active_ = true;
 
-  using RouteMap = absl::flat_hash_map<RoutingId, Route>;
-  RouteMap routes_ ABSL_GUARDED_BY(mutex_);
+  using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
+  SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);
 
   uint64_t next_request_id_ ABSL_GUARDED_BY(mutex_) = 0;
   using IndirectBrokerConnectionMap =

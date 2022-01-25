@@ -23,8 +23,8 @@
 #include "core/router_link.h"
 #include "core/router_link_state.h"
 #include "core/router_tracker.h"
-#include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/sublink_id.h"
 #include "core/trap.h"
 #include "core/trap_event_dispatcher.h"
 #include "debug/log.h"
@@ -574,15 +574,15 @@ void Router::SerializeNewRouter(NodeLink& to_node_link,
 
 void Router::BeginProxyingToNewRouter(NodeLink& to_node_link,
                                       const RouterDescriptor& descriptor) {
-  const absl::optional<NodeLink::Route> new_route =
-      to_node_link.GetRoute(descriptor.new_routing_id);
-  if (!new_route) {
-    // The route's been torn down, presumably because of node disconnection.
+  const absl::optional<NodeLink::Sublink> new_sublink =
+      to_node_link.GetSublink(descriptor.new_sublink);
+  if (!new_sublink) {
+    // The sublink has been torn down, presumably because of node disconnection.
     return;
   }
 
-  const absl::optional<NodeLink::Route> new_decaying_route =
-      to_node_link.GetRoute(descriptor.new_decaying_routing_id);
+  const absl::optional<NodeLink::Sublink> new_decaying_sublink =
+      to_node_link.GetSublink(descriptor.new_decaying_sublink);
 
   mem::Ref<Router> local_peer;
   {
@@ -592,15 +592,15 @@ void Router::BeginProxyingToNewRouter(NodeLink& to_node_link,
       mem::Ref<RouterLink> local_peer_link = outward_edge_.ReleasePrimaryLink();
       local_peer = local_peer_link->GetLocalTarget();
       ABSL_ASSERT(local_peer);
-      ABSL_ASSERT(new_decaying_route);
-      inward_edge_->SetPrimaryLink(new_decaying_route->link);
+      ABSL_ASSERT(new_decaying_sublink);
+      inward_edge_->SetPrimaryLink(new_decaying_sublink->router_link);
     } else {
-      inward_edge_->SetPrimaryLink(new_route->link);
+      inward_edge_->SetPrimaryLink(new_sublink->router_link);
     }
   }
 
   if (local_peer) {
-    local_peer->SetOutwardLink(new_route->link);
+    local_peer->SetOutwardLink(new_sublink->router_link);
   }
 
   Flush();
@@ -635,8 +635,8 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
       // length, which is to say, we will not be sending any parcels that way.
       // The sequence length from the link is whatever had already been sent
       // to our counterpart back on the peer's node.
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRoute(
-          descriptor.new_decaying_routing_id, kNullNodeLinkAddress,
+      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+          descriptor.new_decaying_sublink, kNullNodeLinkAddress,
           LinkType::kPeripheralOutward, LinkSide::kB, router));
       router->outward_edge_.StartDecaying(
           router->outbound_parcels_.current_sequence_number(),
@@ -644,33 +644,32 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
               ? descriptor.decaying_incoming_sequence_length
               : descriptor.next_incoming_sequence_number);
 
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRoute(
-          descriptor.new_routing_id, descriptor.new_link_state_address,
+      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+          descriptor.new_sublink, descriptor.new_link_state_address,
           LinkType::kCentral, LinkSide::kB, router));
 
       DVLOG(4) << "Route moved from split pair on "
                << from_node_link.remote_node_name().ToString() << " to "
-               << from_node_link.local_node_name().ToString()
-               << " via routing ID " << descriptor.new_routing_id
-               << " and decaying routing ID "
-               << descriptor.new_decaying_routing_id;
+               << from_node_link.local_node_name().ToString() << " via sublink "
+               << descriptor.new_sublink << " and decaying sublink "
+               << descriptor.new_decaying_sublink;
     } else {
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRoute(
-          descriptor.new_routing_id, kNullNodeLinkAddress,
+      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+          descriptor.new_sublink, kNullNodeLinkAddress,
           LinkType::kPeripheralOutward, LinkSide::kB, router));
 
       DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
-               << from_node_link.local_node_name().ToString()
-               << " via routing ID " << descriptor.new_routing_id;
+               << from_node_link.local_node_name().ToString() << " via sublink "
+               << descriptor.new_sublink;
     }
   }
 
   if (descriptor.proxy_peer_node_name.is_valid()) {
     // Our predecessor has given us the means to initiate its own bypass.
-    router->InitiateProxyBypass(from_node_link, descriptor.new_routing_id,
+    router->InitiateProxyBypass(from_node_link, descriptor.new_sublink,
                                 descriptor.proxy_peer_node_name,
-                                descriptor.proxy_peer_routing_id);
+                                descriptor.proxy_peer_sublink);
   }
 
   router->Flush();
@@ -678,9 +677,9 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
 }
 
 bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
-                                 RoutingId requesting_routing_id,
+                                 SublinkId requesting_sublink,
                                  const NodeName& proxy_peer_node_name,
-                                 RoutingId proxy_peer_routing_id) {
+                                 SublinkId proxy_peer_sublink) {
   {
     absl::MutexLock lock(&mutex_);
     if (!outward_edge_.primary_link()) {
@@ -689,12 +688,12 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     }
 
     if (!outward_edge_.primary_link()->IsRemoteLinkTo(requesting_node_link,
-                                                      requesting_routing_id)) {
+                                                      requesting_sublink)) {
       // Authenticate that the request to bypass our outward peer is actually
       // coming from our outward peer.
       DLOG(ERROR) << "Rejecting InitiateProxyBypass from "
                   << requesting_node_link.remote_node_name().ToString()
-                  << " on routing ID " << requesting_routing_id
+                  << " on sublink " << requesting_sublink
                   << " with existing outward "
                   << DescribeLink(outward_edge_.primary_link());
       return false;
@@ -722,7 +721,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
         requesting_node_link.node()->GetLink(proxy_peer_node_name);
     if (new_peer_node) {
       new_peer_node->BypassProxy(
-          requesting_node_link.remote_node_name(), proxy_peer_routing_id,
+          requesting_node_link.remote_node_name(), proxy_peer_sublink,
           proxy_outbound_sequence_length, mem::WrapRefCounted(this));
       return true;
     }
@@ -730,7 +729,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     requesting_node_link.node()->EstablishLink(
         proxy_peer_node_name,
         [requesting_node_name = requesting_node_link.remote_node_name(),
-         proxy_peer_routing_id, proxy_outbound_sequence_length,
+         proxy_peer_sublink, proxy_outbound_sequence_length,
          self = mem::WrapRefCounted(this)](NodeLink* new_link) {
           if (!new_link) {
             // TODO: failure to connect to a node here should result in route
@@ -739,7 +738,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
             return;
           }
 
-          new_link->BypassProxy(requesting_node_name, proxy_peer_routing_id,
+          new_link->BypassProxy(requesting_node_name, proxy_peer_sublink,
                                 proxy_outbound_sequence_length, self);
         });
     return true;
@@ -749,7 +748,7 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
   // skip some messaging and locally link the two routers together right now.
 
   mem::Ref<Router> new_local_peer =
-      requesting_node_link.GetRouter(proxy_peer_routing_id);
+      requesting_node_link.GetRouter(proxy_peer_sublink);
   mem::Ref<RouterLink> previous_outward_link_from_new_local_peer;
   SequenceNumber proxy_inbound_sequence_length;
   SequenceNumber proxy_outbound_sequence_length;
@@ -769,8 +768,8 @@ bool Router::InitiateProxyBypass(NodeLink& requesting_node_link,
     DVLOG(4) << "Initiating proxy bypass with new local peer on "
              << proxy_peer_node_name.ToString() << " and proxy links to "
              << requesting_node_link.remote_node_name().ToString()
-             << " on routing IDs " << proxy_peer_routing_id << " and "
-             << requesting_routing_id << "; inbound length "
+             << " on sublinks " << proxy_peer_sublink << " and "
+             << requesting_sublink << "; inbound length "
              << proxy_inbound_sequence_length << " and outbound length "
              << proxy_outbound_sequence_length;
 
@@ -839,11 +838,11 @@ bool Router::BypassProxyWithNewRemoteLink(
     const mem::Ref<NodeLink> node_link_to_peer = remote_peer.node_link();
     DVLOG(4) << "Bypassing proxy at "
              << node_link_to_proxy->remote_node_name().ToString()
-             << " on routing ID " << remote_proxy.routing_id() << " from "
+             << " on sublink " << remote_proxy.sublink() << " from "
              << node_link_to_proxy->local_node_name().ToString()
              << " with new link to "
              << node_link_to_peer->remote_node_name().ToString()
-             << " on routing ID " << remote_peer.routing_id()
+             << " on sublink " << remote_peer.sublink()
              << "; inbound sequence length " << proxy_inbound_sequence_length
              << " and outbound sequence length "
              << proxy_outbound_sequence_length;
@@ -898,9 +897,9 @@ bool Router::BypassProxyWithNewLinkToSameNode(
 
     DVLOG(4) << "Bypassing proxy at "
              << remote_node_link->remote_node_name().ToString()
-             << " on routing ID " << old_remote_peer.routing_id() << " from "
+             << " on sublink " << old_remote_peer.sublink() << " from "
              << remote_node_link->local_node_name().ToString()
-             << " with new routing ID " << new_remote_peer.routing_id();
+             << " with new sublink " << new_remote_peer.sublink();
 
     proxy_outbound_sequence_length =
         outbound_parcels_.current_sequence_number();
@@ -1254,7 +1253,7 @@ void Router::Flush() {
 
 bool Router::MaybeInitiateSelfRemoval() {
   NodeName peer_node_name;
-  RoutingId routing_id_to_peer;
+  SublinkId sublink_to_peer;
   mem::Ref<RemoteRouterLink> successor;
   mem::Ref<Router> local_peer;
   {
@@ -1280,7 +1279,7 @@ bool Router::MaybeInitiateSelfRemoval() {
       auto& remote_peer =
           static_cast<RemoteRouterLink&>(*outward_edge_.primary_link());
       peer_node_name = remote_peer.node_link()->remote_node_name();
-      routing_id_to_peer = remote_peer.routing_id();
+      sublink_to_peer = remote_peer.sublink();
     }
   }
 
@@ -1294,20 +1293,19 @@ bool Router::MaybeInitiateSelfRemoval() {
              << successor->node_link()->local_node_name().ToString()
              << " initiating its own bypass with link to successor "
              << successor->node_link()->remote_node_name().ToString()
-             << " on routing ID " << successor->routing_id()
-             << " and link to peer " << peer_node_name.ToString()
-             << " on routing ID " << routing_id_to_peer;
-    successor->RequestProxyBypassInitiation(peer_node_name, routing_id_to_peer);
+             << " on sublink " << successor->sublink() << " and link to peer "
+             << peer_node_name.ToString() << " on sublink " << sublink_to_peer;
+    successor->RequestProxyBypassInitiation(peer_node_name, sublink_to_peer);
     return true;
   }
 
   SequenceNumber sequence_length;
-  const RoutingId new_routing_id =
-      successor->node_link()->memory().AllocateRoutingIds(1);
+  const SublinkId new_sublink =
+      successor->node_link()->memory().AllocateSublinkIds(1);
   const NodeLinkAddress new_link_state_address =
       successor->node_link()->memory().AllocateRouterLinkState();
-  mem::Ref<RouterLink> new_link = successor->node_link()->AddRoute(
-      new_routing_id, new_link_state_address, LinkType::kCentral, LinkSide::kA,
+  mem::Ref<RouterLink> new_link = successor->node_link()->AddRemoteRouterLink(
+      new_sublink, new_link_state_address, LinkType::kCentral, LinkSide::kA,
       local_peer);
 
   {
@@ -1339,7 +1337,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     inward_edge_->StartDecaying(sequence_length);
   }
 
-  successor->BypassProxyToSameNode(new_routing_id, new_link_state_address,
+  successor->BypassProxyToSameNode(new_sublink, new_link_state_address,
                                    sequence_length);
   local_peer->SetOutwardLink(std::move(new_link));
   return true;
@@ -1426,7 +1424,7 @@ void Router::MaybeInitiateBridgeBypass() {
 
     link_to_second_peer->RequestProxyBypassInitiation(
         remote_link_to_second_peer->node_link()->remote_node_name(),
-        remote_link_to_second_peer->routing_id());
+        remote_link_to_second_peer->sublink());
     return;
   }
 
@@ -1441,13 +1439,14 @@ void Router::MaybeInitiateBridgeBypass() {
     const mem::Ref<NodeLink> node_link_to_second_peer =
         remote_link_to_second_peer->node_link();
     SequenceNumber length_from_local_peer;
-    const RoutingId bypass_routing_id =
-        node_link_to_second_peer->memory().AllocateRoutingIds(1);
+    const SublinkId bypass_sublink =
+        node_link_to_second_peer->memory().AllocateSublinkIds(1);
     const NodeLinkAddress bypass_link_state_address =
         node_link_to_second_peer->memory().AllocateRouterLinkState();
-    mem::Ref<RouterLink> new_link = node_link_to_second_peer->AddRoute(
-        bypass_routing_id, bypass_link_state_address, LinkType::kCentral,
-        LinkSide::kA, first_local_peer);
+    mem::Ref<RouterLink> new_link =
+        node_link_to_second_peer->AddRemoteRouterLink(
+            bypass_sublink, bypass_link_state_address, LinkType::kCentral,
+            LinkSide::kA, first_local_peer);
     {
       ThreeMutexLock lock(&first_bridge->mutex_, &second_bridge->mutex_,
                           &first_local_peer->mutex_);
@@ -1465,7 +1464,7 @@ void Router::MaybeInitiateBridgeBypass() {
     }
 
     link_to_second_peer->BypassProxyToSameNode(
-        bypass_routing_id, bypass_link_state_address, length_from_local_peer);
+        bypass_sublink, bypass_link_state_address, length_from_local_peer);
     first_local_peer->SetOutwardLink(std::move(new_link));
     first_bridge->Flush();
     second_bridge->Flush();
@@ -1529,36 +1528,36 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
     local_peer->outward_edge_.ReleasePrimaryLink();
   }
 
-  // The primary new routing ID to the destination node will act as the route's
+  // The primary new sublink to the destination node will act as the route's
   // new central link, between our local peer and the new remote router.
   //
   // An additional route is allocated to act as a decaying inward link between
   // us and the new router, to forward any parcels already queued here or
   // in-flight from our local peer.
-  const RoutingId new_routing_id = to_node_link.memory().AllocateRoutingIds(2);
+  const SublinkId new_sublink = to_node_link.memory().AllocateSublinkIds(2);
   const NodeLinkAddress new_link_state_address =
       to_node_link.memory().AllocateRouterLinkState();
-  const RoutingId decaying_routing_id = new_routing_id + 1;
+  const SublinkId decaying_sublink = new_sublink + 1;
 
   // Register the new routes on the NodeLink. Note that we don't provide them to
   // any routers yet since we don't want the routers using them until this
   // descriptor is transmitted to its destination node. The links will be
   // adopted after transmission in BeginProxyingToNewRouter().
-  mem::Ref<RouterLink> new_link =
-      to_node_link.AddRoute(new_routing_id, new_link_state_address,
-                            LinkType::kCentral, LinkSide::kA, local_peer);
+  mem::Ref<RouterLink> new_link = to_node_link.AddRemoteRouterLink(
+      new_sublink, new_link_state_address, LinkType::kCentral, LinkSide::kA,
+      local_peer);
 
   // The local peer's side of the link has nothing to decay, so it can
   // immediately raise its support for bypass.
   new_link->SetSideCanSupportBypass();
 
-  to_node_link.AddRoute(decaying_routing_id, kNullNodeLinkAddress,
-                        LinkType::kPeripheralInward, LinkSide::kA,
-                        mem::WrapRefCounted(this));
+  to_node_link.AddRemoteRouterLink(decaying_sublink, kNullNodeLinkAddress,
+                                   LinkType::kPeripheralInward, LinkSide::kA,
+                                   mem::WrapRefCounted(this));
 
-  descriptor.new_routing_id = new_routing_id;
+  descriptor.new_sublink = new_sublink;
   descriptor.new_link_state_address = new_link_state_address;
-  descriptor.new_decaying_routing_id = decaying_routing_id;
+  descriptor.new_decaying_sublink = decaying_sublink;
   descriptor.proxy_already_bypassed = true;
 
   TwoMutexLock lock(&mutex_, &local_peer->mutex_);
@@ -1622,11 +1621,11 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
           static_cast<RemoteRouterLink&>(*outward_edge_.primary_link());
       descriptor.proxy_peer_node_name =
           remote_link.node_link()->remote_node_name();
-      descriptor.proxy_peer_routing_id = remote_link.routing_id();
+      descriptor.proxy_peer_sublink = remote_link.sublink();
       DVLOG(4) << "Will initiate proxy bypass immediately on deserialization "
                << "with peer at " << descriptor.proxy_peer_node_name.ToString()
-               << " and peer route to proxy on routing ID "
-               << descriptor.proxy_peer_routing_id;
+               << " and peer route to proxy on sublink "
+               << descriptor.proxy_peer_sublink;
 
       // Immediately begin decaying inward and outward edges. They'll get
       // concrete links to decay in BeginProxyingToNewRouter().
@@ -1635,16 +1634,16 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
     }
   }
 
-  const RoutingId new_routing_id = to_node_link.memory().AllocateRoutingIds(1);
-  descriptor.new_routing_id = new_routing_id;
+  const SublinkId new_sublink = to_node_link.memory().AllocateSublinkIds(1);
+  descriptor.new_sublink = new_sublink;
 
-  // Register the new route with the NodeLink. We don't provide this to the
-  // router yet because it's not safe to use until this descriptor has been
+  // Register the new router link with the NodeLink. We don't provide this to
+  // the router yet because it's not safe to use until this descriptor has been
   // transmitted to its destination node. The link will be adopted after
   // transmission, in BeginProxyingToNewRouter().
-  to_node_link.AddRoute(new_routing_id, kNullNodeLinkAddress,
-                        LinkType::kPeripheralInward, LinkSide::kA,
-                        mem::WrapRefCounted(this));
+  to_node_link.AddRemoteRouterLink(new_sublink, kNullNodeLinkAddress,
+                                   LinkType::kPeripheralInward, LinkSide::kA,
+                                   mem::WrapRefCounted(this));
 }
 
 }  // namespace core

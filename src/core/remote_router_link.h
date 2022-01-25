@@ -11,7 +11,7 @@
 #include "core/link_type.h"
 #include "core/node_link_address.h"
 #include "core/router_link.h"
-#include "core/routing_id.h"
+#include "core/sublink_id.h"
 
 namespace ipcz {
 namespace core {
@@ -20,9 +20,9 @@ class NodeLink;
 struct RouterLinkState;
 
 // One side of a link between two Routers living on different nodes. A
-// RemoteRouterLink uses a NodeLink plus a RoutingId as its transport between
+// RemoteRouterLink uses a NodeLink plus a SublinkId as its transport between
 // the routers. On the other end (on another node) is another RemoteRouterLink
-// using a NodeLink back to this node, with the same RoutingId.
+// using a NodeLink back to this node, with the same SublinkId.
 //
 // As with other RouterLink instances, each RemoteRouterLink is assigned a
 // LinkSide at construction time. This assignment is arbitrary but will always
@@ -31,7 +31,7 @@ struct RouterLinkState;
 class RemoteRouterLink : public RouterLink {
  public:
   // Constructs a new RemoteRouterLink which sends messages over `node_link`
-  // using `routing_id` specifically. `side` is the side of this link on which
+  // using `sublink` specifically. `side` is the side of this link on which
   // this RemoteRouterLink falls (side A or B), and `type` indicates what type
   // of link it is -- which for remote links must be either kCentral,
   // kPeripheralInward, or kPeripheralOutward.
@@ -40,13 +40,13 @@ class RemoteRouterLink : public RouterLink {
   // RouterLinkState.
   static mem::Ref<RemoteRouterLink> Create(
       mem::Ref<NodeLink> node_link,
-      RoutingId routing_id,
+      SublinkId sublink,
       const NodeLinkAddress& link_state_address,
       LinkType type,
       LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
-  RoutingId routing_id() const { return routing_id_; }
+  SublinkId sublink() const { return sublink_; }
   NodeLinkAddress link_state_address() const { return link_state_address_; }
 
   void SetLinkStateAddress(const NodeLinkAddress& address);
@@ -54,7 +54,7 @@ class RemoteRouterLink : public RouterLink {
   // RouterLink:
   LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
-  bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
+  bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) override;
   bool CanLockForBypass() override;
   bool SetSideCanSupportBypass() override;
   bool TryToLockForBypass(const NodeName& bypass_request_source) override;
@@ -65,12 +65,12 @@ class RemoteRouterLink : public RouterLink {
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
-                                    RoutingId proxy_peer_routing_id) override;
+                                    SublinkId proxy_peer_sublink) override;
   void StopProxying(SequenceNumber proxy_inbound_sequence_length,
                     SequenceNumber proxy_outbound_sequence_length) override;
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
-      RoutingId new_routing_id,
+      SublinkId new_sublink,
       const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
@@ -83,7 +83,7 @@ class RemoteRouterLink : public RouterLink {
 
  private:
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
-                   RoutingId routing_id,
+                   SublinkId sublink,
                    const NodeLinkAddress& link_state_address,
                    LinkType type,
                    LinkSide side);
@@ -95,7 +95,7 @@ class RemoteRouterLink : public RouterLink {
   RouterLinkState* GetLinkState();
 
   const mem::Ref<NodeLink> node_link_;
-  const RoutingId routing_id_;
+  const SublinkId sublink_;
   const LinkType type_;
   const LinkSide side_;
 

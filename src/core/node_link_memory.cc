@@ -21,7 +21,7 @@ namespace {
 constexpr size_t kAuxBufferSize = 16384;
 
 struct IPCZ_ALIGN(8) PrimaryBufferLayout {
-  std::atomic<uint64_t> next_routing_id{0};
+  std::atomic<uint64_t> next_sublink{0};
   std::atomic<uint64_t> next_buffer_id{1};
   std::atomic<uint64_t> next_router_link_state_index{0};
   uint64_t padding = 0;
@@ -61,7 +61,7 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
       DriverMemory(node->driver(), sizeof(PrimaryBufferLayout));
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
   PrimaryBufferLayout& buffer = PrimaryBufferView(mapping);
-  buffer.next_routing_id = num_initial_portals;
+  buffer.next_sublink = num_initial_portals;
   buffer.next_buffer_id = 1;
   buffer.next_router_link_state_index = num_initial_portals;
   return mem::WrapRefCounted(
@@ -97,9 +97,9 @@ void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
   return static_cast<uint8_t*>(it->second->address()) + address.offset();
 }
 
-RoutingId NodeLinkMemory::AllocateRoutingIds(size_t count) {
+SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
   return PrimaryBufferView(primary_buffer())
-      .next_routing_id.fetch_add(count, std::memory_order_relaxed);
+      .next_sublink.fetch_add(count, std::memory_order_relaxed);
 }
 
 NodeLinkAddress NodeLinkMemory::GetInitialRouterLinkState(size_t i) {

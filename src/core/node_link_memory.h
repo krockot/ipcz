@@ -15,7 +15,7 @@
 #include "core/driver_memory.h"
 #include "core/driver_memory_mapping.h"
 #include "core/node_link_address.h"
-#include "core/routing_id.h"
+#include "core/sublink_id.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
@@ -58,9 +58,9 @@ class NodeLinkMemory : public mem::RefCounted {
     return static_cast<T*>(GetMappedAddress(address));
   }
 
-  // Returns the first of `count` newly allocated routing IDs for use on the
+  // Returns the first of `count` newly allocated sublinks for use on the
   // corresponding NodeLink.
-  RoutingId AllocateRoutingIds(size_t count);
+  SublinkId AllocateSublinkIds(size_t count);
 
   // Returns the location of the RouterLinkState for the `i`th initial portal
   // on the NodeLink, as established by whatever Connect() call precipitated

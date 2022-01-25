@@ -36,7 +36,7 @@ class LocalRouterLink : public RouterLink {
   // RouterLink:
   LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
-  bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) override;
+  bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) override;
   bool CanLockForBypass() override;
   bool SetSideCanSupportBypass() override;
   bool TryToLockForBypass(const NodeName& bypass_request_source) override;
@@ -47,12 +47,12 @@ class LocalRouterLink : public RouterLink {
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
-                                    RoutingId proxy_peer_routing_id) override;
+                                    SublinkId proxy_peer_sublink) override;
   void StopProxying(SequenceNumber proxy_inbound_sequence_length,
                     SequenceNumber proxy_outbound_sequence_length) override;
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
-      RoutingId new_routing_id,
+      SublinkId new_sublink,
       const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(

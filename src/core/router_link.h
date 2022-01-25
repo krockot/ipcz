@@ -11,8 +11,8 @@
 
 #include "core/link_type.h"
 #include "core/node_name.h"
-#include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/sublink_id.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 
@@ -39,10 +39,10 @@ class RouterLink : public mem::RefCounted {
   // that Router is local to the same node as the Router on this side.
   virtual mem::Ref<Router> GetLocalTarget() = 0;
 
-  // Returns the NodeLink and RoutingId used by this RouterLink to communicate
+  // Returns the NodeLink and SublinkId used by this RouterLink to communicate
   // with the Router on the other side of this link, if and only if that Router
   // lives on a different node from the Router on this side.
-  virtual bool IsRemoteLinkTo(NodeLink& node_link, RoutingId routing_id) = 0;
+  virtual bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) = 0;
 
   // Indicates whether this link is in a stable state suitable for initiating
   // bypass from one side or the other. This means it exists as a router's
@@ -114,9 +114,8 @@ class RouterLink : public mem::RefCounted {
   // NodeLink::BypassProxy(); and note that BypassProxy is not a RouterLink
   // method, because there is not yet any RouterLink between the sending and
   // receiving Routers.
-  virtual void RequestProxyBypassInitiation(
-      const NodeName& to_new_peer,
-      RoutingId proxy_peer_routing_id) = 0;
+  virtual void RequestProxyBypassInitiation(const NodeName& to_new_peer,
+                                            SublinkId proxy_peer_sublink) = 0;
 
   // Informs the Router on the other side of this link that it can stop
   // forwarding parcels to its inward peer once it has forwarded up to
@@ -135,16 +134,16 @@ class RouterLink : public mem::RefCounted {
   // Informs the Router on the other side of this link that its outward link
   // goes to a proxying Router who is ready to be bypassed. The proxy's own
   // outward peer is on the same node as the proxy itself, and this call
-  // provides the target Router with a new routing ID it can use to communicate
+  // provides the target Router with a new sublink it can use to communicate
   // with the that peer directly rather than going through the proxy.
   //
   // `sequence_length` is the final length of the parcel sequence that will be
   // transmitted from the calling proxy to the receiving Router. The receiving
   // Router must assume that any subsequent parcels from the other half of the
-  // route will instead arrive via the new RoutingId. The receiver is expected
+  // route will instead arrive via the new SublinkId. The receiver is expected
   // to call back to the sender with StopProxyingToLocalPeer().
   virtual void BypassProxyToSameNode(
-      RoutingId new_routing_id,
+      SublinkId new_sublink,
       const NodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) = 0;
 

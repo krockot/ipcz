@@ -222,7 +222,7 @@ IPCZ_MSG_END()
 // Conveys the contents of a parcel from one router to another across a node
 // boundary.
 IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_number)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, parcel_data)
   IPCZ_MSG_PARAM_ARRAY(RouterDescriptor, new_routers)
@@ -236,7 +236,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(RouteClosed, IPCZ_MSG_ID(21), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message.
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 
   // The total number of parcels sent from the side of the route which closed,
   // before closing.
@@ -248,7 +248,7 @@ IPCZ_MSG_END()
 // node may not yet have a handle to the identified buffer, but if not, it can
 // expect to receive one imminently via an AddLinkBuffer message.
 IPCZ_MSG_BEGIN(SetRouterLinkStateAddress, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(NodeLinkAddress, address)
 IPCZ_MSG_END()
 
@@ -259,7 +259,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(InitiateProxyBypass, IPCZ_MSG_ID(30), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message. This is the proxy's inward peer.
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 
   // Padding for NodeName alignment. Reserved for future use and must be zero.
   IPCZ_MSG_PARAM(uint64_t, reserved0)
@@ -267,9 +267,9 @@ IPCZ_MSG_BEGIN(InitiateProxyBypass, IPCZ_MSG_ID(30), IPCZ_MSG_VERSION(0))
   // The name of the node on which the proxy's outward peer router lives.
   IPCZ_MSG_PARAM(NodeName, proxy_peer_name)
 
-  // The routing ID of the RouterLink between the proxy router and its outward
+  // The sublink of the RouterLink between the proxy router and its outward
   // peer on the above-named node.
-  IPCZ_MSG_PARAM(RoutingId, proxy_peer_routing_id)
+  IPCZ_MSG_PARAM(SublinkId, proxy_peer_sublink)
 IPCZ_MSG_END()
 
 // Informs the recipient that its outward link is connected to a proxying router
@@ -285,13 +285,13 @@ IPCZ_MSG_BEGIN(BypassProxy, IPCZ_MSG_ID(31), IPCZ_MSG_VERSION(0))
 
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message. This is the proxy's outward peer.
-  IPCZ_MSG_PARAM(RoutingId, proxy_routing_id)
+  IPCZ_MSG_PARAM(SublinkId, proxy_sublink)
 
-  // A new routing ID between the sender of this message and the receiving node,
+  // A new sublink between the sender of this message and the receiving node,
   // establishing a direct RouterLink between the sender and receiver to use as
   // a repacement for the above identified RouterLink. This link effectively
   // bypasses the above link along the route.
-  IPCZ_MSG_PARAM(RoutingId, new_routing_id)
+  IPCZ_MSG_PARAM(SublinkId, new_sublink)
 
   // Location of the new route's RouterLinkState.
   IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
@@ -300,29 +300,29 @@ IPCZ_MSG_BEGIN(BypassProxy, IPCZ_MSG_ID(31), IPCZ_MSG_VERSION(0))
   // recipient's side of the route before the proxy's side stopped sending
   // parcels through the proxy and started sending directly on the new link
   // introduced by this message. This informs the recipient of when it can stop
-  // expecting new parcels to arrive via `proxy_routing_id`.
+  // expecting new parcels to arrive via `proxy_sublink`.
   IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
-// Informs the recipient that the portal on `routing_id` for this NodeLink can
+// Informs the recipient that the portal on `sublink` for this NodeLink can
 // cease to exist once it has received and forwarded parcels up to the
 // specified sequence length in each direction.
 IPCZ_MSG_BEGIN(StopProxying, IPCZ_MSG_ID(32), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message. This is the proxy itself.
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 
   // The total number of parcels sent from the other side of the route towards
   // the proxy's own side before the proxy's outward peer began bypassing the
   // proxy and sending parcels directly to its outward peer. This informs the
-  // proxy of when it can stop expecting new parcels to arrive on RoutingId.
+  // proxy of when it can stop expecting new parcels to arrive on SublinkId.
   IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 
   // The total number of parcels sent from the proxy's own side of the route
   // towards the other side before the proxy's inward peer began bypassing the
   // proxy and sending parcels directly to its outward peer. This informs the
   // proxy of when it can stop expecting new outbound parcels to forward to its
-  // outward peer on `routing_id`.
+  // outward peer on `sublink`.
   IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
@@ -331,7 +331,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(ProxyWillStop, IPCZ_MSG_ID(33), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message. This is the proxy's inward peer.
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 
   // The total number of parcels sent toward the recipients side of the route
   // through the proxying router. Beyond this length, all subsequent parcels
@@ -347,25 +347,25 @@ IPCZ_MSG_END()
 // proxy initiates it.
 //
 // When the proxy's inward peer receives this message, it may immediately begin
-// decaying its link on `routing_id` to the proxy, replacing it with a new link
-// link (to the same node) on `new_routing_id` to the proxy's outward peer.
+// decaying its link on `sublink` to the proxy, replacing it with a new link
+// link (to the same node) on `new_sublink` to the proxy's outward peer.
 //
 // `sequence_length` indicates the length of the sequence already sent or
-// in-flight over `routing_id` from the proxy, and the recipient of this message
+// in-flight over `sublink` from the proxy, and the recipient of this message
 // must send a StopProxyingToLocalPeer back to the proxy with the length its own
-// outbound sequence had at the time it began decaying the link on `routing_id`.
+// outbound sequence had at the time it began decaying the link on `sublink`.
 IPCZ_MSG_BEGIN(BypassProxyToSameNode, IPCZ_MSG_ID(34), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
-  IPCZ_MSG_PARAM(RoutingId, new_routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
+  IPCZ_MSG_PARAM(SublinkId, new_sublink)
   IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
   IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 IPCZ_MSG_END()
 
 // Informs the recipient that it has been bypassed by the sender in favor of a
-// direct route to the sender's local outward peer. This is essentially a reply
+// direct link to the sender's local outward peer. This is essentially a reply
 // to BypassProxyToSameNode.
 IPCZ_MSG_BEGIN(StopProxyingToLocalPeer, IPCZ_MSG_ID(35), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
@@ -374,7 +374,7 @@ IPCZ_MSG_END()
 // in question could otherwise fail indefinitely to notice a bypass opportunity
 // due to a lack of interesting state changes.
 IPCZ_MSG_BEGIN(NotifyBypassPossible, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()
 
 // Requests allocation of a shared memory region of a given size. If the
@@ -392,5 +392,5 @@ IPCZ_MSG_END()
 // Requests that the receiving Router log a description of itself and forward
 // this request along the same direction in which it was received.
 IPCZ_MSG_BEGIN(LogRouteTrace, IPCZ_MSG_ID(240), IPCZ_MSG_VERSION(0))
-  IPCZ_MSG_PARAM(RoutingId, routing_id)
+  IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()

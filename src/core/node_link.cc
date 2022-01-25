@@ -62,55 +62,55 @@ NodeLink::~NodeLink() {
   Deactivate();
 }
 
-mem::Ref<RemoteRouterLink> NodeLink::AddRoute(
-    RoutingId routing_id,
+mem::Ref<RemoteRouterLink> NodeLink::AddRemoteRouterLink(
+    SublinkId sublink,
     const NodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side,
     mem::Ref<Router> router) {
-  auto link = RemoteRouterLink::Create(mem::WrapRefCounted(this), routing_id,
+  auto link = RemoteRouterLink::Create(mem::WrapRefCounted(this), sublink,
                                        link_state_address, type, side);
 
   absl::MutexLock lock(&mutex_);
-  auto result = routes_.try_emplace(routing_id,
-                                    Route(std::move(link), std::move(router)));
-  return result.first->second.link;
+  auto result = sublinks_.try_emplace(
+      sublink, Sublink(std::move(link), std::move(router)));
+  return result.first->second.router_link;
 }
 
-bool NodeLink::RemoveRoute(RoutingId routing_id) {
+bool NodeLink::RemoveRemoteRouterLink(SublinkId sublink) {
   absl::MutexLock lock(&mutex_);
-  auto it = routes_.find(routing_id);
-  if (it == routes_.end()) {
+  auto it = sublinks_.find(sublink);
+  if (it == sublinks_.end()) {
     return false;
   }
 
-  routes_.erase(routing_id);
+  sublinks_.erase(sublink);
   return true;
 }
 
-absl::optional<NodeLink::Route> NodeLink::GetRoute(RoutingId routing_id) {
+absl::optional<NodeLink::Sublink> NodeLink::GetSublink(SublinkId sublink) {
   absl::MutexLock lock(&mutex_);
-  auto it = routes_.find(routing_id);
-  if (it == routes_.end()) {
+  auto it = sublinks_.find(sublink);
+  if (it == sublinks_.end()) {
     return absl::nullopt;
   }
   return it->second;
 }
 
-mem::Ref<Router> NodeLink::GetRouter(RoutingId routing_id) {
+mem::Ref<Router> NodeLink::GetRouter(SublinkId sublink) {
   absl::MutexLock lock(&mutex_);
-  auto it = routes_.find(routing_id);
-  if (it == routes_.end()) {
+  auto it = sublinks_.find(sublink);
+  if (it == sublinks_.end()) {
     return nullptr;
   }
   return it->second.receiver;
 }
 
 void NodeLink::Deactivate() {
-  RouteMap routes;
+  SublinkMap sublinks;
   {
     absl::MutexLock lock(&mutex_);
-    routes = std::move(routes_);
+    sublinks = std::move(sublinks_);
     if (!active_) {
       return;
     }
@@ -119,7 +119,7 @@ void NodeLink::Deactivate() {
   }
 
   memory_->SetNodeLink(nullptr);
-  routes.clear();
+  sublinks.clear();
   transport_->Deactivate();
 }
 
@@ -206,27 +206,27 @@ void NodeLink::IntroduceNode(const NodeName& name,
 }
 
 bool NodeLink::BypassProxy(const NodeName& proxy_name,
-                           RoutingId proxy_routing_id,
+                           SublinkId proxy_sublink,
                            SequenceNumber proxy_outbound_sequence_length,
                            mem::Ref<Router> new_peer) {
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
-  const RoutingId new_routing_id = memory().AllocateRoutingIds(1);
+  const SublinkId new_sublink = memory().AllocateSublinkIds(1);
   const NodeLinkAddress new_link_state_address =
       memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
-      AddRoute(new_routing_id, new_link_state_address, LinkType::kCentral,
-               LinkSide::kA, new_peer);
+      AddRemoteRouterLink(new_sublink, new_link_state_address,
+                          LinkType::kCentral, LinkSide::kA, new_peer);
 
   DVLOG(4) << "Sending BypassProxy from " << local_node_name_.ToString()
-           << " to " << remote_node_name_.ToString() << " with new routing ID "
-           << new_routing_id << " to replace its link to proxy "
-           << proxy_name.ToString() << " on routing ID " << proxy_routing_id;
+           << " to " << remote_node_name_.ToString() << " with new sublink "
+           << new_sublink << " to replace its link to proxy "
+           << proxy_name.ToString() << " on sublink " << proxy_sublink;
 
   msg::BypassProxy bypass;
   bypass.params().proxy_name = proxy_name;
-  bypass.params().proxy_routing_id = proxy_routing_id;
-  bypass.params().new_routing_id = new_routing_id;
+  bypass.params().proxy_sublink = proxy_sublink;
+  bypass.params().new_sublink = new_sublink;
   bypass.params().new_link_state_address = new_link_state_address;
   bypass.params().proxy_outbound_sequence_length =
       proxy_outbound_sequence_length;
@@ -409,49 +409,49 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
   parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   parcel.SetPortals(std::move(portals));
   parcel.SetOSHandles(std::move(os_handles));
-  absl::optional<Route> route = GetRoute(accept.params().routing_id);
-  if (!route) {
+  absl::optional<Sublink> sublink = GetSublink(accept.params().sublink);
+  if (!sublink) {
     DVLOG(4) << "Dropping " << parcel.Describe() << " at "
              << local_node_name_.ToString() << ", arriving from "
-             << remote_node_name_.ToString() << " via unknown routing ID "
-             << accept.params().routing_id;
+             << remote_node_name_.ToString() << " via unknown sublink "
+             << accept.params().sublink;
     return true;
   }
 
-  const LinkType link_type = route->link->GetType();
+  const LinkType link_type = sublink->router_link->GetType();
   if (link_type == LinkType::kCentral ||
       link_type == LinkType::kPeripheralOutward) {
     DVLOG(4) << "Accepting inbound " << parcel.Describe() << " at "
-             << route->link->Describe();
-    return route->receiver->AcceptInboundParcel(parcel);
+             << sublink->router_link->Describe();
+    return sublink->receiver->AcceptInboundParcel(parcel);
   } else {
     ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
     DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
-             << route->link->Describe();
-    return route->receiver->AcceptOutboundParcel(parcel);
+             << sublink->router_link->Describe();
+    return sublink->receiver->AcceptOutboundParcel(parcel);
   }
 }
 
 bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
-  absl::optional<Route> route = GetRoute(route_closed.params().routing_id);
-  if (!route) {
+  absl::optional<Sublink> sublink = GetSublink(route_closed.params().sublink);
+  if (!sublink) {
     return true;
   }
 
-  route->receiver->AcceptRouteClosureFrom(
-      route->link->GetType().direction(),
+  sublink->receiver->AcceptRouteClosureFrom(
+      sublink->router_link->GetType().direction(),
       route_closed.params().sequence_length);
   return true;
 }
 
 bool NodeLink::OnSetRouterLinkStateAddress(
     const msg::SetRouterLinkStateAddress& set) {
-  absl::optional<Route> route = GetRoute(set.params().routing_id);
-  if (!route) {
+  absl::optional<Sublink> sublink = GetSublink(set.params().sublink);
+  if (!sublink) {
     return true;
   }
 
-  route->link->SetLinkStateAddress(set.params().address);
+  sublink->router_link->SetLinkStateAddress(set.params().address);
   return true;
 }
 
@@ -497,14 +497,14 @@ bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
-  mem::Ref<Router> router = GetRouter(stop.params().routing_id);
+  mem::Ref<Router> router = GetRouter(stop.params().sublink);
   if (!router) {
-    DVLOG(4) << "Received StopProxying for unknown route";
+    DVLOG(4) << "Received StopProxying for unknown router";
     return true;
   }
 
   DVLOG(4) << "Received StopProxying on " << local_node_name_.ToString()
-           << " routing ID " << stop.params().routing_id << " with inbound"
+           << " sublink " << stop.params().sublink << " with inbound"
            << " length " << stop.params().proxy_inbound_sequence_length
            << " and outbound length "
            << stop.params().proxy_outbound_sequence_length;
@@ -514,14 +514,14 @@ bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
 }
 
 bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
-  mem::Ref<Router> router = GetRouter(request.params().routing_id);
+  mem::Ref<Router> router = GetRouter(request.params().sublink);
   if (!router) {
     return true;
   }
 
-  return router->InitiateProxyBypass(*this, request.params().routing_id,
+  return router->InitiateProxyBypass(*this, request.params().sublink,
                                      request.params().proxy_peer_name,
-                                     request.params().proxy_peer_routing_id);
+                                     request.params().proxy_peer_sublink);
 }
 
 bool NodeLink::OnBypassProxy(const msg::BypassProxy& bypass) {
@@ -530,13 +530,13 @@ bool NodeLink::OnBypassProxy(const msg::BypassProxy& bypass) {
 
 bool NodeLink::OnBypassProxyToSameNode(
     const msg::BypassProxyToSameNode& bypass) {
-  mem::Ref<Router> router = GetRouter(bypass.params().routing_id);
+  mem::Ref<Router> router = GetRouter(bypass.params().sublink);
   if (!router) {
     return true;
   }
 
-  mem::Ref<RouterLink> new_link = AddRoute(
-      bypass.params().new_routing_id, bypass.params().new_link_state_address,
+  mem::Ref<RouterLink> new_link = AddRemoteRouterLink(
+      bypass.params().new_sublink, bypass.params().new_link_state_address,
       LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params().proxy_inbound_sequence_length);
@@ -544,7 +544,7 @@ bool NodeLink::OnBypassProxyToSameNode(
 
 bool NodeLink::OnStopProxyingToLocalPeer(
     const msg::StopProxyingToLocalPeer& stop) {
-  mem::Ref<Router> router = GetRouter(stop.params().routing_id);
+  mem::Ref<Router> router = GetRouter(stop.params().sublink);
   if (!router) {
     return true;
   }
@@ -553,7 +553,7 @@ bool NodeLink::OnStopProxyingToLocalPeer(
 }
 
 bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
-  mem::Ref<Router> router = GetRouter(will_stop.params().routing_id);
+  mem::Ref<Router> router = GetRouter(will_stop.params().sublink);
   if (!router) {
     return true;
   }
@@ -563,7 +563,7 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
 }
 
 bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
-  mem::Ref<Router> router = GetRouter(notify.params().routing_id);
+  mem::Ref<Router> router = GetRouter(notify.params().sublink);
   if (!router) {
     return true;
   }
@@ -612,28 +612,29 @@ bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
 }
 
 bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
-  absl::optional<Route> route = GetRoute(log_request.params().routing_id);
-  if (!route) {
+  absl::optional<Sublink> sublink = GetSublink(log_request.params().sublink);
+  if (!sublink) {
     return true;
   }
 
-  route->receiver->AcceptLogRouteTraceFrom(route->link->GetType().direction());
+  sublink->receiver->AcceptLogRouteTraceFrom(
+      sublink->router_link->GetType().direction());
   return true;
 }
 
-NodeLink::Route::Route(mem::Ref<RemoteRouterLink> link,
-                       mem::Ref<Router> receiver)
-    : link(std::move(link)), receiver(std::move(receiver)) {}
+NodeLink::Sublink::Sublink(mem::Ref<RemoteRouterLink> router_link,
+                           mem::Ref<Router> receiver)
+    : router_link(std::move(router_link)), receiver(std::move(receiver)) {}
 
-NodeLink::Route::Route(Route&&) = default;
+NodeLink::Sublink::Sublink(Sublink&&) = default;
 
-NodeLink::Route::Route(const Route&) = default;
+NodeLink::Sublink::Sublink(const Sublink&) = default;
 
-NodeLink::Route& NodeLink::Route::operator=(Route&&) = default;
+NodeLink::Sublink& NodeLink::Sublink::operator=(Sublink&&) = default;
 
-NodeLink::Route& NodeLink::Route::operator=(const Route&) = default;
+NodeLink::Sublink& NodeLink::Sublink::operator=(const Sublink&) = default;
 
-NodeLink::Route::~Route() = default;
+NodeLink::Sublink::~Sublink() = default;
 
 }  // namespace core
 }  // namespace ipcz

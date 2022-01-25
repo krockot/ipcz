@@ -16,8 +16,8 @@
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
 #include "core/route_edge.h"
-#include "core/routing_id.h"
 #include "core/sequence_number.h"
+#include "core/sublink_id.h"
 #include "core/trap.h"
 #include "core/trap_set.h"
 #include "ipcz/ipcz.h"
@@ -190,9 +190,9 @@ class Router : public mem::RefCounted {
                                       NodeLink& from_node_link);
 
   bool InitiateProxyBypass(NodeLink& requesting_node_link,
-                           RoutingId requesting_routing_id,
+                           SublinkId requesting_sublink,
                            const NodeName& proxy_peer_node_name,
-                           RoutingId proxy_peer_routing_id);
+                           SublinkId proxy_peer_sublink);
   bool BypassProxyWithNewRemoteLink(
       mem::Ref<RemoteRouterLink> new_peer,
       SequenceNumber proxy_outbound_sequence_length);
