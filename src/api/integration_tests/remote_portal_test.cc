@@ -144,7 +144,6 @@ TEST_P(RemotePortalTest, MultipleHops) {
     Put(f2, "nerp", {}, {});
   }
   for (uint32_t i = 0; i < kNumIterations; ++i) {
-    Parcel p;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(f2, p));
     EXPECT_EQ("merp", p.message);
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(e, p));

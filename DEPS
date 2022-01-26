@@ -10,19 +10,19 @@ vars = {
 
   'chromium_git': 'https://chromium.googlesource.com',
 
-  'abseil_revision': '789af048b388657987c59d4da406859034fe310f',
-  'build_revision': 'ebad8533842661f66b9b905e0ee9890a32f628d5',
-  'buildtools_revision': 'a9bc3e283182a586998338a665c7eae17406ec54',
-  'catapult_revision': '01df326efe1656bf52ef5866098a7852fb2078dc',
-  'chromium_testing_revision': 'ff2d173662ccd294ddc6c7a78268de211d073dea',
-  'clang_format_revision': '99803d74e35962f63a775f29477882afd4d57d94',
-  'clang_revision': 'c06edd1f455183fc89e9f8c2cf745db8f564d8ea',
-  'depot_tools_revision': '281edf7577c0e85f6abed10c2c36f029e864f319',
-  'gn_version': 'git_revision:0153d369bbccc908f4da4993b1ba82728055926a',
-  'chromium_googletest_revision': 'd1e477bfe24987837f6f8f5b09b0ceb2dbe8c3f5',
-  'googletest_revision': '075810f7a20405ea09a93f68847d6e963212fa62',
+  'abseil_revision': 'cfdfe8d1453ed2762d8e68d06b2e0a9fbf0f57bb',
+  'build_revision': '9d31c5f0204d7e806723266ed38b8485214a996b',
+  'buildtools_revision': 'f78b4b9f33bd8ef9944d5ce643daff1c31880189',
+  'catapult_revision': 'd90eeee99383928afa92d6960ad9d3b5f51f8b76',
+  'chromium_testing_revision': '1b963e718e4b6945c8c86b558abcd67e34491ea2',
+  'clang_format_revision': 'e435ad79c17b1888b34df88d6a30a094936e3836',
+  'clang_revision': '946a41a51f44207941b3729a0733dfc1e236644e',
+  'depot_tools_revision': 'd05a2e03953bf7e58696a0401ba41360b627401c',
+  'gn_version': 'git_revision:0725d7827575b239594fbc8fd5192873a1d62f44',
+  'chromium_googletest_revision': '2617f568c87dc512e52d686d9e2e61479e330991',
+  'googletest_revision': 'f45d5865ed0b2b8912244627cdf508a24cc6ccb4',
   'libcxx_revision':       '79a2e924d96e2fc1e4b937c42efd08898fa472d7',
-  'libcxxabi_revision':    'fd29545e5e44be805142e4b7949529355e725c09',
+  'libcxxabi_revision':    'df43e1b0396fbd3a0e511b804eeec54f3b62e3f0',
 }
 
 deps = {
