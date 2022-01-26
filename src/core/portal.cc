@@ -119,7 +119,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     }
   } else {
     for (os::Handle& handle : handles) {
-      (void)handle.release();
+      handle.release();
     }
   }
 
@@ -196,7 +196,7 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     in_two_phase_put_ = false;
   } else {
     for (os::Handle& handle : handles) {
-      (void)handle.release();
+      handle.release();
     }
 
     absl::MutexLock lock(&mutex_);

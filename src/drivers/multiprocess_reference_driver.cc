@@ -307,7 +307,7 @@ IpczResult CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
       ToPtr<MultiprocessMemory>(driver_memory));
   reinterpret_cast<uint32_t*>(data)[0] = static_cast<uint32_t>(memory->size());
   if (!os::Handle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0])) {
-    (void)memory.release();
+    std::ignore = memory.release();
     return IPCZ_RESULT_UNKNOWN;
   }
 
