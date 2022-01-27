@@ -500,9 +500,7 @@ IpczResult NodeConnector::ConnectNode(
     return IPCZ_RESULT_OK;
   }
 
-  mem::Ref<NodeConnector> connector;
-  IpczResult result;
-  std::tie(connector, result) = CreateConnector(
+  auto [connector, result] = CreateConnector(
       std::move(node), std::move(transport), std::move(remote_process), flags,
       initial_portals, std::move(callback));
   if (result != IPCZ_RESULT_OK) {

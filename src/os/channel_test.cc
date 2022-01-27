@@ -19,8 +19,7 @@ const char kTestMessage1[] = "Hello, world!";
 const char kTestMessage2[] = "Goodbye, world!";
 
 TEST_F(ChannelTest, ReadWriteWithHandles) {
-  Channel a, b;
-  std::tie(a, b) = Channel::CreateChannelPair();
+  auto [a, b] = Channel::CreateChannelPair();
 
   absl::Notification b_finished;
   b.Listen([&b_finished](Channel::Message message) {
@@ -39,8 +38,7 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
     return true;
   });
 
-  Channel c, d;
-  std::tie(c, d) = Channel::CreateChannelPair();
+  auto [c, d] = Channel::CreateChannelPair();
 
   Handle ch = c.TakeHandle();
   a.Send({Channel::Data(kTestMessage1), {&ch, 1}});

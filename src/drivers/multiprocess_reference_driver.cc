@@ -158,8 +158,7 @@ IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
                                   const void* options,
                                   IpczDriverHandle* first_transport,
                                   IpczDriverHandle* second_transport) {
-  os::Channel first_channel, second_channel;
-  std::tie(first_channel, second_channel) = os::Channel::CreateChannelPair();
+  auto [first_channel, second_channel] = os::Channel::CreateChannelPair();
   auto first =
       mem::MakeRefCounted<MultiprocessTransport>(std::move(first_channel));
   auto second =
