@@ -29,6 +29,10 @@ source_set("ipcz_header") {
   public_configs = [ ":ipcz_include_dir" ]
 }
 
+source_set("ipcz_header_types") {
+  public = [ "include/ipcz/ipcz.h" ]
+}
+
 source_set("support") {
   visibility = [ ":*" ]
 
