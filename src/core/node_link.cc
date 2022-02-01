@@ -439,8 +439,7 @@ bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
   }
 
   sublink->receiver->AcceptRouteClosureFrom(
-      sublink->router_link->GetType().direction(),
-      route_closed.params().sequence_length);
+      sublink->router_link->GetType(), route_closed.params().sequence_length);
   return true;
 }
 
@@ -562,13 +561,11 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
       will_stop.params().proxy_inbound_sequence_length);
 }
 
-bool NodeLink::OnNotifyBypassPossible(const msg::NotifyBypassPossible& notify) {
-  mem::Ref<Router> router = GetRouter(notify.params().sublink);
-  if (!router) {
-    return true;
+bool NodeLink::OnFlush(const msg::Flush& flush) {
+  if (mem::Ref<Router> router = GetRouter(flush.params().sublink)) {
+    router->Flush(/*force_bypass_attempt=*/true);
   }
-
-  return router->OnBypassPossible();
+  return true;
 }
 
 bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {

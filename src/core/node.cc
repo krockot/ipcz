@@ -106,7 +106,7 @@ void Node::SetPortalsWaitingForLink(
                                                   mem::Ref<NodeLink> link) {
     if (!link) {
       for (const mem::Ref<Portal>& portal : waiting_portals) {
-        portal->router()->AcceptRouteClosureFrom(Direction::kOutward, 0);
+        portal->router()->AcceptRouteClosureFrom(LinkType::kCentral, 0);
       }
       return;
     }

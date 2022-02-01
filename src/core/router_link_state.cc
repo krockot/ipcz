@@ -20,50 +20,86 @@ RouterLinkState& RouterLinkState::Initialize(void* where) {
   return *(new (where) RouterLinkState());
 }
 
-bool RouterLinkState::SetSideReady(LinkSide side) {
-  const Status kReadyOnThisSide = side == LinkSide::kA ? kReadyOnA : kReadyOnB;
-  const Status kReadyOnOtherSide = side == LinkSide::kA ? kReadyOnB : kReadyOnA;
+void RouterLinkState::SetSideStable(LinkSide side) {
+  const Status kThisSideStable =
+      side == LinkSide::kA ? kSideAStable : kSideBStable;
 
-  Status expected = Status::kNotReady;
-  if (status.compare_exchange_strong(expected, kReadyOnThisSide,
-                                     std::memory_order_relaxed)) {
-    return true;
+  Status expected = kUnstable;
+  while (!status.compare_exchange_weak(expected, expected | kThisSideStable,
+                                       std::memory_order_relaxed) &&
+         (expected & kThisSideStable) == 0) {
   }
-  if (expected == kReadyOnThisSide || expected == kReady) {
-    return true;
-  }
-  if (expected != kReadyOnOtherSide) {
-    return false;
-  }
-  return status.compare_exchange_strong(expected, kReady,
-                                        std::memory_order_relaxed);
 }
 
-bool RouterLinkState::TryToLockForBypass(LinkSide side) {
+bool RouterLinkState::TryLock(LinkSide side) {
+  const Status kThisSideStable =
+      side == LinkSide::kA ? kSideAStable : kSideBStable;
+  const Status kOtherSideStable =
+      side == LinkSide::kA ? kSideBStable : kSideAStable;
   const Status kLockedByThisSide =
-      side == LinkSide::kA ? kLockedByA : kLockedByB;
-  Status expected = Status::kReady;
-  return status.compare_exchange_strong(expected, kLockedByThisSide,
-                                        std::memory_order_relaxed);
+      side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
+  const Status kLockedByEitherSide = kLockedBySideA | kLockedBySideB;
+  const Status kThisSideWaiting =
+      side == LinkSide::kA ? kSideAWaiting : kSideBWaiting;
+
+  Status expected = kStable;
+  Status desired_bit = kLockedByThisSide;
+  while (!status.compare_exchange_weak(expected, expected | desired_bit,
+                                       std::memory_order_relaxed)) {
+    if ((expected & kLockedByEitherSide) != 0 ||
+        (expected & kThisSideStable) == 0) {
+      return false;
+    }
+
+    if (desired_bit == kLockedByThisSide &&
+        (expected & kOtherSideStable) == 0) {
+      // If we were trying to lock but the other side isn't stable, try to set
+      // our waiting bit instead.
+      desired_bit = kThisSideWaiting;
+    } else if (desired_bit == kThisSideWaiting &&
+               (expected & kStable) == kStable) {
+      // Otherwise if we were trying to set our waiting bit and the other side
+      // is now stable, go back to trying to lock the link.
+      desired_bit = kLockedByThisSide;
+    }
+  }
+
+  return desired_bit == kLockedByThisSide;
 }
 
-bool RouterLinkState::CancelBypassLock() {
-  Status expected = kLockedByA;
-  if (status.compare_exchange_strong(expected, kReady,
-                                     std::memory_order_relaxed)) {
-    return true;
+void RouterLinkState::Unlock(LinkSide side) {
+  const Status kLockedByThisSide =
+      side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
+  Status expected = kStable | kLockedByThisSide;
+  Status desired = kStable;
+  while (!status.compare_exchange_weak(expected, desired,
+                                       std::memory_order_relaxed) &&
+         (expected & kLockedByThisSide) != 0) {
+    desired = expected & ~kLockedByThisSide;
   }
-  if (expected == kReady) {
-    return true;
+}
+
+bool RouterLinkState::ResetWaitingBit(LinkSide side) {
+  const Status kThisSideWaiting =
+      side == LinkSide::kA ? kSideAWaiting : kSideBWaiting;
+  Status expected = kStable | kThisSideWaiting;
+  Status desired = kStable;
+  while (!status.compare_exchange_weak(expected, desired,
+                                       std::memory_order_relaxed)) {
+    if ((expected & kStable) != kStable || (expected & kThisSideWaiting) == 0 ||
+        (expected & (kLockedBySideA | kLockedBySideB)) != 0) {
+      // If the link isn't stable yet, or `side` wasn't waiting on it, or the
+      // link is already locked, there's no point changing the status here.
+      return false;
+    }
+
+    // At this point we know the link is stable, the identified side is waiting,
+    // and the link is not locked. Regardless of what other bits are set, mask
+    // off the waiting bit and try to update our status again.
+    desired = expected & ~kThisSideWaiting;
   }
-  if (expected != kLockedByB) {
-    return false;
-  }
-  if (status.compare_exchange_strong(expected, kReady,
-                                     std::memory_order_relaxed)) {
-    return true;
-  }
-  return expected == kReady;
+
+  return true;
 }
 
 }  // namespace core

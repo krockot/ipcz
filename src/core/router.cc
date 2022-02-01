@@ -147,32 +147,15 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
 }
 
 void Router::CloseRoute() {
-  SequenceNumber final_sequence_length;
-  mem::Ref<RouterLink> forwarding_link;
-  mem::Ref<RouterLink> dead_outward_link;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_edge_);
     traps_.DisableAllAndClear();
-
-    final_sequence_length = outbound_parcels_.GetCurrentSequenceLength();
-    outbound_parcels_.SetFinalSequenceLength(final_sequence_length);
-
-    forwarding_link = outward_edge_.primary_link();
-    if (!forwarding_link) {
-      return;
-    }
-
-    if (outbound_parcels_.IsDead()) {
-      dead_outward_link = outward_edge_.ReleasePrimaryLink();
-    }
+    outbound_parcels_.SetFinalSequenceLength(
+        outbound_parcels_.GetCurrentSequenceLength());
   }
 
-  forwarding_link->AcceptRouteClosure(final_sequence_length);
-
-  if (dead_outward_link) {
-    dead_outward_link->Deactivate();
-  }
+  Flush();
 }
 
 IpczResult Router::Merge(mem::Ref<Router> other) {
@@ -209,31 +192,16 @@ IpczResult Router::Merge(mem::Ref<Router> other) {
 }
 
 void Router::SetOutwardLink(mem::Ref<RouterLink> link) {
-  bool can_lock_link = false;
-  bool attempt_removal = false;
   {
     absl::MutexLock lock(&mutex_);
     outward_edge_.SetPrimaryLink(link);
     if (link->GetType().is_central() && outward_edge_.is_stable() &&
         (!inward_edge_ || inward_edge_->is_stable())) {
-      outward_edge_.SetPrimaryLinkCanSupportBypass();
-      can_lock_link = outward_edge_.CanLockPrimaryLinkForBypass();
-      attempt_removal = can_lock_link && inward_edge_;
+      link->MarkSideStable();
     }
   }
 
-  Flush();
-
-  if (attempt_removal && MaybeInitiateSelfRemoval()) {
-    return;
-  }
-
-  if (can_lock_link) {
-    // TODO: the other side might not be a proxy, so this notification may be
-    // redundant. we should be able to leverage some new shared link state to
-    // avoid this redundancy.
-    link->NotifyBypassPossible();
-  }
+  Flush(/*force_bypass_attempt=*/true);
 }
 
 bool Router::StopProxying(SequenceNumber proxy_inbound_sequence_length,
@@ -326,66 +294,26 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
   return true;
 }
 
-void Router::AcceptRouteClosureFrom(Direction source,
+void Router::AcceptRouteClosureFrom(LinkType link_type,
                                     SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
-  mem::Ref<RouterLink> forwarding_link;
-  mem::Ref<RouterLink> dead_primary_link;
-  mem::Ref<RouterLink> dead_decaying_link;
-  mem::Ref<RouterLink> bridge_link;
-  if (source.is_inward()) {
-    // If we're being notified of our own side's closure, we want to propagate
-    // this outward toward the other side.
+  {
     absl::MutexLock lock(&mutex_);
-    outbound_parcels_.SetFinalSequenceLength(sequence_length);
-    forwarding_link = outward_edge_.GetLinkToPropagateRouteClosure();
-    if (!outbound_parcels_.IsExpectingMoreParcels()) {
-      dead_primary_link = outward_edge_.ReleasePrimaryLink();
-      dead_decaying_link = outward_edge_.ReleaseDecayingLink();
-    }
-
-    // If we're receiving this, it's coming from the other side of the bridge
-    // which is already reset by now.
-    bridge_.reset();
-  } else {
-    // We're being notified of the other side's closure, so we want to propagate
-    // this inward toward our own terminal router. If that's us, update portal
-    // status and traps.
-    absl::MutexLock lock(&mutex_);
-    inbound_parcels_.SetFinalSequenceLength(sequence_length);
-    if (inward_edge_) {
-      forwarding_link = inward_edge_->GetLinkToPropagateRouteClosure();
-    } else if (bridge_) {
-      forwarding_link = bridge_->GetLinkToPropagateRouteClosure();
-    } else {
-      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-      if (inbound_parcels_.IsDead()) {
-        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+    if (link_type == LinkType::kCentral ||
+        link_type == LinkType::kPeripheralOutward) {
+      inbound_parcels_.SetFinalSequenceLength(sequence_length);
+      if (!inward_edge_ && !bridge_) {
+        status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+        if (inbound_parcels_.IsDead()) {
+          status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+        }
+        traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kRouteClosed,
+                                  dispatcher);
       }
-      traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kRouteClosed,
-                                dispatcher);
-    }
-
-    if (!inbound_parcels_.IsExpectingMoreParcels()) {
-      // We can drop our outward link if we know there are no more in-flight
-      // parcels coming our way. Otherwise it'll be dropped as soon as that's
-      // the case.
-      dead_primary_link = outward_edge_.ReleasePrimaryLink();
-      dead_decaying_link = outward_edge_.ReleaseDecayingLink();
+    } else if (link_type == LinkType::kBridge) {
+      outbound_parcels_.SetFinalSequenceLength(sequence_length);
       bridge_.reset();
     }
-  }
-
-  if (forwarding_link) {
-    forwarding_link->AcceptRouteClosure(sequence_length);
-  }
-
-  if (dead_primary_link) {
-    dead_primary_link->Deactivate();
-  }
-
-  if (dead_decaying_link) {
-    dead_decaying_link->Deactivate();
   }
 
   Flush();
@@ -559,7 +487,7 @@ void Router::SerializeNewRouter(NodeLink& to_node_link,
     absl::MutexLock lock(&mutex_);
     traps_.DisableAllAndClear();
     local_peer = outward_edge_.GetLocalPeer();
-    initiate_proxy_bypass = outward_edge_.TryToLockPrimaryLinkForBypass(
+    initiate_proxy_bypass = outward_edge_.TryLockPrimaryLinkForBypass(
         to_node_link.remote_node_name());
   }
 
@@ -597,13 +525,19 @@ void Router::BeginProxyingToNewRouter(NodeLink& to_node_link,
     } else {
       inward_edge_->SetPrimaryLink(new_sublink->router_link);
     }
+
+    mem::Ref<RouterLink> outward_link = outward_edge_.primary_link();
+    if (outward_edge_.is_stable() && outward_link &&
+        inward_edge_->is_stable()) {
+      outward_link->MarkSideStable();
+    }
   }
 
   if (local_peer) {
     local_peer->SetOutwardLink(new_sublink->router_link);
   }
 
-  Flush();
+  Flush(/*force_bypass_attempt=*/true);
 }
 
 // static
@@ -672,7 +606,7 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
                                 descriptor.proxy_peer_sublink);
   }
 
-  router->Flush();
+  router->Flush(/*force_bypass_attempt=*/true);
   return router;
 }
 
@@ -914,6 +848,9 @@ bool Router::BypassProxyWithNewLinkToSameNode(
 
   ABSL_ASSERT(decaying_proxy);
   decaying_proxy->StopProxyingToLocalPeer(proxy_outbound_sequence_length);
+
+  Flush();
+
   return true;
 }
 
@@ -1007,11 +944,6 @@ bool Router::OnProxyWillStop(SequenceNumber proxy_inbound_sequence_length) {
   return true;
 }
 
-bool Router::OnBypassPossible() {
-  MaybeInitiateSelfRemoval();
-  return true;
-}
-
 void Router::LogDescription() {
   absl::MutexLock lock(&mutex_);
   DLOG(INFO) << "## router [" << this << "]";
@@ -1063,16 +995,15 @@ void Router::AcceptLogRouteTraceFrom(Direction source) {
   }
 }
 
-void Router::Flush() {
+void Router::Flush(bool force_bypass_attempt) {
   mem::Ref<RouterLink> inward_link;
   mem::Ref<RouterLink> outward_link;
+  mem::Ref<RouterLink> bridge_link;
   mem::Ref<RouterLink> decaying_inward_link;
   mem::Ref<RouterLink> decaying_outward_link;
-  mem::Ref<RouterLink> inward_link_for_closure_propagation;
-  mem::Ref<RouterLink> outward_link_for_closure_propagation;
   mem::Ref<RouterLink> dead_inward_link;
   mem::Ref<RouterLink> dead_outward_link;
-  mem::Ref<RouterLink> bridge_link;
+  mem::Ref<RouterLink> dead_bridge_link;
   absl::InlinedVector<Parcel, 2> outbound_parcels;
   absl::InlinedVector<Parcel, 2> outbound_parcels_to_proxy;
   absl::InlinedVector<Parcel, 2> inbound_parcels;
@@ -1080,12 +1011,15 @@ void Router::Flush() {
   absl::InlinedVector<Parcel, 2> bridge_parcels;
   bool inward_link_decayed = false;
   bool outward_link_decayed = false;
-  SequenceNumber final_inward_sequence_length;
-  SequenceNumber final_outward_sequence_length;
+  bool on_central_link = false;
+  bool dropped_last_decaying_link = false;
+  absl::optional<SequenceNumber> final_outward_sequence_length;
+  absl::optional<SequenceNumber> final_inward_sequence_length;
   {
     absl::MutexLock lock(&mutex_);
     inward_link = inward_edge_ ? inward_edge_->primary_link() : nullptr;
     outward_link = outward_edge_.primary_link();
+    on_central_link = outward_link && outward_link->GetType().is_central();
     decaying_inward_link =
         inward_edge_ ? inward_edge_->decaying_link() : nullptr;
     decaying_outward_link = outward_edge_.decaying_link();
@@ -1141,47 +1075,54 @@ void Router::Flush() {
       bridge_.reset();
     }
 
-    // If the inbound sequence is dead, the other side of the route is gone and
-    // we have received all the parcels it sent. We can drop the outward link.
-    if (outbound_parcels_.final_sequence_length()) {
-      outward_link_for_closure_propagation =
-          outward_edge_.GetLinkToPropagateRouteClosure();
+    // If we're dropping the last of our decaying links here, our outward link
+    // may now be stable. This can unblock other potential operations such as
+    // proxy bypass and closure propagation.
+    const bool inward_edge_stable =
+        !decaying_inward_link || inward_link_decayed;
+    const bool outward_edge_stable =
+        !decaying_outward_link || outward_link_decayed;
+    const bool both_edges_stable = inward_edge_stable && outward_edge_stable;
+    const bool either_link_decayed =
+        inward_link_decayed || outward_link_decayed;
+    if (on_central_link && either_link_decayed && both_edges_stable) {
+      DVLOG(4) << "Router with fully decayed links may be eligible for "
+               << "self-removal with outward " << DescribeLink(outward_link);
+      outward_link->MarkSideStable();
+      dropped_last_decaying_link = true;
     }
 
-    if (outward_link_for_closure_propagation) {
-      final_outward_sequence_length =
-          *outbound_parcels_.final_sequence_length();
-
-      ABSL_ASSERT(outbound_parcels_.IsEmpty());
-      if (!dead_outward_link) {
-        dead_outward_link = outward_edge_.ReleasePrimaryLink();
-      }
-    }
-
-    if (inbound_parcels_.IsDead() && !dead_outward_link) {
+    if (on_central_link && outbound_parcels_.IsDead() &&
+        outward_link->TryLockForClosure()) {
+      // If the outbound sequence is dead, our side of the route is gone and we
+      // have no more parcels to transmit. Attempt to propagate our closure,
+      // which we can only do if we're also the only router left on our side of
+      // the route and the central link can be locked.
+      dead_outward_link = outward_edge_.ReleasePrimaryLink();
+      final_outward_sequence_length = outbound_parcels_.final_sequence_length();
+    } else if (!inbound_parcels_.IsExpectingMoreParcels()) {
+      // If we expect no more inbound parcels, the other side of the route is
+      // gone and we've already received everything it sent. We can also drop
+      // the outward link in this case.
       dead_outward_link = outward_edge_.ReleasePrimaryLink();
     }
 
-    if (inward_edge_ && inbound_parcels_.final_sequence_length()) {
-      inward_link_for_closure_propagation =
-          inward_edge_->GetLinkToPropagateRouteClosure();
-    } else if (bridge_ && inbound_parcels_.final_sequence_length()) {
-      inward_link_for_closure_propagation =
-          bridge_->GetLinkToPropagateRouteClosure();
-    }
-
-    if (inward_link_for_closure_propagation) {
-      final_inward_sequence_length = *inbound_parcels_.final_sequence_length();
-      if (inbound_parcels_.IsDead() && inward_edge_) {
+    if (inbound_parcels_.IsDead()) {
+      // If the inbound parcel queue is dead, we've not only received all
+      // inbound parcels, but we've also forwarded all of them if applicable.
+      // We can therefore also drop any inward or bridge link.
+      final_inward_sequence_length = inbound_parcels_.final_sequence_length();
+      if (inward_edge_) {
         dead_inward_link = inward_edge_->ReleasePrimaryLink();
-      } else if (inbound_parcels_.IsDead() && bridge_) {
+      } else {
+        dead_bridge_link = bridge_link;
         bridge_.reset();
       }
     }
   }
 
-  if (outward_link) {
-    outward_link->Flush();
+  if (on_central_link) {
+    outward_link->ShareLinkStateMemoryIfNecessary();
   }
 
   for (Parcel& parcel : outbound_parcels_to_proxy) {
@@ -1206,25 +1147,10 @@ void Router::Flush() {
 
   if (outward_link_decayed) {
     decaying_outward_link->Deactivate();
-    decaying_outward_link.reset();
   }
 
   if (inward_link_decayed) {
     decaying_inward_link->Deactivate();
-    decaying_inward_link.reset();
-  }
-
-  if (outward_link && outward_link->GetType().is_central()) {
-    if ((inward_link_decayed || outward_link_decayed) &&
-        (!decaying_inward_link && !decaying_outward_link)) {
-      DVLOG(4) << "Router with fully decayed links may be eligible for "
-               << "self-removal with outward " << DescribeLink(outward_link);
-      outward_link->SetSideCanSupportBypass();
-    }
-
-    if (inward_link) {
-      MaybeInitiateSelfRemoval();
-    }
   }
 
   if (bridge_link && outward_link && !inward_link && !decaying_inward_link &&
@@ -1232,23 +1158,45 @@ void Router::Flush() {
     MaybeInitiateBridgeBypass();
   }
 
-  if (inward_link_for_closure_propagation) {
-    inward_link_for_closure_propagation->AcceptRouteClosure(
-        final_inward_sequence_length);
-  }
-
-  if (outward_link_for_closure_propagation) {
-    outward_link_for_closure_propagation->AcceptRouteClosure(
-        final_outward_sequence_length);
+  if (dead_outward_link) {
+    if (final_outward_sequence_length) {
+      dead_outward_link->AcceptRouteClosure(*final_outward_sequence_length);
+    }
+    dead_outward_link->Deactivate();
   }
 
   if (dead_inward_link) {
+    if (final_inward_sequence_length) {
+      dead_inward_link->AcceptRouteClosure(*final_inward_sequence_length);
+    }
     dead_inward_link->Deactivate();
   }
 
-  if (dead_outward_link) {
-    dead_outward_link->Deactivate();
+  if (dead_bridge_link) {
+    if (final_inward_sequence_length) {
+      dead_bridge_link->AcceptRouteClosure(*final_inward_sequence_length);
+    }
   }
+
+  // Beyond this point we're concerned with managing proxy bypass. Either this
+  // router or the router on the other side of the link *may* be eligible.
+
+  if (dead_outward_link || !on_central_link) {
+    // No more link or not a central link; no bypass possible.
+    return;
+  }
+
+  if (!dropped_last_decaying_link && !force_bypass_attempt) {
+    // No relevant state changes, no bypass possible.
+    return;
+  }
+
+  if (inward_link && MaybeInitiateSelfRemoval()) {
+    // Our own bypass has been successfully initiated.
+    return;
+  }
+
+  outward_link->FlushOtherSideIfWaiting();
 }
 
 bool Router::MaybeInitiateSelfRemoval() {
@@ -1258,8 +1206,7 @@ bool Router::MaybeInitiateSelfRemoval() {
   mem::Ref<Router> local_peer;
   {
     absl::MutexLock lock(&mutex_);
-    if (!inward_edge_ || !inward_edge_->is_stable() ||
-        !outward_edge_.CanLockPrimaryLinkForBypass()) {
+    if (!inward_edge_ || !inward_edge_->is_stable()) {
       return false;
     }
 
@@ -1267,7 +1214,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     successor = mem::WrapRefCounted(
         static_cast<RemoteRouterLink*>(inward_edge_->primary_link().get()));
 
-    if (!outward_edge_.TryToLockPrimaryLinkForBypass(
+    if (!outward_edge_.TryLockPrimaryLinkForBypass(
             successor->node_link()->remote_node_name())) {
       DVLOG(4) << "Proxy self-removal blocked by busy "
                << DescribeLink(outward_edge_.primary_link());
@@ -1391,13 +1338,13 @@ void Router::MaybeInitiateBridgeBypass() {
           remote_link_to_second_peer->node_link()->remote_node_name();
     }
 
-    if (!link_to_first_peer->TryToLockForBypass(second_peer_node_name)) {
+    if (!link_to_first_peer->TryLockForBypass(second_peer_node_name)) {
       return;
     }
-    if (!link_to_second_peer->TryToLockForBypass()) {
+    if (!link_to_second_peer->TryLockForBypass()) {
       // Cancel the decay on this bridge's side, because we couldn't decay the
       // other side of the bridge yet.
-      link_to_first_peer->CancelBypassLock();
+      link_to_first_peer->Unlock();
       return;
     }
   }
@@ -1549,7 +1496,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
 
   // The local peer's side of the link has nothing to decay, so it can
   // immediately raise its support for bypass.
-  new_link->SetSideCanSupportBypass();
+  new_link->MarkSideStable();
 
   to_node_link.AddRemoteRouterLink(decaying_sublink, kNullNodeLinkAddress,
                                    LinkType::kPeripheralInward, LinkSide::kA,

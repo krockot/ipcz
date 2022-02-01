@@ -11,6 +11,7 @@
 
 #include "core/link_type.h"
 #include "core/node_name.h"
+#include "core/router_link_state.h"
 #include "core/sequence_number.h"
 #include "core/sublink_id.h"
 #include "ipcz/ipcz.h"
@@ -44,19 +45,11 @@ class RouterLink : public mem::RefCounted {
   // lives on a different node from the Router on this side.
   virtual bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) = 0;
 
-  // Indicates whether this link is in a stable state suitable for initiating
-  // bypass from one side or the other. This means it exists as a router's
-  // outward link, it is a central link, the neither side has decaying links,
-  // and the other side hasn't already locked the link for bypass. A proxying
-  // router with a link in this state may lock the link for bypass by calling
-  // TryToLockForBypass(). Once locked, it's safe for the router to coordinate
-  // with other routers and have itself bypassed.
-  virtual bool CanLockForBypass() = 0;
-
   // Signals that this side of the link is in a stable state suitable for one
-  // side or the other to lock it for bypass. Only once both sides agree to
-  // allow bypass can either side observe CanLockForBypass() as true.
-  virtual bool SetSideCanSupportBypass() = 0;
+  // side or the other to lock the link, either for bypass or closure
+  // propagation. Only once both sides are marked stable can either side lock
+  // the link with TryLock* methods below.
+  virtual void MarkSideStable() = 0;
 
   // Attempts to lock the link for the router on this side to coordinate its own
   // bypass. Returns true if and only if successful, meaning the link is locked
@@ -64,23 +57,26 @@ class RouterLink : public mem::RefCounted {
   // providing its inward and outward peers with a new central link over which
   // they may communicate directly.
   //
-  // This call can only succeed if CanLockForBypass() was true at the time of
-  // the call. Once locked, CanLockForBypass() will never return true again for
-  // either side of this link unless CancelBypassLock() is called.
-  //
   // On success, `bypass_request_source` is also stashed in this link's shared
   // state so that the other side of the link can authenticate a bypass request
   // coming from that node. This parameter may be omitted if the bypass does not
   // not require authentication, e.g. because the requesting inward peer's node
   // is the same as the proxy's own node, or that of the proxy's current outward
   // peer.
-  virtual bool TryToLockForBypass(
-      const NodeName& bypass_request_source = {}) = 0;
+  virtual bool TryLockForBypass(const NodeName& bypass_request_source = {}) = 0;
 
-  // Unlocks a link previously locked for bypass by a successful call to
-  // TryToLockForBypass(). If this returns with success, CanLockForBypass() may
-  // once again return true on either side of the link.
-  virtual bool CancelBypassLock() = 0;
+  // Attempts to lock the link for the router on this side to propagate route
+  // closure toward the other side. Returns true if and only if successful,
+  // meaning no further bypass operations will proceed on the link.
+  virtual bool TryLockForClosure() = 0;
+
+  // Unlocks a link previously locked by one of the TryLock* methods above.
+  virtual void Unlock() = 0;
+
+  // Asks the other side to flush its router if and only if the side marked
+  // itself as waiting for both sides of the link to become stable, and both
+  // sides of the link are stable.
+  virtual void FlushOtherSideIfWaiting() = 0;
 
   // Indicates whether this link can be bypassed by a request from the named
   // node to one side of the link. True if and only if the proxy on the other
@@ -155,19 +151,9 @@ class RouterLink : public mem::RefCounted {
   virtual void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) = 0;
 
-  // Informs the Router on the other side of this link that the link is now
-  // fully ready to support bypass if necessary. Sent only if this side of the
-  // link was the last side to become ready, and this side does not want to
-  // initiate bypass itself.
-  //
-  // TODO: we should be able to use shared state to reliably indicate whether
-  // it's worth sending this notification. otherwise we're forced to send it in
-  // a bunch of potentially redundant cases.
-  virtual void NotifyBypassPossible() = 0;
-
-  // Flushes any necessary state changes from this side of the link to the
-  // other.
-  virtual void Flush() = 0;
+  // If the memory location of this link's shared state is known on this side
+  // but not the other side, this shares it with the other side.
+  virtual void ShareLinkStateMemoryIfNecessary() = 0;
 
   // Deactivates the link, ensuring that it no longer facilitates new calls
   // arriving for its associated Router.

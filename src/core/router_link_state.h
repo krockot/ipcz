@@ -39,68 +39,70 @@ struct IPCZ_ALIGN(8) RouterLinkState {
   // which links one half of a route to the other. Every route has at most one
   // central transverse link, and zero if and only if the route is dead.
   //
-  // Every route begins life with a single central link whose status is
-  // kReady, allowing either side to lock the link for bypass if it becomes a
-  // proxy by extending the route further along its own half of the route.
+  // Every route begins life with a single central link whose status is kStable,
+  // allowing either side to lock the link for bypass if it becomes a proxy.
   //
   // The only other time a central link is created is for proxy bypass, where
-  // the new link is created with a kNotReady status. Then as each side of the
+  // the new link is created with a kUnstable status. Then as each side of the
   // bypass link loses its decaying links over time, it updates the status to
   // reflect that its side is ready to support another bypass operation if one
   // is needed.
-  enum Status : uint8_t {
-    // This is a new link which was created to bypass a proxy. Both ends of the
-    // link still have decaying links to the bypassed proxy. As those links are
-    // fully decayed, each side will upgrade the status to kReadyOnA or
-    // kReadyOnB, and eventually to kReady once both sides are ready.
-    kNotReady = 0,
+  using Status = uint32_t;
 
-    // Side A of this link has no decaying links, but side B still has some.
-    kReadyOnA = 1,
+  // This is a fresh link established to bypass a proxy. Each side of the link
+  // still has at least one decaying link and is therefore not yet ready to
+  // support any potential replacement of this link.
+  static constexpr Status kUnstable = 0;
 
-    // Side B of this link has no decaying links, but side A still has some.
-    kReadyOnB = 2,
+  // Set if side A or B of this link is stable, respectively.
+  static constexpr Status kSideAStable = 1 << 0;
+  static constexpr Status kSideBStable = 1 << 1;
+  static constexpr Status kStable = kSideAStable | kSideBStable;
 
-    // Neither side of this link has any decaying links. Bypass of a proxy on
-    // either side is possible if one exists.
-    kReady = 3,
+  // When either side attempts to lock this link and fails because ther other
+  // side is still unstable, they set their corresponding "waiting" bit instead.
+  // Once the other side is stable, this bit informs the other side that they
+  // should send a flush notification back to this side to unblock whatever
+  // operation was waiting for a stable link.
+  static constexpr Status kSideAWaiting = 1 << 2;
+  static constexpr Status kSideBWaiting = 1 << 3;
 
-    // Side A has locked in its own bypass. This link will soon be obsoleted as
-    // the router on side A is phased out of existence.
-    kLockedByA = 4,
+  // Set if this link has been locked by side A or B, respectively. These bits
+  // are always mutually exclusive and may only be set once kStable are set. A
+  // A link may be locked to initiate bypass of one side, or to propagate route
+  // closure from one side.
+  static constexpr Status kLockedBySideA = 1 << 4;
+  static constexpr Status kLockedBySideB = 1 << 5;
 
-    // Side B has locked in its own bypass. This link will soon be obsoleted as
-    // the router on side B is phased out of existence.
-    kLockedByB = 5,
-  };
-
-  std::atomic<Status> status{kNotReady};
-
-  bool is_link_ready() const {
-    return status.load(std::memory_order_relaxed) == kReady;
-  }
+  std::atomic<Status> status{kUnstable};
 
   bool is_locked_by(LinkSide side) const {
-    return side == LinkSide::kA ? (status == kLockedByA)
-                                : (status == kLockedByB);
+    Status s = status.load(std::memory_order_relaxed);
+    if (side == LinkSide::kA) {
+      return (s & kLockedBySideA) != 0;
+    }
+    return (s & kLockedBySideB) != 0;
   }
 
-  // Updates the status to reflect that the given `side` is ready, meaning it
-  // has fully decayed any decaying links which preceded this link. Returns true
-  // if successful or false on failure. This can only fail if the link state has
-  // an unexpected status, implying either memory corruption or a misbehaving
-  // node.
-  bool SetSideReady(LinkSide side);
+  // Updates the status to reflect that the given `side` is stable, meaning it's
+  // no longer holding on to any decaying links.
+  void SetSideStable(LinkSide side);
 
   // Attempts to lock the state of this link from one side so that the router on
-  // that side can coordinate its own bypass. In order for this to succeed, the
-  // link must have a kReady status. Returns true on success or false on
-  // failure.
-  bool TryToLockForBypass(LinkSide side);
+  // that side can coordinate its own bypass or propagate its own closure. In
+  // order for this to succeed, both kStable bits must be set and the link must
+  // not already be locked by the other side. Returns true if the link was
+  // locked succesfully, or false otherwise.
+  bool TryLock(LinkSide side);
 
-  // Unlocks a link previously locked by a successful call to
-  // TryToLockForBypass().
-  bool CancelBypassLock();
+  // Unlocks a link previously locked by a successful call to TryLock() for the
+  // same `side`.
+  void Unlock(LinkSide side);
+
+  // If both sides of the link are stable AND `side` was marked as waiting for
+  // that to happen, this resets that wating bit and returns true. Otherwise
+  // this returns false and the link's status is unchanged.
+  bool ResetWaitingBit(LinkSide side);
 };
 
 static_assert(sizeof(RouterLinkState) == 24, "Invalid RouterLinkState size");

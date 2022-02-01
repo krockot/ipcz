@@ -13,7 +13,6 @@
 #include "core/link_type.h"
 #include "core/router.h"
 #include "core/router_link_state.h"
-#include "debug/log.h"
 #include "mem/ref_counted.h"
 #include "util/mutex_locks.h"
 #include "util/random.h"
@@ -31,9 +30,9 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
         router_a_(std::move(router_a)),
         router_b_(std::move(router_b)) {
     if (initial_state == LocalRouterLink::InitialState::kCanBypass) {
-      state_.status = RouterLinkState::kReady;
+      state_.status = RouterLinkState::kStable;
     } else {
-      state_.status = RouterLinkState::kNotReady;
+      state_.status = RouterLinkState::kUnstable;
     }
   }
 
@@ -85,17 +84,12 @@ bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
   return false;
 }
 
-bool LocalRouterLink::CanLockForBypass() {
-  return state_->state().is_link_ready();
+void LocalRouterLink::MarkSideStable() {
+  state_->state().SetSideStable(side_);
 }
 
-bool LocalRouterLink::SetSideCanSupportBypass() {
-  return state_->state().SetSideReady(side_);
-}
-
-bool LocalRouterLink::TryToLockForBypass(
-    const NodeName& bypass_request_source) {
-  if (!state_->state().TryToLockForBypass(side_)) {
+bool LocalRouterLink::TryLockForBypass(const NodeName& bypass_request_source) {
+  if (!state_->state().TryLock(side_)) {
     return false;
   }
 
@@ -104,8 +98,19 @@ bool LocalRouterLink::TryToLockForBypass(
   return true;
 }
 
-bool LocalRouterLink::CancelBypassLock() {
-  return state_->state().CancelBypassLock();
+bool LocalRouterLink::TryLockForClosure() {
+  return state_->state().TryLock(side_);
+}
+
+void LocalRouterLink::Unlock() {
+  state_->state().Unlock(side_);
+}
+
+void LocalRouterLink::FlushOtherSideIfWaiting() {
+  const LinkSide other_side = side_.opposite();
+  if (state_->state().ResetWaitingBit(other_side)) {
+    state_->side(other_side)->Flush(/*force_bypass_attempt=*/true);
+  }
 }
 
 bool LocalRouterLink::CanNodeRequestBypass(
@@ -132,7 +137,7 @@ void LocalRouterLink::AcceptParcel(Parcel& parcel) {
 
 void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   state_->side(side_.opposite())
-      ->AcceptRouteClosureFrom(state_->direction(), sequence_length);
+      ->AcceptRouteClosureFrom(state_->type(), sequence_length);
 }
 
 void LocalRouterLink::RequestProxyBypassInitiation(
@@ -164,24 +169,9 @@ void LocalRouterLink::StopProxyingToLocalPeer(
   ABSL_ASSERT(false);
 }
 
-void LocalRouterLink::NotifyBypassPossible() {
-  state_->side(side_.opposite())->OnBypassPossible();
-}
+void LocalRouterLink::ShareLinkStateMemoryIfNecessary() {}
 
-void LocalRouterLink::Flush() {}
-
-void LocalRouterLink::Deactivate() {
-  mem::Ref<Router> left = state_->side(LinkSide::kA);
-  mem::Ref<Router> right = state_->side(LinkSide::kB);
-  TwoMutexLock lock(&left->mutex_, &right->mutex_);
-  if (left->outward_edge_.GetLocalPeer() != right ||
-      left->outward_edge_.GetLocalPeer() != left) {
-    return;
-  }
-
-  left->outward_edge_.ReleasePrimaryLink();
-  right->outward_edge_.ReleasePrimaryLink();
-}
+void LocalRouterLink::Deactivate() {}
 
 std::string LocalRouterLink::Describe() const {
   std::stringstream ss;

@@ -37,10 +37,11 @@ class LocalRouterLink : public RouterLink {
   LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) override;
-  bool CanLockForBypass() override;
-  bool SetSideCanSupportBypass() override;
-  bool TryToLockForBypass(const NodeName& bypass_request_source) override;
-  bool CancelBypassLock() override;
+  void MarkSideStable() override;
+  bool TryLockForBypass(const NodeName& bypass_request_source) override;
+  bool TryLockForClosure() override;
+  void Unlock() override;
+  void FlushOtherSideIfWaiting() override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
@@ -57,8 +58,7 @@ class LocalRouterLink : public RouterLink {
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
-  void NotifyBypassPossible() override;
-  void Flush() override;
+  void ShareLinkStateMemoryIfNecessary() override;
   void Deactivate() override;
   std::string Describe() const override;
   void LogRouteTrace() override;

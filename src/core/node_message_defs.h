@@ -229,10 +229,10 @@ IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM_HANDLE_ARRAY(os_handles)
 IPCZ_MSG_END()
 
-// Notifies a node that the route has been closed on one side. If this arrives
-// at a router from an inward-facing or bridge link, it pertains to the router's
-// own side of the route; otherwise it indicates that the other side of the
-// route has been closed.
+// Notifies a node that the route has been closed on one side. This message
+// always pertains to the side of the route opposite of the router receiving it,
+// guaranteed by the fact that the closed side of the route only transmits this
+// message outward once its terminal router is adjacent to the central link.
 IPCZ_MSG_BEGIN(RouteClosed, IPCZ_MSG_ID(21), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message.
@@ -369,11 +369,10 @@ IPCZ_MSG_BEGIN(StopProxyingToLocalPeer, IPCZ_MSG_ID(35), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SequenceNumber, proxy_outbound_sequence_length)
 IPCZ_MSG_END()
 
-// Notifies the target router that bypass of its outward link may be possible.
-// This may be sent to catalyze route reduction in some cases where the router
-// in question could otherwise fail indefinitely to notice a bypass opportunity
-// due to a lack of interesting state changes.
-IPCZ_MSG_BEGIN(NotifyBypassPossible, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
+// Hints to the target router that it should flush its state. Generally sent to
+// catalyze route reduction or elicit some other state change which was blocked
+// on work being done by the sender of this message.
+IPCZ_MSG_BEGIN(Flush, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()
 

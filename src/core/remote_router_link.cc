@@ -96,13 +96,13 @@ void RemoteRouterLink::SetLinkStateAddress(const NodeLinkAddress& address) {
       expected_phase, LinkStatePhase::kPresent, std::memory_order_relaxed);
   ABSL_ASSERT(ok);
 
-  if (side_can_support_bypass_.load(std::memory_order_acquire)) {
-    SetSideCanSupportBypass();
+  if (side_is_stable_.load(std::memory_order_acquire)) {
+    MarkSideStable();
   }
 
   mem::Ref<Router> router = node_link()->GetRouter(sublink_);
   if (router) {
-    router->Flush();
+    router->Flush(/*force_bypass_attempt=*/true);
   }
 }
 
@@ -118,21 +118,16 @@ bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
   return node_link_.get() == &node_link && sublink_ == sublink;
 }
 
-bool RemoteRouterLink::CanLockForBypass() {
-  RouterLinkState* state = GetLinkState();
-  return state && state->is_link_ready();
+void RemoteRouterLink::MarkSideStable() {
+  side_is_stable_.store(true, std::memory_order_release);
+  if (RouterLinkState* state = GetLinkState()) {
+    state->SetSideStable(side_);
+  }
 }
 
-bool RemoteRouterLink::SetSideCanSupportBypass() {
-  side_can_support_bypass_.store(true, std::memory_order_release);
+bool RemoteRouterLink::TryLockForBypass(const NodeName& bypass_request_source) {
   RouterLinkState* state = GetLinkState();
-  return state && state->SetSideReady(side_);
-}
-
-bool RemoteRouterLink::TryToLockForBypass(
-    const NodeName& bypass_request_source) {
-  RouterLinkState* state = GetLinkState();
-  if (!state || !state->TryToLockForBypass(side_)) {
+  if (!state || !state->TryLock(side_)) {
     return false;
   }
 
@@ -141,9 +136,26 @@ bool RemoteRouterLink::TryToLockForBypass(
   return true;
 }
 
-bool RemoteRouterLink::CancelBypassLock() {
+bool RemoteRouterLink::TryLockForClosure() {
   RouterLinkState* state = GetLinkState();
-  return state && state->CancelBypassLock();
+  return state && state->TryLock(side_);
+}
+
+void RemoteRouterLink::Unlock() {
+  if (RouterLinkState* state = GetLinkState()) {
+    state->Unlock(side_);
+  }
+}
+
+void RemoteRouterLink::FlushOtherSideIfWaiting() {
+  RouterLinkState* state = GetLinkState();
+  if (!state || !state->ResetWaitingBit(side_.opposite())) {
+    return;
+  }
+
+  msg::Flush flush;
+  flush.params().sublink = sublink_;
+  node_link()->Transmit(flush);
 }
 
 bool RemoteRouterLink::CanNodeRequestBypass(
@@ -250,13 +262,7 @@ void RemoteRouterLink::ProxyWillStop(
   node_link()->Transmit(will_stop);
 }
 
-void RemoteRouterLink::NotifyBypassPossible() {
-  msg::NotifyBypassPossible unblocked;
-  unblocked.params().sublink = sublink_;
-  node_link()->Transmit(unblocked);
-}
-
-void RemoteRouterLink::Flush() {
+void RemoteRouterLink::ShareLinkStateMemoryIfNecessary() {
   if (!must_share_link_state_address_.load(std::memory_order_relaxed)) {
     return;
   }

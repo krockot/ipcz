@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "core/direction.h"
+#include "core/link_type.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
 #include "core/parcel_queue.h"
@@ -146,10 +147,11 @@ class Router : public mem::RefCounted {
   // outward link.
   bool AcceptOutboundParcel(Parcel& parcel);
 
-  // Accepts notification that the endpoint in the `source` direction along this
-  // route (relative to this Router) has been closed. The closed side of the
-  // route has transmitted a total of `sequence_length` parcels.
-  void AcceptRouteClosureFrom(Direction source, SequenceNumber sequence_length);
+  // Accepts notification that the outward endpoint of the route has been
+  // closed, and that the closed side of the route transmitted a total of
+  // `sequence_length` parcels before closing.
+  void AcceptRouteClosureFrom(LinkType link_type,
+                              SequenceNumber sequence_length);
 
   // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,
@@ -201,7 +203,6 @@ class Router : public mem::RefCounted {
       SequenceNumber proxy_inbound_sequence_length);
   bool StopProxyingToLocalPeer(SequenceNumber proxy_outbound_sequence_length);
   bool OnProxyWillStop(SequenceNumber proxy_inbound_sequence_length);
-  bool OnBypassPossible();
 
   // Logs a detailed description of this router for debugging.
   void LogDescription();
@@ -220,7 +221,7 @@ class Router : public mem::RefCounted {
   // RouterLinks is no longer necessary, they will be deactivated here. As a
   // result, Flush() may delete `this` if it happens to cause this Router's last
   // reference to be dropped.
-  void Flush();
+  void Flush(bool force_bypass_attempt = false);
 
  private:
   friend class LocalRouterLink;

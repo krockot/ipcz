@@ -121,19 +121,9 @@ class RouteEdge {
                              FlushedParcelQueue& parcels_to_decaying_link,
                              FlushedParcelQueue& parcels_to_primary_link);
 
-  // Updates the primary link to no longer block bypass on behalf of this side
-  // of the link. Once both sides of a link unblock bypass, either side may race
-  // to lock in its own bypass with TryToLockPrimaryLinkForBypass().
-  bool SetPrimaryLinkCanSupportBypass();
-
-  // Indicates whether this edge's primary link may support being bypassed from
-  // this side. True only if both sides of the link have unblocked bypass.
-  bool CanLockPrimaryLinkForBypass();
-
   // Attempts to lock the primary link so that the router on this side of it can
   // coordinate its own bypass.
-  bool TryToLockPrimaryLinkForBypass(
-      const NodeName& bypass_request_source = {});
+  bool TryLockPrimaryLinkForBypass(const NodeName& bypass_request_source = {});
 
   // Indicates whether bypass of this link can legitimately be attempted by
   // a request from `bypass_request_source`. This only returns true if the edge
@@ -157,12 +147,6 @@ class RouteEdge {
   // limits.
   bool TryToFinishDecaying(SequenceNumber sequence_length_sent,
                            SequenceNumber sequence_length_received);
-
-  // Returns a link which can be used to propagate route closure from this side
-  // of the edge toward the terminal router on the other side. Returns null if
-  // no link is available or if the route's closure has already been propagated
-  // along this edge.
-  mem::Ref<RouterLink> GetLinkToPropagateRouteClosure();
 
   // Logs a description of this RouteEdge for debugging.
   void LogDescription() const;
@@ -202,10 +186,6 @@ class RouteEdge {
   // parcels must continue to be accepted from `decaying_link_` until this gets
   // a value.
   absl::optional<SequenceNumber> length_from_decaying_link_;
-
-  // Tracks whether closure from this side of the route has been propagated over
-  // this edge to the other side of the route yet.
-  bool closure_propagated_ = false;
 };
 
 }  // namespace core

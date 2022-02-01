@@ -68,26 +68,7 @@ void RouteEdge::FlushParcelsFromQueue(
   }
 }
 
-bool RouteEdge::SetPrimaryLinkCanSupportBypass() {
-  // Only central links are responsible for blocking or unblocking bypass.
-  ABSL_ASSERT(primary_link_);
-  ABSL_ASSERT(primary_link_->GetType().is_central());
-  return primary_link_->SetSideCanSupportBypass();
-}
-
-bool RouteEdge::CanLockPrimaryLinkForBypass() {
-  if (!primary_link_ || decaying_link_ || was_decay_deferred_) {
-    return false;
-  }
-
-  if (!primary_link_->GetType().is_central()) {
-    return false;
-  }
-
-  return primary_link_->CanLockForBypass();
-}
-
-bool RouteEdge::TryToLockPrimaryLinkForBypass(
+bool RouteEdge::TryLockPrimaryLinkForBypass(
     const NodeName& bypass_request_source) {
   if (decaying_link_ || was_decay_deferred_ || !primary_link_) {
     return false;
@@ -97,7 +78,7 @@ bool RouteEdge::TryToLockPrimaryLinkForBypass(
     return false;
   }
 
-  return primary_link_->TryToLockForBypass(bypass_request_source);
+  return primary_link_->TryLockForBypass(bypass_request_source);
 }
 
 bool RouteEdge::CanNodeRequestBypassOfPrimaryLink(
@@ -160,15 +141,6 @@ bool RouteEdge::TryToFinishDecaying(SequenceNumber sequence_length_sent,
   length_to_decaying_link_.reset();
   length_from_decaying_link_.reset();
   return true;
-}
-
-mem::Ref<RouterLink> RouteEdge::GetLinkToPropagateRouteClosure() {
-  if (closure_propagated_ || (!primary_link_ && !decaying_link_)) {
-    return nullptr;
-  }
-
-  closure_propagated_ = true;
-  return primary_link_ ? primary_link_ : decaying_link_;
 }
 
 void RouteEdge::LogDescription() const {

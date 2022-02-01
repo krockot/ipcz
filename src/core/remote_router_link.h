@@ -55,10 +55,11 @@ class RemoteRouterLink : public RouterLink {
   LinkType GetType() const override;
   mem::Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) override;
-  bool CanLockForBypass() override;
-  bool SetSideCanSupportBypass() override;
-  bool TryToLockForBypass(const NodeName& bypass_request_source) override;
-  bool CancelBypassLock() override;
+  void MarkSideStable() override;
+  bool TryLockForBypass(const NodeName& bypass_request_source) override;
+  bool TryLockForClosure() override;
+  void Unlock() override;
+  void FlushOtherSideIfWaiting() override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits) override;
@@ -75,8 +76,7 @@ class RemoteRouterLink : public RouterLink {
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
-  void NotifyBypassPossible() override;
-  void Flush() override;
+  void ShareLinkStateMemoryIfNecessary() override;
   void Deactivate() override;
   std::string Describe() const override;
   void LogRouteTrace() override;
@@ -106,7 +106,7 @@ class RemoteRouterLink : public RouterLink {
   };
 
   std::atomic<bool> must_share_link_state_address_{false};
-  std::atomic<bool> side_can_support_bypass_{false};
+  std::atomic<bool> side_is_stable_{false};
   std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
   NodeLinkAddress link_state_address_;
   std::atomic<RouterLinkState*> link_state_{nullptr};
