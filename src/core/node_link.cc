@@ -491,8 +491,7 @@ bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {
     return false;
   }
 
-  memory().AddBuffer(add.params().buffer_id, std::move(buffer_memory));
-  return true;
+  return memory().AddBuffer(add.params().buffer_id, std::move(buffer_memory));
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {

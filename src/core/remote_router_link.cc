@@ -318,7 +318,7 @@ void RemoteRouterLink::AllocateLinkState() {
   });
 }
 
-RouterLinkState* RemoteRouterLink::GetLinkState() {
+RouterLinkState* RemoteRouterLink::GetLinkState() const {
   return link_state_.load(std::memory_order_acquire);
 }
 

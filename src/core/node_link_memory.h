@@ -58,8 +58,8 @@ class NodeLinkMemory : public mem::RefCounted {
     return static_cast<T*>(GetMappedAddress(address));
   }
 
-  // Returns the first of `count` newly allocated sublinks for use on the
-  // corresponding NodeLink.
+  // Returns the first of `count` newly allocated, contiguous sublink IDs for
+  // use on the corresponding NodeLink.
   SublinkId AllocateSublinkIds(size_t count);
 
   // Returns the location of the RouterLinkState for the `i`th initial portal
@@ -72,7 +72,7 @@ class NodeLinkMemory : public mem::RefCounted {
   // Allocates a new RouterLinkState in NodeLink memory and returns its future
   // address. This is useful when constructing a new central RemoteRouterLink.
   // May return null if there is no more capacity to allocate new
-  /// RouterLinkState instances.
+  // RouterLinkState instances.
   NodeLinkAddress AllocateRouterLinkState();
 
   // Requests allocation of additional capacity for this NodeLink memory.
@@ -85,7 +85,10 @@ class NodeLinkMemory : public mem::RefCounted {
   // been allocated via AllocateBufferId() on this NodeLinkMemory or the
   // corresponding remote NodeLinkMemory associated with the same conceptual
   // link.
-  void AddBuffer(BufferId id, DriverMemory memory);
+  //
+  // Returns true if successful, or false if the NodeLinkMemory already had a
+  // buffer identified by `id`.
+  bool AddBuffer(BufferId id, DriverMemory memory);
 
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 

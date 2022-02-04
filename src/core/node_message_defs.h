@@ -378,11 +378,16 @@ IPCZ_MSG_END()
 
 // Requests allocation of a shared memory region of a given size. If the
 // recipient can comply, they will send back a corresponding ProvideMemory
-// message with a serialized memory region
+// message with a serialized memory region. This message is only sent to a
+// node's allocation delegate (usually the broker) as established providing the
+// IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE flag to ConnectNode().
 IPCZ_MSG_BEGIN(RequestMemory, IPCZ_MSG_ID(64), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, size)
 IPCZ_MSG_END()
 
+// Provides a new shared buffer to the receiver, owned exclusively by the
+// receiver. The receiver is free to duplicate this buffer and share it with
+// other nodes.
 IPCZ_MSG_BEGIN(ProvideMemory, IPCZ_MSG_ID(65), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, size)
   IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)

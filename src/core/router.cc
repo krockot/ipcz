@@ -1519,8 +1519,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
            << " and current inbound sequence number "
            << descriptor.next_incoming_sequence_number;
 
-  if (status_.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED) {
-    ABSL_ASSERT(inbound_parcels_.final_sequence_length());
+  if (inbound_parcels_.final_sequence_length()) {
     descriptor.peer_closed = true;
     descriptor.closed_peer_sequence_length =
         *inbound_parcels_.final_sequence_length();

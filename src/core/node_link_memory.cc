@@ -138,22 +138,27 @@ void NodeLinkMemory::RequestCapacity(CapacityCallback callback) {
           link = self->node_link_;
         }
 
-        for (CapacityCallback& callback : callbacks) {
-          callback();
-        }
-
         if (link) {
           link->AddLinkBuffer(new_buffer_id, std::move(memory));
+        }
+
+        for (CapacityCallback& callback : callbacks) {
+          callback();
         }
       });
 }
 
-void NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
+bool NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
   std::vector<std::function<void()>> buffer_callbacks;
   {
     absl::MutexLock lock(&mutex_);
+    auto result = buffer_map_.emplace(id, nullptr);
+    if (!result.second) {
+      return false;
+    }
+
     buffers_.push_back(memory.Map());
-    buffer_map_[id] = &buffers_.back();
+    result.first->second = &buffers_.back();
 
     auto it = buffer_callbacks_.find(id);
     if (it != buffer_callbacks_.end()) {
@@ -165,6 +170,8 @@ void NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
   for (std::function<void()>& callback : buffer_callbacks) {
     callback();
   }
+
+  return true;
 }
 
 void NodeLinkMemory::OnBufferAvailable(BufferId id,

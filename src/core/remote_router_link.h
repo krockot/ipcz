@@ -92,7 +92,7 @@ class RemoteRouterLink : public RouterLink {
 
   void AllocateLinkState();
 
-  RouterLinkState* GetLinkState();
+  RouterLinkState* GetLinkState() const;
 
   const mem::Ref<NodeLink> node_link_;
   const SublinkId sublink_;
