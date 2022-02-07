@@ -11,7 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/direction.h"
 #include "core/link_type.h"
 #include "core/node_name.h"
 #include "core/parcel.h"
@@ -214,7 +213,7 @@ class Router : public mem::RefCounted {
 
   // Logs a description of this router and forwards the trace along the opposite
   // direction from whence it was received.
-  void AcceptLogRouteTraceFrom(Direction source);
+  void AcceptLogRouteTraceFrom(LinkType link_type);
 
   // Flushes any inbound or outbound parcels to be proxied, as well as any route
   // closure notifications. If the result of the flush is that one or more

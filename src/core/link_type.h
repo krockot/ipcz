@@ -7,8 +7,6 @@
 
 #include <string>
 
-#include "core/direction.h"
-
 namespace ipcz {
 namespace core {
 
@@ -80,19 +78,6 @@ struct LinkType {
   bool is_bridge() const { return value_ == Value::kBridge; }
 
   Value value() const { return value_; }
-
-  Direction direction() const {
-    switch (value_) {
-      case Value::kCentral:
-        return Direction::kOutward;
-      case Value::kPeripheralOutward:
-        return Direction::kOutward;
-      case Value::kPeripheralInward:
-        return Direction::kInward;
-      case Value::kBridge:
-        return Direction::kInward;
-    }
-  }
 
   explicit operator Value() const { return value_; }
 

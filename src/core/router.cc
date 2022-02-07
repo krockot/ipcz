@@ -977,15 +977,18 @@ void Router::LogRouteTrace() {
   }
 }
 
-void Router::AcceptLogRouteTraceFrom(Direction source) {
+void Router::AcceptLogRouteTraceFrom(LinkType link_type) {
   LogDescription();
 
   mem::Ref<RouterLink> next_link;
   {
     absl::MutexLock lock(&mutex_);
-    if (source.is_outward()) {
-      next_link = bridge_->primary_link() ? bridge_->primary_link()
-                                          : bridge_->decaying_link();
+    if (link_type.is_central() || link_type.is_peripheral_outward()) {
+      if (bridge_) {
+        next_link = bridge_->primary_link();
+      } else if (inward_edge_) {
+        next_link = inward_edge_->primary_link();
+      }
     } else {
       next_link = outward_edge_.primary_link();
     }

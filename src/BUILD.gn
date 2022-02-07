@@ -86,8 +86,6 @@ source_set("core") {
 
   sources = [
     "core/buffer_id.h",
-    "core/direction.cc",
-    "core/direction.h",
     "core/driver_memory.cc",
     "core/driver_memory.h",
     "core/driver_memory_mapping.cc",

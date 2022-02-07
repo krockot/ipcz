@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <utility>
 
-#include "core/direction.h"
 #include "core/node.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
@@ -613,8 +612,7 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
     return true;
   }
 
-  sublink->receiver->AcceptLogRouteTraceFrom(
-      sublink->router_link->GetType().direction());
+  sublink->receiver->AcceptLogRouteTraceFrom(sublink->router_link->GetType());
   return true;
 }
 

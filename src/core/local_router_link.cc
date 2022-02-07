@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "core/direction.h"
 #include "core/link_side.h"
 #include "core/link_type.h"
 #include "core/router.h"
@@ -37,7 +36,6 @@ class LocalRouterLink::SharedState : public mem::RefCounted {
   }
 
   LinkType type() const { return type_; }
-  Direction direction() const { return type_.direction(); }
 
   RouterLinkState& state() { return state_; }
 
@@ -182,7 +180,7 @@ std::string LocalRouterLink::Describe() const {
 }
 
 void LocalRouterLink::LogRouteTrace() {
-  state_->side(side_.opposite())->AcceptLogRouteTraceFrom(state_->direction());
+  state_->side(side_.opposite())->AcceptLogRouteTraceFrom(state_->type());
 }
 
 }  // namespace core

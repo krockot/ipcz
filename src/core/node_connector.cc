@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "core/direction.h"
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/node_link.h"
