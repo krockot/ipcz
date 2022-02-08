@@ -26,7 +26,8 @@ struct Fragment {
   bool is_null() const { return descriptor_.is_null(); }
 
   BufferId buffer_id() const { return descriptor_.buffer_id(); }
-  uint64_t offset() const { return descriptor_.offset(); }
+  uint32_t offset() const { return descriptor_.offset(); }
+  uint32_t size() const { return descriptor_.size(); }
   const FragmentDescriptor& descriptor() const { return descriptor_; }
 
   void* address() const { return address_; }

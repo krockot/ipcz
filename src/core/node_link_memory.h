@@ -81,7 +81,7 @@ class NodeLinkMemory : public mem::RefCounted {
 
   // Frees a fragment allocated by AllocateFragment() or other allocation
   // helpers on this object.
-  void FreeFragment(const Fragment& fragment, size_t num_bytes);
+  void FreeFragment(const Fragment& fragment);
 
   // Requests allocation of additional fragment allocation capacity for this
   // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which
@@ -116,7 +116,7 @@ class NodeLinkMemory : public mem::RefCounted {
 
   BufferId AllocateBufferId();
 
-  FragmentAllocator* GetPoolForAllocation(size_t num_bytes);
+  FragmentAllocator* GetFragmentAllocatorForSize(size_t num_bytes);
 
   const mem::Ref<Node> node_;
 

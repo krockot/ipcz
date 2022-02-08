@@ -28,20 +28,20 @@ class FragmentAllocator {
   explicit FragmentAllocator(uint32_t fragment_size);
   ~FragmentAllocator();
 
-  // Permanently registers a new BlockAllocator with this pool, utilizing
+  // Permanently registers a new BlockAllocator with this object, utilizing
   // `memory` for its storage. `buffer_id` is the BufferId associated with the
   // allocator's memory and `buffer_memory` is the full span of bytes mapped by
   // the buffer. `allocator` is an BufferAllocator already initialized over some
   // subset of `buffer_memory`.
-  void AddAllocator(BufferId buffer_id,
-                    absl::Span<uint8_t> buffer_memory,
-                    const mem::BlockAllocator& allocator);
+  void AddBlockAllocator(BufferId buffer_id,
+                         absl::Span<uint8_t> buffer_memory,
+                         const mem::BlockAllocator& allocator);
 
-  // Allocates a new fragment from the pool. If allocation fails because there
-  // is no capacity left in any of the pool's buffers, this returns null value.
+  // Allocates a new fragment. If allocation fails because there is no capacity
+  // left in any of the this object's BlockAllocators, this returns null value.
   Fragment Allocate();
 
-  // Releases a fragment back into the pool.
+  // Releases a fragment back to the allocator.
   void Free(const Fragment& fragment);
 
  private:
@@ -53,7 +53,7 @@ class FragmentAllocator {
 
     BufferId buffer_id;
     absl::Span<uint8_t> buffer_memory;
-    mem::BlockAllocator allocator;
+    mem::BlockAllocator block_allocator;
     Entry* next = nullptr;
   };
 

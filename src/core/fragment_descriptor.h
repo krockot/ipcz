@@ -21,13 +21,16 @@ struct IPCZ_ALIGN(8) FragmentDescriptor {
   constexpr FragmentDescriptor() = default;
   FragmentDescriptor(const FragmentDescriptor&);
   FragmentDescriptor& operator=(const FragmentDescriptor&);
-  constexpr FragmentDescriptor(BufferId buffer_id, uint64_t offset)
-      : buffer_id_(buffer_id), offset_(offset) {}
+  constexpr FragmentDescriptor(BufferId buffer_id,
+                               uint32_t offset,
+                               uint32_t size)
+      : buffer_id_(buffer_id), offset_(offset), size_(size) {}
 
   bool is_null() const { return buffer_id_ == kInvalidBufferId; }
 
   BufferId buffer_id() const { return buffer_id_; }
-  uint64_t offset() const { return offset_; }
+  uint32_t offset() const { return offset_; }
+  uint32_t size() const { return size_; }
 
   std::string ToString() const;
 
@@ -36,8 +39,12 @@ struct IPCZ_ALIGN(8) FragmentDescriptor {
   // scoped to a specific NodeLink.
   BufferId buffer_id_ = kInvalidBufferId;
 
-  // An offset from the start of the identified shared memory buffer.
-  uint64_t offset_ = 0;
+  // The byte offset from the start of the identified shared memory buffer where
+  // this fragment begins.
+  uint32_t offset_ = 0;
+
+  // The size of this fragment in bytes.
+  uint32_t size_ = 0;
 };
 
 }  // namespace core
