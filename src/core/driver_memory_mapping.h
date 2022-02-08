@@ -33,6 +33,10 @@ class DriverMemoryMapping {
 
   void* address() const { return address_; }
 
+  void* address_at(uint64_t offset) const {
+    return static_cast<uint8_t*>(address_) + offset;
+  }
+
   absl::Span<uint8_t> bytes() const {
     return {static_cast<uint8_t*>(address_), size_};
   }

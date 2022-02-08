@@ -100,6 +100,8 @@ source_set("core") {
     "core/link_type.h",
     "core/local_router_link.cc",
     "core/local_router_link.h",
+    "core/mapped_node_link_address.cc",
+    "core/mapped_node_link_address.h",
     "core/message_internal.cc",
     "core/message_internal.h",
     "core/message_macros/message_declaration_macros.h",

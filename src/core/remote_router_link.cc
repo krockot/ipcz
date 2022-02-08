@@ -36,11 +36,12 @@ constexpr size_t kAuxLinkStateBufferSize = 16384;
 
 }  // namespace
 
-RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
-                                   SublinkId sublink,
-                                   const NodeLinkAddress& link_state_address,
-                                   LinkType type,
-                                   LinkSide side)
+RemoteRouterLink::RemoteRouterLink(
+    mem::Ref<NodeLink> node_link,
+    SublinkId sublink,
+    const MappedNodeLinkAddress& link_state_address,
+    LinkType type,
+    LinkSide side)
     : node_link_(std::move(node_link)),
       sublink_(sublink),
       type_(type),
@@ -53,14 +54,13 @@ RemoteRouterLink::~RemoteRouterLink() = default;
 mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
     mem::Ref<NodeLink> node_link,
     SublinkId sublink,
-    const NodeLinkAddress& link_state_address,
+    const MappedNodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side) {
   auto link = mem::WrapRefCounted(new RemoteRouterLink(
       std::move(node_link), sublink, link_state_address, type, side));
   if (!link_state_address.is_null()) {
-    link->link_state_ = link->node_link()->memory().GetMapped<RouterLinkState>(
-        link_state_address);
+    link->link_state_ = link_state_address.As<RouterLinkState>();
   } else if (type == LinkType::kCentral && side == LinkSide::kA) {
     // If this link needs a shared RouterLinkState but one could not be provided
     // at construction time, kick off an asynchronous allocation request for
@@ -71,10 +71,10 @@ mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
   return link;
 }
 
-void RemoteRouterLink::SetLinkStateAddress(const NodeLinkAddress& address) {
+void RemoteRouterLink::SetLinkStateAddress(
+    const MappedNodeLinkAddress& address) {
   ABSL_ASSERT(type_ == LinkType::kCentral);
-  RouterLinkState* const state =
-      node_link()->memory().GetMapped<RouterLinkState>(address);
+  RouterLinkState* const state = address.As<RouterLinkState>();
   if (!state) {
     node_link()->memory().OnBufferAvailable(
         address.buffer_id(), [self = mem::WrapRefCounted(this), address] {
@@ -241,12 +241,12 @@ void RemoteRouterLink::RequestProxyBypassInitiation(
 
 void RemoteRouterLink::BypassProxyToSameNode(
     SublinkId new_sublink,
-    const NodeLinkAddress& new_link_state_address,
+    const MappedNodeLinkAddress& new_link_state_address,
     SequenceNumber proxy_inbound_sequence_length) {
   msg::BypassProxyToSameNode bypass;
   bypass.params().sublink = sublink_;
   bypass.params().new_sublink = new_sublink;
-  bypass.params().new_link_state_address = new_link_state_address;
+  bypass.params().new_link_state_address = new_link_state_address.address();
   bypass.params().proxy_inbound_sequence_length = proxy_inbound_sequence_length;
   node_link()->Transmit(bypass);
 }
@@ -286,7 +286,7 @@ void RemoteRouterLink::ShareLinkStateMemoryIfNecessary() {
 
   msg::SetRouterLinkStateAddress set;
   set.params().sublink = sublink_;
-  set.params().address = link_state_address_;
+  set.params().address = link_state_address_.address();
   node_link()->Transmit(set);
 }
 
@@ -313,7 +313,7 @@ void RemoteRouterLink::AllocateLinkState() {
   node_link()->memory().RequestBlockAllocatorCapacity(
       kAuxLinkStateBufferSize, sizeof(RouterLinkState),
       [self = mem::WrapRefCounted(this)]() {
-        NodeLinkAddress address =
+        MappedNodeLinkAddress address =
             self->node_link()->memory().AllocateRouterLinkState();
         if (address.is_null()) {
           // We got some new allocator capacity but it's already used up. Try

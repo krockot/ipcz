@@ -63,7 +63,7 @@ NodeLink::~NodeLink() {
 
 mem::Ref<RemoteRouterLink> NodeLink::AddRemoteRouterLink(
     SublinkId sublink,
-    const NodeLinkAddress& link_state_address,
+    const MappedNodeLinkAddress& link_state_address,
     LinkType type,
     LinkSide side,
     mem::Ref<Router> router) {
@@ -211,7 +211,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
   const SublinkId new_sublink = memory().AllocateSublinkIds(1);
-  const NodeLinkAddress new_link_state_address =
+  const MappedNodeLinkAddress new_link_state_address =
       memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link =
       AddRemoteRouterLink(new_sublink, new_link_state_address,
@@ -226,7 +226,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params().proxy_name = proxy_name;
   bypass.params().proxy_sublink = proxy_sublink;
   bypass.params().new_sublink = new_sublink;
-  bypass.params().new_link_state_address = new_link_state_address;
+  bypass.params().new_link_state_address = new_link_state_address.address();
   bypass.params().proxy_outbound_sequence_length =
       proxy_outbound_sequence_length;
   Transmit(bypass);
@@ -451,7 +451,8 @@ bool NodeLink::OnSetRouterLinkStateAddress(
     return true;
   }
 
-  sublink->router_link->SetLinkStateAddress(set.params().address);
+  sublink->router_link->SetLinkStateAddress(
+      memory().GetMappedAddress(set.params().address));
   return true;
 }
 
@@ -537,7 +538,8 @@ bool NodeLink::OnBypassProxyToSameNode(
   }
 
   mem::Ref<RouterLink> new_link = AddRemoteRouterLink(
-      bypass.params().new_sublink, bypass.params().new_link_state_address,
+      bypass.params().new_sublink,
+      memory().GetMappedAddress(bypass.params().new_link_state_address),
       LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params().proxy_inbound_sequence_length);

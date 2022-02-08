@@ -16,6 +16,7 @@
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_memory_mapping.h"
+#include "core/mapped_node_link_address.h"
 #include "core/node_link_address.h"
 #include "core/sublink_id.h"
 #include "mem/block_allocator.h"
@@ -53,13 +54,7 @@ class NodeLinkMemory : public mem::RefCounted {
   // Resolves a NodeLinkAddress (a buffer ID and offset) to a real memory
   // address mapped within the calling process. May return null if the given
   // NodeLinkAddress is not currently mapped in the calling process.
-  void* GetMappedAddress(const NodeLinkAddress& address);
-
-  // Helper for typed address mapping.
-  template <typename T>
-  T* GetMapped(const NodeLinkAddress& address) {
-    return static_cast<T*>(GetMappedAddress(address));
-  }
+  MappedNodeLinkAddress GetMappedAddress(const NodeLinkAddress& address);
 
   // Returns the first of `count` newly allocated, contiguous sublink IDs for
   // use on the corresponding NodeLink.
@@ -70,22 +65,22 @@ class NodeLinkMemory : public mem::RefCounted {
   // the link's creation. Unlike other RouterLinkStates which are allocated
   // dynamically, these have a fixed location within the NodeLinkMemory's
   // primary buffer.
-  NodeLinkAddress GetInitialRouterLinkState(size_t i);
+  MappedNodeLinkAddress GetInitialRouterLinkState(size_t i);
 
   // Allocates a new RouterLinkState in NodeLink memory and returns its future
   // address. This is useful when constructing a new central RemoteRouterLink.
   // May return null if there is no more capacity to allocate new
   // RouterLinkState instances.
-  NodeLinkAddress AllocateRouterLinkState();
+  MappedNodeLinkAddress AllocateRouterLinkState();
 
   // Allocates a generic block of memory of the given size or of the smallest
   // sufficient size available to this object. If no memory is available to
   // allocate the block, this returns an invalid address.
-  NodeLinkAddress AllocateBlock(size_t num_bytes);
+  MappedNodeLinkAddress AllocateBlock(size_t num_bytes);
 
   // Frees a block allocated from one of this object's block allocator pools via
   // AllocateBlock() or other allocation helpers.
-  void FreeBlock(const NodeLinkAddress& address, size_t num_bytes);
+  void FreeBlock(const MappedNodeLinkAddress& address, size_t num_bytes);
 
   // Requests allocation of additional block allocation capacity for this
   // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which

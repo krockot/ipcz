@@ -10,7 +10,7 @@
 #include <list>
 
 #include "core/buffer_id.h"
-#include "core/node_link_address.h"
+#include "core/mapped_node_link_address.h"
 #include "mem/block_allocator.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -37,12 +37,11 @@ class BlockAllocatorPool {
                     const mem::BlockAllocator& allocator);
 
   // Allocates a new block from the pool. If allocation fails because there is
-  // no capacity left in any of the pool's buffers, this returns a null
-  // NodeLinkAddress.
-  NodeLinkAddress Allocate();
+  // no capacity left in any of the pool's buffers, this returns null value.
+  MappedNodeLinkAddress Allocate();
 
   // Releases a block back into the pool.
-  void Free(const NodeLinkAddress& address);
+  void Free(const MappedNodeLinkAddress& address);
 
  private:
   struct Entry {

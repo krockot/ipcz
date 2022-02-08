@@ -16,8 +16,7 @@ namespace core {
 
 // Represents a memory location within the shared memory regions owned by a
 // NodeLinkMemory. A NodeLinkAddress can be resolved to a real memory address by
-// passing it to NodeLinKMemory::GetMappedAddress() or
-// NodeLinkMemory::GetMapped<T>().
+// passing it to NodeLinkMemory::GetMappedAddress().
 struct IPCZ_ALIGN(8) NodeLinkAddress {
   constexpr NodeLinkAddress() = default;
   NodeLinkAddress(const NodeLinkAddress&);
@@ -40,8 +39,6 @@ struct IPCZ_ALIGN(8) NodeLinkAddress {
   // An offset from the start of the identified shared memory buffer.
   uint64_t offset_ = 0;
 };
-
-constexpr NodeLinkAddress kNullNodeLinkAddress;
 
 }  // namespace core
 }  // namespace ipcz

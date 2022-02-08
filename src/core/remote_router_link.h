@@ -9,7 +9,7 @@
 
 #include "core/link_side.h"
 #include "core/link_type.h"
-#include "core/node_link_address.h"
+#include "core/mapped_node_link_address.h"
 #include "core/router_link.h"
 #include "core/sublink_id.h"
 
@@ -41,15 +41,17 @@ class RemoteRouterLink : public RouterLink {
   static mem::Ref<RemoteRouterLink> Create(
       mem::Ref<NodeLink> node_link,
       SublinkId sublink,
-      const NodeLinkAddress& link_state_address,
+      const MappedNodeLinkAddress& link_state_address,
       LinkType type,
       LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   SublinkId sublink() const { return sublink_; }
-  NodeLinkAddress link_state_address() const { return link_state_address_; }
+  MappedNodeLinkAddress link_state_address() const {
+    return link_state_address_;
+  }
 
-  void SetLinkStateAddress(const NodeLinkAddress& address);
+  void SetLinkStateAddress(const MappedNodeLinkAddress& address);
 
   // RouterLink:
   LinkType GetType() const override;
@@ -72,7 +74,7 @@ class RemoteRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       SublinkId new_sublink,
-      const NodeLinkAddress& new_link_state_address,
+      const MappedNodeLinkAddress& new_link_state_address,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
@@ -84,7 +86,7 @@ class RemoteRouterLink : public RouterLink {
  private:
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    SublinkId sublink,
-                   const NodeLinkAddress& link_state_address,
+                   const MappedNodeLinkAddress& link_state_address,
                    LinkType type,
                    LinkSide side);
 
@@ -108,7 +110,7 @@ class RemoteRouterLink : public RouterLink {
   std::atomic<bool> must_share_link_state_address_{false};
   std::atomic<bool> side_is_stable_{false};
   std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
-  NodeLinkAddress link_state_address_;
+  MappedNodeLinkAddress link_state_address_;
   std::atomic<RouterLinkState*> link_state_{nullptr};
 };
 

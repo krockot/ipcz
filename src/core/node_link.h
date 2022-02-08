@@ -13,8 +13,8 @@
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
+#include "core/mapped_node_link_address.h"
 #include "core/node.h"
-#include "core/node_link_address.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
@@ -88,7 +88,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // central links require a RouterLinkState.
   mem::Ref<RemoteRouterLink> AddRemoteRouterLink(
       SublinkId sublink,
-      const NodeLinkAddress& link_state_address,
+      const MappedNodeLinkAddress& link_state_address,
       LinkType type,
       LinkSide side,
       mem::Ref<Router> router);

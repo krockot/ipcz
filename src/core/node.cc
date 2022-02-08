@@ -379,7 +379,9 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // link. The receiver of the bypass request uses side B. Bypass links always
   // connect one half of their route to the other.
   mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRemoteRouterLink(
-      bypass.params().new_sublink, bypass.params().new_link_state_address,
+      bypass.params().new_sublink,
+      from_node_link.memory().GetMappedAddress(
+          bypass.params().new_link_state_address),
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(
       new_peer_link, bypass.params().proxy_outbound_sequence_length);

@@ -47,7 +47,7 @@ void BlockAllocatorPool::AddAllocator(BufferId buffer_id,
   }
 }
 
-NodeLinkAddress BlockAllocatorPool::Allocate() {
+MappedNodeLinkAddress BlockAllocatorPool::Allocate() {
   Entry* entry = active_entry_.load(std::memory_order_relaxed);
   if (!entry) {
     return {};
@@ -72,7 +72,8 @@ NodeLinkAddress BlockAllocatorPool::Allocate() {
                                             std::memory_order_relaxed);
       }
 
-      return NodeLinkAddress(entry->buffer_id, buffer_offset);
+      return MappedNodeLinkAddress(
+          NodeLinkAddress(entry->buffer_id, buffer_offset), block);
     }
 
     // Allocation from this buffer failed. Try a different buffer.
@@ -83,7 +84,7 @@ NodeLinkAddress BlockAllocatorPool::Allocate() {
   return {};
 }
 
-void BlockAllocatorPool::Free(const NodeLinkAddress& address) {
+void BlockAllocatorPool::Free(const MappedNodeLinkAddress& address) {
   Entry* entry;
   {
     absl::MutexLock lock(&mutex_);
@@ -95,7 +96,7 @@ void BlockAllocatorPool::Free(const NodeLinkAddress& address) {
     entry = it->second;
   }
 
-  entry->allocator.Free(&entry->buffer_memory[address.offset()]);
+  entry->allocator.Free(address.mapped_address());
 }
 
 }  // namespace core
