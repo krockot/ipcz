@@ -13,6 +13,8 @@
 namespace ipcz {
 namespace mem {
 
+BlockAllocator::BlockAllocator() = default;
+
 BlockAllocator::BlockAllocator(void* memory,
                                const size_t block_size,
                                const size_t num_blocks,
@@ -51,6 +53,10 @@ BlockAllocator::BlockAllocator(absl::Span<uint8_t> region,
                      block_size,
                      ComputeMaximumCapacity(region.size(), block_size),
                      kInitialize) {}
+
+BlockAllocator::BlockAllocator(const BlockAllocator&) = default;
+
+BlockAllocator& BlockAllocator::operator=(const BlockAllocator&) = default;
 
 BlockAllocator::~BlockAllocator() = default;
 

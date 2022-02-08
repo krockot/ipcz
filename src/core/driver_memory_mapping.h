@@ -6,6 +6,7 @@
 #define IPCZ_SRC_CORE_DRIVER_MEMORY_MAPPING_H_
 
 #include "ipcz/ipcz.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
@@ -19,7 +20,8 @@ class DriverMemoryMapping {
   // mapping.
   DriverMemoryMapping(const IpczDriver& driver,
                       IpczDriverHandle mapping_handle,
-                      void* address);
+                      void* address,
+                      size_t size);
 
   DriverMemoryMapping(DriverMemoryMapping&& other);
   DriverMemoryMapping(const DriverMemoryMapping&) = delete;
@@ -31,12 +33,17 @@ class DriverMemoryMapping {
 
   void* address() const { return address_; }
 
+  absl::Span<uint8_t> bytes() const {
+    return {static_cast<uint8_t*>(address_), size_};
+  }
+
  private:
   void Unmap();
 
   IpczDriver driver_;
   IpczDriverHandle mapping_;
   void* address_;
+  size_t size_;
 };
 
 }  // namespace core

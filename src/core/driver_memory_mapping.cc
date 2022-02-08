@@ -13,15 +13,21 @@ DriverMemoryMapping::DriverMemoryMapping() = default;
 
 DriverMemoryMapping::DriverMemoryMapping(const IpczDriver& driver,
                                          IpczDriverHandle mapping_handle,
-                                         void* address)
-    : driver_(driver), mapping_(mapping_handle), address_(address) {}
+                                         void* address,
+                                         size_t size)
+    : driver_(driver),
+      mapping_(mapping_handle),
+      address_(address),
+      size_(size) {}
 
 DriverMemoryMapping::DriverMemoryMapping(DriverMemoryMapping&& other)
     : driver_(other.driver_),
       mapping_(IPCZ_INVALID_DRIVER_HANDLE),
-      address_(nullptr) {
+      address_(nullptr),
+      size_(0) {
   std::swap(mapping_, other.mapping_);
   std::swap(address_, other.address_);
+  std::swap(size_, other.size_);
 }
 
 DriverMemoryMapping& DriverMemoryMapping::operator=(
@@ -30,6 +36,7 @@ DriverMemoryMapping& DriverMemoryMapping::operator=(
   driver_ = other.driver_;
   std::swap(mapping_, other.mapping_);
   std::swap(address_, other.address_);
+  std::swap(size_, other.size_);
   return *this;
 }
 
@@ -42,6 +49,7 @@ void DriverMemoryMapping::Unmap() {
     driver_.UnmapSharedMemory(mapping_, 0, nullptr);
     mapping_ = IPCZ_INVALID_DRIVER_HANDLE;
     address_ = nullptr;
+    size_ = 0;
   }
 }
 

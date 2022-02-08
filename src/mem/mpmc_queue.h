@@ -160,19 +160,23 @@ class MpmcQueue {
     return internal::MpmcQueueData<T>::ComputeStorageSize(capacity);
   }
 
+  MpmcQueue() = default;
+
   MpmcQueue(void* memory, size_t capacity, decltype(kInitializeData))
       : MpmcQueue(memory, capacity, kAlreadyInitialized) {
-    data_.Initialize(capacity);
+    data_->Initialize(capacity);
   }
 
   MpmcQueue(void* memory, size_t capacity, decltype(kAlreadyInitialized))
       : capacity_(capacity),
-        data_(*static_cast<internal::MpmcQueueData<T>*>(memory)) {}
+        data_(static_cast<internal::MpmcQueueData<T>*>(memory)) {}
+  MpmcQueue(const MpmcQueue&) = default;
+  MpmcQueue& operator=(const MpmcQueue&) = default;
   ~MpmcQueue() = default;
 
-  bool Push(const T& value) { return data_.Push(value, capacity_); }
+  bool Push(const T& value) { return data_->Push(value, capacity_); }
 
-  bool Pop(T& value) { return data_.Pop(value, capacity_); }
+  bool Pop(T& value) { return data_->Pop(value, capacity_); }
 
   static constexpr size_t GetFixedStorageSize() {
     return internal::MpmcQueueData<T>::GetFixedStorageSize();
@@ -183,8 +187,8 @@ class MpmcQueue {
   }
 
  private:
-  const size_t capacity_;
-  internal::MpmcQueueData<T>& data_;
+  size_t capacity_ = 0;
+  internal::MpmcQueueData<T>* data_ = nullptr;
 };
 
 }  // namespace mem

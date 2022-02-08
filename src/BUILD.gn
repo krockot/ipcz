@@ -85,6 +85,8 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
+    "core/block_allocator_pool.cc",
+    "core/block_allocator_pool.h",
     "core/buffer_id.h",
     "core/driver_memory.cc",
     "core/driver_memory.h",

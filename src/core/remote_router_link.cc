@@ -30,6 +30,12 @@
 namespace ipcz {
 namespace core {
 
+namespace {
+
+constexpr size_t kAuxLinkStateBufferSize = 16384;
+
+}  // namespace
+
 RemoteRouterLink::RemoteRouterLink(mem::Ref<NodeLink> node_link,
                                    SublinkId sublink,
                                    const NodeLinkAddress& link_state_address,
@@ -304,18 +310,20 @@ void RemoteRouterLink::LogRouteTrace() {
 }
 
 void RemoteRouterLink::AllocateLinkState() {
-  node_link()->memory().RequestCapacity([self = mem::WrapRefCounted(this)]() {
-    NodeLinkAddress address =
-        self->node_link()->memory().AllocateRouterLinkState();
-    if (address.is_null()) {
-      // We got some new link memory capacity but it's already used up. Try
-      // again.
-      self->AllocateLinkState();
-      return;
-    }
+  node_link()->memory().RequestBlockAllocatorCapacity(
+      kAuxLinkStateBufferSize, sizeof(RouterLinkState),
+      [self = mem::WrapRefCounted(this)]() {
+        NodeLinkAddress address =
+            self->node_link()->memory().AllocateRouterLinkState();
+        if (address.is_null()) {
+          // We got some new allocator capacity but it's already used up. Try
+          // again.
+          self->AllocateLinkState();
+          return;
+        }
 
-    self->SetLinkStateAddress(address);
-  });
+        self->SetLinkStateAddress(address);
+      });
 }
 
 RouterLinkState* RemoteRouterLink::GetLinkState() const {

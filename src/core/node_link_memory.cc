@@ -12,34 +12,74 @@
 #include "core/node_link.h"
 #include "core/router_link_state.h"
 #include "ipcz/ipcz.h"
+#include "mem/block_allocator.h"
+#include "third_party/abseil-cpp/absl/numeric/bits.h"
 
 namespace ipcz {
 namespace core {
 
 namespace {
 
-constexpr size_t kAuxBufferSize = 16384;
+constexpr BufferId kPrimaryBufferId = 0;
+constexpr size_t kPrimaryBufferSize = 4096;
 
-struct IPCZ_ALIGN(8) PrimaryBufferLayout {
+// The front of the primary buffer is reserved for special uses which require
+// synchronous availability throughout the link's lifetime.
+constexpr size_t kPrimaryBufferReservedBlockSize = 512;
+
+// Number of fixed RouterLinkState locations in the primary buffer. This limits
+// the maximum number of initial portals supported by the ConnectNode() API.
+using InitialRouterLinkStateArray = std::array<RouterLinkState, 16>;
+
+// This structure always sits at offset 0 in the primary buffer.
+struct IPCZ_ALIGN(8) PrimaryBufferHeader {
   std::atomic<uint64_t> next_sublink{0};
   std::atomic<uint64_t> next_buffer_id{1};
   std::atomic<uint64_t> next_router_link_state_index{0};
-  uint64_t padding = 0;
-  std::array<RouterLinkState, 64> router_link_states;
 };
 
-PrimaryBufferLayout& PrimaryBufferView(const DriverMemoryMapping& mapping) {
-  return *static_cast<PrimaryBufferLayout*>(mapping.address());
+constexpr size_t kPrimaryBufferReservedBlockPaddingSize =
+    kPrimaryBufferReservedBlockSize - sizeof(InitialRouterLinkStateArray) -
+    sizeof(PrimaryBufferHeader);
+
+struct IPCZ_ALIGN(8) PrimaryBufferReservedBlock {
+  PrimaryBufferHeader header;
+  uint8_t reserved[kPrimaryBufferReservedBlockPaddingSize];
+  InitialRouterLinkStateArray initial_link_states;
+};
+static_assert(sizeof(PrimaryBufferReservedBlock) ==
+                  kPrimaryBufferReservedBlockSize,
+              "Invalid PrimaryBufferReservedBlock size");
+
+constexpr size_t kPrimaryBufferLinkAllocatorSize =
+    kPrimaryBufferSize - sizeof(PrimaryBufferReservedBlock);
+
+constexpr size_t kRouterLinkStateBlockSize = 32;
+static_assert(kRouterLinkStateBlockSize >= sizeof(RouterLinkState),
+              "Invalid RouterLinkState block size");
+
+PrimaryBufferReservedBlock& ReservedBlock(const DriverMemoryMapping& mapping) {
+  return *static_cast<PrimaryBufferReservedBlock*>(mapping.address());
+}
+
+PrimaryBufferHeader& Header(const DriverMemoryMapping& mapping) {
+  return ReservedBlock(mapping).header;
 }
 
 uint64_t ToOffset(void* ptr, void* base) {
   return static_cast<uint8_t*>(ptr) - static_cast<uint8_t*>(base);
 }
 
-uint64_t GetRouterLinkStateOffset(const DriverMemoryMapping& mapping,
-                                  size_t index) {
-  return ToOffset(&PrimaryBufferView(mapping).router_link_states[index],
+uint64_t GetInitialLinkStateOffset(const DriverMemoryMapping& mapping,
+                                   size_t index) {
+  return ToOffset(&ReservedBlock(mapping).initial_link_states[index],
                   mapping.address());
+}
+
+absl::Span<uint8_t> GetPrimaryLinkStateAllocatorMemory(
+    const DriverMemoryMapping& mapping) {
+  return {reinterpret_cast<uint8_t*>(&ReservedBlock(mapping) + 1),
+          kPrimaryBufferLinkAllocatorSize};
 }
 
 }  // namespace
@@ -48,6 +88,17 @@ NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
                                DriverMemoryMapping primary_buffer_mapping)
     : node_(std::move(node)) {
   buffers_.push_back(std::move(primary_buffer_mapping));
+
+  mem::BlockAllocator allocator(
+      GetPrimaryLinkStateAllocatorMemory(primary_buffer()),
+      kRouterLinkStateBlockSize, mem::BlockAllocator::kAlreadyInitialized);
+
+  auto link_state_allocators =
+      std::make_unique<BlockAllocatorPool>(kRouterLinkStateBlockSize);
+  link_state_allocators->AddAllocator(kPrimaryBufferId,
+                                      primary_buffer().bytes(), allocator);
+  block_allocator_pools_[kRouterLinkStateBlockSize] =
+      std::move(link_state_allocators);
 }
 
 NodeLinkMemory::~NodeLinkMemory() = default;
@@ -57,13 +108,17 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
     mem::Ref<Node> node,
     size_t num_initial_portals,
     DriverMemory& primary_buffer_memory) {
-  primary_buffer_memory =
-      DriverMemory(node->driver(), sizeof(PrimaryBufferLayout));
+  primary_buffer_memory = DriverMemory(node->driver(), kPrimaryBufferSize);
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
-  PrimaryBufferLayout& buffer = PrimaryBufferView(mapping);
-  buffer.next_sublink = num_initial_portals;
-  buffer.next_buffer_id = 1;
-  buffer.next_router_link_state_index = num_initial_portals;
+  PrimaryBufferHeader& header = Header(mapping);
+  header.next_sublink = num_initial_portals;
+  header.next_buffer_id = 1;
+  header.next_router_link_state_index = num_initial_portals;
+
+  mem::BlockAllocator allocator(GetPrimaryLinkStateAllocatorMemory(mapping),
+                                kRouterLinkStateBlockSize,
+                                mem::BlockAllocator::kInitialize);
+
   return mem::WrapRefCounted(
       new NodeLinkMemory(std::move(node), std::move(mapping)));
 }
@@ -82,7 +137,7 @@ void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
 }
 
 void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
-  if (address.buffer_id() == 0) {
+  if (address.buffer_id() == kPrimaryBufferId) {
     // Fast path for primary buffer access.
     ABSL_ASSERT(!buffers_.empty());
     return static_cast<uint8_t*>(buffers_.front().address()) + address.offset();
@@ -98,57 +153,100 @@ void* NodeLinkMemory::GetMappedAddress(const NodeLinkAddress& address) {
 }
 
 SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
-  return PrimaryBufferView(primary_buffer())
+  return Header(primary_buffer())
       .next_sublink.fetch_add(count, std::memory_order_relaxed);
 }
 
 NodeLinkAddress NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
-  return NodeLinkAddress(0, GetRouterLinkStateOffset(primary_buffer(), i));
+  return NodeLinkAddress(kPrimaryBufferId,
+                         GetInitialLinkStateOffset(primary_buffer(), i));
 }
 
 NodeLinkAddress NodeLinkMemory::AllocateRouterLinkState() {
-  NodeLinkAddress addr = AllocateUninitializedRouterLinkState();
+  NodeLinkAddress addr = AllocateBlock(kRouterLinkStateBlockSize);
   if (!addr.is_null()) {
     RouterLinkState::Initialize(GetMappedAddress(addr));
   }
   return addr;
 }
 
-void NodeLinkMemory::RequestCapacity(CapacityCallback callback) {
-  {
-    absl::MutexLock lock(&mutex_);
-    capacity_callbacks_.push_back(std::move(callback));
-    if (awaiting_capacity_) {
-      return;
-    }
-    awaiting_capacity_ = true;
+NodeLinkAddress NodeLinkMemory::AllocateBlock(size_t num_bytes) {
+  BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
+  if (!pool) {
+    return {};
   }
 
-  node_->AllocateSharedMemory(
-      kAuxBufferSize, [self = mem::WrapRefCounted(this)](DriverMemory memory) {
-        mem::Ref<NodeLink> link;
-        const BufferId new_buffer_id = self->AllocateBufferId();
-        std::vector<CapacityCallback> callbacks;
-        {
-          absl::MutexLock lock(&self->mutex_);
-          self->buffers_.push_back(memory.Map());
-          self->buffer_map_[new_buffer_id] = &self->buffers_.back();
-          self->awaiting_capacity_ = false;
-          std::swap(callbacks, self->capacity_callbacks_);
-          link = self->node_link_;
-        }
-
-        if (link) {
-          link->AddLinkBuffer(new_buffer_id, std::move(memory));
-        }
-
-        for (CapacityCallback& callback : callbacks) {
-          callback();
-        }
-      });
+  return pool->Allocate();
 }
 
-bool NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
+void NodeLinkMemory::FreeBlock(const NodeLinkAddress& address,
+                               size_t num_bytes) {
+  if (address.is_null()) {
+    return;
+  }
+
+  BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
+  pool->Free(address);
+}
+
+void NodeLinkMemory::RequestBlockAllocatorCapacity(
+    uint32_t buffer_size,
+    uint32_t block_size,
+    RequestBlockAllocatorCapacityCallback callback) {
+  block_size = absl::bit_ceil(block_size);
+  {
+    absl::MutexLock lock(&mutex_);
+    auto [it, need_new_request] =
+        capacity_callbacks_.emplace(block_size, CapacityCallbackList());
+    it->second.push_back(std::move(callback));
+    if (!need_new_request) {
+      return;
+    }
+  }
+
+  node_->AllocateSharedMemory(buffer_size, [self = mem::WrapRefCounted(this),
+                                            block_size](DriverMemory memory) {
+    mem::Ref<NodeLink> link;
+    const BufferId new_buffer_id = self->AllocateBufferId();
+    CapacityCallbackList callbacks;
+    {
+      absl::MutexLock lock(&self->mutex_);
+      self->buffers_.push_back(memory.Map());
+      DriverMemoryMapping* mapping = &self->buffers_.back();
+      self->buffer_map_[new_buffer_id] = mapping;
+      auto it = self->capacity_callbacks_.find(block_size);
+      if (it != self->capacity_callbacks_.end()) {
+        callbacks = std::move(it->second);
+        self->capacity_callbacks_.erase(it);
+      }
+      link = self->node_link_;
+
+      mem::BlockAllocator allocator(mapping->bytes(), block_size,
+                                    mem::BlockAllocator::kInitialize);
+
+      std::unique_ptr<BlockAllocatorPool>& pool =
+          self->block_allocator_pools_[block_size];
+      if (!pool) {
+        pool = std::make_unique<BlockAllocatorPool>(block_size);
+      }
+      pool->AddAllocator(new_buffer_id, mapping->bytes(), allocator);
+    }
+
+    if (link) {
+      link->AddBlockAllocatorBuffer(new_buffer_id, block_size,
+                                    std::move(memory));
+    }
+
+    for (auto& callback : callbacks) {
+      callback();
+    }
+  });
+}
+
+bool NodeLinkMemory::AddBlockAllocatorBuffer(BufferId id,
+                                             uint32_t block_size,
+                                             DriverMemory memory) {
+  block_size = absl::bit_ceil(block_size);
   std::vector<std::function<void()>> buffer_callbacks;
   {
     absl::MutexLock lock(&mutex_);
@@ -158,7 +256,17 @@ bool NodeLinkMemory::AddBuffer(BufferId id, DriverMemory memory) {
     }
 
     buffers_.push_back(memory.Map());
-    result.first->second = &buffers_.back();
+    DriverMemoryMapping& mapping = buffers_.back();
+    result.first->second = &mapping;
+
+    mem::BlockAllocator allocator(mapping.bytes(), block_size,
+                                  mem::BlockAllocator::kAlreadyInitialized);
+    std::unique_ptr<BlockAllocatorPool>& pool =
+        block_allocator_pools_[block_size];
+    if (!pool) {
+      pool = std::make_unique<BlockAllocatorPool>(block_size);
+    }
+    pool->AddAllocator(id, mapping.bytes(), allocator);
 
     auto it = buffer_callbacks_.find(id);
     if (it != buffer_callbacks_.end()) {
@@ -189,30 +297,17 @@ void NodeLinkMemory::OnBufferAvailable(BufferId id,
 }
 
 BufferId NodeLinkMemory::AllocateBufferId() {
-  return PrimaryBufferView(primary_buffer())
+  return Header(primary_buffer())
       .next_buffer_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-NodeLinkAddress NodeLinkMemory::AllocateUninitializedRouterLinkState() {
-  PrimaryBufferLayout& buffer = PrimaryBufferView(primary_buffer());
-  const uint64_t index = buffer.next_router_link_state_index.fetch_add(
-      1, std::memory_order_relaxed);
-  if (index < buffer.router_link_states.size()) {
-    return NodeLinkAddress(0,
-                           GetRouterLinkStateOffset(primary_buffer(), index));
-  }
-  uint64_t adjusted_index = index - buffer.router_link_states.size();
-  constexpr size_t kStatesPerBuffer = kAuxBufferSize / sizeof(RouterLinkState);
-  BufferId buffer_id = 1 + adjusted_index / kStatesPerBuffer;
-  uint64_t offset =
-      (adjusted_index % kStatesPerBuffer) * sizeof(RouterLinkState);
+BlockAllocatorPool* NodeLinkMemory::GetPoolForAllocation(size_t num_bytes) {
   absl::MutexLock lock(&mutex_);
-  auto it = buffer_map_.find(buffer_id);
-  if (it == buffer_map_.end()) {
-    return NodeLinkAddress();
+  auto it = block_allocator_pools_.find(absl::bit_ceil(num_bytes));
+  if (it == block_allocator_pools_.end()) {
+    return nullptr;
   }
-
-  return NodeLinkAddress(buffer_id, offset);
+  return it->second.get();
 }
 
 }  // namespace core

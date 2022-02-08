@@ -92,6 +92,10 @@ IpczResult ConnectNode(IpczHandle node_handle,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
+  if (num_initial_portals > 16) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
   os::Process process;
   if (target_process) {
     if (target_process->size < sizeof(IpczOSProcessHandle)) {

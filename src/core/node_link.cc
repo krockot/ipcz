@@ -239,10 +239,12 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   return true;
 }
 
-void NodeLink::AddLinkBuffer(BufferId buffer_id, DriverMemory memory) {
-  msg::AddLinkBuffer add;
+void NodeLink::AddBlockAllocatorBuffer(BufferId buffer_id,
+                                       uint32_t block_size,
+                                       DriverMemory memory) {
+  msg::AddBlockAllocatorBuffer add;
   add.params().buffer_id = buffer_id;
-  add.params().buffer_size = static_cast<uint32_t>(memory.size());
+  add.params().block_size = block_size;
 
   auto buffer = add.AppendSharedMemory(node_->driver(), std::move(memory));
   add.params().set_buffer(buffer);
@@ -483,14 +485,16 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
                                 transport_data, transport_os_handles);
 }
 
-bool NodeLink::OnAddLinkBuffer(msg::AddLinkBuffer& add) {
+bool NodeLink::OnAddBlockAllocatorBuffer(msg::AddBlockAllocatorBuffer& add) {
   DriverMemory buffer_memory =
       add.TakeSharedMemory(node_->driver(), add.params().buffer());
   if (!buffer_memory.is_valid()) {
     return false;
   }
 
-  return memory().AddBuffer(add.params().buffer_id, std::move(buffer_memory));
+  return memory().AddBlockAllocatorBuffer(add.params().buffer_id,
+                                          add.params().block_size,
+                                          std::move(buffer_memory));
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {

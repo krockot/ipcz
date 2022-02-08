@@ -9,13 +9,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <vector>
 
+#include "core/block_allocator_pool.h"
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_memory_mapping.h"
 #include "core/node_link_address.h"
 #include "core/sublink_id.h"
+#include "mem/block_allocator.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
@@ -75,20 +78,46 @@ class NodeLinkMemory : public mem::RefCounted {
   // RouterLinkState instances.
   NodeLinkAddress AllocateRouterLinkState();
 
-  // Requests allocation of additional capacity for this NodeLink memory.
-  // `callback` is invoked once new capacity is available, which may require
-  // some asynchronous work to accomplish.
-  using CapacityCallback = std::function<void()>;
-  void RequestCapacity(CapacityCallback callback);
+  // Allocates a generic block of memory of the given size or of the smallest
+  // sufficient size available to this object. If no memory is available to
+  // allocate the block, this returns an invalid address.
+  NodeLinkAddress AllocateBlock(size_t num_bytes);
 
-  // Introduces a new buffer associated with BufferId. This BufferId must have
-  // been allocated via AllocateBufferId() on this NodeLinkMemory or the
-  // corresponding remote NodeLinkMemory associated with the same conceptual
-  // link.
+  // Frees a block allocated from one of this object's block allocator pools via
+  // AllocateBlock() or other allocation helpers.
+  void FreeBlock(const NodeLinkAddress& address, size_t num_bytes);
+
+  // Requests allocation of additional block allocation capacity for this
+  // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which
+  // blocks of `block_size` bytes will be allocated.
+  //
+  // The number N of whole size-B blocks which can fit into a buffer of Z bytes
+  // is given by:
+  //
+  //    N = floor[(Z - 8) / (B + 8)]
+  //
+  // At offset zero these blocks host a mem::internal::MpmcQueueData<uint32_t>
+  // as a free list of block offsets within the buffer. The remaining available
+  // space is used for the N blocks themselves.
+  //
+  // `callback` is invoked once new buffer is available, which may require some
+  // asynchronous work to accomplish.
+  using RequestBlockAllocatorCapacityCallback = std::function<void()>;
+  void RequestBlockAllocatorCapacity(
+      uint32_t buffer_size,
+      uint32_t block_size,
+      RequestBlockAllocatorCapacityCallback callback);
+
+  // Introduces a new buffer associated with BufferId, for use as a block
+  // allocator with blocks of size `block_size`. `id` must have been allocated
+  // via AllocateBufferId() on this NodeLinkMemory or the corresponding remote
+  // NodeLinkMemory on the same link.
   //
   // Returns true if successful, or false if the NodeLinkMemory already had a
   // buffer identified by `id`.
-  bool AddBuffer(BufferId id, DriverMemory memory);
+  bool AddBlockAllocatorBuffer(BufferId id,
+                               uint32_t block_size,
+                               DriverMemory memory);
 
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
@@ -100,7 +129,8 @@ class NodeLinkMemory : public mem::RefCounted {
   NodeLinkMemory(mem::Ref<Node> node, DriverMemoryMapping primary_buffer);
 
   BufferId AllocateBufferId();
-  NodeLinkAddress AllocateUninitializedRouterLinkState();
+
+  BlockAllocatorPool* GetPoolForAllocation(size_t num_bytes);
 
   const mem::Ref<Node> node_;
 
@@ -117,11 +147,19 @@ class NodeLinkMemory : public mem::RefCounted {
   // guarded.
   std::list<DriverMemoryMapping> buffers_;
 
-  // Indicates whether a request is already in flight for new memory capacity.
-  bool awaiting_capacity_ ABSL_GUARDED_BY(mutex_) = false;
+  // Pools of BlockAllocators grouped by block size. Note that each pool is
+  // stored indirectly on the heap, and elements must never be removed from this
+  // map. These constraints ensure a stable memory location for each pool
+  // throughout the lifetime of the NodeLinkMemory.
+  absl::flat_hash_map<uint32_t, std::unique_ptr<BlockAllocatorPool>>
+      block_allocator_pools_ ABSL_GUARDED_BY(mutex_);
 
-  // Callbacks to invoke when the current pending capacity request is fulfilled.
-  std::vector<CapacityCallback> capacity_callbacks_ ABSL_GUARDED_BY(mutex_);
+  // Callbacks to invoke when a pending capacity request is fulfilled for a
+  // specific block size.
+  using CapacityCallbackList =
+      std::vector<RequestBlockAllocatorCapacityCallback>;
+  absl::flat_hash_map<uint32_t, CapacityCallbackList> capacity_callbacks_
+      ABSL_GUARDED_BY(mutex_);
 
   // Mapping from BufferId to some buffer in `buffers_` above.
   absl::flat_hash_map<BufferId, DriverMemoryMapping*> buffer_map_

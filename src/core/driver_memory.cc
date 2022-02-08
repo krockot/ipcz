@@ -58,7 +58,7 @@ DriverMemoryMapping DriverMemory::Map() {
   IpczResult result =
       driver_.MapSharedMemory(memory_, 0, nullptr, &address, &mapping_handle);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return DriverMemoryMapping(driver_, mapping_handle, address);
+  return DriverMemoryMapping(driver_, mapping_handle, address, size_);
 }
 
 IpczResult DriverMemory::Serialize(std::vector<uint8_t>& data,

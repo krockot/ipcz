@@ -31,6 +31,7 @@ class BlockAllocator {
   enum { kInitialize };
   enum { kAlreadyInitialized };
 
+  BlockAllocator();
   BlockAllocator(void* memory,
                  const size_t block_size,
                  const size_t num_blocks,
@@ -45,6 +46,8 @@ class BlockAllocator {
   BlockAllocator(absl::Span<uint8_t> region,
                  size_t block_size,
                  decltype(kInitialize));
+  BlockAllocator(const BlockAllocator&);
+  BlockAllocator& operator=(const BlockAllocator&);
   ~BlockAllocator();
 
   size_t block_size() const { return block_size_; }
@@ -82,10 +85,10 @@ class BlockAllocator {
     return IndexQueue::ComputeStorageSize(num_blocks_);
   }
 
-  const size_t block_size_;
-  const size_t num_blocks_;
+  size_t block_size_ = 0;
+  size_t num_blocks_ = 0;
   IndexQueue free_indices_;
-  uint8_t* const first_block_;
+  uint8_t* first_block_ = nullptr;
 };
 
 }  // namespace mem
