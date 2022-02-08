@@ -47,7 +47,7 @@ void BlockAllocatorPool::AddAllocator(BufferId buffer_id,
   }
 }
 
-MappedNodeLinkAddress BlockAllocatorPool::Allocate() {
+Fragment BlockAllocatorPool::Allocate() {
   Entry* entry = active_entry_.load(std::memory_order_relaxed);
   if (!entry) {
     return {};
@@ -72,8 +72,8 @@ MappedNodeLinkAddress BlockAllocatorPool::Allocate() {
                                             std::memory_order_relaxed);
       }
 
-      return MappedNodeLinkAddress(
-          NodeLinkAddress(entry->buffer_id, buffer_offset), block);
+      return Fragment(FragmentDescriptor(entry->buffer_id, buffer_offset),
+                      block);
     }
 
     // Allocation from this buffer failed. Try a different buffer.
@@ -84,11 +84,11 @@ MappedNodeLinkAddress BlockAllocatorPool::Allocate() {
   return {};
 }
 
-void BlockAllocatorPool::Free(const MappedNodeLinkAddress& address) {
+void BlockAllocatorPool::Free(const Fragment& fragment) {
   Entry* entry;
   {
     absl::MutexLock lock(&mutex_);
-    auto it = entry_map_.find(address.buffer_id());
+    auto it = entry_map_.find(fragment.buffer_id());
     if (it == entry_map_.end()) {
       DLOG(ERROR) << "Invalid Free() call on BlockAllocatorPool";
       return;
@@ -96,7 +96,7 @@ void BlockAllocatorPool::Free(const MappedNodeLinkAddress& address) {
     entry = it->second;
   }
 
-  entry->allocator.Free(address.mapped_address());
+  entry->allocator.Free(fragment.address());
 }
 
 }  // namespace core

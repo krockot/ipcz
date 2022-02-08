@@ -130,27 +130,25 @@ void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
   node_link_ = std::move(node_link);
 }
 
-MappedNodeLinkAddress NodeLinkMemory::GetMappedAddress(
-    const NodeLinkAddress& address) {
-  if (address.is_null()) {
+Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
+  if (descriptor.is_null()) {
     return {};
   }
 
-  if (address.buffer_id() == kPrimaryBufferId) {
+  if (descriptor.buffer_id() == kPrimaryBufferId) {
     // Fast path for primary buffer access.
     ABSL_ASSERT(!buffers_.empty());
-    return MappedNodeLinkAddress(address,
-                                 buffers_.front().address_at(address.offset()));
+    return Fragment(descriptor,
+                    buffers_.front().address_at(descriptor.offset()));
   }
 
   absl::MutexLock lock(&mutex_);
-  auto it = buffer_map_.find(address.buffer_id());
+  auto it = buffer_map_.find(descriptor.buffer_id());
   if (it == buffer_map_.end()) {
     return {};
   }
 
-  return MappedNodeLinkAddress(address,
-                               it->second->address_at(address.offset()));
+  return Fragment(descriptor, it->second->address_at(descriptor.offset()));
 }
 
 SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
@@ -158,25 +156,25 @@ SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
       .next_sublink.fetch_add(count, std::memory_order_relaxed);
 }
 
-MappedNodeLinkAddress NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
+Fragment NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
   auto& states = ReservedBlock(primary_buffer()).initial_link_states;
   ABSL_ASSERT(i < states.size());
   RouterLinkState* state = &states[i];
-  return MappedNodeLinkAddress(
-      NodeLinkAddress(kPrimaryBufferId,
-                      ToOffset(state, primary_buffer().address())),
+  return Fragment(
+      FragmentDescriptor(kPrimaryBufferId,
+                         ToOffset(state, primary_buffer().address())),
       state);
 }
 
-MappedNodeLinkAddress NodeLinkMemory::AllocateRouterLinkState() {
-  MappedNodeLinkAddress addr = AllocateBlock(kRouterLinkStateBlockSize);
-  if (!addr.is_null()) {
-    RouterLinkState::Initialize(addr.mapped_address());
+Fragment NodeLinkMemory::AllocateRouterLinkState() {
+  Fragment fragment = AllocateBlock(kRouterLinkStateBlockSize);
+  if (!fragment.is_null()) {
+    RouterLinkState::Initialize(fragment.address());
   }
-  return addr;
+  return fragment;
 }
 
-MappedNodeLinkAddress NodeLinkMemory::AllocateBlock(size_t num_bytes) {
+Fragment NodeLinkMemory::AllocateBlock(size_t num_bytes) {
   BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
   if (!pool) {
     return {};
@@ -185,14 +183,13 @@ MappedNodeLinkAddress NodeLinkMemory::AllocateBlock(size_t num_bytes) {
   return pool->Allocate();
 }
 
-void NodeLinkMemory::FreeBlock(const MappedNodeLinkAddress& address,
-                               size_t num_bytes) {
-  if (address.is_null()) {
+void NodeLinkMemory::FreeBlock(const Fragment& fragment, size_t num_bytes) {
+  if (fragment.is_null()) {
     return;
   }
 
   BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
-  pool->Free(address);
+  pool->Free(fragment);
 }
 
 void NodeLinkMemory::RequestBlockAllocatorCapacity(

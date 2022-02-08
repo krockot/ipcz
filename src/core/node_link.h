@@ -13,7 +13,7 @@
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
-#include "core/mapped_node_link_address.h"
+#include "core/fragment.h"
 #include "core/node.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
@@ -83,12 +83,12 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // `type` specifies the type of link this is, from the perspective of
   // `router`.
   //
-  // If `link_state_address` is non-null, the given address identifies the
-  // location of the shared RouterLinkState structure for the new route. Only
-  // central links require a RouterLinkState.
+  // If `link_state_fragment` is non-null, the given fragment contains the
+  // shared RouterLinkState structure for the new route. Only central links
+  // require a RouterLinkState.
   mem::Ref<RemoteRouterLink> AddRemoteRouterLink(
       SublinkId sublink,
-      const MappedNodeLinkAddress& link_state_address,
+      const Fragment& link_state_fragment,
       LinkType type,
       LinkSide side,
       mem::Ref<Router> router);
@@ -199,7 +199,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
       const msg::AcceptIndirectBrokerConnection& accept);
   bool OnAcceptParcel(msg::AcceptParcel& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
-  bool OnSetRouterLinkStateAddress(const msg::SetRouterLinkStateAddress& set);
+  bool OnSetRouterLinkStateFragment(const msg::SetRouterLinkStateFragment& set);
   bool OnRequestIntroduction(const msg::RequestIntroduction& request);
   bool OnIntroduceNode(msg::IntroduceNode& intro);
   bool OnAddBlockAllocatorBuffer(msg::AddBlockAllocatorBuffer& add);

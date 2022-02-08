@@ -16,8 +16,8 @@
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_memory_mapping.h"
-#include "core/mapped_node_link_address.h"
-#include "core/node_link_address.h"
+#include "core/fragment.h"
+#include "core/fragment_descriptor.h"
 #include "core/sublink_id.h"
 #include "mem/block_allocator.h"
 #include "mem/ref_counted.h"
@@ -51,10 +51,10 @@ class NodeLinkMemory : public mem::RefCounted {
   // `node_link` is deactivated.
   void SetNodeLink(mem::Ref<NodeLink> node_link);
 
-  // Resolves a NodeLinkAddress (a buffer ID and offset) to a real memory
-  // address mapped within the calling process. May return null if the given
-  // NodeLinkAddress is not currently mapped in the calling process.
-  MappedNodeLinkAddress GetMappedAddress(const NodeLinkAddress& address);
+  // Resolves a FragmentDescriptor (a buffer ID and offset) to a real memory
+  // span mapped within the calling process. May return null if the given
+  // FragmentDescriptor is not currently mapped in the calling process.
+  Fragment GetFragment(const FragmentDescriptor& descriptor);
 
   // Returns the first of `count` newly allocated, contiguous sublink IDs for
   // use on the corresponding NodeLink.
@@ -65,22 +65,24 @@ class NodeLinkMemory : public mem::RefCounted {
   // the link's creation. Unlike other RouterLinkStates which are allocated
   // dynamically, these have a fixed location within the NodeLinkMemory's
   // primary buffer.
-  MappedNodeLinkAddress GetInitialRouterLinkState(size_t i);
+  Fragment GetInitialRouterLinkState(size_t i);
 
-  // Allocates a new RouterLinkState in NodeLink memory and returns its future
-  // address. This is useful when constructing a new central RemoteRouterLink.
-  // May return null if there is no more capacity to allocate new
+  // Allocates a new RouterLinkState in NodeLink memory and returns the fragment
+  // containing it. This is useful when constructing a new central
+  // RemoteRouterLink.
+  //
+  // May return a null fragment if there is no more capacity to allocate new
   // RouterLinkState instances.
-  MappedNodeLinkAddress AllocateRouterLinkState();
+  Fragment AllocateRouterLinkState();
 
   // Allocates a generic block of memory of the given size or of the smallest
   // sufficient size available to this object. If no memory is available to
-  // allocate the block, this returns an invalid address.
-  MappedNodeLinkAddress AllocateBlock(size_t num_bytes);
+  // allocate the block, this returns a null fragment.
+  Fragment AllocateBlock(size_t num_bytes);
 
   // Frees a block allocated from one of this object's block allocator pools via
   // AllocateBlock() or other allocation helpers.
-  void FreeBlock(const MappedNodeLinkAddress& address, size_t num_bytes);
+  void FreeBlock(const Fragment& fragment, size_t num_bytes);
 
   // Requests allocation of additional block allocation capacity for this
   // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which

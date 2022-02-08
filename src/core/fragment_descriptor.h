@@ -1,9 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_NODE_LINK_ADDRESS_H_
-#define IPCZ_SRC_CORE_NODE_LINK_ADDRESS_H_
+#ifndef IPCZ_SRC_CORE_FRAGMENT_DESCRIPTOR_H_
+#define IPCZ_SRC_CORE_FRAGMENT_DESCRIPTOR_H_
 
 #include <cstdint>
 #include <string>
@@ -14,14 +14,14 @@
 namespace ipcz {
 namespace core {
 
-// Represents a memory location within the shared memory regions owned by a
-// NodeLinkMemory. A NodeLinkAddress can be resolved to a real memory address by
-// passing it to NodeLinkMemory::GetMappedAddress().
-struct IPCZ_ALIGN(8) NodeLinkAddress {
-  constexpr NodeLinkAddress() = default;
-  NodeLinkAddress(const NodeLinkAddress&);
-  NodeLinkAddress& operator=(const NodeLinkAddress&);
-  constexpr NodeLinkAddress(BufferId buffer_id, uint64_t offset)
+// Represents a span of memory within the shared memory regions owned by a
+// NodeLinkMemory. A FragmentDescriptor can be resolved to a concrete Fragment
+// by passing it to NodeLinkMemory::GetFragment().
+struct IPCZ_ALIGN(8) FragmentDescriptor {
+  constexpr FragmentDescriptor() = default;
+  FragmentDescriptor(const FragmentDescriptor&);
+  FragmentDescriptor& operator=(const FragmentDescriptor&);
+  constexpr FragmentDescriptor(BufferId buffer_id, uint64_t offset)
       : buffer_id_(buffer_id), offset_(offset) {}
 
   bool is_null() const { return buffer_id_ == kInvalidBufferId; }
@@ -43,4 +43,4 @@ struct IPCZ_ALIGN(8) NodeLinkAddress {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_NODE_LINK_ADDRESS_H_
+#endif  // IPCZ_SRC_CORE_FRAGMENT_DESCRIPTOR_H_

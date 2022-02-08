@@ -9,8 +9,8 @@
 
 #include "core/buffer_id.h"
 #include "core/driver_transport.h"
+#include "core/fragment_descriptor.h"
 #include "core/message_internal.h"
-#include "core/node_link_address.h"
 #include "core/node_name.h"
 #include "core/router_descriptor.h"
 #include "core/sequence_number.h"

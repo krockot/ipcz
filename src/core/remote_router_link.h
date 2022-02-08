@@ -7,9 +7,9 @@
 
 #include <atomic>
 
+#include "core/fragment.h"
 #include "core/link_side.h"
 #include "core/link_type.h"
-#include "core/mapped_node_link_address.h"
 #include "core/router_link.h"
 #include "core/sublink_id.h"
 
@@ -36,22 +36,19 @@ class RemoteRouterLink : public RouterLink {
   // of link it is -- which for remote links must be either kCentral,
   // kPeripheralInward, or kPeripheralOutward.
   //
-  // `link_state_address` is the shared memory location of this link's
+  // `link_state_fragment` is the shared memory span containing link's
   // RouterLinkState.
-  static mem::Ref<RemoteRouterLink> Create(
-      mem::Ref<NodeLink> node_link,
-      SublinkId sublink,
-      const MappedNodeLinkAddress& link_state_address,
-      LinkType type,
-      LinkSide side);
+  static mem::Ref<RemoteRouterLink> Create(mem::Ref<NodeLink> node_link,
+                                           SublinkId sublink,
+                                           const Fragment& link_state_fragment,
+                                           LinkType type,
+                                           LinkSide side);
 
   const mem::Ref<NodeLink>& node_link() const { return node_link_; }
   SublinkId sublink() const { return sublink_; }
-  MappedNodeLinkAddress link_state_address() const {
-    return link_state_address_;
-  }
+  Fragment link_state_fragment() const { return link_state_fragment_; }
 
-  void SetLinkStateAddress(const MappedNodeLinkAddress& address);
+  void SetLinkStateFragment(const Fragment& fragment);
 
   // RouterLink:
   LinkType GetType() const override;
@@ -74,7 +71,7 @@ class RemoteRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       SublinkId new_sublink,
-      const MappedNodeLinkAddress& new_link_state_address,
+      const Fragment& new_link_state_fragment,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;
@@ -86,7 +83,7 @@ class RemoteRouterLink : public RouterLink {
  private:
   RemoteRouterLink(mem::Ref<NodeLink> node_link,
                    SublinkId sublink,
-                   const MappedNodeLinkAddress& link_state_address,
+                   const Fragment& link_state_fragment,
                    LinkType type,
                    LinkSide side);
 
@@ -107,10 +104,10 @@ class RemoteRouterLink : public RouterLink {
     kPresent,
   };
 
-  std::atomic<bool> must_share_link_state_address_{false};
+  std::atomic<bool> must_share_link_state_fragment_{false};
   std::atomic<bool> side_is_stable_{false};
   std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
-  MappedNodeLinkAddress link_state_address_;
+  Fragment link_state_fragment_;
   std::atomic<RouterLinkState*> link_state_{nullptr};
 };
 

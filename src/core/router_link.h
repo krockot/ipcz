@@ -21,7 +21,7 @@ namespace ipcz {
 namespace core {
 
 class NodeLink;
-struct MappedNodeLinkAddress;
+struct Fragment;
 class Parcel;
 class Router;
 
@@ -140,7 +140,7 @@ class RouterLink : public mem::RefCounted {
   // to call back to the sender with StopProxyingToLocalPeer().
   virtual void BypassProxyToSameNode(
       SublinkId new_sublink,
-      const MappedNodeLinkAddress& new_link_state_address,
+      const Fragment& new_link_state_fragment,
       SequenceNumber proxy_inbound_sequence_length) = 0;
 
   // Essentially a reply to BypassProxyToSameNode, this informs the receiving

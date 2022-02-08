@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "core/node_link_address.h"
+#include "core/fragment_descriptor.h"
 
 #include <sstream>
 
@@ -12,11 +12,12 @@
 namespace ipcz {
 namespace core {
 
-NodeLinkAddress::NodeLinkAddress(const NodeLinkAddress&) = default;
+FragmentDescriptor::FragmentDescriptor(const FragmentDescriptor&) = default;
 
-NodeLinkAddress& NodeLinkAddress::operator=(const NodeLinkAddress&) = default;
+FragmentDescriptor& FragmentDescriptor::operator=(const FragmentDescriptor&) =
+    default;
 
-std::string NodeLinkAddress::ToString() const {
+std::string FragmentDescriptor::ToString() const {
   if (is_null()) {
     return "(null)";
   }

@@ -249,9 +249,9 @@ IPCZ_MSG_END()
 // in the shared NodeLinkMemory buffer identified by `buffer_id`. The receiving
 // node may not yet have a handle to the identified buffer, but if not, it can
 // expect to receive one imminently via an AddLinkBuffer message.
-IPCZ_MSG_BEGIN(SetRouterLinkStateAddress, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_BEGIN(SetRouterLinkStateFragment, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
-  IPCZ_MSG_PARAM(NodeLinkAddress, address)
+  IPCZ_MSG_PARAM(FragmentDescriptor, descriptor)
 IPCZ_MSG_END()
 
 // Informs the recipient that its outward peer is a proxy which has locked its
@@ -296,7 +296,7 @@ IPCZ_MSG_BEGIN(BypassProxy, IPCZ_MSG_ID(31), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, new_sublink)
 
   // Location of the new route's RouterLinkState.
-  IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
+  IPCZ_MSG_PARAM(FragmentDescriptor, new_link_state_fragment)
 
   // The total number of parcels sent from the proxy's side of the route to the
   // recipient's side of the route before the proxy's side stopped sending
@@ -359,7 +359,7 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(BypassProxyToSameNode, IPCZ_MSG_ID(34), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(SublinkId, new_sublink)
-  IPCZ_MSG_PARAM(NodeLinkAddress, new_link_state_address)
+  IPCZ_MSG_PARAM(FragmentDescriptor, new_link_state_fragment)
   IPCZ_MSG_PARAM(SequenceNumber, proxy_inbound_sequence_length)
 IPCZ_MSG_END()
 

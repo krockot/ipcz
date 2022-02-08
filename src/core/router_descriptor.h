@@ -5,7 +5,7 @@
 #ifndef IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
 #define IPCZ_SRC_CORE_ROUTER_DESCRIPTOR_H_
 
-#include "core/node_link_address.h"
+#include "core/fragment_descriptor.h"
 #include "core/node_name.h"
 #include "core/sequence_number.h"
 #include "core/sublink_id.h"
@@ -37,13 +37,13 @@ struct IPCZ_ALIGN(8) RouterDescriptor {
   // end.
   SequenceNumber closed_peer_sequence_length;
 
-  // A new sublink and RouterLinkState address allocated by the sender on the
+  // A new sublink and RouterLinkState fragment allocated by the sender on the
   // NodeLink which sends this descriptor. The sublink may be used either as
   // a peripheral link (the default case) or the route's new central link in the
   // optimized case where `proxy_already_bypassed` is true below. Only in the
-  // latter case is the RouterLinkState address used.
+  // latter case is the RouterLinkState fragment used.
   SublinkId new_sublink;
-  NodeLinkAddress new_link_state_address;
+  FragmentDescriptor new_link_state_fragment;
 
   // When `proxy_already_bypassed` is true, this is another new sublink
   // allocated by the sender on the NodeLink which sends this descriptor. This
