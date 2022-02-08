@@ -239,12 +239,12 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   return true;
 }
 
-void NodeLink::AddBlockAllocatorBuffer(BufferId buffer_id,
-                                       uint32_t block_size,
-                                       DriverMemory memory) {
-  msg::AddBlockAllocatorBuffer add;
+void NodeLink::AddFragmentAllocatorBuffer(BufferId buffer_id,
+                                          uint32_t fragment_size,
+                                          DriverMemory memory) {
+  msg::AddFragmentAllocatorBuffer add;
   add.params().buffer_id = buffer_id;
-  add.params().block_size = block_size;
+  add.params().fragment_size = fragment_size;
 
   auto buffer = add.AppendSharedMemory(node_->driver(), std::move(memory));
   add.params().set_buffer(buffer);
@@ -486,16 +486,17 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
                                 transport_data, transport_os_handles);
 }
 
-bool NodeLink::OnAddBlockAllocatorBuffer(msg::AddBlockAllocatorBuffer& add) {
+bool NodeLink::OnAddFragmentAllocatorBuffer(
+    msg::AddFragmentAllocatorBuffer& add) {
   DriverMemory buffer_memory =
       add.TakeSharedMemory(node_->driver(), add.params().buffer());
   if (!buffer_memory.is_valid()) {
     return false;
   }
 
-  return memory().AddBlockAllocatorBuffer(add.params().buffer_id,
-                                          add.params().block_size,
-                                          std::move(buffer_memory));
+  return memory().AddFragmentAllocatorBuffer(add.params().buffer_id,
+                                             add.params().fragment_size,
+                                             std::move(buffer_memory));
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {

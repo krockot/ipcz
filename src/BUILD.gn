@@ -85,8 +85,6 @@ source_set("core") {
   visibility = [ ":*" ]
 
   sources = [
-    "core/block_allocator_pool.cc",
-    "core/block_allocator_pool.h",
     "core/buffer_id.h",
     "core/driver_memory.cc",
     "core/driver_memory.h",
@@ -96,6 +94,8 @@ source_set("core") {
     "core/driver_transport.h",
     "core/fragment.cc",
     "core/fragment.h",
+    "core/fragment_allocator.cc",
+    "core/fragment_allocator.h",
     "core/fragment_descriptor.cc",
     "core/fragment_descriptor.h",
     "core/link_side.cc",

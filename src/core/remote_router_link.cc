@@ -309,7 +309,7 @@ void RemoteRouterLink::LogRouteTrace() {
 }
 
 void RemoteRouterLink::AllocateLinkState() {
-  node_link()->memory().RequestBlockAllocatorCapacity(
+  node_link()->memory().RequestFragmentCapacity(
       kAuxLinkStateBufferSize, sizeof(RouterLinkState),
       [self = mem::WrapRefCounted(this)]() {
         Fragment fragment =

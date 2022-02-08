@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_CORE_BLOCK_ALLOCATOR_POOL_H_
-#define IPCZ_SRC_CORE_BLOCK_ALLOCATOR_POOL_H_
+#ifndef IPCZ_SRC_CORE_FRAGMENT_ALLOCATOR_H_
+#define IPCZ_SRC_CORE_FRAGMENT_ALLOCATOR_H_
 
 #include <atomic>
 #include <cstdint>
@@ -21,11 +21,12 @@ namespace core {
 
 // Manages access to a collection of mem::BlockAllocators for the same block
 // size, encapsulating the decision of which allocator to use for each
-// allocation request.
-class BlockAllocatorPool {
+// allocation request. NodeLinkMemory objects use FragmentAllocators for various
+// fragment sizes to manage dynamic allocation of smallish shared memory spans.
+class FragmentAllocator {
  public:
-  explicit BlockAllocatorPool(uint32_t block_size);
-  ~BlockAllocatorPool();
+  explicit FragmentAllocator(uint32_t fragment_size);
+  ~FragmentAllocator();
 
   // Permanently registers a new BlockAllocator with this pool, utilizing
   // `memory` for its storage. `buffer_id` is the BufferId associated with the
@@ -36,11 +37,11 @@ class BlockAllocatorPool {
                     absl::Span<uint8_t> buffer_memory,
                     const mem::BlockAllocator& allocator);
 
-  // Allocates a new block from the pool. If allocation fails because there is
-  // no capacity left in any of the pool's buffers, this returns null value.
+  // Allocates a new fragment from the pool. If allocation fails because there
+  // is no capacity left in any of the pool's buffers, this returns null value.
   Fragment Allocate();
 
-  // Releases a block back into the pool.
+  // Releases a fragment back into the pool.
   void Free(const Fragment& fragment);
 
  private:
@@ -56,7 +57,7 @@ class BlockAllocatorPool {
     Entry* next = nullptr;
   };
 
-  const uint32_t block_size_;
+  const uint32_t fragment_size_;
 
   absl::Mutex mutex_;
   std::list<Entry> entries_ ABSL_GUARDED_BY(mutex_);
@@ -71,4 +72,4 @@ class BlockAllocatorPool {
 }  // namespace core
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_CORE_BLOCK_ALLOCATOR_POOL_H_
+#endif  // IPCZ_SRC_CORE_FRAGMENT_ALLOCATOR_H_

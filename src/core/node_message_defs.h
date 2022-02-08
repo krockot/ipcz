@@ -208,14 +208,14 @@ IPCZ_MSG_BEGIN(IntroduceNode, IPCZ_MSG_ID(13), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
 IPCZ_MSG_END()
 
-// Shares a new link buffer with the receiver for use as a block allocator.
-IPCZ_MSG_BEGIN(AddBlockAllocatorBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
+// Shares a new link buffer with the receiver for use by a FragmentAllocator.
+IPCZ_MSG_BEGIN(AddFragmentAllocatorBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   // The ID of the new buffer as allocated by the NodeLinkMemory on the NodeLink
   // transmitting this message.
   IPCZ_MSG_PARAM(BufferId, buffer_id)
 
-  // The size of blocks which can be allocated from within this buffer.
-  IPCZ_MSG_PARAM(uint32_t, block_size)
+  // The size of fragments which can be allocated from within this buffer.
+  IPCZ_MSG_PARAM(uint32_t, fragment_size)
 
   // A handle to the driver-managed, read-write-mappable buffer.
   IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)

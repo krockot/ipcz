@@ -54,9 +54,9 @@ static_assert(sizeof(PrimaryBufferReservedBlock) ==
 constexpr size_t kPrimaryBufferLinkAllocatorSize =
     kPrimaryBufferSize - sizeof(PrimaryBufferReservedBlock);
 
-constexpr size_t kRouterLinkStateBlockSize = 32;
-static_assert(kRouterLinkStateBlockSize >= sizeof(RouterLinkState),
-              "Invalid RouterLinkState block size");
+constexpr size_t kRouterLinkStateFragmentSize = 32;
+static_assert(kRouterLinkStateFragmentSize >= sizeof(RouterLinkState),
+              "Invalid RouterLinkState fragment size");
 
 PrimaryBufferReservedBlock& ReservedBlock(const DriverMemoryMapping& mapping) {
   return *static_cast<PrimaryBufferReservedBlock*>(mapping.address());
@@ -85,13 +85,13 @@ NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
 
   mem::BlockAllocator allocator(
       GetPrimaryLinkStateAllocatorMemory(primary_buffer()),
-      kRouterLinkStateBlockSize, mem::BlockAllocator::kAlreadyInitialized);
+      kRouterLinkStateFragmentSize, mem::BlockAllocator::kAlreadyInitialized);
 
   auto link_state_allocators =
-      std::make_unique<BlockAllocatorPool>(kRouterLinkStateBlockSize);
+      std::make_unique<FragmentAllocator>(kRouterLinkStateFragmentSize);
   link_state_allocators->AddAllocator(kPrimaryBufferId,
                                       primary_buffer().bytes(), allocator);
-  block_allocator_pools_[kRouterLinkStateBlockSize] =
+  fragment_allocators_[kRouterLinkStateFragmentSize] =
       std::move(link_state_allocators);
 }
 
@@ -110,7 +110,7 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   header.next_router_link_state_index = num_initial_portals;
 
   mem::BlockAllocator allocator(GetPrimaryLinkStateAllocatorMemory(mapping),
-                                kRouterLinkStateBlockSize,
+                                kRouterLinkStateFragmentSize,
                                 mem::BlockAllocator::kInitialize);
 
   return mem::WrapRefCounted(
@@ -167,15 +167,15 @@ Fragment NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
 }
 
 Fragment NodeLinkMemory::AllocateRouterLinkState() {
-  Fragment fragment = AllocateBlock(kRouterLinkStateBlockSize);
+  Fragment fragment = AllocateFragment(kRouterLinkStateFragmentSize);
   if (!fragment.is_null()) {
     RouterLinkState::Initialize(fragment.address());
   }
   return fragment;
 }
 
-Fragment NodeLinkMemory::AllocateBlock(size_t num_bytes) {
-  BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
+Fragment NodeLinkMemory::AllocateFragment(size_t num_bytes) {
+  FragmentAllocator* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
   if (!pool) {
     return {};
   }
@@ -183,73 +183,74 @@ Fragment NodeLinkMemory::AllocateBlock(size_t num_bytes) {
   return pool->Allocate();
 }
 
-void NodeLinkMemory::FreeBlock(const Fragment& fragment, size_t num_bytes) {
+void NodeLinkMemory::FreeFragment(const Fragment& fragment, size_t num_bytes) {
   if (fragment.is_null()) {
     return;
   }
 
-  BlockAllocatorPool* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
+  FragmentAllocator* pool = GetPoolForAllocation(absl::bit_ceil(num_bytes));
   pool->Free(fragment);
 }
 
-void NodeLinkMemory::RequestBlockAllocatorCapacity(
+void NodeLinkMemory::RequestFragmentCapacity(
     uint32_t buffer_size,
-    uint32_t block_size,
-    RequestBlockAllocatorCapacityCallback callback) {
-  block_size = absl::bit_ceil(block_size);
+    uint32_t fragment_size,
+    RequestFragmentCapacityCallback callback) {
+  fragment_size = absl::bit_ceil(fragment_size);
   {
     absl::MutexLock lock(&mutex_);
     auto [it, need_new_request] =
-        capacity_callbacks_.emplace(block_size, CapacityCallbackList());
+        capacity_callbacks_.emplace(fragment_size, CapacityCallbackList());
     it->second.push_back(std::move(callback));
     if (!need_new_request) {
       return;
     }
   }
 
-  node_->AllocateSharedMemory(buffer_size, [self = mem::WrapRefCounted(this),
-                                            block_size](DriverMemory memory) {
-    mem::Ref<NodeLink> link;
-    const BufferId new_buffer_id = self->AllocateBufferId();
-    CapacityCallbackList callbacks;
-    {
-      absl::MutexLock lock(&self->mutex_);
-      self->buffers_.push_back(memory.Map());
-      DriverMemoryMapping* mapping = &self->buffers_.back();
-      self->buffer_map_[new_buffer_id] = mapping;
-      auto it = self->capacity_callbacks_.find(block_size);
-      if (it != self->capacity_callbacks_.end()) {
-        callbacks = std::move(it->second);
-        self->capacity_callbacks_.erase(it);
-      }
-      link = self->node_link_;
+  node_->AllocateSharedMemory(
+      buffer_size,
+      [self = mem::WrapRefCounted(this), fragment_size](DriverMemory memory) {
+        mem::Ref<NodeLink> link;
+        const BufferId new_buffer_id = self->AllocateBufferId();
+        CapacityCallbackList callbacks;
+        {
+          absl::MutexLock lock(&self->mutex_);
+          self->buffers_.push_back(memory.Map());
+          DriverMemoryMapping* mapping = &self->buffers_.back();
+          self->buffer_map_[new_buffer_id] = mapping;
+          auto it = self->capacity_callbacks_.find(fragment_size);
+          if (it != self->capacity_callbacks_.end()) {
+            callbacks = std::move(it->second);
+            self->capacity_callbacks_.erase(it);
+          }
+          link = self->node_link_;
 
-      mem::BlockAllocator allocator(mapping->bytes(), block_size,
-                                    mem::BlockAllocator::kInitialize);
+          mem::BlockAllocator allocator(mapping->bytes(), fragment_size,
+                                        mem::BlockAllocator::kInitialize);
 
-      std::unique_ptr<BlockAllocatorPool>& pool =
-          self->block_allocator_pools_[block_size];
-      if (!pool) {
-        pool = std::make_unique<BlockAllocatorPool>(block_size);
-      }
-      pool->AddAllocator(new_buffer_id, mapping->bytes(), allocator);
-    }
+          std::unique_ptr<FragmentAllocator>& pool =
+              self->fragment_allocators_[fragment_size];
+          if (!pool) {
+            pool = std::make_unique<FragmentAllocator>(fragment_size);
+          }
+          pool->AddAllocator(new_buffer_id, mapping->bytes(), allocator);
+        }
 
-    if (link) {
-      link->AddBlockAllocatorBuffer(new_buffer_id, block_size,
-                                    std::move(memory));
-    }
+        if (link) {
+          link->AddFragmentAllocatorBuffer(new_buffer_id, fragment_size,
+                                           std::move(memory));
+        }
 
-    for (auto& callback : callbacks) {
-      callback();
-    }
-  });
+        for (auto& callback : callbacks) {
+          callback();
+        }
+      });
 }
 
-bool NodeLinkMemory::AddBlockAllocatorBuffer(BufferId id,
-                                             uint32_t block_size,
-                                             DriverMemory memory) {
-  block_size = absl::bit_ceil(block_size);
+bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
+                                                uint32_t fragment_size,
+                                                DriverMemory memory) {
+  fragment_size = absl::bit_ceil(fragment_size);
   std::vector<std::function<void()>> buffer_callbacks;
   {
     absl::MutexLock lock(&mutex_);
@@ -262,12 +263,12 @@ bool NodeLinkMemory::AddBlockAllocatorBuffer(BufferId id,
     DriverMemoryMapping& mapping = buffers_.back();
     result.first->second = &mapping;
 
-    mem::BlockAllocator allocator(mapping.bytes(), block_size,
+    mem::BlockAllocator allocator(mapping.bytes(), fragment_size,
                                   mem::BlockAllocator::kAlreadyInitialized);
-    std::unique_ptr<BlockAllocatorPool>& pool =
-        block_allocator_pools_[block_size];
+    std::unique_ptr<FragmentAllocator>& pool =
+        fragment_allocators_[fragment_size];
     if (!pool) {
-      pool = std::make_unique<BlockAllocatorPool>(block_size);
+      pool = std::make_unique<FragmentAllocator>(fragment_size);
     }
     pool->AddAllocator(id, mapping.bytes(), allocator);
 
@@ -304,10 +305,10 @@ BufferId NodeLinkMemory::AllocateBufferId() {
       .next_buffer_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-BlockAllocatorPool* NodeLinkMemory::GetPoolForAllocation(size_t num_bytes) {
+FragmentAllocator* NodeLinkMemory::GetPoolForAllocation(size_t num_bytes) {
   absl::MutexLock lock(&mutex_);
-  auto it = block_allocator_pools_.find(absl::bit_ceil(num_bytes));
-  if (it == block_allocator_pools_.end()) {
+  auto it = fragment_allocators_.find(absl::bit_ceil(num_bytes));
+  if (it == fragment_allocators_.end()) {
     return nullptr;
   }
   return it->second.get();

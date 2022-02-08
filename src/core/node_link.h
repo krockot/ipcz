@@ -157,11 +157,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   // Sends a new shared memory object to the remote endpoint to be associated
   // with BufferId within this link's associated NodeLinkMemory, and to be used
-  // to dynamically allocate fixed-size blocks of `block_size` bytes. The
-  // BufferId must have already been reserved locally by this NodeLink.
-  void AddBlockAllocatorBuffer(BufferId buffer_id,
-                               uint32_t block_size,
-                               DriverMemory memory);
+  // to dynamically allocate fragments of `fragment_size` bytes. The BufferId
+  // must have already been reserved locally by this NodeLink.
+  void AddFragmentAllocatorBuffer(BufferId buffer_id,
+                                  uint32_t fragment_size,
+                                  DriverMemory memory);
 
   // Sends a request to allocate a new shared memory region and invokes
   // `callback` once the request is fulfilled.
@@ -202,7 +202,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnSetRouterLinkStateFragment(const msg::SetRouterLinkStateFragment& set);
   bool OnRequestIntroduction(const msg::RequestIntroduction& request);
   bool OnIntroduceNode(msg::IntroduceNode& intro);
-  bool OnAddBlockAllocatorBuffer(msg::AddBlockAllocatorBuffer& add);
+  bool OnAddFragmentAllocatorBuffer(msg::AddFragmentAllocatorBuffer& add);
   bool OnStopProxying(const msg::StopProxying& stop);
   bool OnInitiateProxyBypass(const msg::InitiateProxyBypass& request);
   bool OnBypassProxy(const msg::BypassProxy& bypass);

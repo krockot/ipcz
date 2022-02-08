@@ -12,14 +12,13 @@
 #include <memory>
 #include <vector>
 
-#include "core/block_allocator_pool.h"
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_memory_mapping.h"
 #include "core/fragment.h"
+#include "core/fragment_allocator.h"
 #include "core/fragment_descriptor.h"
 #include "core/sublink_id.h"
-#include "mem/block_allocator.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
@@ -75,46 +74,36 @@ class NodeLinkMemory : public mem::RefCounted {
   // RouterLinkState instances.
   Fragment AllocateRouterLinkState();
 
-  // Allocates a generic block of memory of the given size or of the smallest
+  // Allocates a fragment of shared memory of the given size or of the smallest
   // sufficient size available to this object. If no memory is available to
-  // allocate the block, this returns a null fragment.
-  Fragment AllocateBlock(size_t num_bytes);
+  // allocate the fragment, this returns a null fragment.
+  Fragment AllocateFragment(size_t num_bytes);
 
-  // Frees a block allocated from one of this object's block allocator pools via
-  // AllocateBlock() or other allocation helpers.
-  void FreeBlock(const Fragment& fragment, size_t num_bytes);
+  // Frees a fragment allocated by AllocateFragment() or other allocation
+  // helpers on this object.
+  void FreeFragment(const Fragment& fragment, size_t num_bytes);
 
-  // Requests allocation of additional block allocation capacity for this
+  // Requests allocation of additional fragment allocation capacity for this
   // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which
-  // blocks of `block_size` bytes will be allocated.
-  //
-  // The number N of whole size-B blocks which can fit into a buffer of Z bytes
-  // is given by:
-  //
-  //    N = floor[(Z - 8) / (B + 8)]
-  //
-  // At offset zero these blocks host a mem::internal::MpmcQueueData<uint32_t>
-  // as a free list of block offsets within the buffer. The remaining available
-  // space is used for the N blocks themselves.
+  // fragments of `fragment_size` bytes will be allocated.
   //
   // `callback` is invoked once new buffer is available, which may require some
   // asynchronous work to accomplish.
-  using RequestBlockAllocatorCapacityCallback = std::function<void()>;
-  void RequestBlockAllocatorCapacity(
-      uint32_t buffer_size,
-      uint32_t block_size,
-      RequestBlockAllocatorCapacityCallback callback);
+  using RequestFragmentCapacityCallback = std::function<void()>;
+  void RequestFragmentCapacity(uint32_t buffer_size,
+                               uint32_t fragment_size,
+                               RequestFragmentCapacityCallback callback);
 
-  // Introduces a new buffer associated with BufferId, for use as a block
-  // allocator with blocks of size `block_size`. `id` must have been allocated
-  // via AllocateBufferId() on this NodeLinkMemory or the corresponding remote
-  // NodeLinkMemory on the same link.
+  // Introduces a new buffer associated with BufferId, for use as a fragment
+  // allocator with fragments of size `fragment_size`. `id` must have been
+  // allocated via AllocateBufferId() on this NodeLinkMemory or the
+  // corresponding remote NodeLinkMemory on the same link.
   //
   // Returns true if successful, or false if the NodeLinkMemory already had a
   // buffer identified by `id`.
-  bool AddBlockAllocatorBuffer(BufferId id,
-                               uint32_t block_size,
-                               DriverMemory memory);
+  bool AddFragmentAllocatorBuffer(BufferId id,
+                                  uint32_t fragment_size,
+                                  DriverMemory memory);
 
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
@@ -127,7 +116,7 @@ class NodeLinkMemory : public mem::RefCounted {
 
   BufferId AllocateBufferId();
 
-  BlockAllocatorPool* GetPoolForAllocation(size_t num_bytes);
+  FragmentAllocator* GetPoolForAllocation(size_t num_bytes);
 
   const mem::Ref<Node> node_;
 
@@ -144,17 +133,16 @@ class NodeLinkMemory : public mem::RefCounted {
   // guarded.
   std::list<DriverMemoryMapping> buffers_;
 
-  // Pools of BlockAllocators grouped by block size. Note that each pool is
+  // FragmentAllocators grouped by fragment size. Note that each allocator is
   // stored indirectly on the heap, and elements must never be removed from this
-  // map. These constraints ensure a stable memory location for each pool
+  // map. These constraints ensure a stable memory location for each allocator
   // throughout the lifetime of the NodeLinkMemory.
-  absl::flat_hash_map<uint32_t, std::unique_ptr<BlockAllocatorPool>>
-      block_allocator_pools_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<uint32_t, std::unique_ptr<FragmentAllocator>>
+      fragment_allocators_ ABSL_GUARDED_BY(mutex_);
 
   // Callbacks to invoke when a pending capacity request is fulfilled for a
-  // specific block size.
-  using CapacityCallbackList =
-      std::vector<RequestBlockAllocatorCapacityCallback>;
+  // specific fragment size.
+  using CapacityCallbackList = std::vector<RequestFragmentCapacityCallback>;
   absl::flat_hash_map<uint32_t, CapacityCallbackList> capacity_callbacks_
       ABSL_GUARDED_BY(mutex_);
 
