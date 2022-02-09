@@ -25,6 +25,10 @@ struct Fragment {
 
   bool is_null() const { return descriptor_.is_null(); }
 
+  bool operator==(const Fragment& other) const {
+    return descriptor_ == other.descriptor_;
+  }
+
   BufferId buffer_id() const { return descriptor_.buffer_id(); }
   uint32_t offset() const { return descriptor_.offset(); }
   uint32_t size() const { return descriptor_.size(); }

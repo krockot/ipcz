@@ -157,7 +157,7 @@ void LocalRouterLink::ProxyWillStop(
 
 void LocalRouterLink::BypassProxyToSameNode(
     SublinkId new_sublink,
-    const Fragment& new_link_state_fragment,
+    FragmentRef<RouterLinkState> new_link_state,
     SequenceNumber proxy_inbound_sequence_length) {
   ABSL_ASSERT(false);
 }

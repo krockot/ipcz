@@ -18,6 +18,8 @@
 #include "core/fragment.h"
 #include "core/fragment_allocator.h"
 #include "core/fragment_descriptor.h"
+#include "core/fragment_ref.h"
+#include "core/router_link_state.h"
 #include "core/sublink_id.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
@@ -55,24 +57,36 @@ class NodeLinkMemory : public mem::RefCounted {
   // FragmentDescriptor is not currently mapped in the calling process.
   Fragment GetFragment(const FragmentDescriptor& descriptor);
 
+  // Simliar to GetFragment() but resolves to a specific subclass of
+  // RefCountedFragment and returns a ref to it.
+  //
+  // This does not increment the ref count of the RefCountedFragment, but
+  // instead adopts a ref implied by the descriptor.
+  template <typename T>
+  FragmentRef<T> AdoptFragmentRef(const FragmentDescriptor& descriptor) {
+    return FragmentRef<T>(RefCountedFragment::kAdoptExistingRef,
+                          mem::WrapRefCounted(this), GetFragment(descriptor));
+  }
+
   // Returns the first of `count` newly allocated, contiguous sublink IDs for
   // use on the corresponding NodeLink.
   SublinkId AllocateSublinkIds(size_t count);
 
-  // Returns the location of the RouterLinkState for the `i`th initial portal
-  // on the NodeLink, as established by whatever Connect() call precipitated
-  // the link's creation. Unlike other RouterLinkStates which are allocated
+  // Returns the a ref to the RouterLinkState for the `i`th initial portal on
+  // the NodeLink, as established by whatever Connect() call precipitated the
+  // link's creation. Unlike other RouterLinkStates which are allocated
   // dynamically, these have a fixed location within the NodeLinkMemory's
-  // primary buffer.
-  Fragment GetInitialRouterLinkState(size_t i);
+  // primary buffer. The returned FragmentRef is unmanaged and will never free
+  // its underlying fragment.
+  FragmentRef<RouterLinkState> GetInitialRouterLinkState(size_t i);
 
-  // Allocates a new RouterLinkState in NodeLink memory and returns the fragment
-  // containing it. This is useful when constructing a new central
+  // Allocates a new ref-counted RouterLinkState in NodeLink memory and returns
+  // a ref to its fragment. This is useful when constructing a new central
   // RemoteRouterLink.
   //
-  // May return a null fragment if there is no more capacity to allocate new
+  // May return a null ref if there is no more capacity to allocate new
   // RouterLinkState instances.
-  Fragment AllocateRouterLinkState();
+  FragmentRef<RouterLinkState> AllocateRouterLinkState();
 
   // Allocates a fragment of shared memory of the given size or of the smallest
   // sufficient size available to this object. If no memory is available to

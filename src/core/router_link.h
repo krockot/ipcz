@@ -9,6 +9,7 @@
 #include <string>
 #include <utility>
 
+#include "core/fragment_ref.h"
 #include "core/link_type.h"
 #include "core/node_name.h"
 #include "core/router_link_state.h"
@@ -21,7 +22,6 @@ namespace ipcz {
 namespace core {
 
 class NodeLink;
-struct Fragment;
 class Parcel;
 class Router;
 
@@ -140,7 +140,7 @@ class RouterLink : public mem::RefCounted {
   // to call back to the sender with StopProxyingToLocalPeer().
   virtual void BypassProxyToSameNode(
       SublinkId new_sublink,
-      const Fragment& new_link_state_fragment,
+      FragmentRef<RouterLinkState> new_link_state,
       SequenceNumber proxy_inbound_sequence_length) = 0;
 
   // Essentially a reply to BypassProxyToSameNode, this informs the receiving

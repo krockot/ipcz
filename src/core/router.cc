@@ -570,7 +570,7 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
       // The sequence length from the link is whatever had already been sent
       // to our counterpart back on the peer's node.
       router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
-          descriptor.new_decaying_sublink, kNullFragment,
+          descriptor.new_decaying_sublink, nullptr,
           LinkType::kPeripheralOutward, LinkSide::kB, router));
       router->outward_edge_.StartDecaying(
           router->outbound_parcels_.current_sequence_number(),
@@ -580,7 +580,7 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
 
       router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
           descriptor.new_sublink,
-          from_node_link.memory().GetFragment(
+          from_node_link.memory().AdoptFragmentRef<RouterLinkState>(
               descriptor.new_link_state_fragment),
           LinkType::kCentral, LinkSide::kB, router));
 
@@ -591,7 +591,7 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
                << descriptor.new_decaying_sublink;
     } else {
       router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
-          descriptor.new_sublink, kNullFragment, LinkType::kPeripheralOutward,
+          descriptor.new_sublink, nullptr, LinkType::kPeripheralOutward,
           LinkSide::kB, router));
 
       DVLOG(4) << "Route extended from "
@@ -1254,10 +1254,10 @@ bool Router::MaybeInitiateSelfRemoval() {
   SequenceNumber sequence_length;
   const SublinkId new_sublink =
       successor->node_link()->memory().AllocateSublinkIds(1);
-  const Fragment new_link_state_fragment =
+  FragmentRef<RouterLinkState> new_link_state =
       successor->node_link()->memory().AllocateRouterLinkState();
   mem::Ref<RouterLink> new_link = successor->node_link()->AddRemoteRouterLink(
-      new_sublink, new_link_state_fragment, LinkType::kCentral, LinkSide::kA,
+      new_sublink, new_link_state, LinkType::kCentral, LinkSide::kA,
       local_peer);
 
   {
@@ -1289,7 +1289,7 @@ bool Router::MaybeInitiateSelfRemoval() {
     inward_edge_->StartDecaying(sequence_length);
   }
 
-  successor->BypassProxyToSameNode(new_sublink, new_link_state_fragment,
+  successor->BypassProxyToSameNode(new_sublink, std::move(new_link_state),
                                    sequence_length);
   local_peer->SetOutwardLink(std::move(new_link));
   return true;
@@ -1393,12 +1393,12 @@ void Router::MaybeInitiateBridgeBypass() {
     SequenceNumber length_from_local_peer;
     const SublinkId bypass_sublink =
         node_link_to_second_peer->memory().AllocateSublinkIds(1);
-    const Fragment bypass_link_state_fragment =
+    FragmentRef<RouterLinkState> bypass_link_state =
         node_link_to_second_peer->memory().AllocateRouterLinkState();
     mem::Ref<RouterLink> new_link =
         node_link_to_second_peer->AddRemoteRouterLink(
-            bypass_sublink, bypass_link_state_fragment, LinkType::kCentral,
-            LinkSide::kA, first_local_peer);
+            bypass_sublink, bypass_link_state, LinkType::kCentral, LinkSide::kA,
+            first_local_peer);
     {
       ThreeMutexLock lock(&first_bridge->mutex_, &second_bridge->mutex_,
                           &first_local_peer->mutex_);
@@ -1416,7 +1416,7 @@ void Router::MaybeInitiateBridgeBypass() {
     }
 
     link_to_second_peer->BypassProxyToSameNode(
-        bypass_sublink, bypass_link_state_fragment, length_from_local_peer);
+        bypass_sublink, std::move(bypass_link_state), length_from_local_peer);
     first_local_peer->SetOutwardLink(std::move(new_link));
     first_bridge->Flush();
     second_bridge->Flush();
@@ -1487,7 +1487,7 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
   // us and the new router, to forward any parcels already queued here or
   // in-flight from our local peer.
   const SublinkId new_sublink = to_node_link.memory().AllocateSublinkIds(2);
-  const Fragment new_link_state_fragment =
+  FragmentRef<RouterLinkState> new_link_state =
       to_node_link.memory().AllocateRouterLinkState();
   const SublinkId decaying_sublink = new_sublink + 1;
 
@@ -1496,19 +1496,19 @@ bool Router::SerializeNewRouterWithLocalPeer(NodeLink& to_node_link,
   // descriptor is transmitted to its destination node. The links will be
   // adopted after transmission in BeginProxyingToNewRouter().
   mem::Ref<RouterLink> new_link = to_node_link.AddRemoteRouterLink(
-      new_sublink, new_link_state_fragment, LinkType::kCentral, LinkSide::kA,
+      new_sublink, new_link_state, LinkType::kCentral, LinkSide::kA,
       local_peer);
 
   // The local peer's side of the link has nothing to decay, so it can
   // immediately raise its support for bypass.
   new_link->MarkSideStable();
 
-  to_node_link.AddRemoteRouterLink(decaying_sublink, kNullFragment,
+  to_node_link.AddRemoteRouterLink(decaying_sublink, nullptr,
                                    LinkType::kPeripheralInward, LinkSide::kA,
                                    mem::WrapRefCounted(this));
 
   descriptor.new_sublink = new_sublink;
-  descriptor.new_link_state_fragment = new_link_state_fragment.descriptor();
+  descriptor.new_link_state_fragment = new_link_state.release().descriptor();
   descriptor.new_decaying_sublink = decaying_sublink;
   descriptor.proxy_already_bypassed = true;
 
@@ -1592,7 +1592,7 @@ void Router::SerializeNewRouterAndConfigureProxy(NodeLink& to_node_link,
   // the router yet because it's not safe to use until this descriptor has been
   // transmitted to its destination node. The link will be adopted after
   // transmission, in BeginProxyingToNewRouter().
-  to_node_link.AddRemoteRouterLink(new_sublink, kNullFragment,
+  to_node_link.AddRemoteRouterLink(new_sublink, nullptr,
                                    LinkType::kPeripheralInward, LinkSide::kA,
                                    mem::WrapRefCounted(this));
 }

@@ -380,7 +380,7 @@ bool Node::OnBypassProxy(NodeLink& from_node_link,
   // connect one half of their route to the other.
   mem::Ref<RemoteRouterLink> new_peer_link = from_node_link.AddRemoteRouterLink(
       bypass.params().new_sublink,
-      from_node_link.memory().GetFragment(
+      from_node_link.memory().AdoptFragmentRef<RouterLinkState>(
           bypass.params().new_link_state_fragment),
       LinkType::kCentral, LinkSide::kB, proxy_peer);
   return proxy_peer->BypassProxyWithNewRemoteLink(

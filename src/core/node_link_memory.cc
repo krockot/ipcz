@@ -157,7 +157,8 @@ SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
       .next_sublink.fetch_add(count, std::memory_order_relaxed);
 }
 
-Fragment NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
+FragmentRef<RouterLinkState> NodeLinkMemory::GetInitialRouterLinkState(
+    size_t i) {
   auto& states = ReservedBlock(primary_buffer()).initial_link_states;
   ABSL_ASSERT(i < states.size());
   RouterLinkState* state = &states[i];
@@ -165,15 +166,18 @@ Fragment NodeLinkMemory::GetInitialRouterLinkState(size_t i) {
   FragmentDescriptor descriptor(kPrimaryBufferId,
                                 ToOffset(state, primary_buffer().address()),
                                 sizeof(RouterLinkState));
-  return Fragment(descriptor, state);
+  return FragmentRef<RouterLinkState>(RefCountedFragment::kUnmanagedRef,
+                                      Fragment(descriptor, state));
 }
 
-Fragment NodeLinkMemory::AllocateRouterLinkState() {
+FragmentRef<RouterLinkState> NodeLinkMemory::AllocateRouterLinkState() {
   Fragment fragment = AllocateFragment(kRouterLinkStateFragmentSize);
   if (!fragment.is_null()) {
     RouterLinkState::Initialize(fragment.address());
+    return FragmentRef<RouterLinkState>(mem::WrapRefCounted(this), fragment);
   }
-  return fragment;
+
+  return {};
 }
 
 Fragment NodeLinkMemory::AllocateFragment(size_t num_bytes) {

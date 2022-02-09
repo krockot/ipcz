@@ -63,12 +63,12 @@ NodeLink::~NodeLink() {
 
 mem::Ref<RemoteRouterLink> NodeLink::AddRemoteRouterLink(
     SublinkId sublink,
-    const Fragment& link_state_fragment,
+    FragmentRef<RouterLinkState> link_state,
     LinkType type,
     LinkSide side,
     mem::Ref<Router> router) {
   auto link = RemoteRouterLink::Create(mem::WrapRefCounted(this), sublink,
-                                       link_state_fragment, type, side);
+                                       std::move(link_state), type, side);
 
   absl::MutexLock lock(&mutex_);
   auto result = sublinks_.try_emplace(
@@ -211,10 +211,9 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   // Note that by convention the side which initiates a bypass (this side)
   // adopts side A of the new bypass link. The other end adopts side B.
   const SublinkId new_sublink = memory().AllocateSublinkIds(1);
-  const Fragment new_link_state_fragment = memory().AllocateRouterLinkState();
-  mem::Ref<RouterLink> new_link =
-      AddRemoteRouterLink(new_sublink, new_link_state_fragment,
-                          LinkType::kCentral, LinkSide::kA, new_peer);
+  FragmentRef<RouterLinkState> state = memory().AllocateRouterLinkState();
+  mem::Ref<RouterLink> new_link = AddRemoteRouterLink(
+      new_sublink, state, LinkType::kCentral, LinkSide::kA, new_peer);
 
   DVLOG(4) << "Sending BypassProxy from " << local_node_name_.ToString()
            << " to " << remote_node_name_.ToString() << " with new sublink "
@@ -225,8 +224,7 @@ bool NodeLink::BypassProxy(const NodeName& proxy_name,
   bypass.params().proxy_name = proxy_name;
   bypass.params().proxy_sublink = proxy_sublink;
   bypass.params().new_sublink = new_sublink;
-  bypass.params().new_link_state_fragment =
-      new_link_state_fragment.descriptor();
+  bypass.params().new_link_state_fragment = state.release().descriptor();
   bypass.params().proxy_outbound_sequence_length =
       proxy_outbound_sequence_length;
   Transmit(bypass);
@@ -451,8 +449,8 @@ bool NodeLink::OnSetRouterLinkStateFragment(
     return true;
   }
 
-  sublink->router_link->SetLinkStateFragment(
-      memory().GetFragment(set.params().descriptor));
+  sublink->router_link->SetLinkState(
+      memory().AdoptFragmentRef<RouterLinkState>(set.params().descriptor));
   return true;
 }
 
@@ -538,10 +536,11 @@ bool NodeLink::OnBypassProxyToSameNode(
     return true;
   }
 
-  mem::Ref<RouterLink> new_link = AddRemoteRouterLink(
-      bypass.params().new_sublink,
-      memory().GetFragment(bypass.params().new_link_state_fragment),
-      LinkType::kCentral, LinkSide::kB, router);
+  mem::Ref<RouterLink> new_link =
+      AddRemoteRouterLink(bypass.params().new_sublink,
+                          memory().AdoptFragmentRef<RouterLinkState>(
+                              bypass.params().new_link_state_fragment),
+                          LinkType::kCentral, LinkSide::kB, router);
   return router->BypassProxyWithNewLinkToSameNode(
       std::move(new_link), bypass.params().proxy_inbound_sequence_length);
 }

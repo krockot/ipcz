@@ -13,12 +13,13 @@
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
-#include "core/fragment.h"
+#include "core/fragment_ref.h"
 #include "core/node.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
 #include "core/remote_router_link.h"
+#include "core/router_link_state.h"
 #include "core/sequence_number.h"
 #include "core/sublink_id.h"
 #include "mem/ref_counted.h"
@@ -88,7 +89,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // require a RouterLinkState.
   mem::Ref<RemoteRouterLink> AddRemoteRouterLink(
       SublinkId sublink,
-      const Fragment& link_state_fragment,
+      FragmentRef<RouterLinkState> link_state,
       LinkType type,
       LinkSide side,
       mem::Ref<Router> router);

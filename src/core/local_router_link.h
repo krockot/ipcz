@@ -54,7 +54,7 @@ class LocalRouterLink : public RouterLink {
   void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
   void BypassProxyToSameNode(
       SublinkId new_sublink,
-      const Fragment& new_link_state_fragment,
+      FragmentRef<RouterLinkState> new_link_state,
       SequenceNumber proxy_inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
       SequenceNumber proxy_outbound_sequence_length) override;

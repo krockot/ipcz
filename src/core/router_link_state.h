@@ -10,6 +10,7 @@
 
 #include "core/link_side.h"
 #include "core/node_name.h"
+#include "core/ref_counted_fragment.h"
 #include "ipcz/ipcz.h"
 
 namespace ipcz {
@@ -19,20 +20,12 @@ namespace core {
 // RouterLink to synchronously query and reflect router state. Note that each
 // instance of this structure is only shared between at most two routers on two
 // nodes.
-struct IPCZ_ALIGN(8) RouterLinkState {
+struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   RouterLinkState();
   ~RouterLinkState();
 
   // In-place initialization of a new RouterLinkState at `where`.
   static RouterLinkState& Initialize(void* where);
-
-  // This is populated by a proxying router once it has successfully
-  // negotiated its own turn to be bypassed, and it names the node which hosts
-  // the proxy's own inward peer. That peer will imminently reach out to the
-  // proxy's outward peer directly (who shares this link with the proxy) to
-  // establish a bypass link. The outward peer can authenticate the source of
-  // that request against the name stored here.
-  NodeName allowed_bypass_request_source;
 
   // Link status which both sides atomically update to coordinate proxy bypass.
   // The link's status is only relevant for a central link -- that is, a link
@@ -75,6 +68,14 @@ struct IPCZ_ALIGN(8) RouterLinkState {
   static constexpr Status kLockedBySideB = 1 << 5;
 
   std::atomic<Status> status{kUnstable};
+
+  // This is populated by a proxying router once it has successfully
+  // negotiated its own turn to be bypassed, and it names the node which hosts
+  // the proxy's own inward peer. That peer will imminently reach out to the
+  // proxy's outward peer directly (who shares this link with the proxy) to
+  // establish a bypass link. The outward peer can authenticate the source of
+  // that request against the name stored here.
+  NodeName allowed_bypass_request_source;
 
   bool is_locked_by(LinkSide side) const {
     Status s = status.load(std::memory_order_relaxed);

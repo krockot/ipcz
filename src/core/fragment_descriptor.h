@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include <tuple>
 
 #include "core/buffer_id.h"
 #include "ipcz/ipcz.h"
@@ -16,7 +17,7 @@ namespace core {
 
 // Represents a span of memory within the shared memory regions owned by a
 // NodeLinkMemory. A FragmentDescriptor can be resolved to a concrete Fragment
-// by passing it to NodeLinkMemory::GetFragment().
+// by passing it to NodeLinkMemory's GetFragment() or AdoptFragmentRef().
 struct IPCZ_ALIGN(8) FragmentDescriptor {
   constexpr FragmentDescriptor() = default;
   FragmentDescriptor(const FragmentDescriptor&);
@@ -27,6 +28,11 @@ struct IPCZ_ALIGN(8) FragmentDescriptor {
       : buffer_id_(buffer_id), offset_(offset), size_(size) {}
 
   bool is_null() const { return buffer_id_ == kInvalidBufferId; }
+
+  bool operator==(const FragmentDescriptor& other) const {
+    return std::tie(buffer_id_, offset_, size_) ==
+           std::tie(other.buffer_id_, other.offset_, other.size_);
+  }
 
   BufferId buffer_id() const { return buffer_id_; }
   uint32_t offset() const { return offset_; }

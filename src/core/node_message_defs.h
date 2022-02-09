@@ -248,7 +248,7 @@ IPCZ_MSG_END()
 // Notifies a node that one of its routes now has an allocated RouterLinkState
 // in the shared NodeLinkMemory buffer identified by `buffer_id`. The receiving
 // node may not yet have a handle to the identified buffer, but if not, it can
-// expect to receive one imminently via an AddLinkBuffer message.
+// expect to receive one imminently via an AddFragmentAllocatorBuffer message.
 IPCZ_MSG_BEGIN(SetRouterLinkStateFragment, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(FragmentDescriptor, descriptor)
