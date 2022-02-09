@@ -5,15 +5,18 @@
 #ifndef IPCZ_SRC_CORE_NODE_LINK_H_
 #define IPCZ_SRC_CORE_NODE_LINK_H_
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <list>
+#include <type_traits>
 
 #include "core/buffer_id.h"
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/fragment_ref.h"
+#include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
@@ -110,12 +113,12 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // outgoing messages, but it cannot be reactivated.
   void Deactivate();
 
-  // Transmits a transport message to the other end of this NodeLink.
-  void Transmit(absl::Span<const uint8_t> data, absl::Span<os::Handle> handles);
-
   template <typename T>
   void Transmit(T& message) {
-    transport_->Transmit(message);
+    static_assert(std::is_base_of<internal::MessageBase, T>::value,
+                  "Invalid message type");
+    message.Serialize();
+    TransmitMessage(message);
   }
 
   // Asks the broker on the other end of this link to accept a new node for
@@ -179,6 +182,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            mem::Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
+  void TransmitMessage(internal::MessageBase& message);
+
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(
       const DriverTransport::Message& message) override;
@@ -210,10 +215,11 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnBypassProxyToSameNode(const msg::BypassProxyToSameNode& bypass);
   bool OnStopProxyingToLocalPeer(const msg::StopProxyingToLocalPeer& stop);
   bool OnProxyWillStop(const msg::ProxyWillStop& will_stop);
-  bool OnFlush(const msg::Flush& flush);
+  bool OnFlushRouter(const msg::FlushRouter& flush);
   bool OnRequestMemory(const msg::RequestMemory& request);
   bool OnProvideMemory(msg::ProvideMemory& provide);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
+  bool OnFlushLink(const msg::FlushLink& flush);
 
   const mem::Ref<Node> node_;
   const NodeName local_node_name_;
@@ -225,6 +231,12 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   absl::Mutex mutex_;
   bool active_ = true;
+
+  // Messages transmitted from this NodeLink may traverse either the driver
+  // transport OR some shared memory queue. Each message is assigned a sequence
+  // number to ensure that the receiving node can process them in the intended
+  // order. This atomic generates those sequence numbers.
+  std::atomic<uint64_t> next_sequence_number_{0};
 
   using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
   SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);

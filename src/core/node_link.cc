@@ -122,11 +122,6 @@ void NodeLink::Deactivate() {
   transport_->Deactivate();
 }
 
-void NodeLink::Transmit(absl::Span<const uint8_t> data,
-                        absl::Span<os::Handle> handles) {
-  transport_->TransmitMessage(DriverTransport::Message(data, handles));
-}
-
 void NodeLink::RequestIndirectBrokerConnection(
     mem::Ref<DriverTransport> transport,
     os::Process new_node_process,
@@ -259,6 +254,13 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
   msg::RequestMemory request;
   request.params().size = size;
   Transmit(request);
+}
+
+void NodeLink::TransmitMessage(internal::MessageBase& message) {
+  message.header().sequence_number =
+      next_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+  transport_->TransmitMessage(DriverTransport::Message(
+      DriverTransport::Data(message.data_view()), message.handles_view()));
 }
 
 IpczResult NodeLink::OnTransportMessage(
@@ -565,7 +567,7 @@ bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
       will_stop.params().proxy_inbound_sequence_length);
 }
 
-bool NodeLink::OnFlush(const msg::Flush& flush) {
+bool NodeLink::OnFlushRouter(const msg::FlushRouter& flush) {
   if (mem::Ref<Router> router = GetRouter(flush.params().sublink)) {
     router->Flush(/*force_bypass_attempt=*/true);
   }
@@ -619,6 +621,11 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
   }
 
   sublink->receiver->AcceptLogRouteTraceFrom(sublink->router_link->GetType());
+  return true;
+}
+
+bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
+  // TODO
   return true;
 }
 

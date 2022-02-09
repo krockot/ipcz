@@ -158,7 +158,7 @@ void RemoteRouterLink::FlushOtherSideIfWaiting() {
     return;
   }
 
-  msg::Flush flush;
+  msg::FlushRouter flush;
   flush.params().sublink = sublink_;
   node_link()->Transmit(flush);
 }

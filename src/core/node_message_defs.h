@@ -374,7 +374,7 @@ IPCZ_MSG_END()
 // Hints to the target router that it should flush its state. Generally sent to
 // catalyze route reduction or elicit some other state change which was blocked
 // on work being done by the sender of this message.
-IPCZ_MSG_BEGIN(Flush, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_BEGIN(FlushRouter, IPCZ_MSG_ID(36), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()
 
@@ -399,4 +399,10 @@ IPCZ_MSG_END()
 // this request along the same direction in which it was received.
 IPCZ_MSG_BEGIN(LogRouteTrace, IPCZ_MSG_ID(240), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
+IPCZ_MSG_END()
+
+// Empty (header-only) message used to force a wake of the receiving node to
+// process other messages conveyed through shared memory.
+IPCZ_MSG_BEGIN(FlushLink, IPCZ_MSG_ID(255), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(uint8_t, reserved)
 IPCZ_MSG_END()

@@ -37,8 +37,16 @@ struct IPCZ_ALIGN(8) MessageHeader {
   // Message ID assigned as part of a message's type definition via
   // IPCZ_MSG_BEGIN().
   uint8_t message_id;
+
+  // Must be zero.
+  uint8_t reserved[5];
+
+  // Used for sequencing messages along a NodeLink to preserve end-to-end
+  // ordering, as NodeLink messages may be transmitted either across a driver
+  // transport or queues in shared memory.
+  uint64_t sequence_number;
 };
-static_assert(sizeof(MessageHeader) == 8, "Unexpected size");
+static_assert(sizeof(MessageHeader) == 16, "Unexpected size");
 
 using MessageHeaderV0 = MessageHeader;
 using LatestMessageHeaderVersion = MessageHeaderV0;
