@@ -17,6 +17,8 @@ class StackTrace {
   static constexpr size_t kDefaultFrameCount = 16;
 
   explicit StackTrace(size_t frame_count = kDefaultFrameCount);
+  StackTrace(const StackTrace&);
+  StackTrace& operator=(const StackTrace&);
   ~StackTrace();
 
   static void EnableStackTraceSymbolization(const char* argv0);

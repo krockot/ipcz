@@ -23,6 +23,10 @@ StackTrace::StackTrace(size_t frame_count) {
   frames_.resize(static_cast<size_t>(num_frames));
 }
 
+StackTrace::StackTrace(const StackTrace&) = default;
+
+StackTrace& StackTrace::operator=(const StackTrace&) = default;
+
 StackTrace::~StackTrace() = default;
 
 // static
