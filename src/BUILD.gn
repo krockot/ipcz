@@ -40,7 +40,6 @@ source_set("support") {
     "debug/hex_dump.h",
     "debug/log.h",
     "debug/stack_trace.h",
-    "mem/atomic_memcpy.h",
     "mem/block_allocator.h",
     "mem/mpmc_queue.h",
     "mem/ref_counted.h",
@@ -57,7 +56,6 @@ source_set("support") {
   sources = [
     "debug/hex_dump.cc",
     "debug/stack_trace.cc",
-    "mem/atomic_memcpy.cc",
     "mem/block_allocator.cc",
     "mem/ref_counted.cc",
     "os/channel.cc",

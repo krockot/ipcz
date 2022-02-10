@@ -11,7 +11,6 @@
 #include <type_traits>
 
 #include "ipcz/ipcz.h"
-#include "mem/atomic_memcpy.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
@@ -42,11 +41,11 @@ struct MpmcQueueData {
       Cell& c = cell(tail % capacity);
       uint32_t status = empty_status;
       if (c.status.compare_exchange_weak(status, empty_status | kBusyBit,
-                                         std::memory_order_release,
+                                         std::memory_order_acquire,
                                          std::memory_order_relaxed)) {
         // Successfully claimed the slot. Copy in the data, increment the tail
         // index if necessary, and mark the slot as full and no longer busy.
-        AtomicWriteMemcpy(&c.data, &value, sizeof(c.data));
+        memcpy(&c.data, &value, sizeof(c.data));
         tail_.compare_exchange_strong(tail, tail + 1,
                                       std::memory_order_relaxed);
         c.status.store(empty_status | kFullBit, std::memory_order_release);
@@ -80,10 +79,10 @@ struct MpmcQueueData {
       Cell& c = cell(head % capacity);
       uint32_t status = full_status;
       if (c.status.compare_exchange_weak(status, full_status | kBusyBit,
-                                         std::memory_order_release,
+                                         std::memory_order_acquire,
                                          std::memory_order_relaxed)) {
         // Successfully claimed the slot.
-        AtomicReadMemcpy(&value, &c.data, sizeof(value));
+        memcpy(&value, &c.data, sizeof(value));
         head_.compare_exchange_strong(head, head + 1,
                                       std::memory_order_relaxed);
 
