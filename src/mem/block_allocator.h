@@ -8,87 +8,75 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "mem/mpmc_queue.h"
-#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace mem {
 
-// BlockAllocator exposes a pool of memory as fixed number of dynamically
-// allocatable blocks of fixed size. It contains no internal heap references and
-// is safe to host within a shared memory region.
+// BlockAllocator manages a region of memory, breaking it into dynamically
+// allocable blocks of a smaller fixed size. The most recently freed block is
+// always the next to be allocated.
 //
-// The pool of memory is divided into two sections: a series of N fixed-size,
-// contiguous blocks within the pool, and a preceding MpmcQueue of capacity N,
-// which is used as a free-list of block indices.
-//
-// Allocating a block pops the next available index off the queue, and freeing a
-// block pushes its index back onto the queue. The queue is initialized as full,
-// containing each index from 0 to N-1.
+// This is a thread-safe, lock-free implementation which doesn't store heap
+// pointers within the managed region. Multiple BlockAllocators may therefore
+// manage the same region of memory for the same block size, across different
+// threads or processes.
 class BlockAllocator {
  public:
-  enum { kInitialize };
-  enum { kAlreadyInitialized };
-
   BlockAllocator();
-  BlockAllocator(void* memory,
-                 const size_t block_size,
-                 const size_t num_blocks,
-                 decltype(kAlreadyInitialized));
-  BlockAllocator(void* memory,
-                 const size_t block_size,
-                 const size_t num_blocks,
-                 decltype(kInitialize));
-  BlockAllocator(absl::Span<uint8_t> region,
-                 size_t block_size,
-                 decltype(kAlreadyInitialized));
-  BlockAllocator(absl::Span<uint8_t> region,
-                 size_t block_size,
-                 decltype(kInitialize));
+
+  // Constructs a BlockAllocator to manage the memory within `region`,
+  // allocating blocks of `block_size` bytes. Note that this DOES NOT initialize
+  // the region. Before any BlockAllocators can allocate blocks from `region`,
+  // InitializeRegion() must be called once by a single allocator managing that
+  // region.
+  BlockAllocator(absl::Span<uint8_t> region, size_t block_size);
+
   BlockAllocator(const BlockAllocator&);
   BlockAllocator& operator=(const BlockAllocator&);
   ~BlockAllocator();
 
   size_t block_size() const { return block_size_; }
-  size_t num_blocks() const { return num_blocks_; }
 
-  void* first_block() const { return first_block_; }
-  void* end() const { return first_block_ + num_blocks_ * block_size_; }
-
-  static constexpr size_t ComputeRequiredMemorySize(size_t block_size,
-                                                    size_t num_blocks) {
-    return IndexQueue::ComputeStorageSize(num_blocks) + num_blocks * block_size;
+  size_t capacity() const {
+    // Note that the first block cannot be allocated, so real capacity is one
+    // short.
+    ABSL_ASSERT(num_blocks_ > 0);
+    return num_blocks_ - 1;
   }
 
-  static constexpr size_t ComputeMaximumCapacity(const size_t region_size,
-                                                 const size_t block_size) {
-    const size_t fixed_queue_size = IndexQueue::GetFixedStorageSize();
-    const size_t total_size_per_element =
-        IndexQueue::GetPerElementStorageSize() + block_size;
-    return (region_size - fixed_queue_size) / total_size_per_element;
-  }
+  // Performs a one-time initialization of the memory region managed by this
+  // allocator. Many allocators may operate on the same region, but only one
+  // must initialize that region, and it must do so before any of them can
+  // allocate blocks.
+  void InitializeRegion();
 
+  // Allocates a block from the allocator's managed region of memory and returns
+  // a pointer to its base address, where `block_size()` contiguous bytes are
+  // then owned by the caller. May return null if out of blocks.
   void* Alloc();
-  bool Free(void* memory);
 
-  template <typename T>
-  T* AllocAs() {
-    ABSL_ASSERT(sizeof(T) <= block_size_);
-    return static_cast<T*>(Alloc());
-  }
+  // Frees a block back to the allocator, given its base address as returned by
+  // a prior call to Alloc(). Returns true on success, or false on failure.
+  // Failure implies that `ptr` was not a valid block to free.
+  bool Free(void* ptr);
 
  private:
-  using IndexQueue = MpmcQueue<uint32_t>;
+  struct Block;
 
-  size_t queue_size() const {
-    return IndexQueue::ComputeStorageSize(num_blocks_);
+  Block& block(size_t index) {
+    return *reinterpret_cast<Block*>(&region_[block_size_ * index]);
   }
 
+  Block& front_block() { return block(0); }
+
+  uint32_t index(Block& block) {
+    return (reinterpret_cast<uint8_t*>(&block) - region_.data()) / block_size_;
+  }
+
+  absl::Span<uint8_t> region_;
   size_t block_size_ = 0;
   size_t num_blocks_ = 0;
-  IndexQueue free_indices_;
-  uint8_t* first_block_ = nullptr;
 };
 
 }  // namespace mem

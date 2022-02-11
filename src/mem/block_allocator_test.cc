@@ -19,10 +19,10 @@ using BlockAllocatorTest = testing::Test;
 TEST_F(BlockAllocatorTest, Basic) {
   uint8_t page[4096];
   constexpr size_t kBlockSize = 32;
-  mem::BlockAllocator allocator(absl::MakeSpan(page), kBlockSize,
-                                mem::BlockAllocator::kInitialize);
+  mem::BlockAllocator allocator(absl::MakeSpan(page), kBlockSize);
+  allocator.InitializeRegion();
   std::set<void*> blocks;
-  for (size_t i = 0; i < allocator.num_blocks(); ++i) {
+  for (size_t i = 0; i < allocator.capacity(); ++i) {
     void* block = allocator.Alloc();
     EXPECT_TRUE(block);
     auto result = blocks.insert(block);

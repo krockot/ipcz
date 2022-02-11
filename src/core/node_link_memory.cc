@@ -86,7 +86,7 @@ NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
 
   mem::BlockAllocator allocator(
       GetPrimaryLinkStateAllocatorMemory(primary_buffer()),
-      kRouterLinkStateFragmentSize, mem::BlockAllocator::kAlreadyInitialized);
+      kRouterLinkStateFragmentSize);
 
   auto link_state_allocator =
       std::make_unique<FragmentAllocator>(kRouterLinkStateFragmentSize);
@@ -111,8 +111,8 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   header.next_router_link_state_index = num_initial_portals;
 
   mem::BlockAllocator allocator(GetPrimaryLinkStateAllocatorMemory(mapping),
-                                kRouterLinkStateFragmentSize,
-                                mem::BlockAllocator::kInitialize);
+                                kRouterLinkStateFragmentSize);
+  allocator.InitializeRegion();
 
   return mem::WrapRefCounted(
       new NodeLinkMemory(std::move(node), std::move(mapping)));
@@ -233,8 +233,8 @@ void NodeLinkMemory::RequestFragmentCapacity(
           }
           link = self->node_link_;
 
-          mem::BlockAllocator block_allocator(mapping->bytes(), fragment_size,
-                                              mem::BlockAllocator::kInitialize);
+          mem::BlockAllocator block_allocator(mapping->bytes(), fragment_size);
+          block_allocator.InitializeRegion();
 
           std::unique_ptr<FragmentAllocator>& allocator =
               self->fragment_allocators_[fragment_size];
@@ -272,9 +272,7 @@ bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
     DriverMemoryMapping& mapping = buffers_.back();
     result.first->second = &mapping;
 
-    mem::BlockAllocator block_allocator(
-        mapping.bytes(), fragment_size,
-        mem::BlockAllocator::kAlreadyInitialized);
+    mem::BlockAllocator block_allocator(mapping.bytes(), fragment_size);
     std::unique_ptr<FragmentAllocator>& allocator =
         fragment_allocators_[fragment_size];
     if (!allocator) {
