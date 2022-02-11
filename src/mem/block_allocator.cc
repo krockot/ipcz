@@ -71,26 +71,26 @@ BlockAllocator::~BlockAllocator() = default;
 void BlockAllocator::InitializeRegion() {
   memset(region_.data(), 0, region_.size());
   for (size_t i = 0; i < num_blocks_; ++i) {
-    block(i).header.store({kFree, static_cast<uint32_t>(i + 1)},
-                          std::memory_order_relaxed);
+    block_at(i).header.store({kFree, static_cast<uint32_t>(i + 1)},
+                             std::memory_order_relaxed);
   }
 }
 
 void* BlockAllocator::Alloc() {
-  BlockHeader front_header = {kFree, 1};
+  Block& front = block_at(0);
+  BlockHeader front_header = front.header.load(std::memory_order_relaxed);
   for (;;) {
     if (front_header.next == 0 || front_header.next >= num_blocks_) {
       return nullptr;
     }
 
-    Block& front = front_block();
     if (!front.header.compare_exchange_weak(
             front_header, {kBusy, front_header.next}, std::memory_order_acquire,
             std::memory_order_relaxed)) {
       continue;
     }
 
-    Block& candidate = block(front_header.next);
+    Block& candidate = block_at(front_header.next);
     BlockHeader candidate_header =
         candidate.header.load(std::memory_order_relaxed);
     front_header.status = kBusy;
@@ -106,17 +106,18 @@ void* BlockAllocator::Alloc() {
 
 bool BlockAllocator::Free(void* ptr) {
   Block& free_block = Block::ForData(ptr);
-  const uint32_t free_index = index(free_block);
+  const uint32_t free_index = index_of(free_block);
   if (free_index == 0 || free_index >= num_blocks_) {
     return false;
   }
 
   BlockHeader front_header;
+  Block& front = block_at(0);
   do {
-    front_header = front_block().header.load(std::memory_order_acquire);
+    front_header = front.header.load(std::memory_order_acquire);
     free_block.header.store(front_header, std::memory_order_relaxed);
     front_header.status = kFree;
-  } while (!front_block().header.compare_exchange_weak(
+  } while (!front.header.compare_exchange_weak(
       front_header, {kFree, free_index}, std::memory_order_release,
       std::memory_order_relaxed));
   return true;

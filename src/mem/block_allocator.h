@@ -64,13 +64,11 @@ class BlockAllocator {
  private:
   struct Block;
 
-  Block& block(size_t index) {
+  Block& block_at(size_t index) {
     return *reinterpret_cast<Block*>(&region_[block_size_ * index]);
   }
 
-  Block& front_block() { return block(0); }
-
-  uint32_t index(Block& block) {
+  uint32_t index_of(Block& block) {
     return (reinterpret_cast<uint8_t*>(&block) - region_.data()) / block_size_;
   }
 
