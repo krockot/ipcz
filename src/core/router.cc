@@ -569,20 +569,29 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
       // length, which is to say, we will not be sending any parcels that way.
       // The sequence length from the link is whatever had already been sent
       // to our counterpart back on the peer's node.
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+      mem::Ref<RemoteRouterLink> new_link = from_node_link.AddRemoteRouterLink(
           descriptor.new_decaying_sublink, nullptr,
-          LinkType::kPeripheralOutward, LinkSide::kB, router));
+          LinkType::kPeripheralOutward, LinkSide::kB, router);
+      if (!new_link) {
+        return nullptr;
+      }
+      router->outward_edge_.SetPrimaryLink(std::move(new_link));
+
       router->outward_edge_.StartDecaying(
           router->outbound_parcels_.current_sequence_number(),
           descriptor.decaying_incoming_sequence_length > 0
               ? descriptor.decaying_incoming_sequence_length
               : descriptor.next_incoming_sequence_number);
 
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+      new_link = from_node_link.AddRemoteRouterLink(
           descriptor.new_sublink,
           from_node_link.memory().AdoptFragmentRef<RouterLinkState>(
               descriptor.new_link_state_fragment),
-          LinkType::kCentral, LinkSide::kB, router));
+          LinkType::kCentral, LinkSide::kB, router);
+      if (!new_link) {
+        return nullptr;
+      }
+      router->outward_edge_.SetPrimaryLink(std::move(new_link));
 
       DVLOG(4) << "Route moved from split pair on "
                << from_node_link.remote_node_name().ToString() << " to "
@@ -590,9 +599,13 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
                << descriptor.new_sublink << " and decaying sublink "
                << descriptor.new_decaying_sublink;
     } else {
-      router->outward_edge_.SetPrimaryLink(from_node_link.AddRemoteRouterLink(
+      mem::Ref<RemoteRouterLink> new_link = from_node_link.AddRemoteRouterLink(
           descriptor.new_sublink, nullptr, LinkType::kPeripheralOutward,
-          LinkSide::kB, router));
+          LinkSide::kB, router);
+      if (!new_link) {
+        return nullptr;
+      }
+      router->outward_edge_.SetPrimaryLink(std::move(new_link));
 
       DVLOG(4) << "Route extended from "
                << from_node_link.remote_node_name().ToString() << " to "
@@ -762,6 +775,7 @@ bool Router::BypassProxyWithNewRemoteLink(
 
     if (!outward_edge_.CanNodeRequestBypassOfPrimaryLink(
             new_peer->node_link()->remote_node_name())) {
+      new_peer->Deactivate();
       return false;
     }
 
@@ -786,6 +800,7 @@ bool Router::BypassProxyWithNewRemoteLink(
     decaying_outward_link_to_proxy = outward_edge_.primary_link();
     if (!outward_edge_.StartDecaying(proxy_inbound_sequence_length,
                                      proxy_outbound_sequence_length)) {
+      new_peer->Deactivate();
       return false;
     }
     outward_edge_.SetPrimaryLink(new_peer);
@@ -817,6 +832,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     if (outward_edge_.GetLocalPeer()) {
       // Bogus request, we obviously don't have a link to a proxy on `new_peer`s
       // node, because our outward link is local.
+      new_peer->Deactivate();
       return false;
     }
 
@@ -828,6 +844,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     if (new_remote_peer.node_link() != remote_node_link) {
       // Bogus request: our outward link does not go to the same node as
       // `new_peer`.
+      new_peer->Deactivate();
       return false;
     }
 
@@ -843,6 +860,7 @@ bool Router::BypassProxyWithNewLinkToSameNode(
     decaying_proxy = outward_edge_.primary_link();
     if (!outward_edge_.StartDecaying(proxy_outbound_sequence_length,
                                      proxy_inbound_sequence_length)) {
+      new_peer->Deactivate();
       return false;
     }
     outward_edge_.SetPrimaryLink(std::move(new_peer));

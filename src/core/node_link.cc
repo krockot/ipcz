@@ -71,9 +71,12 @@ mem::Ref<RemoteRouterLink> NodeLink::AddRemoteRouterLink(
                                        std::move(link_state), type, side);
 
   absl::MutexLock lock(&mutex_);
-  auto result = sublinks_.try_emplace(
+  auto [it, added] = sublinks_.try_emplace(
       sublink, Sublink(std::move(link), std::move(router)));
-  return result.first->second.router_link;
+  if (!added) {
+    return nullptr;
+  }
+  return it->second.router_link;
 }
 
 bool NodeLink::RemoveRemoteRouterLink(SublinkId sublink) {
@@ -396,8 +399,12 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
 
   Parcel::PortalVector portals(new_routers.size());
   for (size_t i = 0; i < new_routers.size(); ++i) {
-    portals[i] = mem::MakeRefCounted<Portal>(
-        node_, Router::Deserialize(new_routers[i], *this));
+    mem::Ref<Router> new_router = Router::Deserialize(new_routers[i], *this);
+    if (!new_router) {
+      return false;
+    }
+
+    portals[i] = mem::MakeRefCounted<Portal>(node_, std::move(new_router));
   }
 
   std::vector<os::Handle> os_handles;

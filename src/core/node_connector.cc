@@ -484,7 +484,7 @@ IpczResult NodeConnector::ConnectNode(
                 static_cast<uint32_t>(portals.size()), num_remote_portals);
             // Ensure that these portals get a link as soon as we're introduced
             // to the named node. The introduction will immediately follow the
-            // message which invoked this callback from tje same link, so
+            // message which invoked this callback from the same link, so
             // correct ordering is assured.
             node->SetPortalsWaitingForLink(connected_node_name,
                                            portals.subspan(0, num_portals));

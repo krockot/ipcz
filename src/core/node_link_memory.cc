@@ -139,6 +139,10 @@ Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
   if (descriptor.buffer_id() == kPrimaryBufferId) {
     // Fast path for primary buffer access.
     ABSL_ASSERT(!buffers_.empty());
+    if (descriptor.end() > buffers_.front().bytes().size()) {
+      return {};
+    }
+
     return Fragment(descriptor,
                     buffers_.front().address_at(descriptor.offset()));
   }
@@ -149,7 +153,12 @@ Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
     return {};
   }
 
-  return Fragment(descriptor, it->second->address_at(descriptor.offset()));
+  auto& [id, mapping] = *it;
+  if (descriptor.end() > mapping->bytes().size()) {
+    return {};
+  }
+
+  return Fragment(descriptor, mapping->address_at(descriptor.offset()));
 }
 
 SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
