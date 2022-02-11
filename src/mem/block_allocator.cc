@@ -19,15 +19,16 @@ namespace mem {
 
 namespace {
 
-enum Status : uint8_t {
-  kFree = 0,
-  kBusy = 1,
+struct IPCZ_ALIGN(4) BlockHeader {
+  uint16_t version;
+  uint16_t next;
 };
 
-struct IPCZ_ALIGN(4) BlockHeader {
-  Status status : 1;
-  uint32_t next : 31;
-};
+static_assert(sizeof(BlockHeader) == 4, "Invalid BlockHeader size");
+
+BlockHeader MakeHeader(uint32_t version, uint32_t next) {
+  return {static_cast<uint16_t>(version), static_cast<uint16_t>(next)};
+}
 
 }  // namespace
 
@@ -47,19 +48,27 @@ struct IPCZ_ALIGN(8) BlockAllocator::Block {
     return *reinterpret_cast<Block*>(static_cast<uint8_t*>(ptr) - overhead());
   }
 
-  static size_t GetMaxNumBlocks(size_t region_size, size_t block_size) {
-    return region_size / (block_size + overhead());
+  static uint32_t GetMaxNumBlocks(size_t region_size, uint32_t block_size) {
+    return static_cast<uint32_t>(region_size) / (block_size + overhead());
   }
 };
 
 BlockAllocator::BlockAllocator() = default;
 
-BlockAllocator::BlockAllocator(absl::Span<uint8_t> region, size_t block_size)
+BlockAllocator::BlockAllocator(absl::Span<uint8_t> region, uint32_t block_size)
     : region_(region),
       block_size_(block_size),
       num_blocks_(region.size() / (block_size + Block::overhead())) {
-  ABSL_ASSERT(block_size >= 1);
+  ABSL_ASSERT(block_size >= 8);
   ABSL_ASSERT(num_blocks_ > 0);
+
+  // BlockHeader uses a 16-bit index to reference other blocks.
+  ABSL_ASSERT(num_blocks_ <= 65536);
+
+  // Require 8-byte alignment of the region and of block sizes, to ensure that
+  // each BlockHeader is itself 8-byte aligned.
+  ABSL_ASSERT((reinterpret_cast<uintptr_t>(region_.data()) & 7) == 0);
+  ABSL_ASSERT((block_size & 7) == 0);
 }
 
 BlockAllocator::BlockAllocator(const BlockAllocator&) = default;
@@ -70,9 +79,8 @@ BlockAllocator::~BlockAllocator() = default;
 
 void BlockAllocator::InitializeRegion() {
   memset(region_.data(), 0, region_.size());
-  for (size_t i = 0; i < num_blocks_; ++i) {
-    block_at(i).header.store({kFree, static_cast<uint32_t>(i + 1)},
-                             std::memory_order_relaxed);
+  for (uint32_t i = 0; i < num_blocks_; ++i) {
+    block_at(i).header.store(MakeHeader(0, i + 1), std::memory_order_relaxed);
   }
 }
 
@@ -84,20 +92,14 @@ void* BlockAllocator::Alloc() {
       return nullptr;
     }
 
-    if (!front.header.compare_exchange_weak(
-            front_header, {kBusy, front_header.next}, std::memory_order_acquire,
-            std::memory_order_relaxed)) {
-      continue;
-    }
-
     Block& candidate = block_at(front_header.next);
     BlockHeader candidate_header =
         candidate.header.load(std::memory_order_relaxed);
-    front_header.status = kBusy;
-    if (!front.header.compare_exchange_strong(
-            front_header, {kFree, candidate_header.next},
+    if (!front.header.compare_exchange_weak(
+            front_header,
+            MakeHeader(front_header.version + 1, candidate_header.next),
             std::memory_order_release, std::memory_order_relaxed)) {
-      return nullptr;
+      continue;
     }
 
     return &candidate.data;
@@ -116,10 +118,9 @@ bool BlockAllocator::Free(void* ptr) {
   do {
     front_header = front.header.load(std::memory_order_acquire);
     free_block.header.store(front_header, std::memory_order_relaxed);
-    front_header.status = kFree;
   } while (!front.header.compare_exchange_weak(
-      front_header, {kFree, free_index}, std::memory_order_release,
-      std::memory_order_relaxed));
+      front_header, MakeHeader(front_header.version + 1, free_index),
+      std::memory_order_release, std::memory_order_relaxed));
   return true;
 }
 

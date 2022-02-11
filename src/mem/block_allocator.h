@@ -30,7 +30,7 @@ class BlockAllocator {
   // the region. Before any BlockAllocators can allocate blocks from `region`,
   // InitializeRegion() must be called once by a single allocator managing that
   // region.
-  BlockAllocator(absl::Span<uint8_t> region, size_t block_size);
+  BlockAllocator(absl::Span<uint8_t> region, uint32_t block_size);
 
   BlockAllocator(const BlockAllocator&);
   BlockAllocator& operator=(const BlockAllocator&);
@@ -73,8 +73,8 @@ class BlockAllocator {
   }
 
   absl::Span<uint8_t> region_;
-  size_t block_size_ = 0;
-  size_t num_blocks_ = 0;
+  uint32_t block_size_ = 0;
+  uint32_t num_blocks_ = 0;
 };
 
 }  // namespace mem

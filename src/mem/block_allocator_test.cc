@@ -4,23 +4,36 @@
 
 #include "mem/block_allocator.h"
 
+#include <array>
+#include <atomic>
 #include <set>
+#include <thread>
+#include <vector>
 
-#include "debug/log.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/random.h"
 
 namespace ipcz {
 namespace mem {
 namespace {
 
-using BlockAllocatorTest = testing::Test;
+constexpr size_t kPageSize = 4096;
+constexpr size_t kBlockSize = 32;
+
+class BlockAllocatorTest : public testing::Test {
+ public:
+  BlockAllocatorTest() {
+    allocator = mem::BlockAllocator(page, kBlockSize);
+    allocator.InitializeRegion();
+  }
+
+ protected:
+  uint8_t page[kPageSize];
+  mem::BlockAllocator allocator;
+};
 
 TEST_F(BlockAllocatorTest, Basic) {
-  uint8_t page[4096];
-  constexpr size_t kBlockSize = 32;
-  mem::BlockAllocator allocator(absl::MakeSpan(page), kBlockSize);
-  allocator.InitializeRegion();
   std::set<void*> blocks;
   for (size_t i = 0; i < allocator.capacity(); ++i) {
     void* block = allocator.Alloc();
@@ -34,6 +47,54 @@ TEST_F(BlockAllocatorTest, Basic) {
     EXPECT_TRUE(result);
   }
   EXPECT_TRUE(allocator.Alloc());
+}
+
+TEST_F(BlockAllocatorTest, StressTest) {
+  // This test creates a bunch of worker threads to race Alloc() and Free()
+  // operations. Workers mark their allocated blocks and verify consistency of
+  // markers when freeing them. Once all workers have finished, the test
+  // verifies that all blocks are still allocable (i.e. none were lost due to
+  // racy accounting errors.)
+
+  static constexpr size_t kNumIterationsPerWorker = 1000;
+  static constexpr size_t kNumAllocationsPerIteration = 50;
+  auto worker = [this](uint32_t id) {
+    std::array<std::atomic<uint32_t>*, kNumAllocationsPerIteration> allocations;
+    for (size_t i = 0; i < kNumIterationsPerWorker; ++i) {
+      size_t num_allocations = 0;
+      for (size_t j = 0; j < kNumAllocationsPerIteration; ++j) {
+        if (auto* p = static_cast<std::atomic<uint32_t>*>(allocator.Alloc())) {
+          allocations[num_allocations++] = p;
+          p->store(id, std::memory_order_relaxed);
+        }
+      }
+      for (size_t j = 0; j < num_allocations; ++j) {
+        std::atomic<uint32_t>* p = allocations[j];
+        ASSERT_EQ(id, p->load(std::memory_order_relaxed));
+        allocator.Free(p);
+      }
+    }
+  };
+
+  static constexpr uint32_t kNumWorkers = 4;
+  std::vector<std::thread> worker_threads;
+  for (uint32_t i = 0; i < kNumWorkers; ++i) {
+    worker_threads.emplace_back(worker, i);
+  }
+
+  for (auto& t : worker_threads) {
+    t.join();
+  }
+
+  size_t allocable_capacity = 0;
+  for (size_t i = 0; i < allocator.capacity(); ++i) {
+    void* p = allocator.Alloc();
+    if (p) {
+      ++allocable_capacity;
+    }
+  }
+
+  EXPECT_EQ(allocator.capacity(), allocable_capacity);
 }
 
 }  // namespace
