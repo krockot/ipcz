@@ -150,7 +150,7 @@ Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
   absl::MutexLock lock(&mutex_);
   auto it = buffer_map_.find(descriptor.buffer_id());
   if (it == buffer_map_.end()) {
-    return {};
+    return Fragment(descriptor, nullptr);
   }
 
   auto& [id, mapping] = *it;
@@ -254,13 +254,13 @@ void NodeLinkMemory::RequestFragmentCapacity(
                                        block_allocator);
         }
 
+        for (auto& callback : callbacks) {
+          callback();
+        }
+
         if (link) {
           link->AddFragmentAllocatorBuffer(new_buffer_id, fragment_size,
                                            std::move(memory));
-        }
-
-        for (auto& callback : callbacks) {
-          callback();
         }
       });
 }

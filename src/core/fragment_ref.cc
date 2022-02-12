@@ -23,7 +23,7 @@ GenericFragmentRef::GenericFragmentRef() = default;
 GenericFragmentRef::GenericFragmentRef(mem::Ref<NodeLinkMemory> memory,
                                        const Fragment& fragment)
     : memory_(std::move(memory)), fragment_(fragment) {
-  if (!fragment_.is_null()) {
+  if (fragment_.is_addressable()) {
     fragment_.As<RefCountedFragment>()->AddRef();
   }
 }
@@ -48,7 +48,7 @@ GenericFragmentRef& GenericFragmentRef::operator=(GenericFragmentRef&& other) {
 
 GenericFragmentRef::GenericFragmentRef(const GenericFragmentRef& other)
     : memory_(other.memory_), fragment_(other.fragment_) {
-  if (!fragment_.is_null()) {
+  if (fragment_.is_addressable()) {
     fragment_.As<RefCountedFragment>()->AddRef();
   }
 }
@@ -58,7 +58,7 @@ GenericFragmentRef& GenericFragmentRef::operator=(
   reset();
   memory_ = other.memory_;
   fragment_ = other.fragment_;
-  if (!fragment_.is_null()) {
+  if (fragment_.is_addressable()) {
     fragment_.As<RefCountedFragment>()->AddRef();
   }
   return *this;
@@ -76,6 +76,9 @@ void GenericFragmentRef::reset() {
 
   Fragment fragment;
   std::swap(fragment, fragment_);
+  if (!fragment.is_addressable()) {
+    return;
+  }
 
   if (fragment.As<RefCountedFragment>()->ReleaseRef() > 1 || !memory) {
     return;

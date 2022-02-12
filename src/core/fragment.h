@@ -24,6 +24,9 @@ struct Fragment {
   Fragment& operator=(const Fragment&);
 
   bool is_null() const { return descriptor_.is_null(); }
+  bool is_resolved() const { return address_ != nullptr; }
+  bool is_addressable() const { return !is_null() && is_resolved(); }
+  bool is_pending() const { return !is_null() && !is_resolved(); }
 
   bool operator==(const Fragment& other) const {
     return descriptor_ == other.descriptor_;

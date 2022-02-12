@@ -46,8 +46,12 @@ RemoteRouterLink::RemoteRouterLink(
     : node_link_(std::move(node_link)),
       sublink_(sublink),
       type_(type),
-      side_(side),
-      link_state_fragment_(std::move(link_state_fragment)) {}
+      side_(side) {
+  if (link_state_fragment.is_addressable()) {
+    link_state_fragment_ = link_state_fragment;
+    link_state_ = link_state_fragment_.get();
+  }
+}
 
 RemoteRouterLink::~RemoteRouterLink() = default;
 
@@ -60,9 +64,11 @@ mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
     LinkSide side) {
   auto link = mem::WrapRefCounted(new RemoteRouterLink(
       std::move(node_link), sublink, link_state_fragment, type, side));
-  if (link_state_fragment) {
-    link->link_state_ = link_state_fragment.get();
-  } else if (type == LinkType::kCentral && side == LinkSide::kA) {
+  if (link_state_fragment.is_pending() && type.is_central() &&
+      side.is_side_b()) {
+    link->SetLinkState(std::move(link_state_fragment));
+  } else if (link_state_fragment.is_null() && type.is_central() &&
+             side.is_side_a()) {
     // If this link needs a shared RouterLinkState but one could not be provided
     // at construction time, kick off an asynchronous allocation request for
     // more link memory capacity.
@@ -73,11 +79,17 @@ mem::Ref<RemoteRouterLink> RemoteRouterLink::Create(
 }
 
 void RemoteRouterLink::SetLinkState(FragmentRef<RouterLinkState> state) {
-  ABSL_ASSERT(type_ == LinkType::kCentral);
-  if (!state) {
-    node_link()->memory().OnBufferAvailable(
-        state.fragment().buffer_id(), [self = mem::WrapRefCounted(this),
-                                       state] { self->SetLinkState(state); });
+  ABSL_ASSERT(type_.is_central());
+  if (state.is_pending()) {
+    mem::Ref<NodeLinkMemory> memory =
+        mem::WrapRefCounted(&node_link()->memory());
+    FragmentDescriptor descriptor = state.fragment().descriptor();
+    memory->OnBufferAvailable(
+        descriptor.buffer_id(),
+        [self = mem::WrapRefCounted(this), memory, descriptor] {
+          self->SetLinkState(
+              memory->AdoptFragmentRef<RouterLinkState>(descriptor));
+        });
     return;
   }
 
@@ -316,13 +328,14 @@ void RemoteRouterLink::AllocateLinkState() {
       [self = mem::WrapRefCounted(this)]() {
         FragmentRef<RouterLinkState> state =
             self->node_link()->memory().AllocateRouterLinkState();
-        if (!state) {
+        if (state.is_null()) {
           // We got some new allocator capacity but it's already used up. Try
           // again.
           self->AllocateLinkState();
           return;
         }
 
+        ABSL_ASSERT(state.is_addressable());
         self->SetLinkState(std::move(state));
       });
 }

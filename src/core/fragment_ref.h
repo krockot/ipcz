@@ -42,7 +42,10 @@ class GenericFragmentRef {
   const mem::Ref<NodeLinkMemory>& memory() const { return memory_; }
   const Fragment& fragment() const { return fragment_; }
 
-  explicit operator bool() const { return !fragment_.is_null(); }
+  bool is_null() const { return fragment_.is_null(); }
+  bool is_resolved() const { return fragment_.is_resolved(); }
+  bool is_addressable() const { return fragment_.is_addressable(); }
+  bool is_pending() const { return fragment_.is_pending(); }
 
   void reset();
   Fragment release();
