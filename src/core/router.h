@@ -149,7 +149,7 @@ class Router : public mem::RefCounted {
   // Accepts notification that the outward endpoint of the route has been
   // closed, and that the closed side of the route transmitted a total of
   // `sequence_length` parcels before closing.
-  void AcceptRouteClosureFrom(LinkType link_type,
+  bool AcceptRouteClosureFrom(LinkType link_type,
                               SequenceNumber sequence_length);
 
   // Retrieves the next available inbound parcel from this Router, if present.

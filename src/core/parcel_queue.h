@@ -123,7 +123,7 @@ class ParcelQueue {
   Parcel& NextParcel();
 
  private:
-  void Reallocate(SequenceNumber sequence_length);
+  bool Reallocate(SequenceNumber sequence_length);
   void PlaceNewEntry(size_t index, Parcel& parcel);
 
   struct Entry {

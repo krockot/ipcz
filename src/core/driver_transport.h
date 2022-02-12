@@ -61,7 +61,13 @@ class DriverTransport : public mem::RefCounted {
   class Listener {
    public:
     virtual ~Listener() = default;
+
+    // Accepts a raw message from the transport. The ONLY validation done before
+    // calling this is to ensure that the message data is at least long enough
+    // to contain a complete internal::MessageHeader, and that the header's
+    // purported length (the `size` field) is at least that large as well.
     virtual IpczResult OnTransportMessage(const Message& message) = 0;
+
     virtual void OnTransportError() = 0;
   };
 

@@ -12,6 +12,14 @@
 namespace ipcz {
 namespace core {
 
+namespace {
+
+// The maximum allowed sequence gap tolerated by a ParcelQueue. Much larger than
+// any reasonable system should encounter.
+constexpr SequenceNumber kMaxSequenceGap = 1000000;
+
+}  // namespace
+
 ParcelQueue::ParcelQueue() = default;
 
 ParcelQueue::ParcelQueue(SequenceNumber initial_sequence_number)
@@ -76,9 +84,12 @@ bool ParcelQueue::SetFinalSequenceLength(SequenceNumber length) {
     return false;
   }
 
+  if (length - base_sequence_number_ > kMaxSequenceGap) {
+    return false;
+  }
+
   final_sequence_length_ = length;
-  Reallocate(length);
-  return true;
+  return Reallocate(length);
 }
 
 bool ParcelQueue::IsExpectingMoreParcels() const {
@@ -114,7 +125,8 @@ void ParcelQueue::ResetInitialSequenceNumber(SequenceNumber n) {
 
 bool ParcelQueue::Push(Parcel parcel) {
   const SequenceNumber n = parcel.sequence_number();
-  if (n < base_sequence_number_) {
+  if (n < base_sequence_number_ ||
+      (n - base_sequence_number_ > kMaxSequenceGap)) {
     return false;
   }
 
@@ -135,7 +147,16 @@ bool ParcelQueue::Push(Parcel parcel) {
     return true;
   }
 
-  Reallocate(n + 1);
+  SequenceNumber new_limit = n + 1;
+  if (new_limit == 0) {
+    // TODO: Gracefully handle overflow / wraparound?
+    return false;
+  }
+
+  if (!Reallocate(new_limit)) {
+    return false;
+  }
+
   PlaceNewEntry(index, parcel);
   return true;
 }
@@ -186,13 +207,21 @@ Parcel& ParcelQueue::NextParcel() {
   return parcels_[0]->parcel;
 }
 
-void ParcelQueue::Reallocate(SequenceNumber sequence_length) {
-  size_t parcels_offset = parcels_.data() - storage_.data();
+bool ParcelQueue::Reallocate(SequenceNumber sequence_length) {
+  if (sequence_length < base_sequence_number_) {
+    return false;
+  }
+
   size_t new_parcels_size = sequence_length - base_sequence_number_;
-  if (parcels_offset + new_parcels_size < storage_.size()) {
+  if (new_parcels_size > kMaxSequenceGap) {
+    return false;
+  }
+
+  size_t parcels_offset = parcels_.data() - storage_.data();
+  if (storage_.size() - parcels_offset > new_parcels_size) {
     // Fast path: just extend the view into storage.
     parcels_ = ParcelView(storage_.data() + parcels_offset, new_parcels_size);
-    return;
+    return true;
   }
 
   // We need to reallocate storage. Re-align `parcels_` with the front of the
@@ -203,8 +232,10 @@ void ParcelQueue::Reallocate(SequenceNumber sequence_length) {
       parcels_[i].reset();
     }
   }
+
   storage_.resize(new_parcels_size * 2);
   parcels_ = ParcelView(storage_.data(), new_parcels_size);
+  return true;
 }
 
 void ParcelQueue::PlaceNewEntry(size_t index, Parcel& parcel) {

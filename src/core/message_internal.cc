@@ -117,6 +117,7 @@ bool MessageBase::DeserializeDataAndHandles(
   if (data_.size() < sizeof(MessageHeaderV0)) {
     return false;
   }
+
   const auto& message_header =
       *reinterpret_cast<const MessageHeaderV0*>(data_.data());
   if (message_header.version == 0) {
@@ -127,6 +128,10 @@ bool MessageBase::DeserializeDataAndHandles(
     if (message_header.size < sizeof(MessageHeaderV0)) {
       return false;
     }
+  }
+
+  if (message_header.size > data_.size()) {
+    return false;
   }
 
   // Validate parameter data. There must be at least enough bytes following the
@@ -170,7 +175,8 @@ bool MessageBase::DeserializeDataAndHandles(
 
       ArrayHeader& header =
           *reinterpret_cast<ArrayHeader*>(&data_[array_offset]);
-      if (bytes_available < header.num_bytes) {
+      if (bytes_available < header.num_bytes ||
+          header.num_bytes < sizeof(ArrayHeader)) {
         return false;
       }
 

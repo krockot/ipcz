@@ -446,9 +446,8 @@ bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
     return true;
   }
 
-  sublink->receiver->AcceptRouteClosureFrom(
+  return sublink->receiver->AcceptRouteClosureFrom(
       sublink->router_link->GetType(), route_closed.params().sequence_length);
-  return true;
 }
 
 bool NodeLink::OnSetRouterLinkStateFragment(

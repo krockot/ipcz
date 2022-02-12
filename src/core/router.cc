@@ -151,8 +151,9 @@ void Router::CloseRoute() {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_edge_);
     traps_.DisableAllAndClear();
-    outbound_parcels_.SetFinalSequenceLength(
+    bool ok = outbound_parcels_.SetFinalSequenceLength(
         outbound_parcels_.GetCurrentSequenceLength());
+    ABSL_ASSERT(ok);
   }
 
   Flush();
@@ -294,14 +295,16 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
   return true;
 }
 
-void Router::AcceptRouteClosureFrom(LinkType link_type,
+bool Router::AcceptRouteClosureFrom(LinkType link_type,
                                     SequenceNumber sequence_length) {
   TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
     if (link_type == LinkType::kCentral ||
         link_type == LinkType::kPeripheralOutward) {
-      inbound_parcels_.SetFinalSequenceLength(sequence_length);
+      if (!inbound_parcels_.SetFinalSequenceLength(sequence_length)) {
+        return false;
+      }
       if (!inward_edge_ && !bridge_) {
         status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
         if (inbound_parcels_.IsDead()) {
@@ -311,12 +314,15 @@ void Router::AcceptRouteClosureFrom(LinkType link_type,
                                   dispatcher);
       }
     } else if (link_type == LinkType::kBridge) {
-      outbound_parcels_.SetFinalSequenceLength(sequence_length);
+      if (!outbound_parcels_.SetFinalSequenceLength(sequence_length)) {
+        return false;
+      }
       bridge_.reset();
     }
   }
 
   Flush();
+  return true;
 }
 
 IpczResult Router::GetNextIncomingParcel(void* data,
@@ -552,8 +558,10 @@ mem::Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
         descriptor.next_incoming_sequence_number);
     if (descriptor.peer_closed) {
       router->status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-      router->inbound_parcels_.SetFinalSequenceLength(
-          descriptor.closed_peer_sequence_length);
+      if (!router->inbound_parcels_.SetFinalSequenceLength(
+              descriptor.closed_peer_sequence_length)) {
+        return nullptr;
+      }
       if (router->inbound_parcels_.IsDead()) {
         router->status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
