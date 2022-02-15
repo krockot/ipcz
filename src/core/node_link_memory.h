@@ -122,9 +122,15 @@ class NodeLinkMemory : public mem::RefCounted {
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
  private:
+  struct PrimaryBuffer;
+
   ~NodeLinkMemory() override;
 
-  DriverMemoryMapping& primary_buffer() { return buffers_.front(); }
+  DriverMemoryMapping& primary_buffer_mapping() { return buffers_.front(); }
+
+  PrimaryBuffer& primary_buffer() {
+    return *static_cast<PrimaryBuffer*>(primary_buffer_mapping().address());
+  }
 
   NodeLinkMemory(mem::Ref<Node> node, DriverMemoryMapping primary_buffer);
 

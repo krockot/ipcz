@@ -77,6 +77,10 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   // that request against the name stored here.
   NodeName allowed_bypass_request_source;
 
+  // Reserved slots. Will be used later to help each side track remote state,
+  // and to leave room for potential in-place expansion in the future.
+  uint32_t reserved1[10];
+
   bool is_locked_by(LinkSide side) const {
     Status s = status.load(std::memory_order_relaxed);
     if (side == LinkSide::kA) {
@@ -105,8 +109,6 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   // this returns false and the link's status is unchanged.
   bool ResetWaitingBit(LinkSide side);
 };
-
-static_assert(sizeof(RouterLinkState) == 24, "Invalid RouterLinkState size");
 
 }  // namespace core
 }  // namespace ipcz

@@ -21,15 +21,18 @@ namespace core {
 namespace {
 
 constexpr BufferId kPrimaryBufferId = 0;
-constexpr size_t kPrimaryBufferSize = 4096;
 
 // The front of the primary buffer is reserved for special uses which require
 // synchronous availability throughout the link's lifetime.
-constexpr size_t kPrimaryBufferReservedBlockSize = 512;
+constexpr size_t kPrimaryBufferReservedHeaderSize = 256;
 
 // Number of fixed RouterLinkState locations in the primary buffer. This limits
 // the maximum number of initial portals supported by the ConnectNode() API.
-using InitialRouterLinkStateArray = std::array<RouterLinkState, 16>;
+// Note that these states reside in a fixed location at the end of the reserved
+// block.
+using InitialRouterLinkStateArray = std::array<RouterLinkState, 12>;
+static_assert(sizeof(InitialRouterLinkStateArray) == 768,
+              "Invalid InitialRouterLinkStateArray size");
 
 // This structure always sits at offset 0 in the primary buffer.
 struct IPCZ_ALIGN(8) PrimaryBufferHeader {
@@ -38,62 +41,50 @@ struct IPCZ_ALIGN(8) PrimaryBufferHeader {
   std::atomic<uint64_t> next_router_link_state_index{0};
 };
 
-constexpr size_t kPrimaryBufferReservedBlockPaddingSize =
-    kPrimaryBufferReservedBlockSize - sizeof(InitialRouterLinkStateArray) -
-    sizeof(PrimaryBufferHeader);
-
-struct IPCZ_ALIGN(8) PrimaryBufferReservedBlock {
-  PrimaryBufferHeader header;
-  uint8_t reserved[kPrimaryBufferReservedBlockPaddingSize];
-  InitialRouterLinkStateArray initial_link_states;
-};
-static_assert(sizeof(PrimaryBufferReservedBlock) ==
-                  kPrimaryBufferReservedBlockSize,
-              "Invalid PrimaryBufferReservedBlock size");
-
-constexpr size_t kPrimaryBufferLinkAllocatorSize =
-    kPrimaryBufferSize - sizeof(PrimaryBufferReservedBlock);
-
-constexpr size_t kRouterLinkStateFragmentSize = 32;
-static_assert(kRouterLinkStateFragmentSize >= sizeof(RouterLinkState),
-              "Invalid RouterLinkState fragment size");
-
-PrimaryBufferReservedBlock& ReservedBlock(const DriverMemoryMapping& mapping) {
-  return *static_cast<PrimaryBufferReservedBlock*>(mapping.address());
-}
-
-PrimaryBufferHeader& Header(const DriverMemoryMapping& mapping) {
-  return ReservedBlock(mapping).header;
-}
+constexpr size_t kPrimaryBufferHeaderPaddingSize =
+    kPrimaryBufferReservedHeaderSize - sizeof(PrimaryBufferHeader);
 
 uint32_t ToOffset(void* ptr, void* base) {
   return static_cast<uint32_t>(static_cast<uint8_t*>(ptr) -
                                static_cast<uint8_t*>(base));
 }
 
-absl::Span<uint8_t> GetPrimaryLinkStateAllocatorMemory(
-    const DriverMemoryMapping& mapping) {
-  return {reinterpret_cast<uint8_t*>(&ReservedBlock(mapping) + 1),
-          kPrimaryBufferLinkAllocatorSize};
-}
-
 }  // namespace
 
+struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
+  PrimaryBufferHeader header;
+  uint8_t reserved_header_padding[kPrimaryBufferHeaderPaddingSize];
+  InitialRouterLinkStateArray initial_link_states;
+  std::array<uint8_t, 31744> allocator_memory_for_64_byte_fragments;
+  std::array<uint8_t, 32768> allocator_memory_for_256_byte_fragments;
+
+  mem::BlockAllocator block_allocator_64() {
+    return mem::BlockAllocator(
+        absl::MakeSpan(allocator_memory_for_64_byte_fragments), 64);
+  }
+
+  mem::BlockAllocator block_allocator_256() {
+    return mem::BlockAllocator(
+        absl::MakeSpan(allocator_memory_for_256_byte_fragments), 256);
+  }
+};
+
 NodeLinkMemory::NodeLinkMemory(mem::Ref<Node> node,
-                               DriverMemoryMapping primary_buffer_mapping)
+                               DriverMemoryMapping primary_buffer_memory)
     : node_(std::move(node)) {
-  buffers_.push_back(std::move(primary_buffer_mapping));
+  buffers_.push_back(std::move(primary_buffer_memory));
 
-  mem::BlockAllocator allocator(
-      GetPrimaryLinkStateAllocatorMemory(primary_buffer()),
-      kRouterLinkStateFragmentSize);
+  auto allocator_64 = std::make_unique<FragmentAllocator>(64);
+  allocator_64->AddBlockAllocator(kPrimaryBufferId,
+                                  primary_buffer_mapping().bytes(),
+                                  primary_buffer().block_allocator_64());
+  fragment_allocators_[64] = std::move(allocator_64);
 
-  auto link_state_allocator =
-      std::make_unique<FragmentAllocator>(kRouterLinkStateFragmentSize);
-  link_state_allocator->AddBlockAllocator(kPrimaryBufferId,
-                                          primary_buffer().bytes(), allocator);
-  fragment_allocators_[kRouterLinkStateFragmentSize] =
-      std::move(link_state_allocator);
+  auto allocator_256 = std::make_unique<FragmentAllocator>(256);
+  allocator_256->AddBlockAllocator(kPrimaryBufferId,
+                                   primary_buffer_mapping().bytes(),
+                                   primary_buffer().block_allocator_256());
+  fragment_allocators_[256] = std::move(allocator_256);
 }
 
 NodeLinkMemory::~NodeLinkMemory() = default;
@@ -103,19 +94,21 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
     mem::Ref<Node> node,
     size_t num_initial_portals,
     DriverMemory& primary_buffer_memory) {
-  primary_buffer_memory = DriverMemory(node->driver(), kPrimaryBufferSize);
+  static_assert(sizeof(PrimaryBuffer) == 65536, "Invalid PrimaryBuffer size");
+  primary_buffer_memory = DriverMemory(node->driver(), sizeof(PrimaryBuffer));
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
-  PrimaryBufferHeader& header = Header(mapping);
-  header.next_sublink = num_initial_portals;
-  header.next_buffer_id = 1;
-  header.next_router_link_state_index = num_initial_portals;
 
-  mem::BlockAllocator allocator(GetPrimaryLinkStateAllocatorMemory(mapping),
-                                kRouterLinkStateFragmentSize);
-  allocator.InitializeRegion();
-
-  return mem::WrapRefCounted(
+  auto memory = mem::WrapRefCounted(
       new NodeLinkMemory(std::move(node), std::move(mapping)));
+
+  PrimaryBuffer& primary_buffer = memory->primary_buffer();
+  primary_buffer.header.next_sublink = num_initial_portals;
+  primary_buffer.header.next_buffer_id = 1;
+  primary_buffer.header.next_router_link_state_index = num_initial_portals;
+
+  primary_buffer.block_allocator_64().InitializeRegion();
+  primary_buffer.block_allocator_256().InitializeRegion();
+  return memory;
 }
 
 // static
@@ -162,25 +155,28 @@ Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
 }
 
 SublinkId NodeLinkMemory::AllocateSublinkIds(size_t count) {
-  return Header(primary_buffer())
-      .next_sublink.fetch_add(count, std::memory_order_relaxed);
+  return primary_buffer().header.next_sublink.fetch_add(
+      count, std::memory_order_relaxed);
 }
 
 FragmentRef<RouterLinkState> NodeLinkMemory::GetInitialRouterLinkState(
     size_t i) {
-  auto& states = ReservedBlock(primary_buffer()).initial_link_states;
+  auto& states = primary_buffer().initial_link_states;
   ABSL_ASSERT(i < states.size());
   RouterLinkState* state = &states[i];
 
-  FragmentDescriptor descriptor(kPrimaryBufferId,
-                                ToOffset(state, primary_buffer().address()),
-                                sizeof(RouterLinkState));
+  FragmentDescriptor descriptor(
+      kPrimaryBufferId, ToOffset(state, primary_buffer_mapping().address()),
+      sizeof(RouterLinkState));
   return FragmentRef<RouterLinkState>(RefCountedFragment::kUnmanagedRef,
                                       Fragment(descriptor, state));
 }
 
 FragmentRef<RouterLinkState> NodeLinkMemory::AllocateRouterLinkState() {
-  Fragment fragment = AllocateFragment(kRouterLinkStateFragmentSize);
+  // Ensure RouterLinkStates can be allocated as 64-byte fragments.
+  static_assert(sizeof(RouterLinkState) == 64, "Invalid RouterLinkState size");
+
+  Fragment fragment = AllocateFragment(sizeof(RouterLinkState));
   if (!fragment.is_null()) {
     RouterLinkState::Initialize(fragment.address());
     return FragmentRef<RouterLinkState>(mem::WrapRefCounted(this), fragment);
@@ -318,8 +314,8 @@ void NodeLinkMemory::OnBufferAvailable(BufferId id,
 }
 
 BufferId NodeLinkMemory::AllocateBufferId() {
-  return Header(primary_buffer())
-      .next_buffer_id.fetch_add(1, std::memory_order_relaxed);
+  return primary_buffer().header.next_buffer_id.fetch_add(
+      1, std::memory_order_relaxed);
 }
 
 FragmentAllocator* NodeLinkMemory::GetFragmentAllocatorForSize(
