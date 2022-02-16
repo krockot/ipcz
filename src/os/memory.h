@@ -6,6 +6,7 @@
 #define IPCZ_SRC_OS_MEMORY_H_
 
 #include "os/handle.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace os {
@@ -27,6 +28,10 @@ class Memory {
 
     size_t size() const { return size_; }
     void* base() const { return base_address_; }
+
+    absl::Span<uint8_t> bytes() const {
+      return {static_cast<uint8_t*>(base()), size_};
+    }
 
     template <typename T>
     T* As() const {
