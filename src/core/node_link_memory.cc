@@ -40,6 +40,8 @@ struct IPCZ_ALIGN(8) PrimaryBufferHeader {
   std::atomic<uint64_t> next_sublink{0};
   std::atomic<uint64_t> next_buffer_id{1};
   std::atomic<uint64_t> next_router_link_state_index{0};
+  std::atomic_flag is_side_a_notification_pending;
+  std::atomic_flag is_side_b_notification_pending;
 };
 
 constexpr size_t kPrimaryBufferHeaderPaddingSize =
@@ -115,6 +117,8 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   primary_buffer.header.next_sublink = num_initial_portals;
   primary_buffer.header.next_buffer_id = 1;
   primary_buffer.header.next_router_link_state_index = num_initial_portals;
+  primary_buffer.header.is_side_a_notification_pending.clear();
+  primary_buffer.header.is_side_b_notification_pending.clear();
 
   primary_buffer.a_to_b_message_queue().InitializeRegion();
   primary_buffer.b_to_a_message_queue().InitializeRegion();
@@ -141,9 +145,17 @@ void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
   if (node_link_->link_side().is_side_a()) {
     incoming_message_fragments_ = primary_buffer().b_to_a_message_queue();
     outgoing_message_fragments_ = primary_buffer().a_to_b_message_queue();
+    incoming_notification_flag_ =
+        &primary_buffer().header.is_side_a_notification_pending;
+    outgoing_notification_flag_ =
+        &primary_buffer().header.is_side_b_notification_pending;
   } else {
     incoming_message_fragments_ = primary_buffer().a_to_b_message_queue();
     outgoing_message_fragments_ = primary_buffer().b_to_a_message_queue();
+    incoming_notification_flag_ =
+        &primary_buffer().header.is_side_b_notification_pending;
+    outgoing_notification_flag_ =
+        &primary_buffer().header.is_side_a_notification_pending;
   }
 }
 
@@ -320,6 +332,23 @@ bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
   }
 
   return true;
+}
+
+bool NodeLinkMemory::TestAndSetNotificationPending() {
+  if (!outgoing_notification_flag_) {
+    return false;
+  }
+
+  return outgoing_notification_flag_->test_and_set(
+      std::memory_order_relaxed);
+}
+
+void NodeLinkMemory::ClearPendingNotification() {
+  if (!incoming_notification_flag_) {
+    return;
+  }
+
+  incoming_notification_flag_->clear();
 }
 
 void NodeLinkMemory::OnBufferAvailable(BufferId id,

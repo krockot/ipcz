@@ -128,6 +128,11 @@ class NodeLinkMemory : public mem::RefCounted {
                                   uint32_t fragment_size,
                                   DriverMemory memory);
 
+  // Flags the other endpoint with a pending notification and returns whether or
+  // not there was already a notification pending.
+  bool TestAndSetNotificationPending();
+  void ClearPendingNotification();
+
   void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
  private:
@@ -173,6 +178,8 @@ class NodeLinkMemory : public mem::RefCounted {
   // used as a lightweight medium to convey small data-only messages.
   mem::MpscQueue<FragmentDescriptor> incoming_message_fragments_;
   mem::MpscQueue<FragmentDescriptor> outgoing_message_fragments_;
+  std::atomic_flag* incoming_notification_flag_;
+  std::atomic_flag* outgoing_notification_flag_;
 
   // Callbacks to invoke when a pending capacity request is fulfilled for a
   // specific fragment size.

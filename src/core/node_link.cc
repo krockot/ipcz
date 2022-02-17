@@ -285,12 +285,13 @@ void NodeLink::TransmitMessage(internal::MessageBase& message) {
       memcpy(fragment.address(), message.data_view().data(),
              message.data_view().size());
       if (memory().outgoing_message_fragments().Push(fragment.descriptor())) {
-        // TODO: This is lazy. Don't flush after every message.
-        msg::FlushLink flush;
-        flush.header().transport_sequence_number =
-            transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
-        transport_->TransmitMessage(
-            DriverTransport::Message(DriverTransport::Data(flush.data_view())));
+        if (!memory().TestAndSetNotificationPending()) {
+          msg::FlushLink flush;
+          flush.header().transport_sequence_number = transport_sequence_number_
+              .fetch_add(1, std::memory_order_relaxed);
+          transport_->TransmitMessage(DriverTransport::Message(
+              DriverTransport::Data(flush.data_view())));
+        }
         return;
       }
     }
@@ -318,6 +319,7 @@ IpczResult NodeLink::OnTransportMessage(
     return result;
   }
 
+  memory().ClearPendingNotification();
   return FlushSharedMemoryMessages(sequence_number + 1);
 }
 
