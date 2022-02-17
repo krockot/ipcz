@@ -27,20 +27,23 @@ namespace core {
 
 // static
 mem::Ref<NodeLink> NodeLink::Create(mem::Ref<Node> node,
+                                    LinkSide link_side,
                                     const NodeName& local_node_name,
                                     const NodeName& remote_node_name,
                                     Node::Type remote_node_type,
                                     uint32_t remote_protocol_version,
                                     mem::Ref<DriverTransport> transport,
                                     mem::Ref<NodeLinkMemory> memory) {
-  auto link = mem::WrapRefCounted(new NodeLink(
-      std::move(node), local_node_name, remote_node_name, remote_node_type,
-      remote_protocol_version, std::move(transport), std::move(memory)));
+  auto link = mem::WrapRefCounted(
+      new NodeLink(std::move(node), link_side, local_node_name,
+                   remote_node_name, remote_node_type, remote_protocol_version,
+                   std::move(transport), std::move(memory)));
   link->memory().SetNodeLink(link);
   return link;
 }
 
 NodeLink::NodeLink(mem::Ref<Node> node,
+                   LinkSide link_side,
                    const NodeName& local_node_name,
                    const NodeName& remote_node_name,
                    Node::Type remote_node_type,
@@ -48,6 +51,7 @@ NodeLink::NodeLink(mem::Ref<Node> node,
                    mem::Ref<DriverTransport> transport,
                    mem::Ref<NodeLinkMemory> memory)
     : node_(std::move(node)),
+      link_side_(link_side),
       local_node_name_(local_node_name),
       remote_node_name_(remote_node_name),
       remote_node_type_(remote_node_type),
@@ -175,6 +179,7 @@ void NodeLink::RequestIntroduction(const NodeName& name) {
 }
 
 void NodeLink::IntroduceNode(const NodeName& name,
+                             LinkSide link_side,
                              mem::Ref<DriverTransport> transport,
                              DriverMemory link_buffer_memory) {
   std::vector<uint8_t> transport_data;
@@ -187,7 +192,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
   msg::IntroduceNode intro;
   intro.params().name = name;
   intro.params().known = (transport != nullptr);
-
+  intro.params().link_side = link_side;
   intro.params().transport_data =
       intro.AllocateArray<uint8_t>(transport_data.size());
   memcpy(intro.GetArrayData(intro.params().transport_data),
@@ -487,7 +492,7 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
   if (!memory.is_valid()) {
     return false;
   }
-  return node_->OnIntroduceNode(name, known,
+  return node_->OnIntroduceNode(name, known, intro.params().link_side,
                                 NodeLinkMemory::Adopt(node_, std::move(memory)),
                                 transport_data, transport_os_handles);
 }

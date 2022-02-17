@@ -10,6 +10,7 @@
 
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
+#include "core/link_side.h"
 #include "core/node_link_memory.h"
 #include "core/node_messages.h"
 #include "core/node_name.h"
@@ -133,6 +134,7 @@ class Node : public mem::RefCounted {
   // from the named node.
   bool OnIntroduceNode(const NodeName& name,
                        bool known,
+                       LinkSide link_side,
                        mem::Ref<NodeLinkMemory> link_memory,
                        absl::Span<const uint8_t> serialized_transport_data,
                        absl::Span<os::Handle> serialized_transport_handles);

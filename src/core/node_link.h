@@ -16,6 +16,7 @@
 #include "core/driver_memory.h"
 #include "core/driver_transport.h"
 #include "core/fragment_ref.h"
+#include "core/link_side.h"
 #include "core/message_internal.h"
 #include "core/node.h"
 #include "core/node_link_memory.h"
@@ -65,6 +66,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   };
 
   static mem::Ref<NodeLink> Create(mem::Ref<Node> node,
+                                   LinkSide link_side,
                                    const NodeName& local_node_name,
                                    const NodeName& remote_node_name,
                                    Node::Type remote_node_type,
@@ -73,6 +75,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
                                    mem::Ref<NodeLinkMemory> memory);
 
   const mem::Ref<Node>& node() const { return node_; }
+  LinkSide link_side() const { return link_side_; }
   const NodeName& local_node_name() const { return local_node_name_; }
   const NodeName& remote_node_name() const { return remote_node_name_; }
   Node::Type remote_node_type() const { return remote_node_type_; }
@@ -144,6 +147,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // Introduces the remote node to the node named `name`, giving it a new
   // DriverTransport it can use to communicate with that node.
   void IntroduceNode(const NodeName& name,
+                     LinkSide link_side,
                      mem::Ref<DriverTransport> transport,
                      DriverMemory primary_buffer);
 
@@ -174,6 +178,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
  private:
   NodeLink(mem::Ref<Node> node,
+           LinkSide link_side,
            const NodeName& local_node_name,
            const NodeName& remote_node_name,
            Node::Type remote_node_type,
@@ -222,6 +227,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnFlushLink(const msg::FlushLink& flush);
 
   const mem::Ref<Node> node_;
+  const LinkSide link_side_;
   const NodeName local_node_name_;
   const NodeName remote_node_name_;
   const Node::Type remote_node_type_;

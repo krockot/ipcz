@@ -10,6 +10,7 @@
 #include "core/buffer_id.h"
 #include "core/driver_transport.h"
 #include "core/fragment_descriptor.h"
+#include "core/link_side.h"
 #include "core/message_internal.h"
 #include "core/node_name.h"
 #include "core/router_descriptor.h"

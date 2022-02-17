@@ -260,10 +260,10 @@ bool Node::OnRequestIndirectBrokerConnection(
         std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>>
             transports = DriverTransport::CreatePair(node->driver(),
                                                      node->driver_node());
-        new_link->IntroduceNode(source_link->remote_node_name(),
+        new_link->IntroduceNode(source_link->remote_node_name(), LinkSide::kA,
                                 std::move(transports.first),
                                 primary_buffer_memory.Clone());
-        source_link->IntroduceNode(new_link->remote_node_name(),
+        source_link->IntroduceNode(new_link->remote_node_name(), LinkSide::kB,
                                    std::move(transports.second),
                                    std::move(primary_buffer_memory));
       });
@@ -290,7 +290,7 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   }
 
   if (!other_node_link) {
-    from_node_link.IntroduceNode(request.params().name, nullptr,
+    from_node_link.IntroduceNode(request.params().name, LinkSide::kA, nullptr,
                                  DriverMemory());
     return true;
   }
@@ -301,9 +301,9 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   std::pair<mem::Ref<DriverTransport>, mem::Ref<DriverTransport>> transports =
       DriverTransport::CreatePair(driver_, driver_node_);
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
-                                 std::move(transports.first),
+                                 LinkSide::kA, std::move(transports.first),
                                  primary_buffer_memory.Clone());
-  from_node_link.IntroduceNode(request.params().name,
+  from_node_link.IntroduceNode(request.params().name, LinkSide::kB,
                                std::move(transports.second),
                                std::move(primary_buffer_memory));
   return true;
@@ -312,6 +312,7 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
 bool Node::OnIntroduceNode(
     const NodeName& name,
     bool known,
+    LinkSide link_side,
     mem::Ref<NodeLinkMemory> link_memory,
     absl::Span<const uint8_t> serialized_transport_data,
     absl::Span<os::Handle> serialized_transport_handles) {
@@ -326,9 +327,9 @@ bool Node::OnIntroduceNode(
       ABSL_ASSERT(assigned_name_.is_valid());
       DVLOG(3) << "Node " << assigned_name_.ToString()
                << " received introduction to " << name.ToString();
-      new_link =
-          NodeLink::Create(mem::WrapRefCounted(this), assigned_name_, name,
-                           Type::kNormal, 0, transport, std::move(link_memory));
+      new_link = NodeLink::Create(mem::WrapRefCounted(this), link_side,
+                                  assigned_name_, name, Type::kNormal, 0,
+                                  transport, std::move(link_memory));
     }
   }
 
