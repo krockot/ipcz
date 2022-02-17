@@ -21,6 +21,7 @@
 #include "core/fragment_ref.h"
 #include "core/router_link_state.h"
 #include "core/sublink_id.h"
+#include "mem/mpsc_queue.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
@@ -40,6 +41,14 @@ class NodeLink;
 class NodeLinkMemory : public mem::RefCounted {
  public:
   NodeLinkMemory(NodeLinkMemory&&);
+
+  mem::MpscQueue<FragmentDescriptor>& incoming_message_fragments() {
+    return incoming_message_fragments_;
+  }
+
+  mem::MpscQueue<FragmentDescriptor> outgoing_message_fragments() {
+    return outgoing_message_fragments_;
+  }
 
   static mem::Ref<NodeLinkMemory> Allocate(mem::Ref<Node> node,
                                            size_t num_initial_portals,
@@ -159,6 +168,11 @@ class NodeLinkMemory : public mem::RefCounted {
   // throughout the lifetime of the NodeLinkMemory.
   absl::flat_hash_map<uint32_t, std::unique_ptr<FragmentAllocator>>
       fragment_allocators_ ABSL_GUARDED_BY(mutex_);
+
+  // Message queues mapped from this NodeLinkMemory's primary buffer. These are
+  // used as a lightweight medium to convey small data-only messages.
+  mem::MpscQueue<FragmentDescriptor> incoming_message_fragments_;
+  mem::MpscQueue<FragmentDescriptor> outgoing_message_fragments_;
 
   // Callbacks to invoke when a pending capacity request is fulfilled for a
   // specific fragment size.

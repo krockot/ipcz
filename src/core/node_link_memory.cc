@@ -13,6 +13,7 @@
 #include "core/router_link_state.h"
 #include "ipcz/ipcz.h"
 #include "mem/block_allocator.h"
+#include "mem/mpsc_queue.h"
 #include "third_party/abseil-cpp/absl/numeric/bits.h"
 
 namespace ipcz {
@@ -55,17 +56,27 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
   PrimaryBufferHeader header;
   uint8_t reserved_header_padding[kPrimaryBufferHeaderPaddingSize];
   InitialRouterLinkStateArray initial_link_states;
-  std::array<uint8_t, 31744> allocator_memory_for_64_byte_fragments;
-  std::array<uint8_t, 32768> allocator_memory_for_256_byte_fragments;
+  std::array<uint8_t, 2048> mem_for_a_to_b_message_queue;
+  std::array<uint8_t, 2048> mem_for_b_to_a_message_queue;
+  std::array<uint8_t, 27648> mem_for_64_byte_fragments;
+  std::array<uint8_t, 32768> mem_for_256_byte_fragments;
+
+  mem::MpscQueue<FragmentDescriptor> a_to_b_message_queue() {
+    return mem::MpscQueue<FragmentDescriptor>(
+        absl::MakeSpan(mem_for_a_to_b_message_queue));
+  }
+
+  mem::MpscQueue<FragmentDescriptor> b_to_a_message_queue() {
+    return mem::MpscQueue<FragmentDescriptor>(
+        absl::MakeSpan(mem_for_b_to_a_message_queue));
+  }
 
   mem::BlockAllocator block_allocator_64() {
-    return mem::BlockAllocator(
-        absl::MakeSpan(allocator_memory_for_64_byte_fragments), 64);
+    return mem::BlockAllocator(absl::MakeSpan(mem_for_64_byte_fragments), 64);
   }
 
   mem::BlockAllocator block_allocator_256() {
-    return mem::BlockAllocator(
-        absl::MakeSpan(allocator_memory_for_256_byte_fragments), 256);
+    return mem::BlockAllocator(absl::MakeSpan(mem_for_256_byte_fragments), 256);
   }
 };
 
@@ -106,6 +117,8 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   primary_buffer.header.next_buffer_id = 1;
   primary_buffer.header.next_router_link_state_index = num_initial_portals;
 
+  primary_buffer.a_to_b_message_queue().InitializeRegion();
+  primary_buffer.b_to_a_message_queue().InitializeRegion();
   primary_buffer.block_allocator_64().InitializeRegion();
   primary_buffer.block_allocator_256().InitializeRegion();
   return memory;
@@ -122,6 +135,17 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Adopt(
 void NodeLinkMemory::SetNodeLink(mem::Ref<NodeLink> node_link) {
   absl::MutexLock lock(&mutex_);
   node_link_ = std::move(node_link);
+  if (!node_link_) {
+    return;
+  }
+
+  if (node_link_->link_side().is_side_a()) {
+    incoming_message_fragments_ = primary_buffer().b_to_a_message_queue();
+    outgoing_message_fragments_ = primary_buffer().a_to_b_message_queue();
+  } else {
+    incoming_message_fragments_ = primary_buffer().a_to_b_message_queue();
+    outgoing_message_fragments_ = primary_buffer().b_to_a_message_queue();
+  }
 }
 
 Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
