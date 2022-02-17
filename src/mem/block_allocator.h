@@ -19,7 +19,7 @@ namespace mem {
 //
 // This is a thread-safe, lock-free implementation which doesn't store heap
 // pointers within the managed region. Multiple BlockAllocators may therefore
-// manage the same region of memory for the same block size, across different
+// manage the same region of memory for the same block size across different
 // threads or processes.
 class BlockAllocator {
  public:

@@ -38,6 +38,7 @@ TEST_F(BlockAllocatorTest, Basic) {
   for (size_t i = 0; i < allocator.capacity(); ++i) {
     void* block = allocator.Alloc();
     EXPECT_TRUE(block);
+    memset(block, 0xaa, kBlockSize);
     auto result = blocks.insert(block);
     EXPECT_TRUE(result.second);
   }

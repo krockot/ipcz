@@ -19,6 +19,7 @@ namespace mem {
 
 namespace {
 
+// Structure stored at the start of each block when the block is not in use.
 struct IPCZ_ALIGN(4) BlockHeader {
   uint16_t version;
   uint16_t next;
@@ -34,23 +35,6 @@ BlockHeader MakeHeader(uint32_t version, uint32_t next) {
 
 struct IPCZ_ALIGN(8) BlockAllocator::Block {
   std::atomic<BlockHeader> header;
-  uint32_t padding;
-
-  // The first byte of data in this block. The rest of the data follows
-  // contiguously.
-  uint8_t data;
-
-  static constexpr size_t overhead() {
-    return offsetof(Block, data);
-  }
-
-  static Block& ForData(void* ptr) {
-    return *reinterpret_cast<Block*>(static_cast<uint8_t*>(ptr) - overhead());
-  }
-
-  static uint32_t GetMaxNumBlocks(size_t region_size, uint32_t block_size) {
-    return static_cast<uint32_t>(region_size) / (block_size + overhead());
-  }
 };
 
 BlockAllocator::BlockAllocator() = default;
@@ -58,7 +42,7 @@ BlockAllocator::BlockAllocator() = default;
 BlockAllocator::BlockAllocator(absl::Span<uint8_t> region, uint32_t block_size)
     : region_(region),
       block_size_(block_size),
-      num_blocks_(region.size() / (block_size + Block::overhead())) {
+      num_blocks_(static_cast<uint32_t>(region.size()) / block_size) {
   ABSL_ASSERT(block_size >= 8);
   ABSL_ASSERT(num_blocks_ > 0);
 
@@ -102,12 +86,12 @@ void* BlockAllocator::Alloc() {
       continue;
     }
 
-    return &candidate.data;
+    return &candidate;
   }
 }
 
 bool BlockAllocator::Free(void* ptr) {
-  Block& free_block = Block::ForData(ptr);
+  Block& free_block = *static_cast<Block*>(ptr);
   const uint32_t free_index = index_of(free_block);
   if (free_index == 0 || free_index >= num_blocks_) {
     return false;
