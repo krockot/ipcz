@@ -69,6 +69,39 @@ TEST_F(MpscQueueTest, Basic) {
   EXPECT_EQ(kNumElementsTotal, num_unique_values_received);
 }
 
+TEST_F(MpscQueueTest, Peek) {
+  uint8_t page[4096];
+  mem::MpscQueue<int> queue(page);
+  queue.InitializeRegion();
+
+  EXPECT_EQ(nullptr, queue.Peek());
+  ASSERT_TRUE(queue.Push(42));
+
+  ASSERT_NE(nullptr, queue.Peek());
+  EXPECT_EQ(42, *queue.Peek());
+  EXPECT_EQ(42, *queue.Peek());
+
+  int n;
+  EXPECT_TRUE(queue.Pop(n));
+  EXPECT_EQ(42, n);
+
+  EXPECT_EQ(nullptr, queue.Peek());
+  ASSERT_TRUE(queue.Push(43));
+  ASSERT_NE(nullptr, queue.Peek());
+  EXPECT_EQ(43, *queue.Peek());
+  ASSERT_TRUE(queue.Push(44));
+  ASSERT_NE(nullptr, queue.Peek());
+  EXPECT_EQ(43, *queue.Peek());
+
+  EXPECT_TRUE(queue.Pop(n));
+  EXPECT_EQ(43, n);
+  ASSERT_NE(nullptr, queue.Peek());
+  EXPECT_EQ(44, *queue.Peek());
+  EXPECT_TRUE(queue.Pop(n));
+  EXPECT_EQ(44, n);
+  EXPECT_EQ(nullptr, queue.Peek());
+}
+
 }  // namespace
 }  // namespace mem
 }  // namespace ipcz

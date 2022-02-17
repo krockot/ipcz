@@ -49,6 +49,10 @@ class MpscQueueBase {
   // MpscQueue instance.
   bool PopBytes(absl::Span<uint8_t> bytes);
 
+  // Peeks at the head of the queue, returning a pointer to the head element if
+  // there is one. Otherwise null is returned.
+  void* PeekBytes();
+
  private:
   struct Data;
 
@@ -98,6 +102,10 @@ class MpscQueue : public internal::MpscQueueBase {
     return PopBytes(
         absl::MakeSpan(reinterpret_cast<uint8_t*>(&value), sizeof(value)));
   }
+
+  // Peeks at the head of the queue, returning a pointer to the frontmost value
+  // if one is present. Returns null otherwise.
+  T* Peek() { return static_cast<T*>(PeekBytes()); }
 };
 
 }  // namespace mem

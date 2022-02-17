@@ -117,6 +117,15 @@ bool MpscQueueBase::PopBytes(absl::Span<uint8_t> bytes) {
   return true;
 }
 
+void* MpscQueueBase::PeekBytes() {
+  CellStatus& cell = data().cell(element_size_, head_ % num_cells_);
+  if ((cell.load(std::memory_order_relaxed) & kFullBit) == 0) {
+    return nullptr;
+  }
+
+  return &cell + 1;
+}
+
 }  // namespace internal
 }  // namespace mem
 }  // namespace ipcz
