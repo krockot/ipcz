@@ -99,9 +99,7 @@ bool MpscQueueBase::PushBytes(absl::Span<const uint8_t> bytes) {
   }
 }
 
-bool MpscQueueBase::PopBytes(absl::Span<uint8_t> bytes) {
-  ABSL_ASSERT(bytes.size() == element_size_);
-
+bool MpscQueueBase::Pop() {
   const uint32_t head_lap = head_ / num_cells_;
   CellStatus& cell = data().cell(element_size_, head_ % num_cells_);
   uint32_t status = head_lap | kFullBit;
@@ -111,7 +109,6 @@ bool MpscQueueBase::PopBytes(absl::Span<uint8_t> bytes) {
     return false;
   }
 
-  memcpy(bytes.data(), &cell + 1, bytes.size());
   head_ = (head_ + 1) % max_index_;
   cell.store((head_lap + 1) & kLapMask, std::memory_order_release);
   return true;

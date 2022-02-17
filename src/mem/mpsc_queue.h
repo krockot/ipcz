@@ -32,22 +32,21 @@ class MpscQueueBase {
   // the region first.
   void InitializeRegion();
 
+  // Pops a single element off of the queue. Returns true on success or false if
+  // there was no element available to pop.
+  //
+  // Note that while many MpscQueue instances may operate on the same underlying
+  // region, only one may call consume elements through Pop(). Consumer state is
+  // NOT held in the underlying memory region but is local to this MpscQueue
+  // instance.
+  bool Pop();
+
  protected:
   // Pushes data into the queue. The size of `data` must be exactly the same
   // `element_size` with which this queue was constructed (and with which the
   // underlying region was initialized). Returns true on success or false if
   // there was not enough space in the queue.
   bool PushBytes(absl::Span<const uint8_t> bytes);
-
-  // Pops a single element off of the queue and into `data`. `data` must be
-  // exactly as large as this queue's element size. Returns true on success or
-  // false if there was no element available to pop.
-  //
-  // Note that while many MpscQueue instances may operate on the same underlying
-  // region, only one may call consume elements through PopData(). Consumer
-  // state is NOT held in the underlying memory region but is local to this
-  // MpscQueue instance.
-  bool PopBytes(absl::Span<uint8_t> bytes);
 
   // Peeks at the head of the queue, returning a pointer to the head element if
   // there is one. Otherwise null is returned.
@@ -93,14 +92,6 @@ class MpscQueue : public internal::MpscQueueBase {
   bool Push(const T& value) {
     return PushBytes(absl::MakeSpan(reinterpret_cast<const uint8_t*>(&value),
                                     sizeof(value)));
-  }
-
-  // Pops a new value from the queue if one is available, returning true on
-  // success and copying the value into `value`. If nothing is available to pop,
-  // `value` is unmodified and this returns false.
-  bool Pop(T& value) {
-    return PopBytes(
-        absl::MakeSpan(reinterpret_cast<uint8_t*>(&value), sizeof(value)));
   }
 
   // Peeks at the head of the queue, returning a pointer to the frontmost value

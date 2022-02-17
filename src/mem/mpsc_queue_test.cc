@@ -47,8 +47,10 @@ TEST_F(MpscQueueTest, Basic) {
 
   std::vector<size_t> elements(kNumElementsTotal);
   for (size_t& element : elements) {
-    while (!queue.Pop(element))
+    while (!queue.Peek())
       ;
+    element = *queue.Peek();
+    queue.Pop();
   }
 
   for (auto& thread : producers) {
@@ -81,9 +83,7 @@ TEST_F(MpscQueueTest, Peek) {
   EXPECT_EQ(42, *queue.Peek());
   EXPECT_EQ(42, *queue.Peek());
 
-  int n;
-  EXPECT_TRUE(queue.Pop(n));
-  EXPECT_EQ(42, n);
+  EXPECT_TRUE(queue.Pop());
 
   EXPECT_EQ(nullptr, queue.Peek());
   ASSERT_TRUE(queue.Push(43));
@@ -93,12 +93,10 @@ TEST_F(MpscQueueTest, Peek) {
   ASSERT_NE(nullptr, queue.Peek());
   EXPECT_EQ(43, *queue.Peek());
 
-  EXPECT_TRUE(queue.Pop(n));
-  EXPECT_EQ(43, n);
+  EXPECT_TRUE(queue.Pop());
   ASSERT_NE(nullptr, queue.Peek());
   EXPECT_EQ(44, *queue.Peek());
-  EXPECT_TRUE(queue.Pop(n));
-  EXPECT_EQ(44, n);
+  EXPECT_TRUE(queue.Pop());
   EXPECT_EQ(nullptr, queue.Peek());
 }
 
