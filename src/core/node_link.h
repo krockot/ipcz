@@ -226,6 +226,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
   bool OnFlushLink(const msg::FlushLink& flush);
 
+  IpczResult DispatchMessage(const DriverTransport::Message& message);
+
   const mem::Ref<Node> node_;
   const LinkSide link_side_;
   const NodeName local_node_name_;

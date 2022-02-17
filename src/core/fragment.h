@@ -10,6 +10,7 @@
 
 #include "core/buffer_id.h"
 #include "core/fragment_descriptor.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 namespace core {
@@ -38,6 +39,14 @@ struct Fragment {
   const FragmentDescriptor& descriptor() const { return descriptor_; }
 
   void* address() const { return address_; }
+
+  absl::Span<uint8_t> mutable_bytes() {
+    return {static_cast<uint8_t*>(address_), descriptor_.size()};
+  }
+
+  absl::Span<const uint8_t> bytes() const {
+    return {static_cast<const uint8_t*>(address_), descriptor_.size()};
+  }
 
   std::string ToString() const;
 

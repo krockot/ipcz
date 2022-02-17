@@ -112,7 +112,6 @@ source_set("core") {
     "core/message_macros/message_dispatch_macros.h",
     "core/message_macros/message_params_declaration_macros.h",
     "core/message_macros/message_params_definition_macros.h",
-    "core/message_macros/message_reply_dispatch_macros.h",
     "core/message_macros/undef_message_macros.h",
     "core/node.cc",
     "core/node.h",

@@ -273,23 +273,7 @@ void NodeLink::TransmitMessage(internal::MessageBase& message) {
 
 IpczResult NodeLink::OnTransportMessage(
     const DriverTransport::Message& message) {
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-
-  switch (header.message_id) {
-// clang-format off
-#include "core/message_macros/message_dispatch_macros.h"
-#include "core/node_message_defs.h"
-#include "core/message_macros/undef_message_macros.h"
-      // clang-format on
-
-    default:
-      DLOG(WARNING) << "Ignoring unknown transport message with ID "
-                    << static_cast<int>(header.message_id);
-      break;
-  }
-
-  return IPCZ_RESULT_OK;
+  return DispatchMessage(message);
 }
 
 void NodeLink::OnTransportError() {}
@@ -636,8 +620,29 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
 }
 
 bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
-  // TODO
+  // No-op: this message is only sent to elicit a transport notification, which
+  // it's already done.
   return true;
+}
+
+IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
+
+  switch (header.message_id) {
+// clang-format off
+#include "core/message_macros/message_dispatch_macros.h"
+#include "core/node_message_defs.h"
+#include "core/message_macros/undef_message_macros.h"
+      // clang-format on
+
+    default:
+      DLOG(WARNING) << "Ignoring unknown transport message with ID "
+                    << static_cast<int>(header.message_id);
+      break;
+  }
+
+  return IPCZ_RESULT_OK;
 }
 
 NodeLink::Sublink::Sublink(mem::Ref<RemoteRouterLink> router_link,
