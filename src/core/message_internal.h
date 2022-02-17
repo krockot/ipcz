@@ -44,7 +44,7 @@ struct IPCZ_ALIGN(8) MessageHeader {
   // Used for sequencing messages along a NodeLink to preserve end-to-end
   // ordering, as NodeLink messages may be transmitted either across a driver
   // transport or queues in shared memory.
-  uint64_t sequence_number;
+  uint64_t transport_sequence_number;
 };
 static_assert(sizeof(MessageHeader) == 16, "Unexpected size");
 

@@ -7,8 +7,11 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
+#include "core/fragment.h"
+#include "core/fragment_descriptor.h"
 #include "core/node.h"
 #include "core/node_messages.h"
 #include "core/portal.h"
@@ -265,15 +268,57 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
 }
 
 void NodeLink::TransmitMessage(internal::MessageBase& message) {
-  message.header().sequence_number =
-      next_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+  size_t small_size_class = 0;
+  if (message.data_view().size() <= 64) {
+    small_size_class = 64;
+  } else if (message.data_view().size() <= 256) {
+    small_size_class = 256;
+  }
+
+  if (small_size_class && message.handles_view().empty()) {
+    // For messages which are small with no handles, prefer transmission through
+    // shared memory.
+    Fragment fragment = memory().AllocateFragment(small_size_class);
+    if (!fragment.is_null()) {
+      message.header().transport_sequence_number =
+          transport_sequence_number_.load(std::memory_order_relaxed);
+      memcpy(fragment.address(), message.data_view().data(),
+             message.data_view().size());
+      if (memory().outgoing_message_fragments().Push(fragment.descriptor())) {
+        // TODO: This is lazy. Don't flush after every message.
+        msg::FlushLink flush;
+        flush.header().transport_sequence_number =
+            transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+        transport_->TransmitMessage(
+            DriverTransport::Message(DriverTransport::Data(flush.data_view())));
+        return;
+      }
+    }
+  }
+
+  message.header().transport_sequence_number =
+      transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
   transport_->TransmitMessage(DriverTransport::Message(
       DriverTransport::Data(message.data_view()), message.handles_view()));
 }
 
 IpczResult NodeLink::OnTransportMessage(
     const DriverTransport::Message& message) {
-  return DispatchMessage(message);
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
+  const uint64_t sequence_number = header.transport_sequence_number;
+
+  IpczResult result = FlushSharedMemoryMessages(sequence_number);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  result = DispatchMessage(message);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  return FlushSharedMemoryMessages(sequence_number + 1);
 }
 
 void NodeLink::OnTransportError() {}
@@ -623,6 +668,45 @@ bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
   // No-op: this message is only sent to elicit a transport notification, which
   // it's already done.
   return true;
+}
+
+IpczResult NodeLink::FlushSharedMemoryMessages(uint64_t max_sequence_number) {
+  mem::MpscQueue<FragmentDescriptor>& fragments =
+      memory().incoming_message_fragments();
+  for (;;) {
+    FragmentDescriptor* descriptor = fragments.Peek();
+    if (!descriptor) {
+      // No messages in shared memory.
+      return IPCZ_RESULT_OK;
+    }
+
+    Fragment fragment = memory().GetFragment(*descriptor);
+    if (fragment.is_pending()) {
+      // The message queue is non-empty, but the head of the queue is a fragment
+      // whose buffer is not yet mapped by this node. In such cases there must
+      // already be a transport message in flight to register the buffer with
+      // this node, so the queue can be unblocked once that arrives.
+      return IPCZ_RESULT_OK;
+    }
+
+    if (fragment.size() < sizeof(internal::MessageHeader)) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    auto& header = *static_cast<internal::MessageHeader*>(fragment.address());
+    if (header.transport_sequence_number > max_sequence_number) {
+      // This is fine, but we're not ready to dispatch this message yet.
+      return IPCZ_RESULT_OK;
+    }
+
+    IpczResult result =
+        DispatchMessage(DriverTransport::Message(fragment.bytes()));
+    if (result != IPCZ_RESULT_OK) {
+      return result;
+    }
+
+    fragments.Pop();
+  }
 }
 
 IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {

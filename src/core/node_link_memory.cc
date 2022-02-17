@@ -105,7 +105,6 @@ mem::Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
     mem::Ref<Node> node,
     size_t num_initial_portals,
     DriverMemory& primary_buffer_memory) {
-  static_assert(sizeof(PrimaryBuffer) == 65536, "Invalid PrimaryBuffer size");
   primary_buffer_memory = DriverMemory(node->driver(), sizeof(PrimaryBuffer));
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
 
@@ -274,13 +273,13 @@ void NodeLinkMemory::RequestFragmentCapacity(
                                        block_allocator);
         }
 
-        for (auto& callback : callbacks) {
-          callback();
-        }
-
         if (link) {
           link->AddFragmentAllocatorBuffer(new_buffer_id, fragment_size,
                                            std::move(memory));
+        }
+
+        for (auto& callback : callbacks) {
+          callback();
         }
       });
 }

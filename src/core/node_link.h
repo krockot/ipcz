@@ -226,6 +226,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
   bool OnFlushLink(const msg::FlushLink& flush);
 
+  IpczResult FlushSharedMemoryMessages(uint64_t max_sequence_number);
   IpczResult DispatchMessage(const DriverTransport::Message& message);
 
   const mem::Ref<Node> node_;
@@ -244,7 +245,13 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // transport OR some shared memory queue. Each message is assigned a sequence
   // number to ensure that the receiving node can process them in the intended
   // order. This atomic generates those sequence numbers.
-  std::atomic<uint64_t> next_sequence_number_{0};
+  //
+  // Note that this is only incremented for new messages going over the driver
+  // transport. Shared memory messages use the sequence number of the most
+  // recently transmitted transport message; this is because we're only
+  // concerned with preserving ordering where ordering might matter: between
+  // a transport and shared memory message sent from the same thread.
+  std::atomic<uint64_t> transport_sequence_number_{0};
 
   using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
   SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);
