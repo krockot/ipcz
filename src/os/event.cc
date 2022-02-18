@@ -119,6 +119,7 @@ void Event::Wait() {
   ABSL_ASSERT(result == 8 || (result == -1 && errno == EAGAIN));
 #elif defined(OS_WIN)
   ::WaitForSingleObject(handle_.handle(), INFINITE);
+  ::ResetEvent(handle_.handle());
 #else
 #error "Missing Event impl for this platform.";
 #endif
