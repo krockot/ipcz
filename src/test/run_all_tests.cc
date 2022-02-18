@@ -39,15 +39,15 @@ class CommandLine {
 
       std::vector<std::string> v =
           absl::StrSplit(argv[i] + 2, '=', absl::SkipEmpty());
-      if (v.size() == 0) {
+      if (v.empty()) {
         continue;
       }
 
       if (v.size() == 1) {
         args_[v[0]] = "";
+      } else {
+        args_[v[0]] = v[1];
       }
-
-      args_[v[0]] = v[1];
     }
   }
 
@@ -81,13 +81,12 @@ class CommandLine {
 };
 
 int main(int argc, char** argv) {
-  CommandLine command_line(argc, argv);
-
 #ifndef NDEBUG
   ipcz::debug::StackTrace::EnableStackTraceSymbolization(argv[0]);
 #endif
 
   testing::InitGoogleTest(&argc, argv);
+  CommandLine command_line(argc, argv);
 
   ipcz::standalone::SetVerbosityLevel(
       command_line.GetNumericFlag<int>("verbosity"));

@@ -4,7 +4,6 @@
 
 #include "test/test_client.h"
 
-#include <cstdio>
 #include <cstring>
 #include <sstream>
 #include <tuple>
@@ -102,14 +101,11 @@ TestClient::TestClient(const char* entry_point) {
 
   if (pid == 0) {
     // Child.
-    char handle_string[32];
     int client_fd = client_channel.TakeHandle().ReleaseFD();
-    int result = snprintf(handle_string, 32, "%d", client_fd);
-    ABSL_ASSERT(result < 32);
 
     // Close any open descriptors except stdio and our channel.
     rlimit limit;
-    result = getrlimit(RLIMIT_NOFILE, &limit);
+    int result = getrlimit(RLIMIT_NOFILE, &limit);
     ABSL_ASSERT(result == 0);
     for (unsigned int fd = STDERR_FILENO + 1; fd < limit.rlim_cur; ++fd) {
       if (static_cast<int>(fd) != client_fd) {
@@ -117,9 +113,15 @@ TestClient::TestClient(const char* entry_point) {
       }
     }
 
-    result = execl(g_current_program, g_current_program, "--run_test_client",
-                   entry_point, "--client_channel_handle", &handle_string[0],
-                   nullptr);
+    std::stringstream client_arg_stream;
+    client_arg_stream << "--run_test_client=" << entry_point;
+    std::string client_arg = client_arg_stream.str();
+
+    std::stringstream handle_arg_stream;
+    handle_arg_stream << "--client_channel_handle=" << client_fd;
+    std::string handle_arg = handle_arg_stream.str();
+    result = execl(g_current_program, g_current_program, client_arg.c_str(),
+                   handle_arg.c_str(), nullptr);
     perror("failed to launch test client: ");
     ABSL_ASSERT(result == 0);
     return;
