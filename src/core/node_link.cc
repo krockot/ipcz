@@ -382,7 +382,8 @@ bool NodeLink::OnRequestIndirectBrokerConnection(
   os::Process new_node_process;
 #if defined(OS_WIN) || defined(OS_FUCHSIA)
   if (process_handles.size() == 1) {
-    new_node_process = os::Process(process_handles[0].release());
+    new_node_process = os::Process(process_handles[0].handle());
+    process_handles[0].release();
   }
 #endif
 

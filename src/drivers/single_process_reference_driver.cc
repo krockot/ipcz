@@ -17,9 +17,9 @@
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
-#define CDECL __cdecl
+#define IPCZ_CDECL __cdecl
 #else
-#define CDECL
+#define IPCZ_CDECL
 #endif
 
 namespace ipcz {
@@ -193,11 +193,11 @@ class InProcessMemory : public mem::RefCounted {
   const std::unique_ptr<uint8_t[]> data_;
 };
 
-IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
-                                  uint32_t flags,
-                                  const void* options,
-                                  IpczDriverHandle* first_transport,
-                                  IpczDriverHandle* second_transport) {
+IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
+                                       uint32_t flags,
+                                       const void* options,
+                                       IpczDriverHandle* first_transport,
+                                       IpczDriverHandle* second_transport) {
   auto first = mem::MakeRefCounted<InProcessTransport>();
   auto second = mem::MakeRefCounted<InProcessTransport>();
   first->SetPeer(second);
@@ -207,9 +207,9 @@ IpczResult CDECL CreateTransports(IpczDriverHandle driver_node,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL DestroyTransport(IpczDriverHandle driver_transport,
-                                  uint32_t flags,
-                                  const void* options) {
+IpczResult IPCZ_CDECL DestroyTransport(IpczDriverHandle driver_transport,
+                                       uint32_t flags,
+                                       const void* options) {
   mem::Ref<InProcessTransport> transport(
       mem::RefCounted::kAdoptExistingRef,
       ToPtr<InProcessTransport>(driver_transport));
@@ -217,13 +217,13 @@ IpczResult CDECL DestroyTransport(IpczDriverHandle driver_transport,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL SerializeTransport(IpczDriverHandle driver_transport,
-                                    uint32_t flags,
-                                    const void* options,
-                                    uint8_t* data,
-                                    uint32_t* num_bytes,
-                                    struct IpczOSHandle* os_handles,
-                                    uint32_t* num_os_handles) {
+IpczResult IPCZ_CDECL SerializeTransport(IpczDriverHandle driver_transport,
+                                         uint32_t flags,
+                                         const void* options,
+                                         uint8_t* data,
+                                         uint32_t* num_bytes,
+                                         struct IpczOSHandle* os_handles,
+                                         uint32_t* num_os_handles) {
   const bool need_more_space = *num_bytes < sizeof(driver_transport);
   *num_bytes = sizeof(driver_transport);
   *num_os_handles = 0;
@@ -235,7 +235,7 @@ IpczResult CDECL SerializeTransport(IpczDriverHandle driver_transport,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL
+IpczResult IPCZ_CDECL
 DeserializeTransport(IpczDriverHandle driver_node,
                      const uint8_t* data,
                      uint32_t num_bytes,
@@ -251,67 +251,68 @@ DeserializeTransport(IpczDriverHandle driver_node,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL ActivateTransport(IpczDriverHandle driver_transport,
-                                   IpczHandle transport,
-                                   IpczTransportActivityHandler handler,
-                                   uint32_t flags,
-                                   const void* options) {
+IpczResult IPCZ_CDECL ActivateTransport(IpczDriverHandle driver_transport,
+                                        IpczHandle transport,
+                                        IpczTransportActivityHandler handler,
+                                        uint32_t flags,
+                                        const void* options) {
   return ToRef<InProcessTransport>(driver_transport)
       .Activate(transport, handler);
 }
 
-IpczResult CDECL DeactivateTransport(IpczDriverHandle driver_transport,
-                                     uint32_t flags,
-                                     const void* options) {
+IpczResult IPCZ_CDECL DeactivateTransport(IpczDriverHandle driver_transport,
+                                          uint32_t flags,
+                                          const void* options) {
   ToRef<InProcessTransport>(driver_transport).Deactivate();
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL Transmit(IpczDriverHandle driver_transport,
-                          const uint8_t* data,
-                          uint32_t num_bytes,
-                          const struct IpczOSHandle* os_handles,
-                          uint32_t num_os_handles,
-                          uint32_t flags,
-                          const void* options) {
+IpczResult IPCZ_CDECL Transmit(IpczDriverHandle driver_transport,
+                               const uint8_t* data,
+                               uint32_t num_bytes,
+                               const struct IpczOSHandle* os_handles,
+                               uint32_t num_os_handles,
+                               uint32_t flags,
+                               const void* options) {
   return ToRef<InProcessTransport>(driver_transport)
       .Transmit(absl::Span<const uint8_t>(data, num_bytes),
                 absl::Span<const IpczOSHandle>(os_handles, num_os_handles));
 }
 
-IpczResult CDECL AllocateSharedMemory(uint32_t num_bytes,
-                                      uint32_t flags,
-                                      const void* options,
-                                      IpczDriverHandle* driver_memory) {
+IpczResult IPCZ_CDECL AllocateSharedMemory(uint32_t num_bytes,
+                                           uint32_t flags,
+                                           const void* options,
+                                           IpczDriverHandle* driver_memory) {
   auto memory = mem::MakeRefCounted<InProcessMemory>(num_bytes);
   *driver_memory = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL DuplicateSharedMemory(IpczDriverHandle driver_memory,
-                                       uint32_t flags,
-                                       const void* options,
-                                       IpczDriverHandle* new_driver_memory) {
+IpczResult IPCZ_CDECL
+DuplicateSharedMemory(IpczDriverHandle driver_memory,
+                      uint32_t flags,
+                      const void* options,
+                      IpczDriverHandle* new_driver_memory) {
   mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
   *new_driver_memory = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL ReleaseSharedMemory(IpczDriverHandle driver_memory,
-                                     uint32_t flags,
-                                     const void* options) {
+IpczResult IPCZ_CDECL ReleaseSharedMemory(IpczDriverHandle driver_memory,
+                                          uint32_t flags,
+                                          const void* options) {
   mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
                                    ToPtr<InProcessMemory>(driver_memory));
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
-                                       uint32_t flags,
-                                       const void* options,
-                                       uint8_t* data,
-                                       uint32_t* num_bytes,
-                                       struct IpczOSHandle* os_handles,
-                                       uint32_t* num_os_handles) {
+IpczResult IPCZ_CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
+                                            uint32_t flags,
+                                            const void* options,
+                                            uint8_t* data,
+                                            uint32_t* num_bytes,
+                                            struct IpczOSHandle* os_handles,
+                                            uint32_t* num_os_handles) {
   const bool need_more_space = *num_bytes < sizeof(void*);
   *num_bytes = sizeof(void*);
   *num_os_handles = 0;
@@ -324,14 +325,14 @@ IpczResult CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL DeserializeSharedMemory(const uint8_t* data,
-                                         uint32_t num_bytes,
-                                         const IpczOSHandle* os_handles,
-                                         uint32_t num_os_handles,
-                                         uint32_t flags,
-                                         const void* options,
-                                         uint32_t* region_size,
-                                         IpczDriverHandle* driver_memory) {
+IpczResult IPCZ_CDECL DeserializeSharedMemory(const uint8_t* data,
+                                              uint32_t num_bytes,
+                                              const IpczOSHandle* os_handles,
+                                              uint32_t num_os_handles,
+                                              uint32_t flags,
+                                              const void* options,
+                                              uint32_t* region_size,
+                                              IpczDriverHandle* driver_memory) {
   if (num_bytes != sizeof(void*) || num_os_handles != 0 || !region_size) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -343,20 +344,20 @@ IpczResult CDECL DeserializeSharedMemory(const uint8_t* data,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL MapSharedMemory(IpczDriverHandle driver_memory,
-                                 uint32_t flags,
-                                 const void* options,
-                                 void** address,
-                                 IpczDriverHandle* driver_mapping) {
+IpczResult IPCZ_CDECL MapSharedMemory(IpczDriverHandle driver_memory,
+                                      uint32_t flags,
+                                      const void* options,
+                                      void** address,
+                                      IpczDriverHandle* driver_mapping) {
   mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
   *address = memory->address();
   *driver_mapping = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
 
-IpczResult CDECL UnmapSharedMemory(IpczDriverHandle driver_mapping,
-                                   uint32_t flags,
-                                   const void* options) {
+IpczResult IPCZ_CDECL UnmapSharedMemory(IpczDriverHandle driver_mapping,
+                                        uint32_t flags,
+                                        const void* options) {
   mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
                                    ToPtr<InProcessMemory>(driver_mapping));
   return IPCZ_RESULT_OK;

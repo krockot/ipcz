@@ -12,6 +12,10 @@
 #include <unistd.h>
 #endif
 
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
+
 namespace ipcz {
 namespace os {
 
@@ -48,6 +52,8 @@ void Event::Notifier::Notify() {
     ABSL_ASSERT(errno == EAGAIN);
     return;
   }
+#elif defined(OS_WIN)
+  ::SetEvent(handle_.handle());
 #else
 #error "Missing Event impl for this platform.";
 #endif
@@ -62,6 +68,10 @@ Event::Event() {
   int fd = eventfd(0, EFD_NONBLOCK);
   ABSL_ASSERT(fd >= 0);
   handle_ = Handle(fd);
+#elif defined(OS_WIN)
+  HANDLE h = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
+  ABSL_ASSERT(h != INVALID_HANDLE_VALUE);
+  handle_ = Handle(h);
 #else
 #error "Missing Event impl for this platform.";
 #endif
@@ -82,7 +92,7 @@ Handle Event::TakeHandle() {
 Event::Notifier Event::MakeNotifier() {
   ABSL_ASSERT(is_valid());
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) || defined(OS_WIN)
   return Notifier(handle_.Clone());
 #else
 #error "Missing Event impl for this platform.";
@@ -107,6 +117,8 @@ void Event::Wait() {
   } while (result == -1 && errno == EINTR);
 
   ABSL_ASSERT(result == 8 || (result == -1 && errno == EAGAIN));
+#elif defined(OS_WIN)
+  ::WaitForSingleObject(handle_.handle(), INFINITE);
 #else
 #error "Missing Event impl for this platform.";
 #endif

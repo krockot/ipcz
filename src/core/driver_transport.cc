@@ -16,9 +16,9 @@
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
-#define CDECL __cdecl
+#define IPCZ_CDECL __cdecl
 #else
-#define CDECL
+#define IPCZ_CDECL
 #endif
 
 namespace ipcz {
@@ -26,13 +26,13 @@ namespace core {
 
 namespace {
 
-IpczResult CDECL NotifyTransport(IpczHandle transport,
-                                 const uint8_t* data,
-                                 uint32_t num_bytes,
-                                 const struct IpczOSHandle* os_handles,
-                                 uint32_t num_os_handles,
-                                 IpczTransportActivityFlags flags,
-                                 const void* options) {
+IpczResult IPCZ_CDECL NotifyTransport(IpczHandle transport,
+                                      const uint8_t* data,
+                                      uint32_t num_bytes,
+                                      const struct IpczOSHandle* os_handles,
+                                      uint32_t num_os_handles,
+                                      IpczTransportActivityFlags flags,
+                                      const void* options) {
   if (transport == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }

@@ -28,6 +28,13 @@
   DLOG_IF(INFO, ::ipcz::standalone::GetVerbosityLevel() >= verbosity)
 #endif
 
+#if defined(OS_WIN)
+#ifndef ERROR
+#define ERROR 0
+#endif
+#define kLevel_0 kLevel_ERROR
+#endif
+
 namespace ipcz {
 namespace standalone {
 

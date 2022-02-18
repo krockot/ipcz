@@ -259,8 +259,6 @@ test("ipcz_tests") {
     ":ipcz",
     "//testing/gtest",
     "//third_party/abseil-cpp:absl",
-    "//third_party/abseil-cpp/absl/flags:flag",
-    "//third_party/abseil-cpp/absl/flags:parse",
   ]
 
   configs += [ ":ipcz_include_src_dir" ]

@@ -25,7 +25,7 @@ namespace os {
 // Platform-specific, unscoped raw process handle types and constants.
 #if defined(OS_WIN)
 using ProcessHandle = HANDLE;
-using ProcessID = DWORD;
+using ProcessId = DWORD;
 const ProcessHandle kNullProcessHandle = NULL;
 const ProcessId kNullProcessId = 0;
 #elif defined(OS_FUCHSIA)

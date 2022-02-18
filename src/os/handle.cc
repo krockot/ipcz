@@ -52,7 +52,7 @@ Handle::Handle(int fd) : type_(Type::kFileDescriptor), fd_(fd) {}
 #endif
 
 Handle::Handle(Handle&& other) : type_(other.type_) {
-#if defined(OS_WINDOWS) || defined(OS_FUCHSIA)
+#if defined(OS_WIN) || defined(OS_FUCHSIA)
   handle_ = std::move(other.handle_);
 #elif defined(OS_MAC)
   mach_send_right_ = other.mach_send_right_;
@@ -70,7 +70,7 @@ Handle& Handle::operator=(Handle&& other) {
   reset();
   type_ = other.type_;
 
-#if defined(OS_WINDOWS) || defined(OS_FUCHSIA)
+#if defined(OS_WIN) || defined(OS_FUCHSIA)
   handle_ = std::move(other.handle_);
 #elif defined(OS_MAC)
   mach_send_right_ = other.mach_send_right_;
@@ -179,7 +179,7 @@ void Handle::reset() {
     case Type::kInvalid:
       return;
 
-#if defined(OS_WINDOWS)
+#if defined(OS_WIN)
     case Type::kHandle:
       ::CloseHandle(handle_);
       return;
@@ -231,7 +231,7 @@ Handle Handle::Clone() const {
     case Type::kInvalid:
       return Handle();
 
-#if defined(OS_WINDOWS)
+#if defined(OS_WIN)
     case Type::kHandle: {
       ABSL_ASSERT(handle_ != INVALID_HANDLE_VALUE);
 
@@ -240,7 +240,7 @@ Handle Handle::Clone() const {
                                       ::GetCurrentProcess(), &dupe, 0, FALSE,
                                       DUPLICATE_SAME_ACCESS);
       if (!result) {
-        reutrn Handle();
+        return Handle();
       }
 
       ABSL_ASSERT(dupe != INVALID_HANDLE_VALUE);

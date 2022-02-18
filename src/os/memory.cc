@@ -14,6 +14,10 @@
 #include <unistd.h>
 #endif
 
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
+
 namespace ipcz {
 namespace os {
 
@@ -48,6 +52,8 @@ void Memory::Mapping::Reset() {
     munmap(base_address_, size_);
     base_address_ = nullptr;
     size_ = 0;
+#elif defined(OS_WIN)
+    ::UnmapViewOfFile(base_address_);
 #endif
   }
 }
@@ -70,6 +76,18 @@ Memory::Memory(size_t size) {
 
   handle_ = Handle(fd);
   size_ = size;
+#elif defined(OS_WIN)
+  HANDLE h = ::CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+                                 0, static_cast<DWORD>(size), nullptr);
+  const HANDLE process = ::GetCurrentProcess();
+  HANDLE h2;
+  BOOL ok = ::DuplicateHandle(process, h, process, &h2,
+                              FILE_MAP_READ | FILE_MAP_WRITE, FALSE, 0);
+  ::CloseHandle(h);
+  ABSL_ASSERT(ok);
+
+  handle_ = Handle(h2);
+  size_ = size;
 #endif
 }
 
@@ -89,6 +107,11 @@ Memory::Mapping Memory::Map() {
   void* addr =
       mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, handle_.fd(), 0);
   ABSL_ASSERT(addr && addr != MAP_FAILED);
+  return Mapping(addr, size_);
+#elif defined(OS_WIN)
+  void* addr = ::MapViewOfFile(handle_.handle(), FILE_MAP_READ | FILE_MAP_WRITE,
+                               0, 0, size_);
+  ABSL_ASSERT(addr);
   return Mapping(addr, size_);
 #endif
 }

@@ -91,7 +91,7 @@ bool Process::ToIpczOSProcessHandle(Process process, IpczOSProcessHandle& out) {
 // static
 Process Process::GetCurrent() {
 #if defined(OS_WIN)
-  return Process(::GetCurrentProcess);
+  return Process(::GetCurrentProcess());
 #elif defined(OS_FUCHSIA)
   return Process(zx_process_self());
 #elif defined(OS_POSIX)
@@ -121,9 +121,10 @@ Process Process::Clone() const {
     clone.is_current_process_ = true;
   }
   if (handle_ != INVALID_HANDLE_VALUE) {
-    BOOL result = ::DuplicateHandle(::GetCurrentProcess(), &handle_,
-                                    ::GetCurrentProcess(), &clone.handle_, 0,
-                                    FALSE, DUPLICATE_SAME_ACCESS);
+    HANDLE h = handle_;
+    BOOL result =
+        ::DuplicateHandle(::GetCurrentProcess(), &h, ::GetCurrentProcess(),
+                          &clone.handle_, 0, FALSE, DUPLICATE_SAME_ACCESS);
     if (!result) {
       return {};
     }

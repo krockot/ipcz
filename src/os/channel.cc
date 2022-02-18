@@ -7,17 +7,24 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "build/build_config.h"
 #include "debug/hex_dump.h"
 #include "debug/log.h"
+#include "util/random.h"
 
 #if defined(OS_POSIX)
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#endif
+
+#if defined(OS_WIN)
+#include <windows.h>
 #endif
 
 namespace ipcz {
@@ -27,7 +34,10 @@ namespace {
 
 // "4 kB should be enough for anyone." -- anonymous
 constexpr size_t kMaxDataSize = 4096;
+
+#if defined(OS_POSIX)
 constexpr size_t kMaxHandlesPerMessage = 64;
+#endif
 
 }  // namespace
 
@@ -91,6 +101,29 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
   }
 
   return std::make_pair(Channel(Handle(fds[0])), Channel(Handle(fds[1])));
+#elif defined(OS_WIN)
+  std::wstringstream ss;
+  ss << "\\\\.\\pipe\\ipcz." << ::GetCurrentProcessId() << "."
+     << ::GetCurrentThreadId() << "." << RandomUint64();
+  std::wstring pipe_name = ss.str();
+  DWORD kOpenMode =
+      PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE;
+  const DWORD kPipeMode = PIPE_TYPE_BYTE | PIPE_READMODE_BYTE;
+  HANDLE handle0 = ::CreateNamedPipeW(pipe_name.c_str(), kOpenMode, kPipeMode,
+                                      1, 4096, 4096, 5000, nullptr);
+  ABSL_ASSERT(handle0 != INVALID_HANDLE_VALUE);
+
+  const DWORD kDesiredAccess = GENERIC_READ | GENERIC_WRITE;
+  DWORD kFlags =
+      SECURITY_SQOS_PRESENT | SECURITY_ANONYMOUS | FILE_FLAG_OVERLAPPED;
+  SECURITY_ATTRIBUTES security_attributes = {sizeof(SECURITY_ATTRIBUTES),
+                                             nullptr, TRUE};
+  HANDLE handle1 =
+      ::CreateFileW(pipe_name.c_str(), kDesiredAccess, 0, &security_attributes,
+                    OPEN_EXISTING, kFlags, nullptr);
+  ABSL_ASSERT(handle1 != INVALID_HANDLE_VALUE);
+
+  return std::make_pair(Channel(Handle(handle0)), Channel(Handle(handle1)));
 #endif
 }
 
@@ -216,7 +249,9 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 
     return remainder;
   }
-
+#elif defined(OS_WIN)
+  // TODO(win)
+  return absl::nullopt;
 #endif
 }
 
@@ -350,6 +385,9 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
         unread_handles_ = absl::MakeSpan(handle_buffer_.data(), 0);
       }
     }
+#elif defined(OS_WIN)
+    // TODO(win)
+    (void)have_out_messages;
 #endif
   }
 }

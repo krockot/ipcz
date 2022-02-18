@@ -34,7 +34,6 @@ namespace ipcz {
 uint64_t RandomUint64() {
   uint64_t value;
 #if defined(OS_WIN)
-  char* output = reinterpret_cast<char*>(words.data());
   const bool ok = RtlGenRandom(&value, sizeof(value));
   ABSL_ASSERT(ok);
 #elif defined(OS_FUCHSIA)

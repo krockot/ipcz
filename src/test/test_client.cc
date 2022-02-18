@@ -5,6 +5,8 @@
 #include "test/test_client.h"
 
 #include <cstdio>
+#include <cstring>
+#include <sstream>
 #include <tuple>
 
 #include "build/build_config.h"
@@ -16,6 +18,10 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
+
+#if defined(OS_WIN)
+#include <windows.h>
 #endif
 
 namespace ipcz {
@@ -63,6 +69,9 @@ void TestClientSupport::RunEntryPoint(const std::string& name,
 os::Channel TestClientSupport::RecoverClientChannel(uint64_t channel_handle) {
 #if defined(OS_POSIX)
   return os::Channel(os::Handle(static_cast<int>(channel_handle)));
+#elif defined(OS_WIN)
+  return os::Channel(os::Handle(
+      reinterpret_cast<HANDLE>(static_cast<uintptr_t>(channel_handle))));
 #else
 #error "Need to implement this for the current platform."
 #endif
@@ -117,6 +126,44 @@ TestClient::TestClient(const char* entry_point) {
   }
 
   process_ = os::Process(pid);
+#elif defined(OS_WIN)
+  STARTUPINFOEXW startup_info;
+  startup_info.StartupInfo.cb = sizeof(startup_info);
+  SIZE_T size = 0;
+  ::InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
+  auto attribute_list = std::make_unique<char[]>(size);
+  auto* attrs =
+      reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attribute_list.get());
+  if (!::InitializeProcThreadAttributeList(attrs, 1, 0, &size)) {
+    return;
+  }
+  startup_info.lpAttributeList = attrs;
+
+  os::Handle handle = client_channel.TakeHandle();
+  HANDLE handle_value = handle.handle();
+  ::SetHandleInformation(handle.handle(), HANDLE_FLAG_INHERIT,
+                         HANDLE_FLAG_INHERIT);
+  ::UpdateProcThreadAttribute(attrs, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                              &handle_value, sizeof(HANDLE), nullptr, nullptr);
+
+  startup_info.StartupInfo.dwFlags =
+      STARTF_FORCEOFFFEEDBACK | STARTF_USESHOWWINDOW;
+  startup_info.StartupInfo.wShowWindow = SW_HIDE;
+
+  std::wstringstream ss;
+  ss << ::GetCommandLineW() << " --run_test_client=" << entry_point
+     << "--client_channel_handle=" << handle_value;
+  std::wstring new_cmd = ss.str();
+  std::vector<wchar_t> new_cmd_data(new_cmd.size() + 1);
+  memcpy(new_cmd_data.data(), new_cmd.data(), new_cmd.size() * sizeof(wchar_t));
+
+  PROCESS_INFORMATION process_info = {};
+  BOOL ok = ::CreateProcess(nullptr, new_cmd_data.data(), nullptr, nullptr,
+                            TRUE, 0, nullptr, nullptr,
+                            &startup_info.StartupInfo, &process_info);
+  ABSL_ASSERT(ok);
+  ::DeleteProcThreadAttributeList(attrs);
+  process_ = os::Process(process_info.hProcess);
 #else
 #error "Need to implement this for the current platform."
 #endif
@@ -143,6 +190,16 @@ int TestClient::Wait() {
   }
 
   return -1;
+#elif defined(OS_WIN)
+  if (::WaitForSingleObject(process_.handle(), INFINITE) != WAIT_OBJECT_0) {
+    return -1;
+  }
+  DWORD exit_code;
+  if (!::GetExitCodeProcess(process_.handle(), &exit_code)) {
+    return -1;
+  }
+
+  return static_cast<int>(exit_code);
 #else
 #error "Need to implement this for the current platform."
 #endif
