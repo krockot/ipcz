@@ -495,6 +495,63 @@ TEST_CLIENT_F(MultiprocessRemotePortalTest, BasicMultiprocessClient, c) {
   ClosePortals({b});
 }
 
+constexpr size_t kNumThroughputIterations = 1000;
+constexpr size_t kNumThroughputTestMessages = 50;
+
+TEST_F(MultiprocessRemotePortalTest, PingPong) {
+  test::TestClient client("PingPongClient");
+  IpczHandle a = ConnectToClient(client);
+
+  Parcel p;
+  Put(a, "hi");
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+
+  for (size_t j = 0; j < kNumThroughputIterations; ++j) {
+    for (size_t i = 0; i < kNumThroughputTestMessages; ++i) {
+      Put(a, kMultiprocessMessageFromA, {}, {});
+    }
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+    EXPECT_EQ(kMultiprocessMessageFromB, p.message);
+    for (size_t i = 1; i < kNumThroughputTestMessages; ++i) {
+      EXPECT_TRUE(DiscardNextParcel(a));
+    }
+  }
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  EXPECT_EQ(kMultiprocessMessageFromB, p.message);
+
+  ClosePortals({a});
+}
+
+TEST_CLIENT_F(MultiprocessRemotePortalTest, PingPongClient, c) {
+  IpczHandle b = ConnectToBroker(c);
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  Put(b, "hi");
+
+  for (size_t j = 0; j < kNumThroughputIterations; ++j) {
+    EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+    EXPECT_EQ(kMultiprocessMessageFromA, p.message);
+    for (size_t i = 1; i < kNumThroughputTestMessages; ++i) {
+      EXPECT_TRUE(DiscardNextParcel(b));
+    }
+    for (size_t i = 0; i < kNumThroughputTestMessages; ++i) {
+      Put(b, kMultiprocessMessageFromB);
+    }
+  }
+
+  Put(b, kMultiprocessMessageFromB, {}, {});
+
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(b, p));
+  IpczPortalStatus status = {sizeof(status)};
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.QueryPortalStatus(b, IPCZ_NO_FLAGS, nullptr, &status));
+  EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED | IPCZ_PORTAL_STATUS_DEAD,
+            status.flags);
+  ClosePortals({b});
+}
+
 INSTANTIATE_MULTINODE_TEST_SUITE_P(RemotePortalTest);
 
 }  // namespace

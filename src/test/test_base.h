@@ -73,6 +73,7 @@ class TestBase : public testing::Test {
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);
+  bool DiscardNextParcel(IpczHandle portal);
 
   void VerifyEndToEnd(IpczHandle a, IpczHandle b);
   bool PortalsAreLocalPeers(IpczHandle a, IpczHandle b);

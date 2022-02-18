@@ -160,6 +160,20 @@ TestBase::Parcel TestBase::Get(IpczHandle portal) {
   return parcel;
 }
 
+bool TestBase::DiscardNextParcel(IpczHandle portal) {
+  Parcel p;
+  IpczResult result = MaybeGet(portal, p);
+  if (result == IPCZ_RESULT_OK) {
+    return true;
+  }
+
+  if (result != IPCZ_RESULT_UNAVAILABLE) {
+    return false;
+  }
+
+  return WaitToGet(portal, p) == IPCZ_RESULT_OK;
+}
+
 void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
   Parcel p;
   const std::string kMessage1 = "psssst";

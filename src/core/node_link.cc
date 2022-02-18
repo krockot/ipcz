@@ -708,6 +708,7 @@ IpczResult NodeLink::FlushSharedMemoryMessages(uint64_t max_sequence_number) {
     }
 
     fragments.Pop();
+    memory().FreeFragment(fragment);
   }
 }
 
