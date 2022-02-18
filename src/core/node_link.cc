@@ -293,6 +293,8 @@ void NodeLink::TransmitMessage(internal::MessageBase& message) {
               DriverTransport::Data(flush.data_view())));
         }
         return;
+      } else {
+        memory().FreeFragment(fragment);
       }
     }
   }
