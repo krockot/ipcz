@@ -110,9 +110,12 @@ void Channel::Listen(MessageHandler handler) {
   }
 
   Event shutdown_event;
+  Event outgoing_queue_event;
   shutdown_notifier_ = shutdown_event.MakeNotifier();
+  outgoing_queue_notifier_ = outgoing_queue_event.MakeNotifier();
   io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this, handler,
-                     std::move(shutdown_event));
+                     std::move(shutdown_event),
+                     std::move(outgoing_queue_event));
 }
 
 void Channel::StopListening() {
@@ -138,10 +141,16 @@ void Channel::Send(Message message) {
     }
   }
 
+  bool nonempty_queue_was_empty = false;
   absl::optional<Message> m = SendInternal(message);
   if (m) {
     absl::MutexLock lock(&queue_mutex_);
+    nonempty_queue_was_empty = outgoing_queue_.empty();
     outgoing_queue_.emplace_back(*m);
+  }
+
+  if (nonempty_queue_was_empty) {
+    outgoing_queue_notifier_.Notify();
   }
 }
 
@@ -212,8 +221,10 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 }
 
 void Channel::ReadMessagesOnIOThread(MessageHandler handler,
-                                     Event shutdown_event) {
-  if (!handle_.is_valid() || !shutdown_event.is_valid()) {
+                                     Event shutdown_event,
+                                     Event outgoing_queue_event) {
+  if (!handle_.is_valid() || !shutdown_event.is_valid() ||
+      !outgoing_queue_event.is_valid()) {
     return;
   }
 
@@ -224,14 +235,16 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       have_out_messages = !outgoing_queue_.empty();
     }
 #if defined(OS_POSIX)
-    pollfd poll_fds[2];
+    pollfd poll_fds[3];
     poll_fds[0].fd = handle_.fd();
     poll_fds[0].events = POLLIN | (have_out_messages ? POLLOUT : 0);
     poll_fds[1].fd = shutdown_event.handle().fd();
     poll_fds[1].events = POLLIN;
+    poll_fds[2].fd = outgoing_queue_event.handle().fd();
+    poll_fds[2].events = POLLIN;
     int poll_result;
     do {
-      poll_result = poll(poll_fds, 2, -1);
+      poll_result = poll(poll_fds, 3, -1);
     } while (poll_result == -1 && (errno == EINTR || errno == EAGAIN));
     ABSL_ASSERT(poll_result > 0);
 
@@ -242,6 +255,11 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
     if (poll_fds[1].revents & POLLIN) {
       shutdown_event.Wait();
       return;
+    }
+
+    if (poll_fds[2].revents & POLLIN) {
+      outgoing_queue_event.Wait();
+      continue;
     }
 
     if (poll_fds[0].revents & POLLOUT) {

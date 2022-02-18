@@ -89,11 +89,14 @@ class Channel {
   // Attempts to send, without queueing, and if it fails to send any or all of
   // the message contents, returns a view of what's left.
   absl::optional<Message> SendInternal(Message message);
-  void ReadMessagesOnIOThread(MessageHandler handler, Event shutdown_event);
+  void ReadMessagesOnIOThread(MessageHandler handler,
+                              Event shutdown_event,
+                              Event outgoing_queue_event);
   void TryFlushingQueue();
 
   Handle handle_;
   Event::Notifier shutdown_notifier_;
+  Event::Notifier outgoing_queue_notifier_;
   absl::optional<std::thread> io_thread_;
   std::vector<uint8_t> read_buffer_;
   absl::Span<uint8_t> unread_data_;
