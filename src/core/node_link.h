@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <list>
 #include <type_traits>
 
@@ -33,6 +32,7 @@
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/function.h"
 
 namespace ipcz {
 namespace core {
@@ -130,7 +130,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   // message is sent to the broker by an established non-broker on behalf of the
   // new non-broker attempting to join the network.
   using IndirectBrokerConnectionCallback =
-      std::function<void(const NodeName&, uint32_t num_remote_portals)>;
+      Function<void(const NodeName&, uint32_t num_remote_portals)>;
   void RequestIndirectBrokerConnection(
       mem::Ref<DriverTransport> transport,
       os::Process new_node_process,
@@ -172,7 +172,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
 
   // Sends a request to allocate a new shared memory region and invokes
   // `callback` once the request is fulfilled.
-  using RequestMemoryCallback = std::function<void(DriverMemory)>;
+  using RequestMemoryCallback = Function<void(DriverMemory)>;
   void RequestMemory(uint32_t size, RequestMemoryCallback callback);
 
  private:

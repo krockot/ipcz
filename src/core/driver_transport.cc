@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 
 #include "build/build_config.h"
 #include "core/message_internal.h"

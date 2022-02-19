@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <vector>
 
@@ -27,6 +26,7 @@
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/function.h"
 
 namespace ipcz {
 namespace core {
@@ -112,7 +112,7 @@ class NodeLinkMemory : public mem::RefCounted {
   //
   // `callback` is invoked once new buffer is available, which may require some
   // asynchronous work to accomplish.
-  using RequestFragmentCapacityCallback = std::function<void()>;
+  using RequestFragmentCapacityCallback = Function<void()>;
   void RequestFragmentCapacity(uint32_t buffer_size,
                                uint32_t fragment_size,
                                RequestFragmentCapacityCallback callback);
@@ -133,7 +133,7 @@ class NodeLinkMemory : public mem::RefCounted {
   bool TestAndSetNotificationPending();
   void ClearPendingNotification();
 
-  void OnBufferAvailable(BufferId id, std::function<void()> callback);
+  void OnBufferAvailable(BufferId id, Function<void()> callback);
 
  private:
   struct PrimaryBuffer;
@@ -192,8 +192,8 @@ class NodeLinkMemory : public mem::RefCounted {
       ABSL_GUARDED_BY(mutex_);
 
   // Callbacks to be invoked when an identified buffer becomes available.
-  absl::flat_hash_map<BufferId, std::vector<std::function<void()>>>
-      buffer_callbacks_ ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<BufferId, std::vector<Function<void()>>> buffer_callbacks_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace core

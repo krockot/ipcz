@@ -10,6 +10,7 @@
 
 #include "build/build_config.h"
 #include "drivers/multiprocess_reference_driver.h"
+#include "util/function.h"
 
 #if defined(OS_POSIX)
 #include <errno.h>
@@ -31,7 +32,7 @@ namespace {
 const char* g_current_program;
 bool g_in_client_process = false;
 
-using EntryPointMap = std::map<std::string, std::function<void(uint64_t)>>;
+using EntryPointMap = std::map<std::string, Function<void(uint64_t)>>;
 
 EntryPointMap& GetEntryPoints() {
   static EntryPointMap* entry_points = new EntryPointMap();
@@ -50,9 +51,9 @@ void TestClientSupport::SetCurrentProgram(const char* path) {
 // static
 void TestClientSupport::RegisterEntryPoint(
     const char* name,
-    std::function<void(uint64_t)> entry_point) {
-  auto result =
-      GetEntryPoints().insert(std::make_pair(std::string(name), entry_point));
+    Function<void(uint64_t)> entry_point) {
+  auto result = GetEntryPoints().insert(
+      std::make_pair(std::string(name), std::move(entry_point)));
   ABSL_ASSERT(result.second);
 }
 

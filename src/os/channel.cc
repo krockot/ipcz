@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
-#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -18,6 +17,7 @@
 #include "debug/hex_dump.h"
 #include "debug/log.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "util/function.h"
 #include "util/random.h"
 
 #if defined(OS_POSIX)
@@ -84,10 +84,10 @@ struct Channel::PendingIO {
     ABSL_ASSERT(result);
   }
 
-  using IOCallback = std::function<void(bool success, size_t num_bytes)>;
+  using IOCallback = Function<void(bool success, size_t num_bytes)>;
   void Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
     is_complete_.clear(std::memory_order_relaxed);
-    io_callback_ = callback;
+    io_callback_ = std::move(callback);
     BOOL result = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
                                &CompletionRoutine);
     ABSL_ASSERT(result);
@@ -211,7 +211,7 @@ void Channel::Listen(MessageHandler handler) {
   Event outgoing_queue_event;
   shutdown_notifier_ = shutdown_event.MakeNotifier();
   outgoing_queue_notifier_ = outgoing_queue_event.MakeNotifier();
-  io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this, handler,
+  io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this, std::move(handler),
                      std::move(shutdown_event),
                      std::move(outgoing_queue_event));
 }

@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include <chrono>
-#include <functional>
 #include <thread>
 
 #include "drivers/single_process_reference_driver.h"
@@ -11,6 +10,7 @@
 #include "os/event.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "util/function.h"
 
 namespace ipcz {
 namespace {
@@ -33,7 +33,7 @@ class TestTrap {
   TestTrap(const IpczAPI& ipcz,
            IpczHandle portal,
            const IpczTrapConditions& conditions,
-           std::function<void(const IpczTrapEvent&)> handler)
+           Function<void(const IpczTrapEvent&)> handler)
       : ipcz_(ipcz), handler_(std::move(handler)) {
     EXPECT_EQ(IPCZ_RESULT_OK,
               ipcz_.CreateTrap(portal, &conditions, &TestTrap::OnEvent,
@@ -73,7 +73,7 @@ class TestTrap {
 
  private:
   const IpczAPI& ipcz_;
-  const std::function<void(const IpczTrapEvent&)> handler_;
+  const Function<void(const IpczTrapEvent&)> handler_;
   IpczHandle trap_;
   bool destroyed_ = false;
 };

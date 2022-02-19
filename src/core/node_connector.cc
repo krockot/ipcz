@@ -461,8 +461,9 @@ IpczResult NodeConnector::ConnectNode(
   }
   if (share_broker) {
     node->AddBrokerCallback([node, transport = std::move(transport),
-                             // remote_process=std::move(remote_process),
-                             initial_portals](mem::Ref<NodeLink> broker_link) {
+                             remote_process = std::move(remote_process),
+                             initial_portals](
+                                mem::Ref<NodeLink> broker_link) mutable {
       DVLOG(4) << "Requesting indirect broker connection from node "
                << node->GetAssignedName().ToString() << " to broker "
                << broker_link->remote_node_name().ToString();
@@ -472,7 +473,7 @@ IpczResult NodeConnector::ConnectNode(
       // who will complete a handshake with the new non-broker before
       // introducing `node` to it and vice versa.
       broker_link->RequestIndirectBrokerConnection(
-          std::move(transport), os::Process(),  // std::move(remote_process),
+          std::move(transport), std::move(remote_process),
           initial_portals.size(),
           [node, initial_portals](const NodeName& connected_node_name,
                                   uint32_t num_remote_portals) {

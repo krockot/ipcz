@@ -48,6 +48,7 @@ source_set("support") {
     "os/handle.h",
     "os/memory.h",
     "os/process.h",
+    "util/function.h",
     "util/handle_util.h",
     "util/mutex_locks.h",
     "util/random.h",

@@ -5,7 +5,6 @@
 #ifndef IPCZ_SRC_CORE_NODE_H_
 #define IPCZ_SRC_CORE_NODE_H_
 
-#include <functional>
 #include <utility>
 
 #include "core/driver_memory.h"
@@ -21,6 +20,7 @@
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/function.h"
 
 namespace ipcz {
 namespace core {
@@ -104,7 +104,7 @@ class Node : public mem::RefCounted {
   // is stored and will be invoked one the introduction is complete. Otherise,
   // this node will send an introduction request to its broker before returning
   // and `callback` will be invoked once that request is completed.
-  using EstablishLinkCallback = std::function<void(NodeLink*)>;
+  using EstablishLinkCallback = Function<void(NodeLink*)>;
   void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
 
   // Handles an incoming request to introduce a new node to this broker
@@ -145,14 +145,14 @@ class Node : public mem::RefCounted {
   // Registers a callback to be invoked as soon as this node acquires a link to
   // a broker node. If it alread has one, the callback is invoked immediately,
   // before returning from this call.
-  using BrokerCallback = std::function<void(mem::Ref<NodeLink> broker_link)>;
+  using BrokerCallback = Function<void(mem::Ref<NodeLink> broker_link)>;
   void AddBrokerCallback(BrokerCallback callback);
 
   // Requests allocation of a new shared memory object of the given size.
   // `callback` is invoked with the new object when allocation is complete.
   // This operation is asynchronous, since it may be delegated to a broker node
   // within some runtime environments.
-  using AllocateSharedMemoryCallback = std::function<void(DriverMemory memory)>;
+  using AllocateSharedMemoryCallback = Function<void(DriverMemory memory)>;
   void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
 
   // Sets a NodeLink to use for asynchronous shared memory allocation requests.

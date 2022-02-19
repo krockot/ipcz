@@ -19,6 +19,7 @@
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/function.h"
 
 namespace ipcz {
 namespace os {
@@ -77,7 +78,7 @@ class Channel {
 
   Handle TakeHandle();
 
-  using MessageHandler = std::function<bool(Message)>;
+  using MessageHandler = Function<bool(Message)>;
   void Listen(MessageHandler handler);
 
   void StopListening();
