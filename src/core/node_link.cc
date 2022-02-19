@@ -274,14 +274,6 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {
-#if defined(OS_WIN)
-  // On Windows, handles are transmitted as part of the data payload and are
-  // serialized accordingly within Serialize() below. Before that happens,
-  // we may first need to rewrite the handle values to the destination process.
-  //
-  // TODO: that.
-#endif
-
   message.Serialize(metadata, remote_process_);
 
   size_t small_size_class = 0;
