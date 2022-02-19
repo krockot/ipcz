@@ -16,6 +16,26 @@ namespace {
 using ChannelTest = testing::Test;
 
 const char kTestMessage1[] = "Hello, world!";
+
+TEST_F(ChannelTest, ReadWrite) {
+  auto [a, b] = Channel::CreateChannelPair();
+
+  absl::Notification b_finished;
+  b.Listen([&b_finished](Channel::Message message) {
+    EXPECT_EQ(kTestMessage1, message.data.AsString());
+    b_finished.Notify();
+    return true;
+  });
+
+  a.Send({Channel::Data(kTestMessage1)});
+
+  b_finished.WaitForNotification();
+  a.Reset();
+}
+
+// os::Channel does not support out-of-band handle attachments on Windows,
+// because Windows handle values are just part of the message data.
+#if !defined(OS_WIN)
 const char kTestMessage2[] = "Goodbye, world!";
 
 TEST_F(ChannelTest, ReadWriteWithHandles) {
@@ -49,6 +69,7 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
 
   b_finished.WaitForNotification();
 }
+#endif
 
 }  // namespace
 }  // namespace os

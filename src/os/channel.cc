@@ -86,9 +86,6 @@ struct Channel::PendingIO {
 
   using IOCallback = std::function<void(bool success, size_t num_bytes)>;
   void Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
-    if (!buffer_) {
-      buffer_ = std::make_unique<uint8_t[]>(kMaxDataSize);
-    }
     is_complete_.clear(std::memory_order_relaxed);
     io_callback_ = callback;
     BOOL result = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
@@ -221,16 +218,13 @@ void Channel::Listen(MessageHandler handler) {
 
 void Channel::StopListening() {
   if (io_thread_) {
-#if defined(OS_WIN)
-    if (handle_.is_valid()) {
-      ::CancelIo(handle_.handle());
-    }
-    pending_read_.reset();
-#endif
     ABSL_ASSERT(shutdown_notifier_.is_valid());
     shutdown_notifier_.Notify();
     io_thread_->join();
     io_thread_.reset();
+#if defined(OS_WIN)
+    pending_read_.reset();
+#endif
   }
 }
 
