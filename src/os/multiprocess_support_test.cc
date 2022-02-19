@@ -36,6 +36,7 @@ TEST_CLIENT(BasicClient, c) {
   received.WaitForNotification();
 }
 
+#if !defined(OS_WIN)
 TEST_F(MultiprocessTest, PassMemory) {
   test::TestClient client("PassMemoryClient");
   Memory memory(8);
@@ -126,6 +127,7 @@ TEST_CLIENT(SynchronizedMemoryClient, c) {
   EXPECT_EQ(44u, shared_int);
   shared_int = 45;
 }
+#endif
 
 }  // namespace
 }  // namespace os

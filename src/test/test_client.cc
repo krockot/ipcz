@@ -129,7 +129,7 @@ TestClient::TestClient(const char* entry_point) {
 
   process_ = os::Process(pid);
 #elif defined(OS_WIN)
-  STARTUPINFOEXW startup_info;
+  STARTUPINFOEXW startup_info = {};
   startup_info.StartupInfo.cb = sizeof(startup_info);
   SIZE_T size = 0;
   ::InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
@@ -154,7 +154,8 @@ TestClient::TestClient(const char* entry_point) {
 
   std::wstringstream ss;
   ss << ::GetCommandLineW() << " --run_test_client=" << entry_point
-     << "--client_channel_handle=" << handle_value;
+     << " --client_channel_handle="
+     << reinterpret_cast<uintptr_t>(handle_value);
   std::wstring new_cmd = ss.str();
   std::vector<wchar_t> new_cmd_data(new_cmd.size() + 1);
   memcpy(new_cmd_data.data(), new_cmd.data(), new_cmd.size() * sizeof(wchar_t));
