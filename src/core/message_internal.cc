@@ -14,6 +14,10 @@
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
+
 namespace ipcz {
 namespace core {
 namespace internal {
@@ -118,10 +122,20 @@ size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
     this_data.index = static_cast<uint32_t>(base_handle_index + i);
     this_data.value = 0;
 #elif defined(OS_WIN)
+    HANDLE h = handles[i].ReleaseHandle();
+    if (remote_process.is_valid()) {
+      // If we have a valid handle to the remote process, we assume we must
+      // duplicate every HANDLE value to it before encoding them.
+      HANDLE remote_handle = INVALID_HANDLE_VALUE;
+      BOOL ok = ::DuplicateHandle(
+          ::GetCurrentProcess(), h, remote_process.handle(), &remote_handle, 0,
+          FALSE, DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS);
+      ABSL_ASSERT(ok);
+      h = remote_handle;
+    }
     this_data.type = OSHandleDataType::kWindowsHandle;
     this_data.index = static_cast<uint32_t>(base_handle_index + i);
-    this_data.value = static_cast<uint64_t>(
-        reinterpret_cast<uintptr_t>(handles[i].ReleaseHandle()));
+    this_data.value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(h));
 #endif
   }
 
@@ -228,8 +242,19 @@ bool MessageBase::DeserializeDataAndHandles(
             return false;
           }
 
-          os::Handle handle(reinterpret_cast<HANDLE>(
-              static_cast<uintptr_t>(handle_data[i].value)));
+          HANDLE h = reinterpret_cast<HANDLE>(
+              static_cast<uintptr_t>(handle_data[i].value));
+          if (h != INVALID_HANDLE_VALUE && remote_process.is_valid()) {
+            HANDLE local_handle = INVALID_HANDLE_VALUE;
+            BOOL ok = ::DuplicateHandle(
+                remote_process.handle(), h, ::GetCurrentProcess(),
+                &local_handle, 0, FALSE,
+                DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE);
+            ABSL_ASSERT(ok);
+            h = local_handle;
+          }
+
+          os::Handle handle(h);
           if (!handle.is_valid()) {
             return false;
           }

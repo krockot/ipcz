@@ -85,12 +85,12 @@ struct Channel::PendingIO {
   }
 
   using IOCallback = Function<void(bool success, size_t num_bytes)>;
-  void Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
+  bool Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
     is_complete_.clear(std::memory_order_relaxed);
     io_callback_ = std::move(callback);
-    BOOL result = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
-                               &CompletionRoutine);
-    ABSL_ASSERT(result);
+    BOOL ok = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
+                           &CompletionRoutine);
+    return ok == TRUE;
   }
 
  private:
@@ -336,7 +336,9 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
   }
 
 #if defined(OS_WIN)
-  StartRead();
+  if (!StartRead()) {
+    return;
+  }
 #endif
 
   for (;;) {
@@ -476,7 +478,9 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
 
 #if defined(OS_WIN)
     if (pending_read_ && pending_read_->is_complete()) {
-      StartRead();
+      if (!StartRead()) {
+        return;
+      }
     }
 #endif
   }
@@ -539,13 +543,13 @@ void Channel::CommitRead(size_t num_bytes) {
 }
 
 #if defined(OS_WIN)
-void Channel::StartRead() {
+bool Channel::StartRead() {
   if (!pending_read_) {
     pending_read_ = std::make_unique<PendingIO>();
   }
 
   absl::Span<uint8_t> storage = EnsureReadCapacity();
-  pending_read_->Read(
+  return pending_read_->Read(
       handle_.handle(), storage,
       [channel = this](bool success, size_t num_bytes_transferred) {
         if (!success) {

@@ -128,7 +128,7 @@ class Channel {
   std::vector<DeferredMessage> outgoing_queue_ ABSL_GUARDED_BY(queue_mutex_);
 
 #if defined(OS_WIN)
-  void StartRead();
+  bool StartRead();
 
   struct PendingIO;
   std::unique_ptr<PendingIO> pending_read_;

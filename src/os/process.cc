@@ -78,8 +78,9 @@ Process Process::FromIpczOSProcessHandle(const IpczOSProcessHandle& handle) {
 bool Process::ToIpczOSProcessHandle(Process process, IpczOSProcessHandle& out) {
   out.size = sizeof(out);
 #if defined(OS_WIN)
-  out.value =
-      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(process.handle_));
+  Handle handle = process.TakeAsHandle();
+  out.value = static_cast<uint64_t>(
+      reinterpret_cast<uintptr_t>(handle.ReleaseHandle()));
 #elif defined(OS_FUCHA)
   out.value = reinterpret_cast<uint64_t>(process.process_);
 #else
@@ -121,9 +122,8 @@ Process Process::Clone() const {
     clone.is_current_process_ = true;
   }
   if (handle_ != INVALID_HANDLE_VALUE) {
-    HANDLE h = handle_;
     BOOL result =
-        ::DuplicateHandle(::GetCurrentProcess(), &h, ::GetCurrentProcess(),
+        ::DuplicateHandle(::GetCurrentProcess(), handle_, ::GetCurrentProcess(),
                           &clone.handle_, 0, FALSE, DUPLICATE_SAME_ACCESS);
     if (!result) {
       return {};
