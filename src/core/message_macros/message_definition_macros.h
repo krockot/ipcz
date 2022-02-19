@@ -9,15 +9,14 @@
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)
 
-#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                            \
-  name::name() = default;                                                      \
-  name::~name() = default;                                                     \
-  void name::Serialize() { SerializeHandleArrays(absl::MakeSpan(kMetadata)); } \
-  bool name::Deserialize(const DriverTransport::Message& message) {            \
-    return DeserializeDataAndHandles(sizeof(ParamsType), kVersion,             \
-                                     absl::MakeSpan(kMetadata), message.data,  \
-                                     message.handles);                         \
-  }                                                                            \
+#define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                           \
+  name::name() = default;                                                     \
+  name::~name() = default;                                                    \
+  bool name::Deserialize(const DriverTransport::Message& message) {           \
+    return DeserializeDataAndHandles(sizeof(ParamsType), kVersion,            \
+                                     absl::MakeSpan(kMetadata), message.data, \
+                                     message.handles);                        \
+  }                                                                           \
   constexpr internal::ParamMetadata name::kMetadata[];
 
 #define IPCZ_MSG_END()

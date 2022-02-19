@@ -7,6 +7,8 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -14,6 +16,7 @@
 #include "build/build_config.h"
 #include "debug/hex_dump.h"
 #include "debug/log.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "util/random.h"
 
 #if defined(OS_POSIX)
@@ -40,6 +43,63 @@ constexpr size_t kMaxHandlesPerMessage = 64;
 #endif
 
 }  // namespace
+
+#if defined(OS_WIN)
+struct Channel::PendingIO {
+  PendingIO() = default;
+  ~PendingIO() = default;
+
+  static void CompletionRoutine(DWORD error,
+                                DWORD num_bytes_transferred,
+                                LPOVERLAPPED overlapped) {
+    auto* io = reinterpret_cast<PendingIO*>(overlapped);
+    if (error != 0) {
+      io->OnComplete(false, 0);
+      return;
+    }
+
+    io->OnComplete(true, static_cast<size_t>(num_bytes_transferred));
+  }
+
+  void Write(HANDLE handle, absl::Span<const uint8_t> data) {
+    ABSL_ASSERT(!buffer_);
+    buffer_ = std::make_unique<uint8_t[]>(data.size() + 16);
+
+    uint32_t* header = reinterpret_cast<uint32_t*>(buffer_.get());
+    header[0] = static_cast<uint32_t>(data.size() + 16);
+    header[1] = 0;
+    header[2] = 0;
+    header[3] = 0;
+    memcpy(header + 4, data.data(), data.size());
+
+    io_callback_ = [this](bool, size_t) { delete this; };
+    BOOL result = ::WriteFileEx(handle, buffer_.get(),
+                                static_cast<DWORD>(data.size() + 16), &io,
+                                &CompletionRoutine);
+    ABSL_ASSERT(result);
+  }
+
+  using IOCallback = std::function<void(bool success, size_t num_bytes)>;
+  void Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
+    if (!buffer_) {
+      buffer_ = std::make_unique<uint8_t[]>(kMaxDataSize);
+    }
+    io_callback_ = callback;
+    BOOL result = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
+                               &CompletionRoutine);
+    ABSL_ASSERT(result);
+  }
+
+ private:
+  void OnComplete(bool success, size_t num_bytes_transferred) {
+    io_callback_(success, num_bytes_transferred);
+  }
+
+  OVERLAPPED io = {0};
+  std::unique_ptr<uint8_t[]> buffer_;
+  IOCallback io_callback_;
+};
+#endif
 
 Channel::Data::Data() = default;
 
@@ -153,6 +213,11 @@ void Channel::Listen(MessageHandler handler) {
 
 void Channel::StopListening() {
   if (io_thread_) {
+#if defined(OS_WIN)
+    if (handle_.is_valid()) {
+      ::CancelIo(handle_.handle());
+    }
+#endif
     ABSL_ASSERT(shutdown_notifier_.is_valid());
     shutdown_notifier_.Notify();
     io_thread_->join();
@@ -250,7 +315,11 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
     return remainder;
   }
 #elif defined(OS_WIN)
-  // TODO(win)
+  // Windows does not transport handles out-of-band from the rest of the data.
+  ABSL_ASSERT(message.handles.empty());
+
+  auto* io = new PendingIO();
+  io->Write(handle_.handle(), message.data);
   return absl::nullopt;
 #endif
 }
@@ -262,6 +331,10 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       !outgoing_queue_event.is_valid()) {
     return;
   }
+
+#if defined(OS_WIN)
+  StartRead();
+#endif
 
   for (;;) {
     bool have_out_messages = false;
@@ -305,17 +378,8 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       continue;
     }
 
-    const size_t unread_offset = unread_data_.data() - read_buffer_.data();
-    size_t capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
-    if (capacity < kMaxDataSize) {
-      size_t new_size = read_buffer_.size() * 2;
-      read_buffer_.resize(new_size);
-      unread_data_ = absl::Span<uint8_t>(read_buffer_.data() + unread_offset,
-                                         unread_data_.size());
-      capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
-    }
-    uint8_t* data = unread_data_.end();
-    struct iovec iov = {data, capacity};
+    absl::Span<uint8_t> storage = EnsureReadCapacity();
+    struct iovec iov = {storage.data(), storage.size()};
     char cmsg_buf[CMSG_SPACE(kMaxHandlesPerMessage * sizeof(int))];
     struct msghdr msg = {};
     msg.msg_iov = &iov;
@@ -330,8 +394,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       return;
     }
 
-    unread_data_ =
-        absl::Span<uint8_t>(unread_data_.data(), unread_data_.size() + result);
+    CommitRead(static_cast<size_t>(result));
 
     if (msg.msg_controllen > 0) {
       for (cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg;
@@ -359,6 +422,29 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       }
       ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
     }
+#elif defined(OS_WIN)
+    // We don't queue outgoing messages on Windows.
+    ABSL_ASSERT(!have_out_messages);
+
+    switch (::WaitForSingleObjectEx(shutdown_event.handle().handle(), INFINITE,
+                                    TRUE)) {
+      case WAIT_OBJECT_0:
+        shutdown_event.Wait();
+        return;
+
+      case WAIT_IO_COMPLETION:
+        break;
+
+      default:
+        io_error_ = true;
+        break;
+    }
+
+    if (io_error_) {
+      LOG(ERROR) << "Disconnecting Channel for I/O error";
+      return;
+    }
+#endif
 
     while (unread_data_.size() >= 16) {
       uint32_t* header_data = reinterpret_cast<uint32_t*>(unread_data_.data());
@@ -385,10 +471,6 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
         unread_handles_ = absl::MakeSpan(handle_buffer_.data(), 0);
       }
     }
-#elif defined(OS_WIN)
-    // TODO(win)
-    (void)have_out_messages;
-#endif
   }
 }
 
@@ -429,6 +511,45 @@ void Channel::TryFlushingQueue() {
             outgoing_queue_.begin());
   outgoing_queue_.resize(outgoing_queue_.size() - i);
 }
+
+absl::Span<uint8_t> Channel::EnsureReadCapacity() {
+  const size_t unread_offset = unread_data_.data() - read_buffer_.data();
+  size_t capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
+  if (capacity < kMaxDataSize) {
+    size_t new_size = read_buffer_.size() * 2;
+    read_buffer_.resize(new_size);
+    unread_data_ = absl::Span<uint8_t>(read_buffer_.data() + unread_offset,
+                                       unread_data_.size());
+    capacity = read_buffer_.size() - unread_data_.size() - unread_offset;
+  }
+  return {unread_data_.end(), capacity};
+}
+
+void Channel::CommitRead(size_t num_bytes) {
+  unread_data_ =
+      absl::Span<uint8_t>(unread_data_.data(), unread_data_.size() + num_bytes);
+}
+
+#if defined(OS_WIN)
+void Channel::StartRead() {
+  if (!pending_read_) {
+    pending_read_ = std::make_unique<PendingIO>();
+  }
+
+  absl::Span<uint8_t> storage = EnsureReadCapacity();
+  pending_read_->Read(
+      handle_.handle(), storage,
+      [channel = this](bool success, size_t num_bytes_transferred) {
+        if (!success) {
+          channel->io_error_ = true;
+          return;
+        }
+
+        channel->CommitRead(num_bytes_transferred);
+        channel->StartRead();
+      });
+}
+#endif
 
 Channel::DeferredMessage::DeferredMessage() = default;
 

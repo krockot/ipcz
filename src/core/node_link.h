@@ -120,8 +120,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   void Transmit(T& message) {
     static_assert(std::is_base_of<internal::MessageBase, T>::value,
                   "Invalid message type");
-    message.Serialize();
-    TransmitMessage(message);
+    TransmitMessage(message, T::kMetadata);
   }
 
   // Asks the broker on the other end of this link to accept a new node for
@@ -187,7 +186,8 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            mem::Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
-  void TransmitMessage(internal::MessageBase& message);
+  void TransmitMessage(internal::MessageBase& message,
+                       absl::Span<const internal::ParamMetadata> metadata);
 
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(

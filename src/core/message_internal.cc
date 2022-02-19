@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -77,6 +78,25 @@ DriverMemory MessageBase::TakeSharedMemory(const IpczDriver& driver,
                                    GetHandlesView(std::get<1>(params)));
 }
 
+void MessageBase::Serialize(absl::Span<const ParamMetadata> params) {
+  absl::Span<os::Handle> handles = handles_view();
+  size_t base_handle_index = 0;
+  for (const ParamMetadata& param : params) {
+    if (param.is_handle_array) {
+      size_t num_handles =
+          SerializeHandleArray(param.offset, base_handle_index, handles);
+      handles = handles.subspan(num_handles);
+      base_handle_index += num_handles;
+    }
+  }
+
+#if defined(OS_WIN)
+  // On Windows, all handles have been released and absorbed into the data
+  // payload.
+  handles_.clear();
+#endif
+}
+
 size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
                                          uint32_t base_handle_index,
                                          absl::Span<os::Handle> handles) {
@@ -85,17 +105,23 @@ size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
   absl::Span<OSHandleData> handle_data =
       GetArrayView<OSHandleData>(array_offset);
 
-#if defined(OS_POSIX)
   for (size_t i = 0; i < handle_data.size(); ++i) {
     OSHandleData& this_data = handle_data[i];
     this_data.header.size = sizeof(this_data);
     this_data.header.version = 0;
     ABSL_ASSERT(handles[i].is_valid());
+
+#if defined(OS_POSIX)
     this_data.type = OSHandleDataType::kFileDescriptor;
     this_data.index = static_cast<uint32_t>(base_handle_index + i);
     this_data.value = 0;
-  }
+#elif defined(OS_WIN)
+    this_data.type = OSHandleDataType::kWindowsHandle;
+    this_data.index = static_cast<uint32_t>(base_handle_index + i);
+    this_data.value = static_cast<uint64_t>(
+        reinterpret_cast<uintptr_t>(handles[i].ReleaseHandle()));
 #endif
+  }
 
   return handle_data.size();
 }
@@ -191,11 +217,28 @@ bool MessageBase::DeserializeDataAndHandles(
             reinterpret_cast<OSHandleData*>(&header + 1);
         for (size_t i = 0; i < header.num_elements; ++i) {
           const size_t index = handle_data[i].index;
+#if defined(OS_WIN)
+          if (index >= handles_.size()) {
+            handles_.resize(index + 1);
+          }
+          if (handles_[index].is_valid()) {
+            return false;
+          }
+
+          os::Handle handle(reinterpret_cast<HANDLE>(
+              static_cast<uintptr_t>(handle_data[i].value)));
+          if (!handle.is_valid()) {
+            return false;
+          }
+
+          handles_[index] = std::move(handle);
+#else
           if (index >= handles.size() || handles_[index].is_valid()) {
             return false;
           }
 
           handles_[index] = std::move(handles[index]);
+#endif
         }
       }
     }

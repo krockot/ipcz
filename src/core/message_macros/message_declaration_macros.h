@@ -17,10 +17,8 @@
     version_decl;                                        \
     name();                                              \
     ~name();                                             \
-    void Serialize();                                    \
     bool Deserialize(const DriverTransport::Message&);   \
                                                          \
-   private:                                              \
     static constexpr internal::ParamMetadata kMetadata[] = {
 #define IPCZ_MSG_END() \
   }                    \

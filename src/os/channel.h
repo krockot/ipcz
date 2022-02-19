@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "os/event.h"
 #include "os/handle.h"
@@ -94,6 +95,9 @@ class Channel {
                               Event outgoing_queue_event);
   void TryFlushingQueue();
 
+  absl::Span<uint8_t> EnsureReadCapacity();
+  void CommitRead(size_t num_bytes);
+
   Handle handle_;
   Event::Notifier shutdown_notifier_;
   Event::Notifier outgoing_queue_notifier_;
@@ -121,6 +125,14 @@ class Channel {
 
   absl::Mutex queue_mutex_;
   std::vector<DeferredMessage> outgoing_queue_ ABSL_GUARDED_BY(queue_mutex_);
+
+#if defined(OS_WIN)
+  void StartRead();
+
+  struct PendingIO;
+  std::unique_ptr<PendingIO> pending_read_;
+  bool io_error_ = false;
+#endif
 };
 
 }  // namespace os

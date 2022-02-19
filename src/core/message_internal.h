@@ -71,6 +71,11 @@ enum OSHandleDataType : uint8_t {
   // file descriptor to associate with this handle slot.
   kFileDescriptor = 1,
 
+  // A Windows HANDLE. The encoded handle value is a HANDLE value. Depending on
+  // the relationship between the sender and receiver, the HANDLE value may
+  // belong to the sending process or the receiving process.
+  kWindowsHandle = 2,
+
   // TODO: etc...
 };
 
@@ -156,6 +161,11 @@ class IPCZ_ALIGN(8) MessageBase {
                                             handle_data.size());
   }
 
+  // Finalizes a message immediately before transit. The may serialize
+  // additional data within the message payload, but it does not change the size
+  // of the message data.
+  void Serialize(absl::Span<const ParamMetadata> params);
+
  protected:
   size_t Align(size_t x) { return (x + 7) & ~7; }
 
@@ -193,19 +203,6 @@ class Message : public MessageBase {
 
   const ParamDataType& params() const {
     return *reinterpret_cast<const ParamDataType*>(&data_[header().size]);
-  }
-
-  void SerializeHandleArrays(absl::Span<const ParamMetadata> params) {
-    absl::Span<os::Handle> handles = handles_view();
-    size_t base_handle_index = 0;
-    for (const ParamMetadata& param : params) {
-      if (param.is_handle_array) {
-        size_t num_handles =
-            SerializeHandleArray(param.offset, base_handle_index, handles);
-        handles = handles.subspan(num_handles);
-        base_handle_index += num_handles;
-      }
-    }
   }
 };
 

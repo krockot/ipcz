@@ -10,6 +10,7 @@
 #include <cstring>
 #include <utility>
 
+#include "build/build_config.h"
 #include "core/fragment.h"
 #include "core/fragment_descriptor.h"
 #include "core/node.h"
@@ -267,7 +268,19 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
   Transmit(request);
 }
 
-void NodeLink::TransmitMessage(internal::MessageBase& message) {
+void NodeLink::TransmitMessage(
+    internal::MessageBase& message,
+    absl::Span<const internal::ParamMetadata> metadata) {
+#if defined(OS_WIN)
+  // On Windows, handles are transmitted as part of the data payload and are
+  // serialized accordingly within Serialize() below. Before that happens,
+  // we may first need to rewrite the handle values to the destination process.
+  //
+  // TODO: that.
+#endif
+
+  message.Serialize(metadata);
+
   size_t small_size_class = 0;
   if (message.data_view().size() <= 64) {
     small_size_class = 64;
