@@ -9,7 +9,7 @@
 #include <tuple>
 
 #include "build/build_config.h"
-#include "drivers/multiprocess_reference_driver.h"
+#include "reference_drivers/multiprocess_reference_driver.h"
 #include "util/function.h"
 
 #if defined(OS_POSIX)
@@ -66,11 +66,13 @@ void TestClientSupport::RunEntryPoint(const std::string& name,
 }
 
 // static
-os::Channel TestClientSupport::RecoverClientChannel(uint64_t channel_handle) {
+reference_drivers::Channel TestClientSupport::RecoverClientChannel(
+    uint64_t channel_handle) {
 #if defined(OS_POSIX)
-  return os::Channel(os::Handle(static_cast<int>(channel_handle)));
+  return reference_drivers::Channel(
+      os::Handle(static_cast<int>(channel_handle)));
 #elif defined(OS_WIN)
-  return os::Channel(os::Handle(
+  return reference_drivers::Channel(os::Handle(
       reinterpret_cast<HANDLE>(static_cast<uintptr_t>(channel_handle))));
 #else
 #error "Need to implement this for the current platform."
@@ -90,8 +92,9 @@ bool TestClient::InClientProcess() {
 }
 
 TestClient::TestClient(const char* entry_point) {
-  os::Channel client_channel;
-  std::tie(channel_, client_channel) = os::Channel::CreateChannelPair();
+  reference_drivers::Channel client_channel;
+  std::tie(channel_, client_channel) =
+      reference_drivers::Channel::CreateChannelPair();
 
   ABSL_ASSERT(channel_.is_valid());
   ABSL_ASSERT(client_channel.is_valid());

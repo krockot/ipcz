@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "ipcz/ipcz.h"
-#include "os/memory.h"
+#include "reference_drivers/memory.h"
 #include "test/api_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -39,7 +39,7 @@ TEST_F(EndGetAPITest, NoGetInProgress) {
 TEST_F(EndGetAPITest, InsufficientStorage) {
   IpczHandle portals[2];
   OpenPortals(&portals[0], &portals[1]);
-  os::Handle handle = os::Memory(64).TakeHandle();
+  os::Handle handle = reference_drivers::Memory(64).TakeHandle();
   Put(q, "hey!", portals, {&handle, 1});
 
   const void* data;

@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "drivers/multiprocess_reference_driver.h"
+#include "reference_drivers/multiprocess_reference_driver.h"
 
 #include <memory>
 #include <tuple>
@@ -11,9 +11,9 @@
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "os/channel.h"
 #include "os/handle.h"
-#include "os/memory.h"
+#include "reference_drivers/channel.h"
+#include "reference_drivers/memory.h"
 #include "util/handle_util.h"
 
 #if defined(OS_WIN)
@@ -23,24 +23,24 @@
 #endif
 
 namespace ipcz {
-namespace drivers {
+namespace reference_drivers {
 
 namespace {
 
 class MultiprocessTransport : public mem::RefCounted {
  public:
-  MultiprocessTransport(os::Channel channel)
-      : channel_(std::make_unique<os::Channel>(std::move(channel))) {}
+  MultiprocessTransport(Channel channel)
+      : channel_(std::make_unique<Channel>(std::move(channel))) {}
   MultiprocessTransport(const MultiprocessTransport&) = delete;
   MultiprocessTransport& operator=(const MultiprocessTransport&) = delete;
 
-  os::Channel TakeChannel() {
+  Channel TakeChannel() {
     if (was_activated_) {
       return {};
     }
 
     ABSL_ASSERT(channel_);
-    os::Channel channel = std::move(*channel_);
+    Channel channel = std::move(*channel_);
     channel_.reset();
     return channel;
   }
@@ -51,7 +51,7 @@ class MultiprocessTransport : public mem::RefCounted {
     transport_ = transport;
     activity_handler_ = activity_handler;
     channel_->Listen(
-        [transport = mem::WrapRefCounted(this)](os::Channel::Message message) {
+        [transport = mem::WrapRefCounted(this)](Channel::Message message) {
           if (!transport->OnMessage(message)) {
             transport->OnError();
             return false;
@@ -75,14 +75,14 @@ class MultiprocessTransport : public mem::RefCounted {
       handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
     }
     channel_->Send(
-        os::Channel::Message(os::Channel::Data(data), absl::MakeSpan(handles)));
+        Channel::Message(Channel::Data(data), absl::MakeSpan(handles)));
     return IPCZ_RESULT_OK;
   }
 
  private:
   ~MultiprocessTransport() override = default;
 
-  bool OnMessage(const os::Channel::Message& message) {
+  bool OnMessage(const Channel::Message& message) {
     std::vector<IpczOSHandle> os_handles(message.handles.size());
     for (size_t i = 0; i < os_handles.size(); ++i) {
       os_handles[i].size = sizeof(os_handles[i]);
@@ -114,19 +114,19 @@ class MultiprocessTransport : public mem::RefCounted {
   IpczHandle transport_ = IPCZ_INVALID_HANDLE;
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
-  std::unique_ptr<os::Channel> channel_;
+  std::unique_ptr<Channel> channel_;
 };
 
 class MultiprocessMemoryMapping {
  public:
-  MultiprocessMemoryMapping(os::Memory::Mapping mapping)
+  MultiprocessMemoryMapping(Memory::Mapping mapping)
       : mapping_(std::move(mapping)) {}
   ~MultiprocessMemoryMapping() = default;
 
   void* address() const { return mapping_.base(); }
 
  private:
-  const os::Memory::Mapping mapping_;
+  const Memory::Mapping mapping_;
 };
 
 class MultiprocessMemory {
@@ -150,7 +150,7 @@ class MultiprocessMemory {
   os::Handle TakeHandle() { return memory_.TakeHandle(); }
 
  private:
-  os::Memory memory_;
+  Memory memory_;
 };
 
 IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
@@ -158,7 +158,7 @@ IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
                                        const void* options,
                                        IpczDriverHandle* first_transport,
                                        IpczDriverHandle* second_transport) {
-  auto [first_channel, second_channel] = os::Channel::CreateChannelPair();
+  auto [first_channel, second_channel] = Channel::CreateChannelPair();
   auto first =
       mem::MakeRefCounted<MultiprocessTransport>(std::move(first_channel));
   auto second =
@@ -194,7 +194,7 @@ IpczResult IPCZ_CDECL SerializeTransport(IpczDriverHandle driver_transport,
   mem::Ref<MultiprocessTransport> transport(
       mem::RefCounted::kAdoptExistingRef,
       ToPtr<MultiprocessTransport>(driver_transport));
-  os::Channel channel = transport->TakeChannel();
+  Channel channel = transport->TakeChannel();
   if (!channel.is_valid()) {
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
@@ -221,7 +221,7 @@ DeserializeTransport(IpczDriverHandle driver_node,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  os::Channel channel(os::Handle::FromIpczOSHandle(os_handles[0]));
+  Channel channel(os::Handle::FromIpczOSHandle(os_handles[0]));
   if (!channel.is_valid()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -378,5 +378,5 @@ const IpczDriver kMultiprocessReferenceDriver = {
     UnmapSharedMemory,
 };
 
-}  // namespace drivers
+}  // namespace reference_drivers
 }  // namespace ipcz

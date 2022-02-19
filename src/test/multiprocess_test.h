@@ -5,6 +5,7 @@
 #ifndef IPCZ_SRC_TEST_MULTIPROCESS_TEST_H_
 #define IPCZ_SRC_TEST_MULTIPROCESS_TEST_H_
 
+#include "reference_drivers/channel.h"
 #include "test/test_base.h"
 #include "test/test_client.h"
 
@@ -31,7 +32,7 @@ class MultiprocessTest : public TestBase {
   IpczHandle node;
 
   IpczHandle ConnectToClient(TestClient& client);
-  IpczHandle ConnectToBroker(os::Channel& channel);
+  IpczHandle ConnectToBroker(reference_drivers::Channel& channel);
 };
 
 }  // namespace test

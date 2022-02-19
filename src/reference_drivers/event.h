@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_OS_EVENT_H_
-#define IPCZ_SRC_OS_EVENT_H_
+#ifndef IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
+#define IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
 
 #include "os/handle.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 // An OS object which supports waiting and signaling across processes.
 class Event {
@@ -17,33 +17,33 @@ class Event {
   class Notifier {
    public:
     Notifier();
-    explicit Notifier(Handle handle);
+    explicit Notifier(os::Handle handle);
     Notifier(Notifier&&);
     Notifier& operator=(Notifier&&);
     ~Notifier();
 
     bool is_valid() const { return handle_.is_valid(); }
-    const Handle& handle() const { return handle_; }
+    const os::Handle& handle() const { return handle_; }
 
-    Handle TakeHandle();
+    os::Handle TakeHandle();
 
     void Notify();
     Notifier Clone();
 
    private:
-    Handle handle_;
+    os::Handle handle_;
   };
 
   Event();
-  explicit Event(Handle handle);
+  explicit Event(os::Handle handle);
   Event(Event&&);
   Event& operator=(Event&&);
   ~Event();
 
   bool is_valid() const { return handle_.is_valid(); }
-  const Handle& handle() const { return handle_; }
+  const os::Handle& handle() const { return handle_; }
 
-  Handle TakeHandle();
+  os::Handle TakeHandle();
 
   Notifier MakeNotifier();
 
@@ -53,7 +53,7 @@ class Event {
   os::Handle handle_;
 };
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_OS_EVENT_H_
+#endif  // IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_

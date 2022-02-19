@@ -1,16 +1,17 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "os/channel.h"
+#include "reference_drivers/channel.h"
 
 #include <tuple>
 
+#include "os/handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 namespace {
 
 using ChannelTest = testing::Test;
@@ -33,8 +34,8 @@ TEST_F(ChannelTest, ReadWrite) {
   a.Reset();
 }
 
-// os::Channel does not support out-of-band handle attachments on Windows,
-// because Windows handle values are just part of the message data.
+// Channel does not support out-of-band handle attachments on Windows, because
+// Windows handle values are just part of the message data.
 #if !defined(OS_WIN)
 const char kTestMessage2[] = "Goodbye, world!";
 
@@ -60,7 +61,7 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
 
   auto [c, d] = Channel::CreateChannelPair();
 
-  Handle ch = c.TakeHandle();
+  os::Handle ch = c.TakeHandle();
   a.Send({Channel::Data(kTestMessage1), {&ch, 1}});
   a.Reset();
 
@@ -72,5 +73,5 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
 #endif
 
 }  // namespace
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz

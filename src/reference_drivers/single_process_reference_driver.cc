@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "drivers/single_process_reference_driver.h"
+#include "reference_drivers/single_process_reference_driver.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -23,7 +23,7 @@
 #endif
 
 namespace ipcz {
-namespace drivers {
+namespace reference_drivers {
 
 namespace {
 
@@ -383,5 +383,5 @@ const IpczDriver kSingleProcessReferenceDriver = {
     UnmapSharedMemory,
 };
 
-}  // namespace drivers
+}  // namespace reference_drivers
 }  // namespace ipcz

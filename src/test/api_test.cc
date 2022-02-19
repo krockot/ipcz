@@ -4,17 +4,17 @@
 
 #include "test/api_test.h"
 
-#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
 namespace test {
 
 APITest::APITest() {
-  IpczResult result = ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
-                                      IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS,
-                                      nullptr, &node);
+  IpczResult result = ipcz.CreateNode(
+      &reference_drivers::kSingleProcessReferenceDriver,
+      IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr, &node);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
   result = ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &q, &p);

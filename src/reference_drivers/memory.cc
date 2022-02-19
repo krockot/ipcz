@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "os/memory.h"
+#include "reference_drivers/memory.h"
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -19,7 +19,7 @@
 #endif
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 Memory::Mapping::Mapping() = default;
 
@@ -60,7 +60,7 @@ void Memory::Mapping::Reset() {
 
 Memory::Memory() = default;
 
-Memory::Memory(Handle handle, size_t size)
+Memory::Memory(os::Handle handle, size_t size)
     : handle_(std::move(handle)), size_(size) {}
 
 Memory::Memory(size_t size) {
@@ -74,7 +74,7 @@ Memory::Memory(size_t size) {
   result = fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK);
   ABSL_ASSERT(result == 0);
 
-  handle_ = Handle(fd);
+  handle_ = os::Handle(fd);
   size_ = size;
 #elif defined(OS_WIN)
   HANDLE h = ::CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
@@ -86,7 +86,7 @@ Memory::Memory(size_t size) {
   ::CloseHandle(h);
   ABSL_ASSERT(ok);
 
-  handle_ = Handle(h2);
+  handle_ = os::Handle(h2);
   size_ = size;
 #endif
 }
@@ -116,5 +116,5 @@ Memory::Mapping Memory::Map() {
 #endif
 }
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz

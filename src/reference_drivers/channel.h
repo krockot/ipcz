@@ -1,9 +1,9 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_OS_CHANNEL_H_
-#define IPCZ_SRC_OS_CHANNEL_H_
+#ifndef IPCZ_SRC_REFERENCE_DRIVERS_CHANNEL_H_
+#define IPCZ_SRC_REFERENCE_DRIVERS_CHANNEL_H_
 
 #include <cstdint>
 #include <memory>
@@ -13,8 +13,8 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
-#include "os/event.h"
 #include "os/handle.h"
+#include "reference_drivers/event.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -22,11 +22,14 @@
 #include "util/function.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 // Generic OS communication channel abstraction. This may wrap a UNIX domain
 // socket, a Windows I/O object (such as a named pipe), a Fuchsia channel, or
 // a Mach port pair.
+//
+// This is used by multiprocess tests and the provided multiprocess reference
+// driver. It is NOT intended for use in any production environment.
 class Channel {
  public:
   class Data : public absl::Span<const uint8_t> {
@@ -43,13 +46,13 @@ class Channel {
 
   struct Message {
     Message(Data data);
-    Message(Data data, absl::Span<Handle> handles);
+    Message(Data data, absl::Span<os::Handle> handles);
     Message(const Message&);
     Message& operator=(const Message&);
     ~Message();
 
     Data data;
-    absl::Span<Handle> handles;
+    absl::Span<os::Handle> handles;
   };
 
   // Creates a new Channel using `handle` as the endpoint to manipulate with
@@ -63,7 +66,7 @@ class Channel {
   //
   // If `handle` is a Fuchsia handle, it should name a zx_channel object.
   Channel();
-  explicit Channel(Handle handle);
+  explicit Channel(os::Handle handle);
   Channel(Channel&&);
   Channel& operator=(Channel&&);
   Channel(const Channel&) = delete;
@@ -74,9 +77,9 @@ class Channel {
 
   bool is_valid() const { return handle_.is_valid(); }
 
-  const Handle& handle() const { return handle_; }
+  const os::Handle& handle() const { return handle_; }
 
-  Handle TakeHandle();
+  os::Handle TakeHandle();
 
   using MessageHandler = Function<bool(Message)>;
   void Listen(MessageHandler handler);
@@ -99,7 +102,7 @@ class Channel {
   absl::Span<uint8_t> EnsureReadCapacity();
   void CommitRead(size_t num_bytes);
 
-  Handle handle_;
+  os::Handle handle_;
   Event::Notifier shutdown_notifier_;
   Event::Notifier outgoing_queue_notifier_;
   absl::optional<std::thread> io_thread_;
@@ -136,7 +139,7 @@ class Channel {
 #endif
 };
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_OS_CHANNEL_H_
+#endif  // IPCZ_SRC_REFERENCE_DRIVERS_CHANNEL_H_

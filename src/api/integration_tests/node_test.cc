@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/single_process_reference_driver.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -15,7 +15,7 @@ using NodeTest = test::TestBase;
 TEST_F(NodeTest, CreateAndDestroyNode) {
   IpczHandle node;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+            ipcz.CreateNode(&reference_drivers::kSingleProcessReferenceDriver,
                             IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr,
                             &node));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
@@ -24,7 +24,7 @@ TEST_F(NodeTest, CreateAndDestroyNode) {
 TEST_F(NodeTest, CreateAndDestroyBrokerNode) {
   IpczHandle node;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+            ipcz.CreateNode(&reference_drivers::kSingleProcessReferenceDriver,
                             IPCZ_INVALID_DRIVER_HANDLE,
                             IPCZ_CREATE_NODE_AS_BROKER, nullptr, &node));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr));
@@ -33,7 +33,7 @@ TEST_F(NodeTest, CreateAndDestroyBrokerNode) {
 TEST_F(NodeTest, OpenAndClosePortals) {
   IpczHandle node;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+            ipcz.CreateNode(&reference_drivers::kSingleProcessReferenceDriver,
                             IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr,
                             &node));
   IpczHandle a, b;

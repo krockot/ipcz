@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "ipcz/ipcz.h"
-#include "os/memory.h"
+#include "reference_drivers/memory.h"
 #include "test/api_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -43,7 +43,8 @@ TEST_F(GetAPITest, InsufficientStorage) {
   OpenPortals(&portals[0], &portals[1]);
 
   IpczOSHandle os_handle = {sizeof(os_handle)};
-  os::Handle::ToIpczOSHandle(os::Memory(64).TakeHandle(), &os_handle);
+  os::Handle::ToIpczOSHandle(reference_drivers::Memory(64).TakeHandle(),
+                             &os_handle);
 
   ASSERT_EQ(IPCZ_RESULT_OK, ipcz.Put(q, data, sizeof(data), portals, 2,
                                      &os_handle, 1, IPCZ_NO_FLAGS, nullptr));
@@ -92,7 +93,8 @@ TEST_F(GetAPITest, OutputExactDimensionsOnSuccess) {
   OpenPortals(&portals[0], &portals[1]);
 
   IpczOSHandle os_handle = {sizeof(os_handle)};
-  os::Handle::ToIpczOSHandle(os::Memory(64).TakeHandle(), &os_handle);
+  os::Handle::ToIpczOSHandle(reference_drivers::Memory(64).TakeHandle(),
+                             &os_handle);
 
   ASSERT_EQ(IPCZ_RESULT_OK, ipcz.Put(q, data, sizeof(data), portals, 2,
                                      &os_handle, 1, IPCZ_NO_FLAGS, nullptr));

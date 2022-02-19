@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "os/channel.h"
+#include "reference_drivers/channel.h"
 
 #include <stdio.h>
 
@@ -32,7 +32,7 @@
 #endif
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 namespace {
 
@@ -119,7 +119,7 @@ absl::Span<const char> Channel::Data::AsString() const {
 
 Channel::Message::Message(Data data) : data(data) {}
 
-Channel::Message::Message(Data data, absl::Span<Handle> handles)
+Channel::Message::Message(Data data, absl::Span<os::Handle> handles)
     : data(data), handles(handles) {}
 
 Channel::Message::Message(const Message&) = default;
@@ -130,7 +130,7 @@ Channel::Message::~Message() = default;
 
 Channel::Channel() = default;
 
-Channel::Channel(Handle handle) : handle_(std::move(handle)) {}
+Channel::Channel(os::Handle handle) : handle_(std::move(handle)) {}
 
 Channel::Channel(Channel&& other) {
   other.StopListening();
@@ -165,7 +165,8 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
     return {};
   }
 
-  return std::make_pair(Channel(Handle(fds[0])), Channel(Handle(fds[1])));
+  return std::make_pair(Channel(os::Handle(fds[0])),
+                        Channel(os::Handle(fds[1])));
 #elif defined(OS_WIN)
   std::wstringstream ss;
   ss << "\\\\.\\pipe\\ipcz." << ::GetCurrentProcessId() << "."
@@ -188,11 +189,12 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
                     OPEN_EXISTING, kFlags, nullptr);
   ABSL_ASSERT(handle1 != INVALID_HANDLE_VALUE);
 
-  return std::make_pair(Channel(Handle(handle0)), Channel(Handle(handle1)));
+  return std::make_pair(Channel(os::Handle(handle0)),
+                        Channel(os::Handle(handle1)));
 #endif
 }
 
-Handle Channel::TakeHandle() {
+os::Handle Channel::TakeHandle() {
   StopListening();
   return std::move(handle_);
 }
@@ -260,7 +262,7 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 
 #if defined(OS_POSIX)
   size_t num_valid_handles = 0;
-  for (const Handle& handle : message.handles) {
+  for (const os::Handle& handle : message.handles) {
     if (handle.is_valid()) {
       ++num_valid_handles;
     }
@@ -288,7 +290,7 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
   cmsg->cmsg_type = SCM_RIGHTS;
   cmsg->cmsg_len = CMSG_LEN(num_valid_handles * sizeof(int));
   size_t next_handle = 0;
-  for (const Handle& handle : message.handles) {
+  for (const os::Handle& handle : message.handles) {
     if (handle.is_valid()) {
       reinterpret_cast<int*>(CMSG_DATA(cmsg))[next_handle++] = handle.fd();
     }
@@ -581,5 +583,5 @@ Channel::Message Channel::DeferredMessage::AsMessage() {
   return Message(Data(absl::MakeSpan(data)), absl::MakeSpan(handles));
 }
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz

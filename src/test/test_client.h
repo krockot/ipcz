@@ -9,15 +9,15 @@
 #include <map>
 #include <string>
 
-#include "os/channel.h"
 #include "os/process.h"
+#include "reference_drivers/channel.h"
 #include "util/function.h"
 
 namespace ipcz {
 namespace test {
 
-// Launches and maintains an os::Channel connected to a child process which runs
-// a named entry point. Usage is as follows:
+// Launches and maintains a channel connected to a child process which runs a
+// named entry point. Usage is as follows:
 //
 // TEST_F(MyTest, DoStuff) {
 //   // Launch a new child process running the "MyClient" entry point defined
@@ -32,8 +32,8 @@ namespace test {
 // }
 //
 // TEST_CLIENT(MyClient, c) {
-//   // Listen for a message on the channel before terminating. `c` is an
-//   // os::Channel connected to the `client.channel()` used above.
+//   // Listen for a message on the channel before terminating. `c` is a
+//   // Channel connected to the `client.channel()` used above.
 //   WaitForMessage(&c);
 // }
 class TestClient {
@@ -47,14 +47,14 @@ class TestClient {
   static bool InClientProcess();
 
   const os::Process& process() const { return process_; }
-  os::Channel& channel() { return channel_; }
+  reference_drivers::Channel& channel() { return channel_; }
 
   // Waits for the child process to terminate and returns its exit code.
   int Wait();
 
  private:
   os::Process process_;
-  os::Channel channel_;
+  reference_drivers::Channel channel_;
 };
 
 // Defines a new entry point for test child processes. Tests can use this macro
@@ -74,7 +74,7 @@ class TestClient {
     void TestBody() override {}                                               \
                                                                               \
    private:                                                                   \
-    void DoRun(::ipcz::os::Channel channel);                                  \
+    void DoRun(::ipcz::reference_drivers::Channel channel);                   \
   };                                                                          \
   void IpczTestClient_##name::Run(uint64_t channel_handle) {                  \
     ::ipcz::test::TestClient::SetInClientProcess(true);                       \
@@ -85,7 +85,7 @@ class TestClient {
   }                                                                           \
   ::ipcz::test::internal::ClientEntryPointRegistration<IpczTestClient_##name> \
       g_register_IpczTestClient_##name{"" #name};                             \
-  void IpczTestClient_##name::DoRun(::ipcz::os::Channel channel)
+  void IpczTestClient_##name::DoRun(::ipcz::reference_drivers::Channel channel)
 
 // Like TEST_CLIENT_F() but does not specify a custom fixture for the client.
 #define TEST_CLIENT(name, channel) TEST_CLIENT_F(::testing::Test, name, channel)
@@ -98,7 +98,8 @@ class TestClientSupport {
   static void RegisterEntryPoint(const char* name,
                                  Function<void(uint64_t)> entry_point);
   static void RunEntryPoint(const std::string& name, uint64_t channel_handle);
-  static os::Channel RecoverClientChannel(uint64_t channel_handle);
+  static reference_drivers::Channel RecoverClientChannel(
+      uint64_t channel_handle);
 };
 
 template <typename T>

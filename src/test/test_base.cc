@@ -12,9 +12,9 @@
 #include "core/router_tracker.h"
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
-#include "os/event.h"
 #include "os/handle.h"
 #include "os/process.h"
+#include "reference_drivers/event.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ipcz {
@@ -127,13 +127,14 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
 }
 
 IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
-  os::Event event;
-  os::Event::Notifier notifier = event.MakeNotifier();
+  reference_drivers::Event event;
+  reference_drivers::Event::Notifier notifier = event.MakeNotifier();
   IpczTrapConditions conditions = {sizeof(conditions)};
   conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD;
   conditions.min_local_parcels = 0;
   const auto handler = [](const IpczTrapEvent* event) {
-    reinterpret_cast<os::Event::Notifier*>(event->context)->Notify();
+    reinterpret_cast<reference_drivers::Event::Notifier*>(event->context)
+        ->Notify();
   };
   const auto context =
       static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&notifier));

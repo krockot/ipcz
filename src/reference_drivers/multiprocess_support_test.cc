@@ -1,12 +1,13 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <cstdint>
 
-#include "os/channel.h"
-#include "os/event.h"
-#include "os/memory.h"
+#include "os/handle.h"
+#include "reference_drivers/channel.h"
+#include "reference_drivers/event.h"
+#include "reference_drivers/memory.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -14,7 +15,7 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 namespace {
 
 using MultiprocessTest = testing::Test;
@@ -46,7 +47,7 @@ TEST_F(MultiprocessTest, PassMemory) {
   int& shared_int = mapping.As<int>()[0];
   shared_int = 42;
 
-  Handle h = memory.TakeHandle();
+  os::Handle h = memory.TakeHandle();
   client.channel().Send({{"hi"}, {&h, 1}});
   EXPECT_EQ(0, client.Wait());
 
@@ -54,7 +55,7 @@ TEST_F(MultiprocessTest, PassMemory) {
 }
 
 TEST_CLIENT(PassMemoryClient, c) {
-  Handle memory_handle;
+  os::Handle memory_handle;
   absl::Notification received;
   c.Listen([&received, &memory_handle](Channel::Message message) {
     EXPECT_EQ("hi", message.data.AsString());
@@ -85,7 +86,7 @@ TEST_F(MultiprocessTest, SynchronizedMemory) {
   Event my_event;
   Event their_event;
   Event::Notifier notify_them = their_event.MakeNotifier();
-  Handle handles[] = {
+  os::Handle handles[] = {
       memory.TakeHandle(),
       my_event.MakeNotifier().TakeHandle(),
       their_event.TakeHandle(),
@@ -130,5 +131,5 @@ TEST_CLIENT(SynchronizedMemoryClient, c) {
 #endif
 
 }  // namespace
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz

@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "ipcz/ipcz.h"
 
 namespace ipcz {
-namespace drivers {
+namespace reference_drivers {
 
 // This is a fully synchronous driver for single-process use cases. Transmitting
 // on one transport directly calls into the activity handler of its peer, so all
@@ -16,7 +16,7 @@ namespace drivers {
 // end to end.
 extern const IpczDriver kSingleProcessReferenceDriver;
 
-}  // namespace drivers
+}  // namespace reference_drivers
 }  // namespace ipcz
 
 #endif  // IPCZ_SRC_DRIVERS_SINGLE_PROCESS_REFERENCE_DRIVER_H_

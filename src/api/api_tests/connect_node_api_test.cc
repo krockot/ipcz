@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/single_process_reference_driver.h"
 #include "test/api_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,7 +16,7 @@ TEST_F(ConnectNodeAPITest, InvalidArgs) {
   IpczHandle portal;
   IpczDriverHandle transports[2];
   EXPECT_EQ(IPCZ_RESULT_OK,
-            drivers::kSingleProcessReferenceDriver.CreateTransports(
+            reference_drivers::kSingleProcessReferenceDriver.CreateTransports(
                 IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, &transports[0],
                 &transports[1]));
 
@@ -37,7 +37,7 @@ TEST_F(ConnectNodeAPITest, InvalidArgs) {
 
   IpczHandle broker;
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+            ipcz.CreateNode(&reference_drivers::kSingleProcessReferenceDriver,
                             IPCZ_INVALID_HANDLE, IPCZ_CREATE_NODE_AS_BROKER,
                             nullptr, &broker));
 

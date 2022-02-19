@@ -5,9 +5,9 @@
 #include <chrono>
 #include <thread>
 
-#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
-#include "os/event.h"
+#include "reference_drivers/event.h"
+#include "reference_drivers/single_process_reference_driver.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "util/function.h"
@@ -18,7 +18,7 @@ namespace {
 class TrapTest : public test::TestBase {
  public:
   TrapTest() {
-    ipcz.CreateNode(&drivers::kSingleProcessReferenceDriver,
+    ipcz.CreateNode(&reference_drivers::kSingleProcessReferenceDriver,
                     IPCZ_INVALID_DRIVER_HANDLE, IPCZ_CREATE_NODE_AS_BROKER,
                     nullptr, &node);
   }
@@ -317,8 +317,9 @@ TEST_F(TrapTest, DestroyBlocking) {
   IpczHandle a, b;
   OpenPortals(node, &a, &b);
 
-  os::Event trap_event_fired;
-  os::Event::Notifier trap_event_notifier = trap_event_fired.MakeNotifier();
+  reference_drivers::Event trap_event_fired;
+  reference_drivers::Event::Notifier trap_event_notifier =
+      trap_event_fired.MakeNotifier();
   bool tripped = false;
   IpczTrapConditions conditions = {sizeof(conditions)};
   conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;

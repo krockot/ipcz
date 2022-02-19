@@ -43,10 +43,7 @@ source_set("support") {
     "mem/block_allocator.h",
     "mem/mpsc_queue.h",
     "mem/ref_counted.h",
-    "os/channel.h",
-    "os/event.h",
     "os/handle.h",
-    "os/memory.h",
     "os/process.h",
     "util/function.h",
     "util/handle_util.h",
@@ -60,10 +57,7 @@ source_set("support") {
     "mem/block_allocator.cc",
     "mem/mpsc_queue.cc",
     "mem/ref_counted.cc",
-    "os/channel.cc",
-    "os/event.cc",
     "os/handle.cc",
-    "os/memory.cc",
     "os/process.cc",
     "util/mutex_locks.cc",
     "util/random.cc",
@@ -179,12 +173,18 @@ source_set("ipcz_sources") {
   public_configs = [ ":ipcz_include_dir" ]
 }
 
-source_set("drivers") {
+source_set("reference_drivers") {
   sources = [
-    "drivers/multiprocess_reference_driver.cc",
-    "drivers/multiprocess_reference_driver.h",
-    "drivers/single_process_reference_driver.cc",
-    "drivers/single_process_reference_driver.h",
+    "reference_drivers/channel.cc",
+    "reference_drivers/channel.h",
+    "reference_drivers/event.cc",
+    "reference_drivers/event.h",
+    "reference_drivers/memory.cc",
+    "reference_drivers/memory.h",
+    "reference_drivers/multiprocess_reference_driver.cc",
+    "reference_drivers/multiprocess_reference_driver.h",
+    "reference_drivers/single_process_reference_driver.cc",
+    "reference_drivers/single_process_reference_driver.h",
   ]
 
   deps = [
@@ -237,10 +237,10 @@ test("ipcz_tests") {
     "mem/block_allocator_test.cc",
     "mem/mpsc_queue_test.cc",
     "mem/ref_counted_test.cc",
-    "os/channel_test.cc",
-    "os/event_test.cc",
-    "os/memory_test.cc",
-    "os/multiprocess_support_test.cc",
+    "reference_drivers/channel_test.cc",
+    "reference_drivers/event_test.cc",
+    "reference_drivers/memory_test.cc",
+    "reference_drivers/multiprocess_support_test.cc",
     "test/api_test.cc",
     "test/api_test.h",
     "test/multinode_test.cc",
@@ -256,8 +256,8 @@ test("ipcz_tests") {
 
   deps = [
     ":core",
-    ":drivers",
     ":ipcz",
+    ":reference_drivers",
     "//testing/gtest",
     "//third_party/abseil-cpp:absl",
   ]

@@ -1,8 +1,8 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "os/event.h"
+#include "reference_drivers/event.h"
 
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
@@ -17,11 +17,11 @@
 #endif
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 Event::Notifier::Notifier() = default;
 
-Event::Notifier::Notifier(Handle handle) : handle_(std::move(handle)) {}
+Event::Notifier::Notifier(os::Handle handle) : handle_(std::move(handle)) {}
 
 Event::Notifier::Notifier(Notifier&&) = default;
 
@@ -29,7 +29,7 @@ Event::Notifier& Event::Notifier::operator=(Notifier&&) = default;
 
 Event::Notifier::~Notifier() = default;
 
-Handle Event::Notifier::TakeHandle() {
+os::Handle Event::Notifier::TakeHandle() {
   return std::move(handle_);
 }
 
@@ -67,17 +67,17 @@ Event::Event() {
 #if defined(OS_LINUX)
   int fd = eventfd(0, EFD_NONBLOCK);
   ABSL_ASSERT(fd >= 0);
-  handle_ = Handle(fd);
+  handle_ = os::Handle(fd);
 #elif defined(OS_WIN)
   HANDLE h = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
   ABSL_ASSERT(h != INVALID_HANDLE_VALUE);
-  handle_ = Handle(h);
+  handle_ = os::Handle(h);
 #else
 #error "Missing Event impl for this platform.";
 #endif
 }
 
-Event::Event(Handle handle) : handle_(std::move(handle)) {}
+Event::Event(os::Handle handle) : handle_(std::move(handle)) {}
 
 Event::Event(Event&&) = default;
 
@@ -85,7 +85,7 @@ Event& Event::operator=(Event&&) = default;
 
 Event::~Event() = default;
 
-Handle Event::TakeHandle() {
+os::Handle Event::TakeHandle() {
   return std::move(handle_);
 }
 
@@ -125,5 +125,5 @@ void Event::Wait() {
 #endif
 }
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz

@@ -6,7 +6,6 @@
 #define IPCZ_SRC_TEST_MULTINODE_TEST_H_
 
 #include "ipcz/ipcz.h"
-#include "os/channel.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 

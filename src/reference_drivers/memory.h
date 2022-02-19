@@ -1,15 +1,15 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_OS_MEMORY_H_
-#define IPCZ_SRC_OS_MEMORY_H_
+#ifndef IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
+#define IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
 
 #include "os/handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 
 // Generic shared memory object.
 class Memory {
@@ -46,7 +46,7 @@ class Memory {
   };
 
   Memory();
-  Memory(Handle handle, size_t size);
+  Memory(os::Handle handle, size_t size);
   explicit Memory(size_t size);
   Memory(Memory&&);
   Memory& operator=(Memory&&);
@@ -56,9 +56,9 @@ class Memory {
 
   size_t size() const { return size_; }
   bool is_valid() const { return handle_.is_valid(); }
-  const Handle& handle() const { return handle_; }
+  const os::Handle& handle() const { return handle_; }
 
-  Handle TakeHandle() { return std::move(handle_); }
+  os::Handle TakeHandle() { return std::move(handle_); }
 
   void reset() { handle_.reset(); }
 
@@ -67,11 +67,11 @@ class Memory {
   Mapping Map();
 
  private:
-  Handle handle_;
+  os::Handle handle_;
   size_t size_ = 0;
 };
 
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_OS_MEMORY_H_
+#endif  // IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_

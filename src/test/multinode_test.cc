@@ -4,10 +4,10 @@
 
 #include "test/multinode_test.h"
 
-#include "drivers/multiprocess_reference_driver.h"
-#include "drivers/single_process_reference_driver.h"
 #include "ipcz/ipcz.h"
 #include "os/process.h"
+#include "reference_drivers/multiprocess_reference_driver.h"
+#include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
@@ -18,13 +18,13 @@ namespace {
 const IpczDriver* GetDriver(MultinodeTest::DriverMode mode) {
   switch (mode) {
     case MultinodeTest::DriverMode::kSync:
-      return &drivers::kSingleProcessReferenceDriver;
+      return &reference_drivers::kSingleProcessReferenceDriver;
 
     case MultinodeTest::DriverMode::kAsync:
-      return &drivers::kMultiprocessReferenceDriver;
+      return &reference_drivers::kMultiprocessReferenceDriver;
 
     case ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc:
-      return &drivers::kMultiprocessReferenceDriver;
+      return &reference_drivers::kMultiprocessReferenceDriver;
   }
 }
 

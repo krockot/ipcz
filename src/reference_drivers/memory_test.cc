@@ -2,14 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "os/memory.h"
+#include "reference_drivers/memory.h"
 
 #include <tuple>
 
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ipcz {
-namespace os {
+namespace reference_drivers {
 namespace {
 
 using MemoryTest = testing::Test;
@@ -68,5 +68,5 @@ TEST_F(MemoryTest, CreateCloneMapClose) {
 }
 
 }  // namespace
-}  // namespace os
+}  // namespace reference_drivers
 }  // namespace ipcz
