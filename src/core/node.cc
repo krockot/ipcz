@@ -326,9 +326,9 @@ bool Node::OnIntroduceNode(
       ABSL_ASSERT(assigned_name_.is_valid());
       DVLOG(3) << "Node " << assigned_name_.ToString()
                << " received introduction to " << name.ToString();
-      new_link = NodeLink::Create(mem::WrapRefCounted(this), link_side,
-                                  assigned_name_, name, Type::kNormal, 0,
-                                  transport, std::move(link_memory));
+      new_link = NodeLink::Create(
+          mem::WrapRefCounted(this), link_side, assigned_name_, name,
+          Type::kNormal, 0, transport, os::Process(), std::move(link_memory));
     }
   }
 

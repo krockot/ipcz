@@ -29,11 +29,13 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
   NodeConnectorForBrokerToNonBroker(
       mem::Ref<Node> node,
       mem::Ref<DriverTransport> transport,
+      os::Process remote_process,
       IpczConnectNodeFlags flags,
       std::vector<mem::Ref<Portal>> waiting_portals,
       ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
+                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)),
@@ -82,7 +84,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
         NodeLink::Create(node_, LinkSide::kA, broker_name_,
                          new_remote_node_name_, Node::Type::kNormal,
                          connect.params().protocol_version, transport_,
-                         std::move(link_memory_)),
+                         std::move(remote_process_), std::move(link_memory_)),
         LinkSide::kA, connect.params().num_initial_portals);
     return true;
   }
@@ -99,11 +101,13 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
   NodeConnectorForNonBrokerToBroker(
       mem::Ref<Node> node,
       mem::Ref<DriverTransport> transport,
+      os::Process remote_process,
       IpczConnectNodeFlags flags,
       std::vector<mem::Ref<Portal>> waiting_portals,
       ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
+                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)) {}
@@ -144,6 +148,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
         node_, LinkSide::kB, connect.params().receiver_name,
         connect.params().broker_name, Node::Type::kBroker,
         connect.params().protocol_version, transport_,
+        std::move(remote_process_),
         NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
     node_->SetAssignedName(connect.params().receiver_name);
     node_->SetBrokerLink(new_link);
@@ -161,11 +166,13 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
   NodeConnectorForIndirectNonBrokerToBroker(
       mem::Ref<Node> node,
       mem::Ref<DriverTransport> transport,
+      os::Process remote_process,
       IpczConnectNodeFlags flags,
       std::vector<mem::Ref<Portal>> waiting_portals,
       ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
+                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)) {}
@@ -208,6 +215,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
         node_, LinkSide::kB, connect.params().receiver_name,
         connect.params().broker_name, Node::Type::kBroker,
         connect.params().protocol_version, transport_,
+        std::move(remote_process_),
         NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
 
     absl::Span<const mem::Ref<Portal>> portals =
@@ -243,6 +251,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
                                             ConnectIndirectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
+                      std::move(remote_process),
                       IPCZ_NO_FLAGS,
                       {},
                       [this](mem::Ref<NodeLink> link) {
@@ -252,7 +261,6 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
         indirect_callback_(std::move(callback)),
         num_initial_portals_(num_initial_portals),
         referrer_(std::move(referrer)),
-        remote_process_(std::move(remote_process)),
         link_memory_(
             NodeLinkMemory::Allocate(node_, 0, link_memory_to_share_)) {}
 
@@ -300,7 +308,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
         NodeLink::Create(node_, LinkSide::kA, broker_name_,
                          new_remote_node_name_, Node::Type::kNormal,
                          connect.params().protocol_version, transport_,
-                         std::move(link_memory_)),
+                         std::move(remote_process_), std::move(link_memory_)),
         LinkSide::kA, num_remote_portals_);
     return true;
   }
@@ -312,7 +320,6 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
   const uint32_t num_initial_portals_;
   const mem::Ref<NodeLink> referrer_;
   uint32_t num_remote_portals_;
-  os::Process remote_process_;
   DriverMemory link_memory_to_share_;
   mem::Ref<NodeLinkMemory> link_memory_;
 };
@@ -321,11 +328,13 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
  public:
   NodeConnectorForBrokerToBroker(mem::Ref<Node> node,
                                  mem::Ref<DriverTransport> transport,
+                                 os::Process remote_process,
                                  IpczConnectNodeFlags flags,
                                  std::vector<mem::Ref<Portal>> waiting_portals,
                                  ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
+                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)),
@@ -386,7 +395,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
         NodeLink::Create(node_, link_side, local_name_,
                          connect.params().sender_name, Node::Type::kBroker,
                          connect.params().protocol_version, transport_,
-                         std::move(link_memory)),
+                         std::move(remote_process_), std::move(link_memory)),
         link_side, connect.params().num_initial_portals);
     return true;
   }
@@ -409,30 +418,34 @@ std::pair<mem::Ref<NodeConnector>, IpczResult> CreateConnector(
   const bool inherit_broker = (flags & IPCZ_CONNECT_NODE_INHERIT_BROKER) != 0;
   if (from_broker) {
     if (to_broker) {
-      return {mem::MakeRefCounted<NodeConnectorForBrokerToBroker>(
-                  std::move(node), std::move(transport), flags, initial_portals,
-                  std::move(callback)),
-              IPCZ_RESULT_OK};
+      return {
+          mem::MakeRefCounted<NodeConnectorForBrokerToBroker>(
+              std::move(node), std::move(transport), std::move(remote_process),
+              flags, initial_portals, std::move(callback)),
+          IPCZ_RESULT_OK};
     }
 
-    return {mem::MakeRefCounted<NodeConnectorForBrokerToNonBroker>(
-                std::move(node), std::move(transport), flags, initial_portals,
-                std::move(callback)),
-            IPCZ_RESULT_OK};
+    return {
+        mem::MakeRefCounted<NodeConnectorForBrokerToNonBroker>(
+            std::move(node), std::move(transport), std::move(remote_process),
+            flags, initial_portals, std::move(callback)),
+        IPCZ_RESULT_OK};
   }
 
   if (to_broker) {
-    return {mem::MakeRefCounted<NodeConnectorForNonBrokerToBroker>(
-                std::move(node), std::move(transport), flags, initial_portals,
-                std::move(callback)),
-            IPCZ_RESULT_OK};
+    return {
+        mem::MakeRefCounted<NodeConnectorForNonBrokerToBroker>(
+            std::move(node), std::move(transport), std::move(remote_process),
+            flags, initial_portals, std::move(callback)),
+        IPCZ_RESULT_OK};
   }
 
   if (inherit_broker) {
-    return {mem::MakeRefCounted<NodeConnectorForIndirectNonBrokerToBroker>(
-                std::move(node), std::move(transport), flags, initial_portals,
-                std::move(callback)),
-            IPCZ_RESULT_OK};
+    return {
+        mem::MakeRefCounted<NodeConnectorForIndirectNonBrokerToBroker>(
+            std::move(node), std::move(transport), std::move(remote_process),
+            flags, initial_portals, std::move(callback)),
+        IPCZ_RESULT_OK};
   }
 
   return {nullptr, IPCZ_RESULT_FAILED_PRECONDITION};
@@ -535,11 +548,13 @@ IpczResult NodeConnector::ConnectNodeIndirect(
 
 NodeConnector::NodeConnector(mem::Ref<Node> node,
                              mem::Ref<DriverTransport> transport,
+                             os::Process remote_process,
                              IpczCreateNodeFlags flags,
                              std::vector<mem::Ref<Portal>> waiting_portals,
                              ConnectCallback callback)
     : node_(std::move(node)),
       transport_(std::move(transport)),
+      remote_process_(std::move(remote_process)),
       flags_(flags),
       waiting_portals_(std::move(waiting_portals)),
       callback_(std::move(callback)) {}

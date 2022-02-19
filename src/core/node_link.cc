@@ -37,11 +37,12 @@ mem::Ref<NodeLink> NodeLink::Create(mem::Ref<Node> node,
                                     Node::Type remote_node_type,
                                     uint32_t remote_protocol_version,
                                     mem::Ref<DriverTransport> transport,
+                                    os::Process remote_process,
                                     mem::Ref<NodeLinkMemory> memory) {
-  auto link = mem::WrapRefCounted(
-      new NodeLink(std::move(node), link_side, local_node_name,
-                   remote_node_name, remote_node_type, remote_protocol_version,
-                   std::move(transport), std::move(memory)));
+  auto link = mem::WrapRefCounted(new NodeLink(
+      std::move(node), link_side, local_node_name, remote_node_name,
+      remote_node_type, remote_protocol_version, std::move(transport),
+      std::move(remote_process), std::move(memory)));
   link->memory().SetNodeLink(link);
   return link;
 }
@@ -53,6 +54,7 @@ NodeLink::NodeLink(mem::Ref<Node> node,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    mem::Ref<DriverTransport> transport,
+                   os::Process remote_process,
                    mem::Ref<NodeLinkMemory> memory)
     : node_(std::move(node)),
       link_side_(link_side),
@@ -61,6 +63,7 @@ NodeLink::NodeLink(mem::Ref<Node> node,
       remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
       transport_(std::move(transport)),
+      remote_process_(std::move(remote_process)),
       memory_(std::move(memory)) {
   transport_->set_listener(this);
 }

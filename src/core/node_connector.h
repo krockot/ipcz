@@ -73,6 +73,7 @@ class NodeConnector : public mem::RefCounted, public DriverTransport::Listener {
  protected:
   NodeConnector(mem::Ref<Node> node,
                 mem::Ref<DriverTransport> transport,
+                os::Process remote_process,
                 IpczCreateNodeFlags flags,
                 std::vector<mem::Ref<Portal>> waiting_portals,
                 ConnectCallback callback);
@@ -92,6 +93,7 @@ class NodeConnector : public mem::RefCounted, public DriverTransport::Listener {
 
   const mem::Ref<Node> node_;
   const mem::Ref<DriverTransport> transport_;
+  os::Process remote_process_;
   const IpczCreateNodeFlags flags_;
   const std::vector<mem::Ref<Portal>> waiting_portals_;
   mem::Ref<NodeConnector> active_self_;

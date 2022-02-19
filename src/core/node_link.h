@@ -72,6 +72,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
                                    Node::Type remote_node_type,
                                    uint32_t remote_protocol_version,
                                    mem::Ref<DriverTransport> transport,
+                                   os::Process remote_process,
                                    mem::Ref<NodeLinkMemory> memory);
 
   const mem::Ref<Node>& node() const { return node_; }
@@ -183,6 +184,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
            mem::Ref<DriverTransport> transport,
+           os::Process remote_process,
            mem::Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
@@ -236,6 +238,7 @@ class NodeLink : public mem::RefCounted, private DriverTransport::Listener {
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
   const mem::Ref<DriverTransport> transport_;
+  const os::Process remote_process_;
   const mem::Ref<NodeLinkMemory> memory_;
 
   absl::Mutex mutex_;
