@@ -81,12 +81,11 @@ class NodeLinkMemory : public mem::RefCounted {
   // use on the corresponding NodeLink.
   SublinkId AllocateSublinkIds(size_t count);
 
-  // Returns the a ref to the RouterLinkState for the `i`th initial portal on
-  // the NodeLink, as established by whatever Connect() call precipitated the
-  // link's creation. Unlike other RouterLinkStates which are allocated
-  // dynamically, these have a fixed location within the NodeLinkMemory's
-  // primary buffer. The returned FragmentRef is unmanaged and will never free
-  // its underlying fragment.
+  // Returns a ref to the RouterLinkState for the `i`th initial portal on the
+  // NodeLink, established by the Connect() call which created this link. Unlike
+  // Unlike other RouterLinkStates which are allocated dynamically, these have a
+  // fixed location within the NodeLinkMemory's primary buffer. The returned
+  // FragmentRef is unmanaged and will never free its underlying fragment.
   FragmentRef<RouterLinkState> GetInitialRouterLinkState(size_t i);
 
   // Allocates a new ref-counted RouterLinkState in NodeLink memory and returns
@@ -110,8 +109,8 @@ class NodeLinkMemory : public mem::RefCounted {
   // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which
   // fragments of `fragment_size` bytes will be allocated.
   //
-  // `callback` is invoked once new buffer is available, which may require some
-  // asynchronous work to accomplish.
+  // `callback` is invoked once new capacity is available, which may require
+  // some asynchronous work to accomplish.
   using RequestFragmentCapacityCallback = Function<void()>;
   void RequestFragmentCapacity(uint32_t buffer_size,
                                uint32_t fragment_size,
@@ -129,10 +128,18 @@ class NodeLinkMemory : public mem::RefCounted {
                                   DriverMemory memory);
 
   // Flags the other endpoint with a pending notification and returns whether or
-  // not there was already a notification pending.
+  // not there was already a notification pending. This is used as a signal to
+  // avoid redundant flushes of the link when multiple messages are sent close
+  // together.
   bool TestAndSetNotificationPending();
+
+  // Clears this side's pending notification flag. Once cleared, any subsequent
+  // message sent by the other side will elicit at least one additional flush
+  // message to this side via the driver transport.
   void ClearPendingNotification();
 
+  // Registers a callback to be invoked as soon as the identified buffer becomes
+  // available to this NodeLinkMemory.
   void OnBufferAvailable(BufferId id, Function<void()> callback);
 
  private:
