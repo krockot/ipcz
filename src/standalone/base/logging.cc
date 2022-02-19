@@ -15,6 +15,10 @@
 #include <unistd.h>
 #endif
 
+#if defined(OS_WIN)
+#include <windows.h>
+#endif
+
 namespace ipcz {
 namespace standalone {
 
@@ -29,6 +33,9 @@ LogMessage::LogMessage(const char* file, int line, Level level) {
 #if defined(OS_POSIX)
   stream_ << getpid() << ":" << gettid() << ":";
   const char* trimmed_file = strrchr(file, '/') + 1;
+#elif defined(OS_WIN)
+  const char* trimmed_file = file;
+  stream_ << (::GetCurrentProcessId()) << ":" << ::GetCurrentThreadId() << ":";
 #else
   const char* trimmed_file = file;
 #endif
