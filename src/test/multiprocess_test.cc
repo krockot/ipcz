@@ -1,16 +1,16 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "test/multiprocess_test.h"
 
 #include "ipcz/ipcz.h"
-#include "os/handle.h"
-#include "os/process.h"
 #include "reference_drivers/channel.h"
 #include "reference_drivers/multiprocess_reference_driver.h"
 #include "test/test_client.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "util/os_handle.h"
+#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -21,7 +21,7 @@ IpczDriverHandle CreateTransportFromChannel(
     reference_drivers::Channel& channel) {
   IpczDriverHandle transport;
   IpczOSHandle os_handle = {sizeof(os_handle)};
-  os::Handle::ToIpczOSHandle(channel.TakeHandle(), &os_handle);
+  OSHandle::ToIpczOSHandle(channel.TakeHandle(), &os_handle);
   IpczResult result =
       reference_drivers::kMultiprocessReferenceDriver.DeserializeTransport(
           IPCZ_INVALID_DRIVER_HANDLE, nullptr, 0, &os_handle, 1, nullptr,
@@ -50,7 +50,7 @@ MultiprocessTest::~MultiprocessTest() {
 
 IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
   IpczOSProcessHandle process = {sizeof(process)};
-  os::Process::ToIpczOSProcessHandle(client.process().Clone(), process);
+  OSProcess::ToIpczOSProcessHandle(client.process().Clone(), process);
 
   IpczHandle portal;
   IpczResult result =

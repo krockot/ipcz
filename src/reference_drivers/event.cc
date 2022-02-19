@@ -21,7 +21,7 @@ namespace reference_drivers {
 
 Event::Notifier::Notifier() = default;
 
-Event::Notifier::Notifier(os::Handle handle) : handle_(std::move(handle)) {}
+Event::Notifier::Notifier(OSHandle handle) : handle_(std::move(handle)) {}
 
 Event::Notifier::Notifier(Notifier&&) = default;
 
@@ -29,7 +29,7 @@ Event::Notifier& Event::Notifier::operator=(Notifier&&) = default;
 
 Event::Notifier::~Notifier() = default;
 
-os::Handle Event::Notifier::TakeHandle() {
+OSHandle Event::Notifier::TakeHandle() {
   return std::move(handle_);
 }
 
@@ -67,17 +67,17 @@ Event::Event() {
 #if defined(OS_LINUX)
   int fd = eventfd(0, EFD_NONBLOCK);
   ABSL_ASSERT(fd >= 0);
-  handle_ = os::Handle(fd);
+  handle_ = OSHandle(fd);
 #elif defined(OS_WIN)
   HANDLE h = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
   ABSL_ASSERT(h != INVALID_HANDLE_VALUE);
-  handle_ = os::Handle(h);
+  handle_ = OSHandle(h);
 #else
 #error "Missing Event impl for this platform.";
 #endif
 }
 
-Event::Event(os::Handle handle) : handle_(std::move(handle)) {}
+Event::Event(OSHandle handle) : handle_(std::move(handle)) {}
 
 Event::Event(Event&&) = default;
 
@@ -85,7 +85,7 @@ Event& Event::operator=(Event&&) = default;
 
 Event::~Event() = default;
 
-os::Handle Event::TakeHandle() {
+OSHandle Event::TakeHandle() {
   return std::move(handle_);
 }
 

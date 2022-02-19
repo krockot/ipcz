@@ -13,13 +13,13 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
-#include "os/handle.h"
 #include "reference_drivers/event.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -46,13 +46,13 @@ class Channel {
 
   struct Message {
     Message(Data data);
-    Message(Data data, absl::Span<os::Handle> handles);
+    Message(Data data, absl::Span<OSHandle> handles);
     Message(const Message&);
     Message& operator=(const Message&);
     ~Message();
 
     Data data;
-    absl::Span<os::Handle> handles;
+    absl::Span<OSHandle> handles;
   };
 
   // Creates a new Channel using `handle` as the endpoint to manipulate with
@@ -66,7 +66,7 @@ class Channel {
   //
   // If `handle` is a Fuchsia handle, it should name a zx_channel object.
   Channel();
-  explicit Channel(os::Handle handle);
+  explicit Channel(OSHandle handle);
   Channel(Channel&&);
   Channel& operator=(Channel&&);
   Channel(const Channel&) = delete;
@@ -77,9 +77,9 @@ class Channel {
 
   bool is_valid() const { return handle_.is_valid(); }
 
-  const os::Handle& handle() const { return handle_; }
+  const OSHandle& handle() const { return handle_; }
 
-  os::Handle TakeHandle();
+  OSHandle TakeHandle();
 
   using MessageHandler = Function<bool(Message)>;
   void Listen(MessageHandler handler);
@@ -102,14 +102,14 @@ class Channel {
   absl::Span<uint8_t> EnsureReadCapacity();
   void CommitRead(size_t num_bytes);
 
-  os::Handle handle_;
+  OSHandle handle_;
   Event::Notifier shutdown_notifier_;
   Event::Notifier outgoing_queue_notifier_;
   absl::optional<std::thread> io_thread_;
   std::vector<uint8_t> read_buffer_;
   absl::Span<uint8_t> unread_data_;
-  std::vector<os::Handle> handle_buffer_;
-  absl::Span<os::Handle> unread_handles_;
+  std::vector<OSHandle> handle_buffer_;
+  absl::Span<OSHandle> unread_handles_;
 
   struct DeferredMessage {
     DeferredMessage();
@@ -119,7 +119,7 @@ class Channel {
     ~DeferredMessage();
     Message AsMessage();
     std::vector<uint8_t> data;
-    std::vector<os::Handle> handles;
+    std::vector<OSHandle> handles;
   };
 
   // on POSIX we use sendmsg() from arbitrary threads, which means the system is

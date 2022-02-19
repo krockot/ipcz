@@ -7,7 +7,7 @@ on a small subset of the Chromium tree when building against Chromium, but to
 still build and behave as expected when used as a standalone library.
 
 Currently only a subset of logging macros are polyfilled here. Internal ipcz
-code which includes `debug/log.h` will get Chromium's `base/logging.h`
+code which includes `util/log.h` will get Chromium's `base/logging.h`
 definitions when building as part of Chromium; when building standalone, this
 will instead include `standalone/base/logging.h`.
 

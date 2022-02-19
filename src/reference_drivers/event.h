@@ -5,7 +5,7 @@
 #ifndef IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
 #define IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
 
-#include "os/handle.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -17,40 +17,40 @@ class Event {
   class Notifier {
    public:
     Notifier();
-    explicit Notifier(os::Handle handle);
+    explicit Notifier(OSHandle handle);
     Notifier(Notifier&&);
     Notifier& operator=(Notifier&&);
     ~Notifier();
 
     bool is_valid() const { return handle_.is_valid(); }
-    const os::Handle& handle() const { return handle_; }
+    const OSHandle& handle() const { return handle_; }
 
-    os::Handle TakeHandle();
+    OSHandle TakeHandle();
 
     void Notify();
     Notifier Clone();
 
    private:
-    os::Handle handle_;
+    OSHandle handle_;
   };
 
   Event();
-  explicit Event(os::Handle handle);
+  explicit Event(OSHandle handle);
   Event(Event&&);
   Event& operator=(Event&&);
   ~Event();
 
   bool is_valid() const { return handle_.is_valid(); }
-  const os::Handle& handle() const { return handle_; }
+  const OSHandle& handle() const { return handle_; }
 
-  os::Handle TakeHandle();
+  OSHandle TakeHandle();
 
   Notifier MakeNotifier();
 
   void Wait();
 
  private:
-  os::Handle handle_;
+  OSHandle handle_;
 };
 
 }  // namespace reference_drivers

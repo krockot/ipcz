@@ -10,11 +10,11 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
-#include "mem/ref_counted.h"
-#include "os/handle.h"
 #include "reference_drivers/channel.h"
 #include "reference_drivers/memory.h"
 #include "util/handle_util.h"
+#include "util/os_handle.h"
+#include "util/ref_counted.h"
 
 #if defined(OS_WIN)
 #define IPCZ_CDECL __cdecl
@@ -27,7 +27,7 @@ namespace reference_drivers {
 
 namespace {
 
-class MultiprocessTransport : public mem::RefCounted {
+class MultiprocessTransport : public RefCounted {
  public:
   MultiprocessTransport(Channel channel)
       : channel_(std::make_unique<Channel>(std::move(channel))) {}
@@ -51,7 +51,7 @@ class MultiprocessTransport : public mem::RefCounted {
     transport_ = transport;
     activity_handler_ = activity_handler;
     channel_->Listen(
-        [transport = mem::WrapRefCounted(this)](Channel::Message message) {
+        [transport = WrapRefCounted(this)](Channel::Message message) {
           if (!transport->OnMessage(message)) {
             transport->OnError();
             return false;
@@ -70,9 +70,9 @@ class MultiprocessTransport : public mem::RefCounted {
 
   IpczResult Transmit(absl::Span<const uint8_t> data,
                       absl::Span<const IpczOSHandle> os_handles) {
-    std::vector<os::Handle> handles(os_handles.size());
+    std::vector<OSHandle> handles(os_handles.size());
     for (size_t i = 0; i < os_handles.size(); ++i) {
-      handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
+      handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
     }
     channel_->Send(
         Channel::Message(Channel::Data(data), absl::MakeSpan(handles)));
@@ -86,7 +86,7 @@ class MultiprocessTransport : public mem::RefCounted {
     std::vector<IpczOSHandle> os_handles(message.handles.size());
     for (size_t i = 0; i < os_handles.size(); ++i) {
       os_handles[i].size = sizeof(os_handles[i]);
-      os::Handle::ToIpczOSHandle(std::move(message.handles[i]), &os_handles[i]);
+      OSHandle::ToIpczOSHandle(std::move(message.handles[i]), &os_handles[i]);
     }
 
     ABSL_ASSERT(activity_handler_);
@@ -132,7 +132,7 @@ class MultiprocessMemoryMapping {
 class MultiprocessMemory {
  public:
   explicit MultiprocessMemory(size_t num_bytes) : memory_(num_bytes) {}
-  MultiprocessMemory(os::Handle handle, size_t num_bytes)
+  MultiprocessMemory(OSHandle handle, size_t num_bytes)
       : memory_(std::move(handle), num_bytes) {}
   ~MultiprocessMemory() = default;
 
@@ -147,7 +147,7 @@ class MultiprocessMemory {
     return std::make_unique<MultiprocessMemoryMapping>(memory_.Map());
   }
 
-  os::Handle TakeHandle() { return memory_.TakeHandle(); }
+  OSHandle TakeHandle() { return memory_.TakeHandle(); }
 
  private:
   Memory memory_;
@@ -159,10 +159,9 @@ IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
                                        IpczDriverHandle* first_transport,
                                        IpczDriverHandle* second_transport) {
   auto [first_channel, second_channel] = Channel::CreateChannelPair();
-  auto first =
-      mem::MakeRefCounted<MultiprocessTransport>(std::move(first_channel));
+  auto first = MakeRefCounted<MultiprocessTransport>(std::move(first_channel));
   auto second =
-      mem::MakeRefCounted<MultiprocessTransport>(std::move(second_channel));
+      MakeRefCounted<MultiprocessTransport>(std::move(second_channel));
   *first_transport = ToDriverHandle(first.release());
   *second_transport = ToDriverHandle(second.release());
   return IPCZ_RESULT_OK;
@@ -171,8 +170,8 @@ IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
 IpczResult IPCZ_CDECL DestroyTransport(IpczDriverHandle driver_transport,
                                        uint32_t flags,
                                        const void* options) {
-  mem::Ref<MultiprocessTransport> transport(
-      mem::RefCounted::kAdoptExistingRef,
+  Ref<MultiprocessTransport> transport(
+      RefCounted::kAdoptExistingRef,
       ToPtr<MultiprocessTransport>(driver_transport));
   return IPCZ_RESULT_OK;
 }
@@ -191,8 +190,8 @@ IpczResult IPCZ_CDECL SerializeTransport(IpczDriverHandle driver_transport,
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  mem::Ref<MultiprocessTransport> transport(
-      mem::RefCounted::kAdoptExistingRef,
+  Ref<MultiprocessTransport> transport(
+      RefCounted::kAdoptExistingRef,
       ToPtr<MultiprocessTransport>(driver_transport));
   Channel channel = transport->TakeChannel();
   if (!channel.is_valid()) {
@@ -200,7 +199,7 @@ IpczResult IPCZ_CDECL SerializeTransport(IpczDriverHandle driver_transport,
   }
 
   os_handles[0].size = sizeof(os_handles[0]);
-  if (!os::Handle::ToIpczOSHandle(channel.TakeHandle(), &os_handles[0])) {
+  if (!OSHandle::ToIpczOSHandle(channel.TakeHandle(), &os_handles[0])) {
     return IPCZ_RESULT_UNKNOWN;
   }
 
@@ -221,13 +220,12 @@ DeserializeTransport(IpczDriverHandle driver_node,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Channel channel(os::Handle::FromIpczOSHandle(os_handles[0]));
+  Channel channel(OSHandle::FromIpczOSHandle(os_handles[0]));
   if (!channel.is_valid()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  auto transport =
-      mem::MakeRefCounted<MultiprocessTransport>(std::move(channel));
+  auto transport = MakeRefCounted<MultiprocessTransport>(std::move(channel));
   *driver_transport = ToDriverHandle(transport.release());
   return IPCZ_RESULT_OK;
 }
@@ -306,7 +304,7 @@ IpczResult IPCZ_CDECL SerializeSharedMemory(IpczDriverHandle driver_memory,
   std::unique_ptr<MultiprocessMemory> memory(
       ToPtr<MultiprocessMemory>(driver_memory));
   reinterpret_cast<uint32_t*>(data)[0] = static_cast<uint32_t>(memory->size());
-  if (!os::Handle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0])) {
+  if (!OSHandle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0])) {
     std::ignore = memory.release();
     return IPCZ_RESULT_UNKNOWN;
   }
@@ -326,7 +324,7 @@ IpczResult IPCZ_CDECL DeserializeSharedMemory(const uint8_t* data,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  os::Handle handle = os::Handle::FromIpczOSHandle(os_handles[0]);
+  OSHandle handle = OSHandle::FromIpczOSHandle(os_handles[0]);
   if (!handle.is_valid()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }

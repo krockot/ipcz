@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include <string>
 
 #ifndef NDEBUG
-#include "debug/stack_trace.h"
+#include "util/stack_trace.h"
 #endif
 
 #include "build/build_config.h"
@@ -82,7 +82,7 @@ class CommandLine {
 
 int main(int argc, char** argv) {
 #ifndef NDEBUG
-  ipcz::debug::StackTrace::EnableStackTraceSymbolization(argv[0]);
+  ipcz::StackTrace::EnableStackTraceSymbolization(argv[0]);
 #endif
 
   testing::InitGoogleTest(&argc, argv);

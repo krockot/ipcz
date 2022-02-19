@@ -4,7 +4,6 @@
 
 #include <cstdint>
 
-#include "os/handle.h"
 #include "reference_drivers/channel.h"
 #include "reference_drivers/event.h"
 #include "reference_drivers/memory.h"
@@ -13,6 +12,7 @@
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -47,7 +47,7 @@ TEST_F(MultiprocessTest, PassMemory) {
   int& shared_int = mapping.As<int>()[0];
   shared_int = 42;
 
-  os::Handle h = memory.TakeHandle();
+  OSHandle h = memory.TakeHandle();
   client.channel().Send({{"hi"}, {&h, 1}});
   EXPECT_EQ(0, client.Wait());
 
@@ -55,7 +55,7 @@ TEST_F(MultiprocessTest, PassMemory) {
 }
 
 TEST_CLIENT(PassMemoryClient, c) {
-  os::Handle memory_handle;
+  OSHandle memory_handle;
   absl::Notification received;
   c.Listen([&received, &memory_handle](Channel::Message message) {
     EXPECT_EQ("hi", message.data.AsString());
@@ -86,7 +86,7 @@ TEST_F(MultiprocessTest, SynchronizedMemory) {
   Event my_event;
   Event their_event;
   Event::Notifier notify_them = their_event.MakeNotifier();
-  os::Handle handles[] = {
+  OSHandle handles[] = {
       memory.TakeHandle(),
       my_event.MakeNotifier().TakeHandle(),
       their_event.TakeHandle(),

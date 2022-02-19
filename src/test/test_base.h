@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,10 +11,10 @@
 #include <vector>
 
 #include "ipcz/ipcz.h"
-#include "os/handle.h"
-#include "os/process.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/os_handle.h"
+#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -30,7 +30,7 @@ class TestBase : public testing::Test {
     ~Parcel();
     std::string message;
     std::vector<IpczHandle> portals;
-    std::vector<os::Handle> os_handles;
+    std::vector<OSHandle> os_handles;
   };
 
   TestBase();
@@ -56,20 +56,20 @@ class TestBase : public testing::Test {
 
   IpczHandle ConnectNode(IpczHandle node,
                          IpczDriverHandle driver_transport,
-                         const os::Process& process,
+                         const OSProcess& process,
                          IpczCreateNodeFlags flags);
   IpczHandle ConnectToBroker(IpczHandle node,
                              IpczDriverHandle driver_transport);
   IpczHandle ConnectToNonBroker(IpczHandle node,
                                 IpczDriverHandle driver_transport,
-                                const os::Process& process);
+                                const OSProcess& process);
 
   void OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b);
 
   void Put(IpczHandle portal,
            const std::string& str,
            absl::Span<IpczHandle> portals = {},
-           absl::Span<os::Handle> os_handles = {});
+           absl::Span<OSHandle> os_handles = {});
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);

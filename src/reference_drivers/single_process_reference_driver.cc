@@ -10,11 +10,11 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
-#include "mem/ref_counted.h"
-#include "os/handle.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
+#include "util/os_handle.h"
+#include "util/ref_counted.h"
 
 #if defined(OS_WIN)
 #define IPCZ_CDECL __cdecl
@@ -27,7 +27,7 @@ namespace reference_drivers {
 
 namespace {
 
-class TransportWrapper : public mem::RefCounted {
+class TransportWrapper : public RefCounted {
  public:
   TransportWrapper(IpczHandle transport,
                    IpczTransportActivityHandler activity_handler)
@@ -62,15 +62,15 @@ class TransportWrapper : public mem::RefCounted {
 
 struct SavedMessage {
   std::vector<uint8_t> data;
-  std::vector<os::Handle> handles;
+  std::vector<OSHandle> handles;
 };
 
-class InProcessTransport : public mem::RefCounted {
+class InProcessTransport : public RefCounted {
  public:
   InProcessTransport() = default;
   ~InProcessTransport() override = default;
 
-  void SetPeer(mem::Ref<InProcessTransport> peer) {
+  void SetPeer(Ref<InProcessTransport> peer) {
     ABSL_ASSERT(!peer ^ !peer_);
     peer_ = std::move(peer);
   }
@@ -81,7 +81,7 @@ class InProcessTransport : public mem::RefCounted {
       absl::MutexLock lock(&mutex_);
       ABSL_ASSERT(!transport_);
       transport_ =
-          mem::MakeRefCounted<TransportWrapper>(transport, activity_handler);
+          MakeRefCounted<TransportWrapper>(transport, activity_handler);
     }
 
     peer_->OnPeerActivated();
@@ -89,7 +89,7 @@ class InProcessTransport : public mem::RefCounted {
   }
 
   void Deactivate() {
-    mem::Ref<TransportWrapper> transport;
+    Ref<TransportWrapper> transport;
     {
       absl::MutexLock lock(&mutex_);
       ABSL_ASSERT(transport_);
@@ -99,8 +99,8 @@ class InProcessTransport : public mem::RefCounted {
 
   IpczResult Transmit(absl::Span<const uint8_t> data,
                       absl::Span<const IpczOSHandle> os_handles) {
-    mem::Ref<InProcessTransport> peer;
-    mem::Ref<TransportWrapper> peer_transport;
+    Ref<InProcessTransport> peer;
+    Ref<TransportWrapper> peer_transport;
     {
       absl::MutexLock lock(&mutex_);
       if (!peer_active_) {
@@ -108,7 +108,7 @@ class InProcessTransport : public mem::RefCounted {
         message.data = std::vector<uint8_t>(data.begin(), data.end());
         message.handles.resize(os_handles.size());
         for (size_t i = 0; i < os_handles.size(); ++i) {
-          message.handles[i] = os::Handle::FromIpczOSHandle(os_handles[i]);
+          message.handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
         }
         saved_messages_.push_back(std::move(message));
         return IPCZ_RESULT_OK;
@@ -145,7 +145,7 @@ class InProcessTransport : public mem::RefCounted {
         saved_messages_.clear();
       }
 
-      mem::Ref<TransportWrapper> peer_transport;
+      Ref<TransportWrapper> peer_transport;
       {
         absl::MutexLock lock(&peer_->mutex_);
         peer_transport = peer_->transport_;
@@ -159,7 +159,7 @@ class InProcessTransport : public mem::RefCounted {
         std::vector<IpczOSHandle> os_handles(m.handles.size());
         for (size_t i = 0; i < m.handles.size(); ++i) {
           os_handles[i].size = sizeof(os_handles[i]);
-          os::Handle::ToIpczOSHandle(std::move(m.handles[i]), &os_handles[i]);
+          OSHandle::ToIpczOSHandle(std::move(m.handles[i]), &os_handles[i]);
         }
         peer_transport->Notify(m.data, absl::MakeSpan(os_handles));
       }
@@ -168,15 +168,15 @@ class InProcessTransport : public mem::RefCounted {
 
   // Effectively const because it's only set once immediately after
   // construction. Hence no need to synchronize access.
-  mem::Ref<InProcessTransport> peer_;
+  Ref<InProcessTransport> peer_;
 
   absl::Mutex mutex_;
-  mem::Ref<TransportWrapper> transport_ ABSL_GUARDED_BY(mutex_);
+  Ref<TransportWrapper> transport_ ABSL_GUARDED_BY(mutex_);
   bool peer_active_ ABSL_GUARDED_BY(mutex_) = false;
   std::vector<SavedMessage> saved_messages_ ABSL_GUARDED_BY(mutex_);
 };
 
-class InProcessMemory : public mem::RefCounted {
+class InProcessMemory : public RefCounted {
  public:
   explicit InProcessMemory(size_t size)
       : size_(size), data_(new uint8_t[size]) {
@@ -198,8 +198,8 @@ IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
                                        const void* options,
                                        IpczDriverHandle* first_transport,
                                        IpczDriverHandle* second_transport) {
-  auto first = mem::MakeRefCounted<InProcessTransport>();
-  auto second = mem::MakeRefCounted<InProcessTransport>();
+  auto first = MakeRefCounted<InProcessTransport>();
+  auto second = MakeRefCounted<InProcessTransport>();
   first->SetPeer(second);
   second->SetPeer(first);
   *first_transport = ToDriverHandle(first.release());
@@ -210,8 +210,8 @@ IpczResult IPCZ_CDECL CreateTransports(IpczDriverHandle driver_node,
 IpczResult IPCZ_CDECL DestroyTransport(IpczDriverHandle driver_transport,
                                        uint32_t flags,
                                        const void* options) {
-  mem::Ref<InProcessTransport> transport(
-      mem::RefCounted::kAdoptExistingRef,
+  Ref<InProcessTransport> transport(
+      RefCounted::kAdoptExistingRef,
       ToPtr<InProcessTransport>(driver_transport));
   transport->SetPeer(nullptr);
   return IPCZ_RESULT_OK;
@@ -283,7 +283,7 @@ IpczResult IPCZ_CDECL AllocateSharedMemory(uint32_t num_bytes,
                                            uint32_t flags,
                                            const void* options,
                                            IpczDriverHandle* driver_memory) {
-  auto memory = mem::MakeRefCounted<InProcessMemory>(num_bytes);
+  auto memory = MakeRefCounted<InProcessMemory>(num_bytes);
   *driver_memory = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
@@ -293,7 +293,7 @@ DuplicateSharedMemory(IpczDriverHandle driver_memory,
                       uint32_t flags,
                       const void* options,
                       IpczDriverHandle* new_driver_memory) {
-  mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
+  Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
   *new_driver_memory = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
@@ -301,8 +301,8 @@ DuplicateSharedMemory(IpczDriverHandle driver_memory,
 IpczResult IPCZ_CDECL ReleaseSharedMemory(IpczDriverHandle driver_memory,
                                           uint32_t flags,
                                           const void* options) {
-  mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
-                                   ToPtr<InProcessMemory>(driver_memory));
+  Ref<InProcessMemory> memory(RefCounted::kAdoptExistingRef,
+                              ToPtr<InProcessMemory>(driver_memory));
   return IPCZ_RESULT_OK;
 }
 
@@ -349,7 +349,7 @@ IpczResult IPCZ_CDECL MapSharedMemory(IpczDriverHandle driver_memory,
                                       const void* options,
                                       void** address,
                                       IpczDriverHandle* driver_mapping) {
-  mem::Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
+  Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
   *address = memory->address();
   *driver_mapping = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
@@ -358,8 +358,8 @@ IpczResult IPCZ_CDECL MapSharedMemory(IpczDriverHandle driver_memory,
 IpczResult IPCZ_CDECL UnmapSharedMemory(IpczDriverHandle driver_mapping,
                                         uint32_t flags,
                                         const void* options) {
-  mem::Ref<InProcessMemory> memory(mem::RefCounted::kAdoptExistingRef,
-                                   ToPtr<InProcessMemory>(driver_mapping));
+  Ref<InProcessMemory> memory(RefCounted::kAdoptExistingRef,
+                              ToPtr<InProcessMemory>(driver_mapping));
   return IPCZ_RESULT_OK;
 }
 

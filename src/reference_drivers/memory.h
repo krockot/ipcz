@@ -5,8 +5,8 @@
 #ifndef IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
 #define IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
 
-#include "os/handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -46,7 +46,7 @@ class Memory {
   };
 
   Memory();
-  Memory(os::Handle handle, size_t size);
+  Memory(OSHandle handle, size_t size);
   explicit Memory(size_t size);
   Memory(Memory&&);
   Memory& operator=(Memory&&);
@@ -56,9 +56,9 @@ class Memory {
 
   size_t size() const { return size_; }
   bool is_valid() const { return handle_.is_valid(); }
-  const os::Handle& handle() const { return handle_; }
+  const OSHandle& handle() const { return handle_; }
 
-  os::Handle TakeHandle() { return std::move(handle_); }
+  OSHandle TakeHandle() { return std::move(handle_); }
 
   void reset() { handle_.reset(); }
 
@@ -67,7 +67,7 @@ class Memory {
   Mapping Map();
 
  private:
-  os::Handle handle_;
+  OSHandle handle_;
   size_t size_ = 0;
 };
 

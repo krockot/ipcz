@@ -1,14 +1,14 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "test/multinode_test.h"
 
 #include "ipcz/ipcz.h"
-#include "os/process.h"
 #include "reference_drivers/multiprocess_reference_driver.h"
 #include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
+#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -79,7 +79,7 @@ IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
 IpczHandle MultinodeTest::ConnectToNonBroker(IpczHandle broker_node,
                                              IpczDriverHandle transport) {
   IpczOSProcessHandle process = {sizeof(process)};
-  os::Process::ToIpczOSProcessHandle(os::Process::GetCurrent(), process);
+  OSProcess::ToIpczOSProcessHandle(OSProcess::GetCurrent(), process);
 
   IpczHandle portal;
   IpczResult result = ipcz.ConnectNode(broker_node, transport, &process, 1,

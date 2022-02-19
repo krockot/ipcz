@@ -14,10 +14,10 @@
 #include <vector>
 
 #include "build/build_config.h"
-#include "debug/hex_dump.h"
-#include "debug/log.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "util/function.h"
+#include "util/hex_dump.h"
+#include "util/log.h"
 #include "util/random.h"
 
 #if defined(OS_POSIX)
@@ -119,7 +119,7 @@ absl::Span<const char> Channel::Data::AsString() const {
 
 Channel::Message::Message(Data data) : data(data) {}
 
-Channel::Message::Message(Data data, absl::Span<os::Handle> handles)
+Channel::Message::Message(Data data, absl::Span<OSHandle> handles)
     : data(data), handles(handles) {}
 
 Channel::Message::Message(const Message&) = default;
@@ -130,7 +130,7 @@ Channel::Message::~Message() = default;
 
 Channel::Channel() = default;
 
-Channel::Channel(os::Handle handle) : handle_(std::move(handle)) {}
+Channel::Channel(OSHandle handle) : handle_(std::move(handle)) {}
 
 Channel::Channel(Channel&& other) {
   other.StopListening();
@@ -165,8 +165,7 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
     return {};
   }
 
-  return std::make_pair(Channel(os::Handle(fds[0])),
-                        Channel(os::Handle(fds[1])));
+  return std::make_pair(Channel(OSHandle(fds[0])), Channel(OSHandle(fds[1])));
 #elif defined(OS_WIN)
   std::wstringstream ss;
   ss << "\\\\.\\pipe\\ipcz." << ::GetCurrentProcessId() << "."
@@ -189,12 +188,11 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
                     OPEN_EXISTING, kFlags, nullptr);
   ABSL_ASSERT(handle1 != INVALID_HANDLE_VALUE);
 
-  return std::make_pair(Channel(os::Handle(handle0)),
-                        Channel(os::Handle(handle1)));
+  return std::make_pair(Channel(OSHandle(handle0)), Channel(OSHandle(handle1)));
 #endif
 }
 
-os::Handle Channel::TakeHandle() {
+OSHandle Channel::TakeHandle() {
   StopListening();
   return std::move(handle_);
 }
@@ -206,7 +204,7 @@ void Channel::Listen(MessageHandler handler) {
     read_buffer_.resize(kMaxDataSize);
     unread_data_ = absl::Span<uint8_t>(read_buffer_.data(), 0);
     handle_buffer_.resize(4);
-    unread_handles_ = absl::Span<os::Handle>(handle_buffer_.data(), 0);
+    unread_handles_ = absl::Span<OSHandle>(handle_buffer_.data(), 0);
   }
 
   Event shutdown_event;
@@ -262,7 +260,7 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 
 #if defined(OS_POSIX)
   size_t num_valid_handles = 0;
-  for (const os::Handle& handle : message.handles) {
+  for (const OSHandle& handle : message.handles) {
     if (handle.is_valid()) {
       ++num_valid_handles;
     }
@@ -290,7 +288,7 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
   cmsg->cmsg_type = SCM_RIGHTS;
   cmsg->cmsg_len = CMSG_LEN(num_valid_handles * sizeof(int));
   size_t next_handle = 0;
-  for (const os::Handle& handle : message.handles) {
+  for (const OSHandle& handle : message.handles) {
     if (handle.is_valid()) {
       reinterpret_cast<int*>(CMSG_DATA(cmsg))[next_handle++] = handle.fd();
     }
@@ -418,12 +416,12 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
             handle_buffer_.resize(std::max(handle_buffer_.size() * 2,
                                            handle_buffer_.size() + num_fds));
           }
-          absl::Span<os::Handle> new_handles(
+          absl::Span<OSHandle> new_handles(
               handle_buffer_.data() + unread_handles_.size(), num_fds);
           unread_handles_ = {handle_buffer_.data() + unread_handles_offset,
                              unread_handles_.size() + num_fds};
           for (size_t i = 0; i < num_fds; ++i) {
-            new_handles[i] = os::Handle(fds[i]);
+            new_handles[i] = OSHandle(fds[i]);
           }
         }
       }
@@ -466,7 +464,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       unread_handles_ = unread_handles_.subspan(header_data[1]);
       if (!handler(Message(Data(data_view), handle_view))) {
         LOG(ERROR) << "disconnecting Channel for bad message: "
-                   << debug::HexDump(data_view);
+                   << HexDump(data_view);
         return;
       }
 

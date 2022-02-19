@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,15 +7,15 @@
 #include <cstdint>
 #include <utility>
 
-#include "core/portal.h"
-#include "core/router.h"
-#include "core/router_tracker.h"
 #include "ipcz/ipcz.h"
-#include "mem/ref_counted.h"
-#include "os/handle.h"
-#include "os/process.h"
+#include "ipcz/portal.h"
+#include "ipcz/router.h"
+#include "ipcz/router_tracker.h"
 #include "reference_drivers/event.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "util/os_handle.h"
+#include "util/os_process.h"
+#include "util/ref_counted.h"
 
 namespace ipcz {
 namespace test {
@@ -34,20 +34,20 @@ TestBase::TestBase() {
 }
 
 TestBase::~TestBase() {
-  if (core::RouterTracker::GetNumRouters() != 0) {
-    core::RouterTracker::DumpRouters();
+  if (RouterTracker::GetNumRouters() != 0) {
+    RouterTracker::DumpRouters();
   }
-  ABSL_ASSERT(core::RouterTracker::GetNumRouters() == 0);
+  ABSL_ASSERT(RouterTracker::GetNumRouters() == 0);
 }
 
 IpczHandle TestBase::ConnectNode(IpczHandle node,
                                  IpczDriverHandle driver_transport,
-                                 const os::Process& process,
+                                 const OSProcess& process,
                                  IpczConnectNodeFlags flags) {
   IpczOSProcessHandle ipcz_process = {sizeof(ipcz_process)};
   const bool has_process =
       process.is_valid() &&
-      os::Process::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
+      OSProcess::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
 
   const uint32_t num_initial_portals = 1;
   IpczHandle initial_portal;
@@ -60,13 +60,13 @@ IpczHandle TestBase::ConnectNode(IpczHandle node,
 
 IpczHandle TestBase::ConnectToBroker(IpczHandle node,
                                      IpczDriverHandle driver_transport) {
-  return ConnectNode(node, driver_transport, os::Process(),
+  return ConnectNode(node, driver_transport, OSProcess(),
                      IPCZ_CONNECT_NODE_TO_BROKER);
 }
 
 IpczHandle TestBase::ConnectToNonBroker(IpczHandle node,
                                         IpczDriverHandle driver_transport,
-                                        const os::Process& process) {
+                                        const OSProcess& process) {
   return ConnectNode(node, driver_transport, process, IPCZ_NO_FLAGS);
 }
 
@@ -78,11 +78,11 @@ void TestBase::OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b) {
 void TestBase::Put(IpczHandle portal,
                    const std::string& str,
                    absl::Span<IpczHandle> portals,
-                   absl::Span<os::Handle> os_handles) {
+                   absl::Span<OSHandle> os_handles) {
   std::vector<IpczOSHandle> handles(os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
     handles[i].size = sizeof(handles[i]);
-    os::Handle::ToIpczOSHandle(std::move(os_handles[i]), &handles[i]);
+    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &handles[i]);
   }
 
   ASSERT_EQ(IPCZ_RESULT_OK,
@@ -117,7 +117,7 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
     parcel.message = {data.begin(), data.end()};
     parcel.os_handles.resize(num_os_handles);
     for (size_t i = 0; i < num_os_handles; ++i) {
-      parcel.os_handles[i] = os::Handle::FromIpczOSHandle(ipcz_os_handles[i]);
+      parcel.os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
     }
 
     return IPCZ_RESULT_OK;
@@ -190,26 +190,24 @@ void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
 }
 
 bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
-  mem::Ref<core::Router> router_a =
-      reinterpret_cast<core::Portal*>(a)->router();
-  mem::Ref<core::Router> router_b =
-      reinterpret_cast<core::Portal*>(b)->router();
+  Ref<Router> router_a = reinterpret_cast<Portal*>(a)->router();
+  Ref<Router> router_b = reinterpret_cast<Portal*>(b)->router();
   return router_a->HasLocalPeer(router_b);
 }
 
 void TestBase::LogPortalRoute(IpczHandle a) {
-  mem::Ref<core::Router> router = reinterpret_cast<core::Portal*>(a)->router();
+  Ref<Router> router = reinterpret_cast<Portal*>(a)->router();
   router->LogRouteTrace();
 }
 
 // static
 size_t TestBase::GetNumRouters() {
-  return core::RouterTracker::GetNumRouters();
+  return RouterTracker::GetNumRouters();
 }
 
 // static
 void TestBase::DumpAllRouters() {
-  return core::RouterTracker::DumpRouters();
+  return RouterTracker::DumpRouters();
 }
 
 }  // namespace test

@@ -60,7 +60,7 @@ void Memory::Mapping::Reset() {
 
 Memory::Memory() = default;
 
-Memory::Memory(os::Handle handle, size_t size)
+Memory::Memory(OSHandle handle, size_t size)
     : handle_(std::move(handle)), size_(size) {}
 
 Memory::Memory(size_t size) {
@@ -74,7 +74,7 @@ Memory::Memory(size_t size) {
   result = fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK);
   ABSL_ASSERT(result == 0);
 
-  handle_ = os::Handle(fd);
+  handle_ = OSHandle(fd);
   size_ = size;
 #elif defined(OS_WIN)
   HANDLE h = ::CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
@@ -86,7 +86,7 @@ Memory::Memory(size_t size) {
   ::CloseHandle(h);
   ABSL_ASSERT(ok);
 
-  handle_ = os::Handle(h2);
+  handle_ = OSHandle(h2);
   size_ = size;
 #endif
 }

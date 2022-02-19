@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -69,10 +69,9 @@ void TestClientSupport::RunEntryPoint(const std::string& name,
 reference_drivers::Channel TestClientSupport::RecoverClientChannel(
     uint64_t channel_handle) {
 #if defined(OS_POSIX)
-  return reference_drivers::Channel(
-      os::Handle(static_cast<int>(channel_handle)));
+  return reference_drivers::Channel(OSHandle(static_cast<int>(channel_handle)));
 #elif defined(OS_WIN)
-  return reference_drivers::Channel(os::Handle(
+  return reference_drivers::Channel(OSHandle(
       reinterpret_cast<HANDLE>(static_cast<uintptr_t>(channel_handle))));
 #else
 #error "Need to implement this for the current platform."
@@ -131,7 +130,7 @@ TestClient::TestClient(const char* entry_point) {
     return;
   }
 
-  process_ = os::Process(pid);
+  process_ = OSProcess(pid);
 #elif defined(OS_WIN)
   STARTUPINFOEXW startup_info = {};
   startup_info.StartupInfo.cb = sizeof(startup_info);
@@ -145,7 +144,7 @@ TestClient::TestClient(const char* entry_point) {
   }
   startup_info.lpAttributeList = attrs;
 
-  os::Handle handle = client_channel.TakeHandle();
+  OSHandle handle = client_channel.TakeHandle();
   HANDLE handle_value = handle.handle();
   ::SetHandleInformation(handle.handle(), HANDLE_FLAG_INHERIT,
                          HANDLE_FLAG_INHERIT);
@@ -170,7 +169,7 @@ TestClient::TestClient(const char* entry_point) {
                             &startup_info.StartupInfo, &process_info);
   ABSL_ASSERT(ok);
   ::DeleteProcThreadAttributeList(attrs);
-  process_ = os::Process(process_info.hProcess);
+  process_ = OSProcess(process_info.hProcess);
 #else
 #error "Need to implement this for the current platform."
 #endif

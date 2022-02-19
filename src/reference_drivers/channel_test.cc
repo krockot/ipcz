@@ -6,9 +6,9 @@
 
 #include <tuple>
 
-#include "os/handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -61,7 +61,7 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
 
   auto [c, d] = Channel::CreateChannelPair();
 
-  os::Handle ch = c.TakeHandle();
+  OSHandle ch = c.TakeHandle();
   a.Send({Channel::Data(kTestMessage1), {&ch, 1}});
   a.Reset();
 

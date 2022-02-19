@@ -1,4 +1,4 @@
-// Copyright 2021 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,9 +9,9 @@
 #include <map>
 #include <string>
 
-#include "os/process.h"
 #include "reference_drivers/channel.h"
 #include "util/function.h"
+#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -46,14 +46,14 @@ class TestClient {
   static void SetInClientProcess(bool in_client_process);
   static bool InClientProcess();
 
-  const os::Process& process() const { return process_; }
+  const OSProcess& process() const { return process_; }
   reference_drivers::Channel& channel() { return channel_; }
 
   // Waits for the child process to terminate and returns its exit code.
   int Wait();
 
  private:
-  os::Process process_;
+  OSProcess process_;
   reference_drivers::Channel channel_;
 };
 
