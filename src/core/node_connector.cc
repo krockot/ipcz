@@ -63,7 +63,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
                                              std::move(link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
-    transport_->Transmit(connect);
+    transport_->Transmit(connect, remote_process_);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -73,7 +73,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectFromNonBrokerToBroker connect;
-    if (!connect.Deserialize(message)) {
+    if (!connect.Deserialize(message, remote_process_)) {
       return false;
     }
 
@@ -120,7 +120,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     msg::ConnectFromNonBrokerToBroker connect;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    transport_->Transmit(connect);
+    transport_->Transmit(connect, remote_process_);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -130,7 +130,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToNonBroker connect;
-    if (!connect.Deserialize(message)) {
+    if (!connect.Deserialize(message, remote_process_)) {
       return false;
     }
 
@@ -186,7 +186,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     msg::ConnectToBrokerIndirect connect;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    transport_->Transmit(connect);
+    transport_->Transmit(connect, remote_process_);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -196,7 +196,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerIndirect connect;
-    if (!connect.Deserialize(message)) {
+    if (!connect.Deserialize(message, remote_process_)) {
       return false;
     }
 
@@ -283,7 +283,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
                                              std::move(link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
-    transport_->Transmit(connect);
+    transport_->Transmit(connect, remote_process_);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -293,7 +293,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectToBrokerIndirect connect;
-    if (!connect.Deserialize(message)) {
+    if (!connect.Deserialize(message, remote_process_)) {
       return false;
     }
 
@@ -360,7 +360,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
         node_->driver(), std::move(our_link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
-    transport_->Transmit(connect);
+    transport_->Transmit(connect, remote_process_);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -370,7 +370,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToBroker connect;
-    if (!connect.Deserialize(message)) {
+    if (!connect.Deserialize(message, remote_process_)) {
       return false;
     }
 

@@ -18,6 +18,7 @@
 #include "core/sublink_id.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
+#include "os/process.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {

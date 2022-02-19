@@ -13,6 +13,7 @@
 #include "ipcz/ipcz.h"
 #include "mem/ref_counted.h"
 #include "os/handle.h"
+#include "os/process.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
@@ -116,8 +117,8 @@ class DriverTransport : public mem::RefCounted {
 
   // Transmits a Node message over this transport.
   template <typename T>
-  IpczResult Transmit(T& message) {
-    message.Serialize(T::kMetadata);
+  IpczResult Transmit(T& message, const os::Process& remote_process) {
+    message.Serialize(T::kMetadata, remote_process);
     return TransmitMessage(
         Message(Data(message.data_view()), message.handles_view()));
   }

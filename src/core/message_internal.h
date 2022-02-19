@@ -15,6 +15,7 @@
 #include "core/driver_memory.h"
 #include "ipcz/ipcz.h"
 #include "os/handle.h"
+#include "os/process.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -164,20 +165,23 @@ class IPCZ_ALIGN(8) MessageBase {
   // Finalizes a message immediately before transit. The may serialize
   // additional data within the message payload, but it does not change the size
   // of the message data.
-  void Serialize(absl::Span<const ParamMetadata> params);
+  void Serialize(absl::Span<const ParamMetadata> params,
+                 const os::Process& remote_process);
 
  protected:
   size_t Align(size_t x) { return (x + 7) & ~7; }
 
   size_t SerializeHandleArray(uint32_t param_offset,
                               uint32_t base_handle_index,
-                              absl::Span<os::Handle> handles);
+                              absl::Span<os::Handle> handles,
+                              const os::Process& remote_process);
   bool DeserializeDataAndHandles(
       size_t params_size,
       uint32_t params_current_version,
       absl::Span<const ParamMetadata> params_metadata,
       absl::Span<const uint8_t> data,
-      absl::Span<os::Handle> handles);
+      absl::Span<os::Handle> handles,
+      const os::Process& remote_process);
 
   absl::InlinedVector<uint8_t, 128> data_;
   absl::InlinedVector<os::Handle, 2> handles_;

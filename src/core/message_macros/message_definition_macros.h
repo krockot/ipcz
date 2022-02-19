@@ -12,10 +12,11 @@
 #define IPCZ_MSG_BEGIN(name, id_decl, version_decl)                           \
   name::name() = default;                                                     \
   name::~name() = default;                                                    \
-  bool name::Deserialize(const DriverTransport::Message& message) {           \
+  bool name::Deserialize(const DriverTransport::Message& message,             \
+                         const os::Process& remote_process) {                 \
     return DeserializeDataAndHandles(sizeof(ParamsType), kVersion,            \
                                      absl::MakeSpan(kMetadata), message.data, \
-                                     message.handles);                        \
+                                     message.handles, remote_process);        \
   }                                                                           \
   constexpr internal::ParamMetadata name::kMetadata[];
 

@@ -282,7 +282,7 @@ void NodeLink::TransmitMessage(
   // TODO: that.
 #endif
 
-  message.Serialize(metadata);
+  message.Serialize(metadata, remote_process_);
 
   size_t small_size_class = 0;
   if (message.data_view().size() <= 64) {

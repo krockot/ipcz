@@ -78,13 +78,14 @@ DriverMemory MessageBase::TakeSharedMemory(const IpczDriver& driver,
                                    GetHandlesView(std::get<1>(params)));
 }
 
-void MessageBase::Serialize(absl::Span<const ParamMetadata> params) {
+void MessageBase::Serialize(absl::Span<const ParamMetadata> params,
+                            const os::Process& remote_process) {
   absl::Span<os::Handle> handles = handles_view();
   size_t base_handle_index = 0;
   for (const ParamMetadata& param : params) {
     if (param.is_handle_array) {
-      size_t num_handles =
-          SerializeHandleArray(param.offset, base_handle_index, handles);
+      size_t num_handles = SerializeHandleArray(param.offset, base_handle_index,
+                                                handles, remote_process);
       handles = handles.subspan(num_handles);
       base_handle_index += num_handles;
     }
@@ -99,7 +100,8 @@ void MessageBase::Serialize(absl::Span<const ParamMetadata> params) {
 
 size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
                                          uint32_t base_handle_index,
-                                         absl::Span<os::Handle> handles) {
+                                         absl::Span<os::Handle> handles,
+                                         const os::Process& remote_process) {
   uint32_t array_offset =
       *reinterpret_cast<uint32_t*>(&params_data_view()[param_offset]);
   absl::Span<OSHandleData> handle_data =
@@ -131,7 +133,8 @@ bool MessageBase::DeserializeDataAndHandles(
     uint32_t params_current_version,
     absl::Span<const ParamMetadata> params_metadata,
     absl::Span<const uint8_t> data,
-    absl::Span<os::Handle> handles) {
+    absl::Span<os::Handle> handles,
+    const os::Process& remote_process) {
   // Copy the data into a local message object to avoid any TOCTOU issues in
   // case `data` is in unsafe shared memory.
   data_.resize(data.size());
