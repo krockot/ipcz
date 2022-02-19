@@ -7,6 +7,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <sstream>
@@ -49,6 +50,10 @@ struct Channel::PendingIO {
   PendingIO() = default;
   ~PendingIO() = default;
 
+  bool is_complete() const {
+    return is_complete_.test(std::memory_order_relaxed);
+  }
+
   static void CompletionRoutine(DWORD error,
                                 DWORD num_bytes_transferred,
                                 LPOVERLAPPED overlapped) {
@@ -84,6 +89,7 @@ struct Channel::PendingIO {
     if (!buffer_) {
       buffer_ = std::make_unique<uint8_t[]>(kMaxDataSize);
     }
+    is_complete_.clear(std::memory_order_relaxed);
     io_callback_ = callback;
     BOOL result = ::ReadFileEx(handle, storage.data(), storage.size(), &io,
                                &CompletionRoutine);
@@ -92,12 +98,14 @@ struct Channel::PendingIO {
 
  private:
   void OnComplete(bool success, size_t num_bytes_transferred) {
+    is_complete_.test_and_set(std::memory_order_relaxed);
     io_callback_(success, num_bytes_transferred);
   }
 
   OVERLAPPED io = {0};
   std::unique_ptr<uint8_t[]> buffer_;
   IOCallback io_callback_;
+  std::atomic_flag is_complete_ = ATOMIC_FLAG_INIT;
 };
 #endif
 
@@ -217,6 +225,7 @@ void Channel::StopListening() {
     if (handle_.is_valid()) {
       ::CancelIo(handle_.handle());
     }
+    pending_read_.reset();
 #endif
     ABSL_ASSERT(shutdown_notifier_.is_valid());
     shutdown_notifier_.Notify();
@@ -436,14 +445,13 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
         break;
 
       default:
-        io_error_ = true;
-        break;
+        return;
     }
 
     if (io_error_) {
-      LOG(ERROR) << "Disconnecting Channel for I/O error";
       return;
     }
+
 #endif
 
     while (unread_data_.size() >= 16) {
@@ -471,6 +479,12 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
         unread_handles_ = absl::MakeSpan(handle_buffer_.data(), 0);
       }
     }
+
+#if defined(OS_WIN)
+    if (pending_read_ && pending_read_->is_complete()) {
+      StartRead();
+    }
+#endif
   }
 }
 
@@ -546,7 +560,6 @@ void Channel::StartRead() {
         }
 
         channel->CommitRead(num_bytes_transferred);
-        channel->StartRead();
       });
 }
 #endif
