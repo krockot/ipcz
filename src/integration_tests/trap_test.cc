@@ -93,7 +93,7 @@ TEST_F(TrapTest, BasicTrigger) {
   });
 
   EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
-  Put(a, "hello", {}, {});
+  Put(a, "hello");
   EXPECT_TRUE(tripped);
   ClosePortals({a, b});
 }
@@ -307,7 +307,7 @@ TEST_F(TrapTest, NoDispatchAfterDestroy) {
 
   EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
   EXPECT_EQ(IPCZ_RESULT_OK, trap.Destroy());
-  Put(a, "hello", {}, {});
+  Put(a, "hello");
   EXPECT_FALSE(tripped);
 
   ClosePortals({a, b});

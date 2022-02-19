@@ -15,7 +15,7 @@ TEST_F(PortalTransferTest, LocalToLocal) {
   IpczHandle a, b;
   OpenPortals(&a, &b);
 
-  Put(q, "", {&a, 1}, {});
+  Put(q, "", {&a, 1});
 
   // Local transfer is always instant.
   Parcel m = Get(p);
@@ -33,8 +33,8 @@ TEST_F(PortalTransferTest, LocalToLocalWithParcels) {
   OpenPortals(&a, &b);
 
   const std::string kMessage = "hello!";
-  Put(a, kMessage, {}, {});
-  Put(q, {}, {&b, 1}, {});
+  Put(a, kMessage);
+  Put(q, {}, {&b, 1});
 
   Parcel m1 = Get(p);
   ASSERT_EQ(1u, m1.portals.size());

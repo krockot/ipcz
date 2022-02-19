@@ -24,12 +24,12 @@ TEST_P(MergePortalsTest, LocalMerge) {
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.MergePortals(b, c, IPCZ_NO_FLAGS, nullptr));
 
-  Put(a, "hi", {}, {});
+  Put(a, "hi");
 
   Parcel p = Get(d);
   EXPECT_EQ("hi", p.message);
 
-  Put(d, "yo", {}, {});
+  Put(d, "yo");
   p = Get(a);
   EXPECT_EQ("yo", p.message);
 
@@ -51,13 +51,13 @@ TEST_P(MergePortalsTest, MergeWithConnectNodePortal) {
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.MergePortals(b, c, IPCZ_NO_FLAGS, nullptr));
 
-  Put(a, "hi", {}, {});
+  Put(a, "hi");
 
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
   EXPECT_EQ("hi", p.message);
 
-  Put(d, "yo", {}, {});
+  Put(d, "yo");
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
   EXPECT_EQ("yo", p.message);
 
@@ -136,8 +136,8 @@ TEST_P(MergePortalsTest, MergeWithExtendedRemoteRoute) {
   // normally and `a` and `d` should still end as direct local peers.
   for (size_t i = 0; i < kNumOtherNodes; ++i) {
     const size_t j = kNumOtherNodes - i - 1;
-    Put(broker_to_node[i], "hi", {&a, 1}, {});
-    Put(broker_to_node[j], "hi", {&d, 1}, {});
+    Put(broker_to_node[i], "hi", {&a, 1});
+    Put(broker_to_node[j], "hi", {&d, 1});
 
     Parcel p;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(node_to_broker[i], p));
@@ -147,8 +147,8 @@ TEST_P(MergePortalsTest, MergeWithExtendedRemoteRoute) {
     ASSERT_EQ(1u, p.portals.size());
     d = p.portals[0];
 
-    Put(node_to_broker[i], "ok", {&a, 1}, {});
-    Put(node_to_broker[j], "ok", {&d, 1}, {});
+    Put(node_to_broker[i], "ok", {&a, 1});
+    Put(node_to_broker[j], "ok", {&d, 1});
 
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(broker_to_node[i], p));
     ASSERT_EQ(1u, p.portals.size());
