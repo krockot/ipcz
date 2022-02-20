@@ -4,10 +4,9 @@
 
 import("//build_overrides/ipcz.gni")
 
-assert(build_ipcz_standalone)
-
 source_set("standalone") {
   public = [ "base/logging.h" ]
   sources = [ "base/logging.cc" ]
   public_deps = [ "//third_party/abseil-cpp:absl" ]
+  configs += [ "${ipcz_src_root}:ipcz_include_src_dir" ]
 }

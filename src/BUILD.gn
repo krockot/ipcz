@@ -7,7 +7,11 @@ import("//testing/test.gni")
 
 source_set("ipcz") {
   sources = [ "api.cc" ]
-  public_deps = [ ":ipcz_sources" ]
+  if (build_ipcz_standalone) {
+    public_deps = [ ":ipcz_sources" ]
+  } else {
+    public_deps = [ ":ipcz_sources_chromium" ]
+  }
   deps = [ "//third_party/abseil-cpp:absl" ]
   public_configs = [ ":ipcz_include_dir" ]
   configs += [ ":ipcz_include_src_dir" ]
@@ -33,7 +37,83 @@ source_set("ipcz_header_types") {
   public = [ "include/ipcz/ipcz.h" ]
 }
 
-source_set("util") {
+# This template defines two source_set targets: one for use in standalone ipcz
+# builds and one for integration into existing Chromium dependency trees. The
+# main distinction is whether there is a leaf dependency from util/ sources onto
+# src/standalone/ sources, or onto Chromium sources like //base.
+template("portable_source_set") {
+  source_set(target_name) {
+    forward_variables_from(invoker,
+                           [
+                             "visibility",
+                             "public",
+                             "sources",
+                             "deps",
+                             "public_deps",
+                             "public_configs",
+                           ])
+
+    if (defined(invoker.configs)) {
+      configs += invoker.configs
+    }
+
+    if (!defined(public_deps)) {
+      public_deps = []
+    }
+    public_deps += [ "${ipcz_src_root}/standalone" ]
+    if (defined(invoker.portable_public_deps)) {
+      public_deps += invoker.portable_public_deps
+    }
+
+    if (defined(invoker.portable_deps)) {
+      if (!defined(deps)) {
+        deps = []
+      }
+      deps += invoker.portable_deps
+    }
+
+    defines = [ "IPCZ_STANDALONE" ]
+  }
+
+  if (!build_ipcz_standalone) {
+    source_set("${target_name}_chromium") {
+      forward_variables_from(invoker,
+                             [
+                               "visibility",
+                               "public",
+                               "sources",
+                               "deps",
+                               "public_deps",
+                               "public_configs",
+                             ])
+
+      if (defined(invoker.configs)) {
+        configs += invoker.configs
+      }
+
+      if (!defined(public_deps)) {
+        public_deps = []
+      }
+      public_deps += [ "//base" ]
+      if (defined(invoker.portable_public_deps)) {
+        foreach(dep, invoker.portable_public_deps) {
+          public_deps += [ "${dep}_chromium" ]
+        }
+      }
+
+      if (defined(invoker.portable_deps)) {
+        if (!defined(deps)) {
+          deps = []
+        }
+        foreach(dep, invoker.portable_deps) {
+          deps += [ "${dep}_chromium" ]
+        }
+      }
+    }
+  }
+}
+
+portable_source_set("util") {
   visibility = [ ":*" ]
 
   public = [
@@ -67,15 +147,10 @@ source_set("util") {
   public_deps = [ ":ipcz_header" ]
 
   public_configs = [ ":ipcz_include_dir" ]
-  configs += [ ":ipcz_include_src_dir" ]
-
-  if (build_ipcz_standalone) {
-    public_deps += [ "${ipcz_src_root}/standalone" ]
-    public_configs += [ ":ipcz_standalone_config" ]
-  }
+  configs = [ ":ipcz_include_src_dir" ]
 }
 
-source_set("impl") {
+portable_source_set("impl") {
   visibility = [ ":*" ]
 
   sources = [
@@ -153,27 +228,24 @@ source_set("impl") {
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]
-  public_deps = [
-    ":ipcz_header",
-    ":util",
-  ]
+  public_deps = [ ":ipcz_header" ]
+  portable_public_deps = [ ":util" ]
 
   public_configs = [ ":ipcz_include_dir" ]
-  configs += [ ":ipcz_include_src_dir" ]
+  configs = [ ":ipcz_include_src_dir" ]
 }
 
-source_set("ipcz_sources") {
-  deps = [
+portable_source_set("ipcz_sources") {
+  portable_deps = [
     ":impl",
     ":util",
   ]
 
   public_deps = [ ":ipcz_header" ]
-
   public_configs = [ ":ipcz_include_dir" ]
 }
 
-source_set("reference_drivers") {
+portable_source_set("reference_drivers") {
   sources = [
     "reference_drivers/channel.cc",
     "reference_drivers/channel.h",
@@ -187,13 +259,11 @@ source_set("reference_drivers") {
     "reference_drivers/single_process_reference_driver.h",
   ]
 
-  deps = [
-    ":util",
-    "//third_party/abseil-cpp:absl",
-  ]
+  deps = [ "//third_party/abseil-cpp:absl" ]
   public_deps = [ ":ipcz_header" ]
+  portable_public_deps = [ ":util" ]
 
-  configs += [ ":ipcz_include_src_dir" ]
+  configs = [ ":ipcz_include_src_dir" ]
 }
 
 config("ipcz_include_dir") {
@@ -202,10 +272,6 @@ config("ipcz_include_dir") {
 
 config("ipcz_include_src_dir") {
   include_dirs = [ "${ipcz_src_root}" ]
-}
-
-config("ipcz_standalone_config") {
-  include_dirs = [ "${ipcz_src_root}/standalone" ]
 }
 
 test("ipcz_tests") {
@@ -255,12 +321,22 @@ test("ipcz_tests") {
   ]
 
   deps = [
-    ":impl",
     ":ipcz",
-    ":reference_drivers",
     "//testing/gtest",
     "//third_party/abseil-cpp:absl",
   ]
+
+  if (build_ipcz_standalone) {
+    deps += [
+      ":impl",
+      ":reference_drivers",
+    ]
+  } else {
+    deps += [
+      ":impl_chromium",
+      ":reference_drivers_chromium",
+    ]
+  }
 
   configs += [ ":ipcz_include_src_dir" ]
 }

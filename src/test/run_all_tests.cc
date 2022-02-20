@@ -6,16 +6,19 @@
 #include <map>
 #include <string>
 
-#ifndef NDEBUG
-#include "util/stack_trace.h"
-#endif
-
 #include "build/build_config.h"
-#include "standalone/base/logging.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/strings/numbers.h"
 #include "third_party/abseil-cpp/absl/strings/str_split.h"
+
+#ifndef NDEBUG
+#include "util/stack_trace.h"
+#endif
+
+#if defined(IPCZ_STANDALONE)
+#include "standalone/base/logging.h"
+#endif
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -88,8 +91,10 @@ int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   CommandLine command_line(argc, argv);
 
+#if defined(IPCZ_STANDALONE)
   ipcz::standalone::SetVerbosityLevel(
       command_line.GetNumericFlag<int>("verbosity"));
+#endif
 
   ipcz::test::internal::TestClientSupport::SetCurrentProgram(argv[0]);
   std::string client_entry_point = command_line.GetFlag("run_test_client");

@@ -5,6 +5,10 @@
 #ifndef IPCZ_SRC_UTIL_LOG_H_
 #define IPCZ_SRC_UTIL_LOG_H_
 
+#if defined(IPCZ_STANDALONE)
+#include "standalone/base/logging.h"
+#else
 #include "base/logging.h"
+#endif
 
 #endif  // IPCZ_SRC_UTIL_LOG_H_
