@@ -22,13 +22,13 @@ APITest::APITest() {
 }
 
 APITest::~APITest() {
-  IpczResult result = ipcz.ClosePortal(q, IPCZ_NO_FLAGS, nullptr);
+  IpczResult result = ipcz.Close(q, IPCZ_NO_FLAGS, nullptr);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
-  result = ipcz.ClosePortal(p, IPCZ_NO_FLAGS, nullptr);
+  result = ipcz.Close(p, IPCZ_NO_FLAGS, nullptr);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
-  result = ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr);
+  result = ipcz.Close(node, IPCZ_NO_FLAGS, nullptr);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 }
 

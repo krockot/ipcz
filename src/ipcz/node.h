@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "ipcz/api_object.h"
 #include "ipcz/driver_memory.h"
 #include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
@@ -31,7 +32,7 @@ class Portal;
 // can establish links to and from other routers in other nodes. Every node is
 // assigned a globally unique name by a trusted broker node, and nodes may be
 // introduced to each other exclusively through such brokers.
-class Node : public RefCounted {
+class Node : public APIObject {
  public:
   enum class Type {
     // A broker node assigns its own name and is able to assign names to other
@@ -48,9 +49,14 @@ class Node : public RefCounted {
 
   Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node);
 
+  static constexpr ObjectType object_type() { return kNode; }
+
   Type type() const { return type_; }
   const IpczDriver& driver() const { return driver_; }
   IpczDriverHandle driver_node() const { return driver_node_; }
+
+  // APIObject:
+  IpczResult Close() override;
 
   // Deactivates all NodeLinks and their underlying driver transports in
   // preparation for this node's imminent destruction.

@@ -25,8 +25,8 @@ TEST_F(MergePortalsAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.MergePortals(a, b, IPCZ_NO_FLAGS, nullptr));
 
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 }  // namespace

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "ipcz/api_object.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -22,7 +23,7 @@ class TrapEventDispatcher;
 // single portal and invokes a fixed callback when certain changes are observed.
 // Traps must be armed in order to invoke a callback, and arming is only
 // possible while interesting conditions remain unmet.
-class Trap : public RefCounted {
+class Trap : public APIObject {
  public:
   enum class UpdateReason {
     kParcelReceived,
@@ -38,7 +39,12 @@ class Trap : public RefCounted {
        IpczTrapEventHandler handler,
        uint64_t context);
 
+  static constexpr ObjectType object_type() { return kTrap; }
+
   const Ref<Portal>& portal() const { return portal_; }
+
+  // APIObject:
+  IpczResult Close() override;
 
   // Attempts to arm this trap, which can only succeed if its observed
   // conditions are currently unmet on the portal. If this fails due to the
@@ -49,7 +55,7 @@ class Trap : public RefCounted {
 
   // Disables the trap to immediately and permanently prevent any further
   // handler invocations.
-  void Disable(IpczDestroyTrapFlags flags);
+  void Disable();
 
   // Notifies the trap about a state change on its observed portal. If the trap
   // is currently armed and the state change should elicit an event handler
@@ -67,7 +73,6 @@ class Trap : public RefCounted {
                                        UpdateReason reason);
   void MaybeDispatchEvent(IpczTrapConditionFlags condition_flags,
                           const IpczPortalStatus& status);
-  bool HasNoCurrentDispatches() const;
 
   const Ref<Portal> portal_;
   const IpczTrapConditions conditions_;
@@ -77,7 +82,6 @@ class Trap : public RefCounted {
   absl::Mutex mutex_;
   bool is_enabled_ ABSL_GUARDED_BY(mutex_) = true;
   bool is_armed_ ABSL_GUARDED_BY(mutex_) = false;
-  size_t num_current_dispatches_ ABSL_GUARDED_BY(mutex_) = 0;
 };
 
 }  // namespace ipcz

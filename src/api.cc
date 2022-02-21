@@ -33,6 +33,16 @@ using namespace ipcz;
 
 extern "C" {
 
+IpczResult Close(IpczHandle handle, uint32_t flags, const void* options) {
+  Ref<APIObject> doomed_object(RefCounted::kAdoptExistingRef,
+                               ToPtr<APIObject>(handle));
+  if (!doomed_object) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  return doomed_object->Close();
+}
+
 IpczResult CreateNode(const IpczDriver* driver,
                       IpczDriverHandle driver_node,
                       IpczCreateNodeFlags flags,
@@ -60,17 +70,6 @@ IpczResult CreateNode(const IpczDriver* driver,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult DestroyNode(IpczHandle node, uint32_t flags, const void* options) {
-  if (node == IPCZ_INVALID_HANDLE) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  Ref<Node> doomed_node(RefCounted::kAdoptExistingRef, ToPtr<Node>(node));
-  doomed_node->ShutDown();
-  doomed_node.reset();
-  return IPCZ_RESULT_OK;
-}
-
 IpczResult ConnectNode(IpczHandle node_handle,
                        IpczDriverHandle driver_transport,
                        const IpczOSProcessHandle* target_process,
@@ -78,8 +77,8 @@ IpczResult ConnectNode(IpczHandle node_handle,
                        IpczConnectNodeFlags flags,
                        const void* options,
                        IpczHandle* initial_portals) {
-  if (node_handle == IPCZ_INVALID_HANDLE ||
-      driver_transport == IPCZ_INVALID_HANDLE) {
+  Node* node = APIObject::Get<Node>(node_handle);
+  if (!node || driver_transport == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -103,37 +102,39 @@ IpczResult ConnectNode(IpczHandle node_handle,
     process = OSProcess::FromIpczOSProcessHandle(*target_process);
   }
 
-  Node& node = ToRef<Node>(node_handle);
-  return node.ConnectNode(
+  return node->ConnectNode(
       driver_transport, std::move(process), flags,
       absl::Span<IpczHandle>(initial_portals, num_initial_portals));
 }
 
-IpczResult OpenPortals(IpczHandle node,
+IpczResult OpenPortals(IpczHandle node_handle,
                        uint32_t flags,
                        const void* options,
                        IpczHandle* portal0,
                        IpczHandle* portal1) {
-  if (node == IPCZ_INVALID_HANDLE || !portal0 || !portal1) {
+  Node* node = APIObject::Get<Node>(node_handle);
+  if (!node || !portal0 || !portal1) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  auto portals = ToRef<Node>(node).OpenPortals();
+  auto portals = node->OpenPortals();
   *portal0 = ToHandle(portals.first.release());
   *portal1 = ToHandle(portals.second.release());
   return IPCZ_RESULT_OK;
 }
 
-IpczResult MergePortals(IpczHandle first,
-                        IpczHandle second,
+IpczResult MergePortals(IpczHandle portal0,
+                        IpczHandle portal1,
                         uint32_t flags,
                         const void* options) {
-  if (first == IPCZ_INVALID_HANDLE || second == IPCZ_INVALID_HANDLE) {
+  Portal* first = APIObject::Get<Portal>(portal0);
+  Portal* second = APIObject::Get<Portal>(portal1);
+  if (!first || !second) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Ref<Portal> one(RefCounted::kAdoptExistingRef, ToPtr<Portal>(first));
-  Ref<Portal> two(RefCounted::kAdoptExistingRef, ToPtr<Portal>(second));
+  Ref<Portal> one(RefCounted::kAdoptExistingRef, first);
+  Ref<Portal> two(RefCounted::kAdoptExistingRef, second);
   IpczResult result = one->Merge(*two);
   if (result != IPCZ_RESULT_OK) {
     one.release();
@@ -144,43 +145,32 @@ IpczResult MergePortals(IpczHandle first,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult ClosePortal(IpczHandle portal, uint32_t flags, const void* options) {
-  if (portal == IPCZ_INVALID_HANDLE) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  // The Portal may outlive this call, but it's no longer reachable through any
-  // ipcz API calls.
-  Ref<Portal> released_portal(RefCounted::kAdoptExistingRef,
-                              ToPtr<Portal>(portal));
-  released_portal->Close();
-  return IPCZ_RESULT_OK;
-}
-
-IpczResult QueryPortalStatus(IpczHandle portal,
+IpczResult QueryPortalStatus(IpczHandle portal_handle,
                              uint32_t flags,
                              const void* options,
                              IpczPortalStatus* status) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (!status || status->size < sizeof(IpczPortalStatus)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<Portal>(portal).QueryStatus(*status);
+  return portal->QueryStatus(*status);
 }
 
-IpczResult Put(IpczHandle portal,
+IpczResult Put(IpczHandle portal_handle,
                const void* data,
                uint32_t num_bytes,
-               const IpczHandle* portals,
-               uint32_t num_portals,
+               const IpczHandle* handles,
+               uint32_t num_handles,
                const IpczOSHandle* os_handles,
                uint32_t num_os_handles,
                uint32_t flags,
                const IpczPutOptions* options) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (options && options->size < sizeof(IpczPutOptions)) {
@@ -189,7 +179,7 @@ IpczResult Put(IpczHandle portal,
   if (num_bytes > 0 && !data) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_portals > 0 && !portals) {
+  if (num_handles > 0 && !handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles > 0 && !os_handles) {
@@ -202,17 +192,18 @@ IpczResult Put(IpczHandle portal,
   }
 
   const auto* bytes = static_cast<const uint8_t*>(data);
-  return ToRef<Portal>(portal).Put(
-      absl::MakeSpan(bytes, num_bytes), absl::MakeSpan(portals, num_portals),
-      absl::MakeSpan(os_handles, num_os_handles), limits);
+  return portal->Put(absl::MakeSpan(bytes, num_bytes),
+                     absl::MakeSpan(handles, num_handles),
+                     absl::MakeSpan(os_handles, num_os_handles), limits);
 }
 
-IpczResult BeginPut(IpczHandle portal,
+IpczResult BeginPut(IpczHandle portal_handle,
                     IpczBeginPutFlags flags,
                     const IpczBeginPutOptions* options,
                     uint32_t* num_bytes,
                     void** data) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_bytes && *num_bytes > 0 && !data) {
@@ -231,21 +222,22 @@ IpczResult BeginPut(IpczHandle portal,
   if (!num_bytes) {
     num_bytes = &dummy_num_bytes;
   }
-  return ToRef<Portal>(portal).BeginPut(flags, limits, *num_bytes, data);
+  return portal->BeginPut(flags, limits, *num_bytes, data);
 }
 
-IpczResult EndPut(IpczHandle portal,
+IpczResult EndPut(IpczHandle portal_handle,
                   uint32_t num_bytes_produced,
-                  const IpczHandle* portals,
-                  uint32_t num_portals,
+                  const IpczHandle* handles,
+                  uint32_t num_handles,
                   const IpczOSHandle* os_handles,
                   uint32_t num_os_handles,
                   IpczEndPutFlags flags,
                   const void* options) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_portals > 0 && !portals) {
+  if (num_handles > 0 && !handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles > 0 && !os_handles) {
@@ -253,67 +245,69 @@ IpczResult EndPut(IpczHandle portal,
   }
 
   if (flags & IPCZ_END_PUT_ABORT) {
-    return ToRef<Portal>(portal).AbortPut();
+    return portal->AbortPut();
   }
 
-  return ToRef<Portal>(portal).CommitPut(
-      num_bytes_produced, absl::MakeSpan(portals, num_portals),
-      absl::MakeSpan(os_handles, num_os_handles));
+  return portal->CommitPut(num_bytes_produced,
+                           absl::MakeSpan(handles, num_handles),
+                           absl::MakeSpan(os_handles, num_os_handles));
 }
 
-IpczResult Get(IpczHandle portal,
+IpczResult Get(IpczHandle portal_handle,
                uint32_t flags,
                const void* options,
                void* data,
                uint32_t* num_bytes,
-               IpczHandle* portals,
-               uint32_t* num_portals,
+               IpczHandle* handles,
+               uint32_t* num_handles,
                IpczOSHandle* os_handles,
                uint32_t* num_os_handles) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_bytes && *num_bytes > 0 && !data) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_portals && *num_portals > 0 && !portals) {
+  if (num_handles && *num_handles > 0 && !handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles && *num_os_handles > 0 && !os_handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<Portal>(portal).Get(data, num_bytes, portals, num_portals,
-                                   os_handles, num_os_handles);
+  return portal->Get(data, num_bytes, handles, num_handles, os_handles,
+                     num_os_handles);
 }
 
-IpczResult BeginGet(IpczHandle portal,
+IpczResult BeginGet(IpczHandle portal_handle,
                     uint32_t flags,
                     const void* options,
                     const void** data,
                     uint32_t* num_bytes,
-                    uint32_t* num_portals,
+                    uint32_t* num_handles,
                     uint32_t* num_os_handles) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<Portal>(portal).BeginGet(data, num_bytes, num_portals,
-                                        num_os_handles);
+  return portal->BeginGet(data, num_bytes, num_handles, num_os_handles);
 }
 
-IpczResult EndGet(IpczHandle portal,
+IpczResult EndGet(IpczHandle portal_handle,
                   uint32_t num_bytes_consumed,
                   IpczEndGetFlags flags,
                   const void* options,
-                  IpczHandle* portals,
-                  uint32_t* num_portals,
+                  IpczHandle* handles,
+                  uint32_t* num_handles,
                   struct IpczOSHandle* os_handles,
                   uint32_t* num_os_handles) {
-  if (portal == IPCZ_INVALID_HANDLE) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_portals && *num_portals > 0 && !portals) {
+  if (num_handles && *num_handles > 0 && !handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (num_os_handles && *num_os_handles && !os_handles) {
@@ -321,36 +315,38 @@ IpczResult EndGet(IpczHandle portal,
   }
 
   if (flags & IPCZ_END_GET_ABORT) {
-    return ToRef<Portal>(portal).AbortGet();
+    return portal->AbortGet();
   }
 
-  return ToRef<Portal>(portal).CommitGet(
-      num_bytes_consumed, portals, num_portals, os_handles, num_os_handles);
+  return portal->CommitGet(num_bytes_consumed, handles, num_handles, os_handles,
+                           num_os_handles);
 }
 
-IpczResult CreateTrap(IpczHandle portal,
+IpczResult CreateTrap(IpczHandle portal_handle,
                       const IpczTrapConditions* conditions,
                       IpczTrapEventHandler handler,
                       uint64_t context,
                       uint32_t flags,
                       const void* options,
                       IpczHandle* trap) {
-  if (portal == IPCZ_INVALID_HANDLE || !trap || !handler) {
+  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  if (!portal || !trap || !handler) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   if (!conditions || conditions->size < sizeof(IpczTrapConditions)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<Portal>(portal).CreateTrap(*conditions, handler, context, *trap);
+  return portal->CreateTrap(*conditions, handler, context, *trap);
 }
 
-IpczResult ArmTrap(IpczHandle trap,
+IpczResult ArmTrap(IpczHandle trap_handle,
                    uint32_t flags,
                    const void* options,
                    IpczTrapConditionFlags* satisfied_condition_flags,
                    IpczPortalStatus* status) {
-  if (trap == IPCZ_INVALID_HANDLE) {
+  Trap* trap = APIObject::Get<Trap>(trap_handle);
+  if (!trap) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -358,29 +354,15 @@ IpczResult ArmTrap(IpczHandle trap,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return ToRef<Trap>(trap).Arm(satisfied_condition_flags, status);
-}
-
-IpczResult DestroyTrap(IpczHandle trap,
-                       IpczDestroyTrapFlags flags,
-                       const void* options) {
-  if (trap == IPCZ_INVALID_HANDLE) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  Ref<Trap> doomed_trap(RefCounted::kAdoptExistingRef, ToPtr<Trap>(trap));
-  doomed_trap->portal()->router()->RemoveTrap(*doomed_trap);
-  doomed_trap->Disable(flags);
-  return IPCZ_RESULT_OK;
+  return trap->Arm(satisfied_condition_flags, status);
 }
 
 constexpr IpczAPI kCurrentAPI = {
     sizeof(kCurrentAPI),
+    Close,
     CreateNode,
-    DestroyNode,
     ConnectNode,
     OpenPortals,
-    ClosePortal,
     MergePortals,
     QueryPortalStatus,
     Put,
@@ -391,11 +373,10 @@ constexpr IpczAPI kCurrentAPI = {
     EndGet,
     CreateTrap,
     ArmTrap,
-    DestroyTrap,
 };
 
 constexpr size_t kVersion0APISize =
-    offsetof(IpczAPI, DestroyTrap) + sizeof(kCurrentAPI.DestroyTrap);
+    offsetof(IpczAPI, ArmTrap) + sizeof(kCurrentAPI.ArmTrap);
 
 MAYBE_EXPORT IpczResult IpczGetAPI(IpczAPI* api) {
   if (!api || api->size < kVersion0APISize) {

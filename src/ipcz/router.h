@@ -154,17 +154,17 @@ class Router : public RefCounted {
   // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,
                                    uint32_t* num_bytes,
-                                   IpczHandle* portals,
-                                   uint32_t* num_portals,
+                                   IpczHandle* handles,
+                                   uint32_t* num_handles,
                                    IpczOSHandle* os_handles,
                                    uint32_t* num_os_handles);
   IpczResult BeginGetNextIncomingParcel(const void** data,
                                         uint32_t* num_data_bytes,
-                                        uint32_t* num_portals,
+                                        uint32_t* num_handles,
                                         uint32_t* num_os_handles);
   IpczResult CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
-                                         IpczHandle* portals,
-                                         uint32_t* num_portals,
+                                         IpczHandle* handles,
+                                         uint32_t* num_handles,
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles);
 

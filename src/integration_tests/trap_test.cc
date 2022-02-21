@@ -23,7 +23,7 @@ class TrapTest : public test::TestBase {
                     nullptr, &node);
   }
 
-  ~TrapTest() override { ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr); }
+  ~TrapTest() override { ipcz.Close(node, IPCZ_NO_FLAGS, nullptr); }
 
   IpczHandle node;
 };
@@ -63,12 +63,7 @@ class TestTrap {
 
   IpczResult Destroy() {
     destroyed_ = true;
-    return ipcz_.DestroyTrap(trap_, IPCZ_NO_FLAGS, nullptr);
-  }
-
-  IpczResult DestroyBlocking() {
-    destroyed_ = true;
-    return ipcz_.DestroyTrap(trap_, IPCZ_DESTROY_TRAP_BLOCKING, nullptr);
+    return ipcz_.Close(trap_, IPCZ_NO_FLAGS, nullptr);
   }
 
  private:
@@ -309,41 +304,6 @@ TEST_F(TrapTest, NoDispatchAfterDestroy) {
   EXPECT_EQ(IPCZ_RESULT_OK, trap.Destroy());
   Put(a, "hello");
   EXPECT_FALSE(tripped);
-
-  ClosePortals({a, b});
-}
-
-TEST_F(TrapTest, DestroyBlocking) {
-  IpczHandle a, b;
-  OpenPortals(node, &a, &b);
-
-  reference_drivers::Event trap_event_fired;
-  reference_drivers::Event::Notifier trap_event_notifier =
-      trap_event_fired.MakeNotifier();
-  bool tripped = false;
-  IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
-  conditions.min_local_parcels = 0;
-  TestTrap trap(ipcz, b, conditions,
-                [&trap_event_notifier, &tripped](const IpczTrapEvent& e) {
-                  using namespace std::chrono_literals;
-                  trap_event_notifier.Notify();
-                  std::this_thread::sleep_for(10ms);
-                  tripped = true;
-                });
-
-  EXPECT_EQ(IPCZ_RESULT_OK, trap.Arm());
-
-  // Trigger the trap on a background thread.
-  std::thread t([this, a] { Put(a, "hello"); });
-
-  // Wait for the trap handler to be invoked and then immediately destroy the
-  // trap. DestroyBlocking() must wait for the handler to complete before
-  // returning.
-  trap_event_fired.Wait();
-  EXPECT_EQ(IPCZ_RESULT_OK, trap.DestroyBlocking());
-  EXPECT_TRUE(tripped);
-  t.join();
 
   ClosePortals({a, b});
 }

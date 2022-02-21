@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "ipcz/api_object.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/parcel.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -22,48 +23,53 @@ class Router;
 
 // A Portal owns a terminal Router along a route. Portals are manipulated
 // directly by public ipcz API calls.
-class Portal : public RefCounted {
+class Portal : public APIObject {
  public:
   using Pair = std::pair<Ref<Portal>, Ref<Portal>>;
 
   Portal(Ref<Node> node, Ref<Router> router);
+
+  static constexpr ObjectType object_type() { return kPortal; }
 
   const Ref<Node>& node() const { return node_; }
   const Ref<Router>& router() const { return router_; }
 
   static Pair CreatePair(Ref<Node> node);
 
+  // APIObject:
+  IpczResult Close() override;
+  bool CanSendFrom(Portal& sender) override;
+
   // ipcz portal API implementation:
-  IpczResult Close();
   IpczResult Merge(Portal& other);
   IpczResult QueryStatus(IpczPortalStatus& status);
 
   IpczResult Put(absl::Span<const uint8_t> data,
-                 absl::Span<const IpczHandle> portals,
-                 absl::Span<const IpczOSHandle> os_handles,
+                 absl::Span<const IpczHandle> handles,
+                 absl::Span<const IpczOSHandle> ipcz_os_handles,
                  const IpczPutLimits* limits);
   IpczResult BeginPut(IpczBeginPutFlags flags,
                       const IpczPutLimits* limits,
                       uint32_t& num_data_bytes,
                       void** data);
   IpczResult CommitPut(uint32_t num_data_bytes_produced,
-                       absl::Span<const IpczHandle> portals,
-                       absl::Span<const IpczOSHandle> os_handles);
+                       absl::Span<const IpczHandle> handles,
+                       absl::Span<const IpczOSHandle> ipcz_os_handles);
   IpczResult AbortPut();
 
   IpczResult Get(void* data,
                  uint32_t* num_data_bytes,
-                 IpczHandle* portals,
-                 uint32_t* num_portals,
+                 IpczHandle* handles,
+                 uint32_t* num_handles,
                  IpczOSHandle* os_handles,
                  uint32_t* num_os_handles);
   IpczResult BeginGet(const void** data,
                       uint32_t* num_data_bytes,
-                      uint32_t* num_portals,
+                      uint32_t* num_handles,
                       uint32_t* num_os_handles);
   IpczResult CommitGet(uint32_t num_data_bytes_consumed,
-                       IpczHandle* portals,
-                       uint32_t* num_portals,
+                       IpczHandle* handles,
+                       uint32_t* num_handles,
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles);
   IpczResult AbortGet();

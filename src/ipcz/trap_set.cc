@@ -38,7 +38,7 @@ void TrapSet::UpdatePortalStatus(const IpczPortalStatus& status,
 
 void TrapSet::DisableAllAndClear() {
   for (const Ref<Trap>& trap : traps_) {
-    trap->Disable(IPCZ_NO_FLAGS);
+    trap->Disable();
   }
   traps_.clear();
 }

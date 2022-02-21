@@ -39,19 +39,20 @@ class TestBase : public testing::Test {
   IpczAPI ipcz;
 
   template <size_t N>
-  void ClosePortals(const IpczHandle (&handles)[N]) {
+  void CloseHandles(const IpczHandle (&handles)[N]) {
     for (IpczHandle handle : handles) {
-      ASSERT_EQ(IPCZ_RESULT_OK,
-                ipcz.ClosePortal(handle, IPCZ_NO_FLAGS, nullptr));
+      ASSERT_EQ(IPCZ_RESULT_OK, ipcz.Close(handle, IPCZ_NO_FLAGS, nullptr));
     }
   }
 
   template <size_t N>
+  void ClosePortals(const IpczHandle (&handles)[N]) {
+    CloseHandles(handles);
+  }
+
+  template <size_t N>
   void DestroyNodes(const IpczHandle (&handles)[N]) {
-    for (IpczHandle handle : handles) {
-      ASSERT_EQ(IPCZ_RESULT_OK,
-                ipcz.DestroyNode(handle, IPCZ_NO_FLAGS, nullptr));
-    }
+    CloseHandles(handles);
   }
 
   IpczHandle ConnectNode(IpczHandle node,
@@ -68,7 +69,7 @@ class TestBase : public testing::Test {
 
   void Put(IpczHandle portal,
            const std::string& str,
-           absl::Span<IpczHandle> portals = {},
+           absl::Span<IpczHandle> handles = {},
            absl::Span<OSHandle> os_handles = {});
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);

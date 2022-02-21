@@ -51,8 +51,8 @@ TEST_F(PutAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.Put(a, nullptr, 0, &b, 1, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 TEST_F(PutAPITest, PutData) {
@@ -69,18 +69,18 @@ TEST_F(PutAPITest, PutData) {
             ipcz.QueryPortalStatus(b, IPCZ_NO_FLAGS, nullptr, &status));
   EXPECT_EQ(1u, status.num_local_parcels);
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(PutAPITest, PutClosed) {
   IpczHandle a, b;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &a, &b));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, ipcz.Put(a, nullptr, 0, nullptr, 0, nullptr,
                                             0, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(PutAPITest, PutParcelLimit) {
@@ -108,8 +108,8 @@ TEST_F(PutAPITest, PutParcelLimit) {
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Put(a, &data, 4, nullptr, 0, nullptr, 0,
                                      IPCZ_NO_FLAGS, &options));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(PutAPITest, PutDataLimit) {
@@ -137,8 +137,8 @@ TEST_F(PutAPITest, PutDataLimit) {
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Put(a, &data, 4, nullptr, 0, nullptr, 0,
                                      IPCZ_NO_FLAGS, &options));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

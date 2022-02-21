@@ -38,9 +38,8 @@ bool ValidateAndAcquirePortalsForTransitFrom(
     Parcel::PortalVector& portals) {
   portals.resize(handles.size());
   for (size_t i = 0; i < handles.size(); ++i) {
-    auto portal = WrapRefCounted(ToPtr<Portal>(handles[i]));
-    if (&sender == portal.get() ||
-        sender.router()->HasLocalPeer(portal->router())) {
+    auto portal = WrapRefCounted(APIObject::Get<Portal>(handles[i]));
+    if (!portal || !portal->CanSendFrom(sender)) {
       return false;
     }
     portals[i] = std::move(portal);
@@ -51,7 +50,7 @@ bool ValidateAndAcquirePortalsForTransitFrom(
 }  // namespace
 
 Portal::Portal(Ref<Node> node, Ref<Router> router)
-    : node_(std::move(node)), router_(std::move(router)) {}
+    : APIObject(kPortal), node_(std::move(node)), router_(std::move(router)) {}
 
 Portal::~Portal() = default;
 
@@ -74,6 +73,10 @@ IpczResult Portal::Close() {
   return IPCZ_RESULT_OK;
 }
 
+bool Portal::CanSendFrom(Portal& sender) {
+  return &sender != this && !sender.router()->HasLocalPeer(router_);
+}
+
 IpczResult Portal::Merge(Portal& other) {
   return router_->Merge(other.router());
 }
@@ -84,12 +87,11 @@ IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
 }
 
 IpczResult Portal::Put(absl::Span<const uint8_t> data,
-                       absl::Span<const IpczHandle> portal_handles,
-                       absl::Span<const IpczOSHandle> os_handles,
+                       absl::Span<const IpczHandle> handles,
+                       absl::Span<const IpczOSHandle> ipcz_os_handles,
                        const IpczPutLimits* limits) {
   Parcel::PortalVector portals;
-  if (!ValidateAndAcquirePortalsForTransitFrom(*this, portal_handles,
-                                               portals)) {
+  if (!ValidateAndAcquirePortalsForTransitFrom(*this, handles, portals)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -102,22 +104,21 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  std::vector<OSHandle> handles(os_handles.size());
+  std::vector<OSHandle> os_handles(ipcz_os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
+    os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
   }
 
-  IpczResult result = router_->SendOutboundParcel(data, portals, handles);
+  IpczResult result = router_->SendOutboundParcel(data, portals, os_handles);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquished handle ownership and
     // therefore implicitly releases its ref to each portal.
-    for (IpczHandle handle : portal_handles) {
-      Ref<Portal> released_portal(RefCounted::kAdoptExistingRef,
-                                  ToPtr<Portal>(handle));
+    for (IpczHandle handle : handles) {
+      APIObject::ReleaseHandle(handle);
     }
   } else {
-    for (OSHandle& handle : handles) {
-      handle.release();
+    for (OSHandle& os_handle : os_handles) {
+      os_handle.release();
     }
   }
 
@@ -152,11 +153,10 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
-                             absl::Span<const IpczHandle> portal_handles,
-                             absl::Span<const IpczOSHandle> os_handles) {
+                             absl::Span<const IpczHandle> handles,
+                             absl::Span<const IpczOSHandle> ipcz_os_handles) {
   Parcel::PortalVector portals;
-  if (!ValidateAndAcquirePortalsForTransitFrom(*this, portal_handles,
-                                               portals)) {
+  if (!ValidateAndAcquirePortalsForTransitFrom(*this, handles, portals)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -175,26 +175,26 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     pending_parcel_.reset();
   }
 
-  std::vector<OSHandle> handles(os_handles.size());
-  for (size_t i = 0; i < os_handles.size(); ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
+  std::vector<OSHandle> os_handles(ipcz_os_handles.size());
+  for (size_t i = 0; i < ipcz_os_handles.size(); ++i) {
+    os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
   }
 
   IpczResult result = router_->SendOutboundParcel(
-      parcel.data_view().subspan(0, num_data_bytes_produced), portals, handles);
+      parcel.data_view().subspan(0, num_data_bytes_produced), portals,
+      os_handles);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquished handle ownership and
     // therefore implicitly releases its ref to each portal.
-    for (IpczHandle handle : portal_handles) {
-      Ref<Portal> released_portal(RefCounted::kAdoptExistingRef,
-                                  ToPtr<Portal>(handle));
+    for (IpczHandle handle : handles) {
+      APIObject::ReleaseHandle(handle);
     }
 
     absl::MutexLock lock(&mutex_);
     in_two_phase_put_ = false;
   } else {
-    for (OSHandle& handle : handles) {
-      handle.release();
+    for (OSHandle& os_handle : os_handles) {
+      os_handle.release();
     }
 
     absl::MutexLock lock(&mutex_);
@@ -217,8 +217,8 @@ IpczResult Portal::AbortPut() {
 
 IpczResult Portal::Get(void* data,
                        uint32_t* num_data_bytes,
-                       IpczHandle* portals,
-                       uint32_t* num_portals,
+                       IpczHandle* handles,
+                       uint32_t* num_handles,
                        IpczOSHandle* os_handles,
                        uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
@@ -227,12 +227,12 @@ IpczResult Portal::Get(void* data,
   }
 
   return router_->GetNextIncomingParcel(
-      data, num_data_bytes, portals, num_portals, os_handles, num_os_handles);
+      data, num_data_bytes, handles, num_handles, os_handles, num_os_handles);
 }
 
 IpczResult Portal::BeginGet(const void** data,
                             uint32_t* num_data_bytes,
-                            uint32_t* num_portals,
+                            uint32_t* num_handles,
                             uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
   if (in_two_phase_get_) {
@@ -244,7 +244,7 @@ IpczResult Portal::BeginGet(const void** data,
   }
 
   IpczResult result = router_->BeginGetNextIncomingParcel(
-      data, num_data_bytes, num_portals, num_os_handles);
+      data, num_data_bytes, num_handles, num_os_handles);
   if (result == IPCZ_RESULT_OK) {
     in_two_phase_get_ = true;
   }
@@ -252,8 +252,8 @@ IpczResult Portal::BeginGet(const void** data,
 }
 
 IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
-                             IpczHandle* portals,
-                             uint32_t* num_portals,
+                             IpczHandle* handles,
+                             uint32_t* num_handles,
                              IpczOSHandle* os_handles,
                              uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
@@ -262,7 +262,7 @@ IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
   }
 
   IpczResult result = router_->CommitGetNextIncomingParcel(
-      num_data_bytes_consumed, portals, num_portals, os_handles,
+      num_data_bytes_consumed, handles, num_handles, os_handles,
       num_os_handles);
   if (result == IPCZ_RESULT_OK) {
     in_two_phase_get_ = false;

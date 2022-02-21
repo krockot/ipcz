@@ -18,12 +18,18 @@ Trap::Trap(Ref<Portal> portal,
            const IpczTrapConditions& conditions,
            IpczTrapEventHandler handler,
            uint64_t context)
-    : portal_(std::move(portal)),
+    : APIObject(kTrap),
+      portal_(std::move(portal)),
       conditions_(conditions),
       handler_(handler),
       context_(context) {}
 
 Trap::~Trap() = default;
+
+IpczResult Trap::Close() {
+  Disable();
+  return IPCZ_RESULT_OK;
+}
 
 IpczResult Trap::Arm(IpczTrapConditionFlags* satisfied_condition_flags,
                      IpczPortalStatus* status) {
@@ -56,12 +62,8 @@ IpczResult Trap::Arm(IpczTrapConditionFlags* satisfied_condition_flags,
   return IPCZ_RESULT_OK;
 }
 
-void Trap::Disable(IpczDestroyTrapFlags flags) {
-  const bool kTrue = true;
-  auto condition = (flags & IPCZ_DESTROY_TRAP_BLOCKING)
-                       ? absl::Condition(this, &Trap::HasNoCurrentDispatches)
-                       : absl::Condition(&kTrue);
-  absl::MutexLock lock(&mutex_, condition);
+void Trap::Disable() {
+  absl::MutexLock lock(&mutex_);
   is_enabled_ = false;
 }
 
@@ -121,7 +123,6 @@ void Trap::MaybeDispatchEvent(IpczTrapConditionFlags condition_flags,
     if (!is_enabled_) {
       return;
     }
-    ++num_current_dispatches_;
   }
 
   IpczTrapEvent event = {sizeof(event)};
@@ -129,14 +130,6 @@ void Trap::MaybeDispatchEvent(IpczTrapConditionFlags condition_flags,
   event.condition_flags = condition_flags;
   event.status = &status;
   handler_(&event);
-
-  absl::MutexLock lock(&mutex_);
-  --num_current_dispatches_;
-}
-
-bool Trap::HasNoCurrentDispatches() const {
-  mutex_.AssertHeld();
-  return num_current_dispatches_ == 0;
 }
 
 }  // namespace ipcz

@@ -39,8 +39,8 @@ TEST_F(EndPutAPITest, InvalidArgs) {
             ipcz.EndPut(a, num_bytes * 2, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS,
                         nullptr));
 
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 TEST_F(EndPutAPITest, NoPutInProgress) {
@@ -54,8 +54,8 @@ TEST_F(EndPutAPITest, NoPutInProgress) {
       IPCZ_RESULT_FAILED_PRECONDITION,
       ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_END_PUT_ABORT, nullptr));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(EndPutAPITest, Oversized) {
@@ -65,8 +65,8 @@ TEST_F(EndPutAPITest, Oversized) {
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.EndPut(a, 4, nullptr, 0, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 }  // namespace

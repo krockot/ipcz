@@ -77,28 +77,29 @@ void TestBase::OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b) {
 
 void TestBase::Put(IpczHandle portal,
                    const std::string& str,
-                   absl::Span<IpczHandle> portals,
+                   absl::Span<IpczHandle> handles,
                    absl::Span<OSHandle> os_handles) {
-  std::vector<IpczOSHandle> handles(os_handles.size());
+  std::vector<IpczOSHandle> ipcz_os_handles(os_handles.size());
   for (size_t i = 0; i < os_handles.size(); ++i) {
-    handles[i].size = sizeof(handles[i]);
-    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &handles[i]);
+    ipcz_os_handles[i].size = sizeof(ipcz_os_handles[i]);
+    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &ipcz_os_handles[i]);
   }
 
   ASSERT_EQ(IPCZ_RESULT_OK,
             ipcz.Put(portal, str.data(), static_cast<uint32_t>(str.length()),
-                     portals.data(), static_cast<uint32_t>(portals.size()),
                      handles.data(), static_cast<uint32_t>(handles.size()),
+                     ipcz_os_handles.data(),
+                     static_cast<uint32_t>(ipcz_os_handles.size()),
                      IPCZ_NO_FLAGS, nullptr));
 }
 
 IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
   uint32_t num_bytes = 0;
-  uint32_t num_portals = 0;
+  uint32_t num_handles = 0;
   uint32_t num_os_handles = 0;
   IpczResult result =
       ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes, nullptr,
-               &num_portals, nullptr, &num_os_handles);
+               &num_handles, nullptr, &num_os_handles);
   if (result == IPCZ_RESULT_OK) {
     parcel = {};
     return IPCZ_RESULT_OK;
@@ -107,10 +108,10 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
   if (result == IPCZ_RESULT_RESOURCE_EXHAUSTED) {
     std::vector<char> data(num_bytes);
     std::vector<IpczOSHandle> ipcz_os_handles(num_os_handles);
-    parcel.portals.resize(num_portals);
+    parcel.portals.resize(num_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
     result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(), &num_bytes,
-                      parcel.portals.data(), &num_portals,
+                      parcel.portals.data(), &num_handles,
                       ipcz_os_handles.data(), &num_os_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
@@ -149,7 +150,7 @@ IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
   } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {
     return result;
   }
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.DestroyTrap(trap, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(trap, IPCZ_NO_FLAGS, nullptr));
 
   return MaybeGet(portal, parcel);
 }

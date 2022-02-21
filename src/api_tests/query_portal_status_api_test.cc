@@ -30,8 +30,8 @@ TEST_F(QueryPortalStatusAPITest, InvalidArgs) {
             ipcz.QueryPortalStatus(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr,
                                    &status));
 
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 TEST_F(QueryPortalStatusAPITest, ClosedBit) {
@@ -43,13 +43,13 @@ TEST_F(QueryPortalStatusAPITest, ClosedBit) {
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, &status));
   EXPECT_EQ(IPCZ_NO_FLAGS, status.flags);
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.QueryPortalStatus(a, IPCZ_NO_FLAGS, nullptr, &status));
   EXPECT_EQ(IPCZ_PORTAL_STATUS_PEER_CLOSED | IPCZ_PORTAL_STATUS_DEAD,
             status.flags);
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

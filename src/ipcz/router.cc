@@ -326,8 +326,8 @@ bool Router::AcceptRouteClosureFrom(LinkType link_type,
 
 IpczResult Router::GetNextIncomingParcel(void* data,
                                          uint32_t* num_bytes,
-                                         IpczHandle* portals,
-                                         uint32_t* num_portals,
+                                         IpczHandle* handles,
+                                         uint32_t* num_handles,
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
@@ -346,21 +346,21 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   Parcel& p = inbound_parcels_.NextParcel();
   const uint32_t data_capacity = num_bytes ? *num_bytes : 0;
   const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
-  const uint32_t portals_capacity = num_portals ? *num_portals : 0;
-  const uint32_t portals_size = static_cast<uint32_t>(p.portals_view().size());
+  const uint32_t handles_capacity = num_handles ? *num_handles : 0;
+  const uint32_t handles_size = static_cast<uint32_t>(p.portals_view().size());
   const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
   const uint32_t os_handles_size =
       static_cast<uint32_t>(p.os_handles_view().size());
   if (num_bytes) {
     *num_bytes = data_size;
   }
-  if (num_portals) {
-    *num_portals = portals_size;
+  if (num_handles) {
+    *num_handles = handles_size;
   }
   if (num_os_handles) {
     *num_os_handles = os_handles_size;
   }
-  if (data_capacity < data_size || portals_capacity < portals_size ||
+  if (data_capacity < data_size || handles_capacity < handles_size ||
       os_handles_capacity < os_handles_size) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
@@ -368,7 +368,7 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   Parcel parcel;
   inbound_parcels_.Pop(parcel);
   memcpy(data, parcel.data_view().data(), parcel.data_view().size());
-  parcel.Consume(portals, os_handles);
+  parcel.Consume(handles, os_handles);
 
   status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
@@ -383,7 +383,7 @@ IpczResult Router::GetNextIncomingParcel(void* data,
 
 IpczResult Router::BeginGetNextIncomingParcel(const void** data,
                                               uint32_t* num_data_bytes,
-                                              uint32_t* num_portals,
+                                              uint32_t* num_handles,
                                               uint32_t* num_os_handles) {
   absl::MutexLock lock(&mutex_);
   if (inward_edge_) {
@@ -396,7 +396,7 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
 
   Parcel& p = inbound_parcels_.NextParcel();
   const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
-  const uint32_t portals_size = static_cast<uint32_t>(p.portals_view().size());
+  const uint32_t handles_size = static_cast<uint32_t>(p.portals_view().size());
   const uint32_t os_handles_size =
       static_cast<uint32_t>(p.os_handles_view().size());
   if (data) {
@@ -409,8 +409,8 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  if (num_portals) {
-    *num_portals = portals_size;
+  if (num_handles) {
+    *num_handles = handles_size;
   }
 
   if (num_os_handles) {
@@ -421,8 +421,8 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
 }
 
 IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
-                                               IpczHandle* portals,
-                                               uint32_t* num_portals,
+                                               IpczHandle* handles,
+                                               uint32_t* num_handles,
                                                IpczOSHandle* os_handles,
                                                uint32_t* num_os_handles) {
   TrapEventDispatcher dispatcher;
@@ -436,15 +436,15 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   }
 
   Parcel& p = inbound_parcels_.NextParcel();
-  const uint32_t portals_capacity = num_portals ? *num_portals : 0;
+  const uint32_t handles_capacity = num_handles ? *num_handles : 0;
   const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
-  if (num_portals) {
-    *num_portals = static_cast<uint32_t>(p.portals_view().size());
+  if (num_handles) {
+    *num_handles = static_cast<uint32_t>(p.portals_view().size());
   }
   if (num_os_handles) {
     *num_os_handles = static_cast<uint32_t>(p.os_handles_view().size());
   }
-  if (portals_capacity < p.portals_view().size() ||
+  if (handles_capacity < p.portals_view().size() ||
       os_handles_capacity < p.os_handles_view().size()) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
@@ -454,9 +454,9 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   }
 
   if (num_data_bytes_consumed < p.data_view().size()) {
-    p.ConsumePartial(num_data_bytes_consumed, portals, os_handles);
+    p.ConsumePartial(num_data_bytes_consumed, handles, os_handles);
   } else {
-    p.Consume(portals, os_handles);
+    p.Consume(handles, os_handles);
 
     Parcel consumed_parcel;
     bool ok = inbound_parcels_.Pop(consumed_parcel);

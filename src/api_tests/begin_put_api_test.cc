@@ -39,8 +39,8 @@ TEST_F(BeginPutAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
 
-  ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr);
-  ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(a, IPCZ_NO_FLAGS, nullptr);
+  ipcz.Close(b, IPCZ_NO_FLAGS, nullptr);
 }
 
 TEST_F(BeginPutAPITest, NoOverlap) {
@@ -55,8 +55,8 @@ TEST_F(BeginPutAPITest, NoOverlap) {
   EXPECT_EQ(IPCZ_RESULT_ALREADY_EXISTS,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, nullptr, &num_bytes, &data));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(BeginPutAPITest, ParcelLimit) {
@@ -91,8 +91,8 @@ TEST_F(BeginPutAPITest, ParcelLimit) {
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
                                         IPCZ_NO_FLAGS, nullptr));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 TEST_F(BeginPutAPITest, DataLimit) {
@@ -127,8 +127,8 @@ TEST_F(BeginPutAPITest, DataLimit) {
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
                                         IPCZ_NO_FLAGS, nullptr));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(a, IPCZ_NO_FLAGS, nullptr));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ClosePortal(b, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

@@ -256,7 +256,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
       IpczDriverHandle driver_node,
       const uint8_t* data,
       uint32_t num_bytes,
-      const IpczOSHandle* os_handles,
+      const struct IpczOSHandle* os_handles,
       uint32_t num_os_handles,
       const struct IpczOSProcessHandle* target_process,
       uint32_t flags,
@@ -363,7 +363,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // region is output in `*region_size` on success.
   IpczResult (*DeserializeSharedMemory)(const uint8_t* data,
                                         uint32_t num_bytes,
-                                        const IpczOSHandle* os_handles,
+                                        const struct IpczOSHandle* os_handles,
                                         uint32_t num_os_handles,
                                         uint32_t flags,
                                         const void* options,
@@ -405,7 +405,7 @@ typedef uint32_t IpczCreateNodeFlags;
 // coordinator, and all other nodes are created in processes spawned by that one
 // or in processes which otherwise trust it.
 //
-// ** See notes on DestroyNode() regarding destruction of broker nodes.
+// ** See notes on Close() regarding destruction of broker nodes.
 #define IPCZ_CREATE_NODE_AS_BROKER IPCZ_FLAG_BIT(0)
 
 // See ConnectNode() and the IPCZ_CONNECT_NODE_* flag descriptions below.
@@ -525,14 +525,6 @@ typedef uint32_t IpczEndGetFlags;
 // If this flag is given to EndGet(), any in-progress two-phase get operation is
 // aborted without consuming any data from the portal.
 #define IPCZ_END_GET_ABORT IPCZ_FLAG_BIT(0)
-
-// See DestroyTrap() and the IPCZ_DESTROY_TRAP_* flags described below.
-typedef uint32_t IpczDestroyTrapFlags;
-
-// If this flag is given to DestroyTrap(), the call will block until any
-// concurrently executing invocation of the trap's event handler are finished.
-// See notes on DestroyTrap().
-#define IPCZ_DESTROY_TRAP_BLOCKING IPCZ_FLAG_BIT(0)
 
 // Flags given by the `flags` field in IpczPortalStatus.
 typedef uint32_t IpczPortalStatusFlags;
@@ -690,6 +682,31 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // application before passing the structure to IpczGetAPI().
   uint32_t size;
 
+  // Releases the object identified by `handle`. If it's a portal, the portal is
+  // closed. If it's a trap or a node, the trap or node is destroyed. If it's a
+  // wrapped driver object, the object is released via the driver API's Close().
+  //
+  // This function is NOT thread-safe. It is the application's responsibility to
+  // ensure that no other threads are performing other operations on `handle`
+  // concurrently with this call or any time thereafter.
+  //
+  // `flags` is ignored and must be 0.
+  //
+  // `options` is ignored and must be null.
+  //
+  // NOTE: If `handle` is a broker node in its cluster of connected nodes,
+  // certain operations across the cluster -- such as driver object transmission
+  // through portals or portal transference in general -- may begin to fail
+  // spontaneously once destruction is complete.
+  //
+  // Returns:
+  //
+  //    IPCZ_RESULT_OK if `handle` referred to a valid object and was
+  //        successfully closed by this operation.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `handle` is invalid.
+  IpczResult (*Close)(IpczHandle handle, uint32_t flags, const void* options);
+
   // Initializes a new ipcz node. Applications typically need only one node in
   // each communicating process, but it's OK to create more. Practical use cases
   // for multiple nodes per process may include various testing scenarios, and
@@ -724,38 +741,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
                            IpczCreateNodeFlags flags,
                            const void* options,
                            IpczHandle* node);
-
-  // Destroys an ipcz node. Explicit destruction is not strictly necessary,
-  // but applications and tests may wish to create multiple nodes in the same
-  // process, and in cases where a node will no longer be used it's a good idea
-  // to destroy it so it can release any allocated resources.
-  //
-  // This function is NOT thread-safe. It is the application's responsibility to
-  // ensure that no other threads are making ipcz calls on `node` concurrently
-  // with this call, or any time thereafter since `node` will no longer be
-  // valid.
-  //
-  // Once this call returns, ipcz will never invoke another driver API with this
-  // node's associated IpczDriverHandle assigned by the original CreateNode()
-  // call, assuming the assigned driver handle was unique to this node.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
-  //
-  // NOTE: If `node` is the broker node in its cluster of connected nodes,
-  // certain operations across the cluster -- such as handle transmission
-  // through portals or portal transference in general -- may begin to fail
-  // spontaneously once destruction is complete.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if `node` was destroyed.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid.
-  IpczResult (*DestroyNode)(IpczHandle node,
-                            uint32_t flags,
-                            const void* options);
 
   // Connects `node` to another node in the system using an application-provided
   // driver transport handle in `driver_transport` for communication. If this
@@ -852,26 +837,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
                             IpczHandle* portal0,
                             IpczHandle* portal1);
 
-  // Closes the portal identified by `portal`.
-  //
-  // This function is NOT thread-safe. It is the application's responsibility to
-  // ensure that no other threads are performing other operations on `portal`
-  // concurrently with this call or any time thereafter.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if `portal` referred to a valid portal in `node` and
-  //        was successfully closed by this operation.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid.
-  IpczResult (*ClosePortal)(IpczHandle portal,
-                            uint32_t flags,
-                            const void* options);
-
   // Merges two portals into each other, effectively destroying both while
   // linking their respective peer portals with each other. A portal cannot
   // merge with its own peer, and a portal cannot be merged into another if one
@@ -937,17 +902,18 @@ struct IPCZ_ALIGN(8) IpczAPI {
                                   const void* options,
                                   struct IpczPortalStatus* status);
 
-  // Puts any combination of raw data, portals, and OS handles into the portal
-  // identified by `portal`. Everything put into a portal can be retrieved in
-  // the same order by a corresponding get operation on the opposite portal.
+  // Puts any combination of raw data, ipcz handles, and OS handles into the
+  // portal identified by `portal`. Everything put into a portal can be
+  // retrieved in the same order by a corresponding get operation on the
+  // opposite portal.
   //
   // `flags` is unused and must be IPCZ_NO_FLAGS.
   //
   // `options` may be null.
   //
   // If this call fails (returning anything other than IPCZ_RESULT_OK), any
-  // provided portals or OS handles remain property of the caller. If it
-  // succeeds, their ownership is assumed by ipcz.
+  // provided handles remain property of the caller. If it succeeds, their
+  // ownership is assumed by ipcz.
   //
   // Data to be submitted is read directly from the address given by the `data`
   // argument, and `num_bytes` specifies how many bytes of data to copy from
@@ -961,14 +927,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the provided data, portals, and OS handles were
-  //        successfully placed into the portal as a new parcel.
+  //    IPCZ_RESULT_OK if the provided data and handles were successfull placed
+  //        into the portal as a new parcel.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
-  //        `num_bytes` is non-zero, `portals` is null but `num_portals` is
+  //        `num_bytes` is non-zero, `handles` is null but `num_handles` is
   //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
-  //        `options` is non-null but invalid, or one of the portals in
-  //        `portals` is equal to `portal` its (local) opposite if applicable.
+  //        `options` is non-null but invalid, one of the handles in `handles`
+  //        is equal to `portal` or its (local) opposite if applicable, or if
+  //        any handle in `handles` or `os_handles` is invalid.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
   //        least one of the specified limits would be violated by the
@@ -983,15 +950,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   IpczResult (*Put)(IpczHandle portal,
                     const void* data,
                     uint32_t num_bytes,
-                    const IpczHandle* portals,
-                    uint32_t num_portals,
+                    const IpczHandle* handles,
+                    uint32_t num_handles,
                     const struct IpczOSHandle* os_handles,
                     uint32_t num_os_handles,
                     uint32_t flags,
                     const struct IpczPutOptions* options);
 
   // Begins a two-phase put operation on `portal`. While a two-phase put
-  // operation is in progress on a portal, all other put operations on the same
+  // operation is in progress on a portal, any other BeginPut() call on the same
   // portal will fail with IPCZ_RESULT_ALREADY_EXISTS.
   //
   // Unlike a plain Put() call, two-phase put operations allow the application
@@ -1049,12 +1016,12 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // `num_bytes_produced` specifies the number of bytes actually written into
   // the buffer that was returned from the original BeginPut() call.
   //
-  // Usage of `portals`, `num_portals`, `os_handles`, and `num_os_handles` is
+  // Usage of `handles`, `num_handles`, `os_handles` and `num_os_handles` is
   // identical to Put().
   //
   // If this call fails (returning anything other than IPCZ_RESULT_OK), any
-  // provided portals or OS handles remain property of the caller. If it
-  // succeeds, their ownership is assumed by ipcz.
+  // provided handles remain property of the caller. If it succeeds, their
+  // ownership is assumed by ipcz.
   //
   // If IPCZ_END_PUT_ABORT is given in `flags` and there is a two-phase put
   // operation in progress on `portal`, all other arguments are ignored and the
@@ -1071,41 +1038,37 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Returns:
   //
   //    IPCZ_RESULT_OK if the two-phase operation was successfully completed or
-  //        aborted. If not aborted, all data, portals, and OS handles were
-  //        committed to a new parcel enqueued for retrieval by the opposite
-  //        portal.
+  //        aborted. If not aborted all data and handles were committed to a new
+  //        parcel enqueued for retrieval by the opposite portal.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `num_portals` is
-  //        non-zero but `portals` is null, `num_os_handles` is non-zero but
-  //        `os_handles` is null, or `num_bytes_produced` is larger than the
-  //        capacity of the buffer originally returned by BeginPut().
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `num_handles` is
+  //        non-zero but `handles` is null, `num_os_handles` is non-zero but
+  //        `os_handles` is null, `num_bytes_produced` is larger than the
+  //        capacity of the buffer originally returned by BeginPut(), or any
+  //        handle in `handles` or `os_handles` is invalid.
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase put operation
   //        in progress on `portal`.
   //
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
-  //
-  //    IPCZ_RESULT_PERMISSION_DENIED if the caller attempted to place handles
-  //        into the portal which could not be transferred to the other side due
-  //        to OS-level privilege constraints.
   IpczResult (*EndPut)(IpczHandle portal,
                        uint32_t num_bytes_produced,
-                       const IpczHandle* portals,
-                       uint32_t num_portals,
+                       const IpczHandle* handles,
+                       uint32_t num_handles,
                        const struct IpczOSHandle* os_handles,
                        uint32_t num_os_handles,
                        IpczEndPutFlags flags,
                        const void* options);
 
-  // Retrieves some combination of raw data, portals, and OS handles from a
+  // Retrieves some combination of raw data, ipcz handles, and OS handles from a
   // portal, as placed by a prior put operation on the opposite portal.
   //
-  // On input, the values pointed to by `num_bytes`, `num_portals`, and
+  // On input, the values pointed to by `num_bytes`, `num_handles`, and
   // `num_os_handles` must specify the capacity of each corresponding buffer
-  // argument. A null pointer is equivalent to a pointer pointing to a zero
-  // value. It is an error to specify a non-zero capacity if the corresponding
-  // buffer (`data`, `portals`, or `os_handles`, respectively) is null.
+  // argument. A null pointer implies zero capacity. It is an error to specify
+  // non-zero capacity if the corresponding buffer (`data`, `handles`, or
+  // `os_handles`) is null.
   //
   // Normally the data consumed by this call is copied directly to the address
   // given by the `data` argument, and `*num_bytes` specifies how many bytes of
@@ -1120,23 +1083,22 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Returns:
   //
   //    IPCZ_RESULT_OK if there was at a parcel available in the portal's queue
-  //        and its data, portals, and OS handles were able to be copied into
-  //        the caller's provided buffers. In this case values pointed to by
-  //        `num_bytes`, `num_portals`, and `num_os_handles` (for each one that
-  //        is non-null) are updated to reflect what was actually consumed. Note
-  //        that the caller assumes ownership of all returned portals and OS
-  //        handles.
+  //        and its data and handles were able to be copied into the caller's
+  //        provided buffers. In this case values pointed to by `num_bytes` and
+  //        `num_handles` (for each one that is non-null) are updated to reflect
+  //        what was actually consumed. Note that the caller assumes ownership
+  //        of all returned handles.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
-  //        `*num_bytes` is non-zero, `portals` is null but `*num_portals` is
-  //        non-zero, or `os_handles` is null but `*num_os_handles` is non-zero.
+  //        `*num_bytes` is non-zero, `handles` is null but `*num_handles` is
+  //        non-zero, or `os_handles` is null but `*num_os_handles` os non-zero.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
-  //        the caller's specified capacity for either data bytes, portals, or
-  //        OS handles. In this case, any non-null size pointer is updated to
-  //        convey the minimum capacity that would have been required for an
-  //        otherwise identical Get() call to have succeeded. Callers observing
-  //        this result may wish to allocate storage accordingly and retry with
+  //        the caller's specified capacity for either data bytes or handles. In
+  //        this case, any non-null size pointer is updated to convey the
+  //        minimum capacity that would have been required for an otherwise
+  //        identical Get() call to have succeeded. Callers observing this
+  //        result may wish to allocate storage accordingly and retry with
   //        updated parameters.
   //
   //    IPCZ_RESULT_UNAVAILABLE if the portal's parcel queue is currently empty.
@@ -1154,14 +1116,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
                     const void* options,
                     void* data,
                     uint32_t* num_bytes,
-                    IpczHandle* portals,
-                    uint32_t* num_portals,
+                    IpczHandle* handles,
+                    uint32_t* num_handles,
                     struct IpczOSHandle* os_handles,
                     uint32_t* num_os_handles);
 
-  // Begins a two-phase get operation on `portal` to retrieve data, portals, and
-  // OS handles. While a two-phase get operation is in progress on a portal, all
-  // other get operations on the same portal will fail with
+  // Begins a two-phase get operation on `portal` to retrieve data, ipcz
+  // handles, and OS handles. While a two-phase get operation is in progress on
+  // a portal, all other get operations on the same portal will fail with
   // IPCZ_RESULT_ALREADY_EXISTS.
   //
   // Unlike a plain Get() call, two-phase get operations allow the application
@@ -1174,11 +1136,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Otherwise if `data` and `num_bytes` are non-null, a successful BeginGet()
   // updates them to expose parcel memory for the application to consume.
   //
-  // If `num_portals` or `num_os_handles` is non-null and this call is
-  // successful, the value(s) pointed to will respectively reflect the number of
-  // portals and OS handles in the next available parcel. The portals and
-  // handles are not retrieved from the portal until the application issues a
-  // corresponding call to EndGet().
+  // If `num_handles` or `num_os_handles` is non-null and this call is
+  // successful, the values pointed to will reflect the number of corresponding
+  // handles in the parcle being read. The handles are not retrieved from the
+  // portal until the application issues a corresponding call to EndGet().
   //
   // NOTE: When performing two-phase get operations, callers should be mindful
   // of time-of-check/time-of-use (TOCTOU) vulnerabilities. Exposed parcel
@@ -1196,9 +1157,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if the two-phase get was successfully initiated. In this
   //        case both `*data` and `*num_bytes` are updated (if `data` and
   //        `num_bytes` were non-null) to describe the portal memory from which
-  //        the application is free to read parcel data. If `num_portals` or
-  //        `num_os_handles` is non-null, the value(s) pointed to are updated to
-  //        reflect the count of available portals and OS handles.
+  //        the application is free to read parcel data. If `num_handles` or
+  //        `num_os_handles` is non-null, the value pointed to is updated to
+  //        reflect the number of corresponding handles available to retrieve.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid.
   //
@@ -1220,7 +1181,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
                          const void* options,
                          const void** data,
                          uint32_t* num_bytes,
-                         uint32_t* num_portals,
+                         uint32_t* num_handles,
                          uint32_t* num_os_handles);
 
   // Ends the two-phase get operation started by the most recent successful call
@@ -1229,18 +1190,18 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // `num_bytes_consumed` specifies the number of bytes actually read from the
   // buffer that was returned from the original BeginGet() call.
   //
-  // `portals`, `num_portals`, `os_handles`, and `num_os_handles` are used
-  // and behave exactly the same as with a Get() call. Note that BeginGet()
-  // also exposes the number of available portals and OS handles as its outputs,
-  // so applications expecting to receive either during a two-phase get should
-  // read those outputs and use them as hints to avoid a redundant call to
-  // EndGet() resulting in IPCZ_RESOURCE_EXHAUSTED.
+  // `handles`, `num_handles`, `os_handles`, and `num_os_handles` are used and
+  // behave exactly the same as with a Get() call. Note that BeginGet() also
+  // exposes the number of available handles as an output, so applications
+  // expecting to receive handles during a two-phase get should read that output
+  // and use it as a hint to avoid a redundant call to EndGet() resulting in
+  // IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
   // If IPCZ_END_GET_ABORT is given in `flags` and there is a two-phase get
   // operation in progress on `portal`, all other arguments are ignored and the
   // pending operation is cancelled without consuming any data from the portal.
-  // Note that any portals or OS handles which were already consumed by the
-  // corresponding BeginGet() remain property of the caller.
+  // Note that any handles which were already consumed by the corresponding
+  // BeginGet() remain property of the caller.
   //
   // `options` is unused and must be null.
   //
@@ -1256,11 +1217,12 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        originally returned by BeginGet().
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
-  //        the caller's specified capacity portals or OS handles. In this case,
-  //        any non-null size pointer is updated to convey the minimum capacity
-  //        that would have been required for an otherwise identical EndGet()
-  //        call to have succeeded. Callers observing this result may wish to
-  //        allocate storage accordingly and retry with updated parameters.
+  //        the caller's specified capacity for ipcz handles. In this case, if
+  //        `num_handles` or `num_os_handles` is non-null, the values they point
+  //        to are updated to convey the minimum capacity that would be required
+  //        for an otherwise identical EndGet() call to succeed. Callers
+  //        observing this result may wish to allocate storage accordingly and
+  //        retry with updated parameters.
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase get operation
   //        in progress on `portal`.
@@ -1268,8 +1230,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
                        uint32_t num_bytes_consumed,
                        IpczEndGetFlags flags,
                        const void* options,
-                       IpczHandle* portals,
-                       uint32_t* num_portals,
+                       IpczHandle* handles,
+                       uint32_t* num_handles,
                        struct IpczOSHandle* os_handles,
                        uint32_t* num_os_handles);
 
@@ -1306,7 +1268,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_OK if the trap was created successfully as described above.
   //        `*trap* is populated with a handle the application may use in
-  //        subsequent calls to ArmTrap() or DestroyTrap().
+  //        subsequent calls to ArmTrap().
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `conditions` is
   //        null or invalid, `handler` is null, or `trap` is null.
@@ -1352,35 +1314,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
                         const void* options,
                         IpczTrapConditionFlags* satisfied_condition_flags,
                         struct IpczPortalStatus* status);
-
-  // Destroys a trap.
-  //
-  // Upon success the specified trap will no longer exist and it is guaranteed
-  // to never invoke its handler again.
-  //
-  // Note that an event may occur on another thread which trips the trap and
-  // invokes its handler immediately before or during this call, so applications
-  // must take care to synchronize access to any state shared between the trap
-  // handler and whatever logic manages the trap's lifecycle.
-  //
-  // If IPCZ_DESTROY_TRAP_BLOCKING is specified, DestroyTrap() blocks until any
-  // currently running event handler for this trap is finished executing on any
-  // thread. As a consequence if this flag is given to a call made within the
-  // destroyed trap's own event handler, the call is guaranteed to deadlock.
-  //
-  // `flags` is ignored and must be 0.
-  //
-  // `options` is ignored and must be null.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if the trap was successfully destroyed. The trap's
-  //        handler will never be invoked after this result is returned.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `trap` is invalid.
-  IpczResult (*DestroyTrap)(IpczHandle trap,
-                            IpczDestroyTrapFlags flags,
-                            const void* options);
 };
 
 // Populates `api` with a table of ipcz API functions. The `size` field must be

@@ -44,7 +44,7 @@ MultiprocessTest::MultiprocessTest() {
 }
 
 MultiprocessTest::~MultiprocessTest() {
-  IpczResult result = ipcz.DestroyNode(node, IPCZ_NO_FLAGS, nullptr);
+  IpczResult result = ipcz.Close(node, IPCZ_NO_FLAGS, nullptr);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 }
 

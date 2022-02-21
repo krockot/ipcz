@@ -9,11 +9,11 @@
 namespace ipcz {
 namespace {
 
-using DestroyNodeAPITest = test::APITest;
+using CloseAPITest = test::APITest;
 
-TEST_F(DestroyNodeAPITest, InvalidArgs) {
+TEST_F(CloseAPITest, InvalidArgs) {
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.DestroyNode(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr));
+            ipcz.Close(IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr));
 }
 
 }  // namespace

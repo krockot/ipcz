@@ -32,7 +32,10 @@
 namespace ipcz {
 
 Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
-    : type_(type), driver_(driver), driver_node_(driver_node) {
+    : APIObject(kNode),
+      type_(type),
+      driver_(driver),
+      driver_node_(driver_node) {
   if (type_ == Type::kBroker) {
     // Only brokers assign their own names.
     assigned_name_ = NodeName{NodeName::kRandom};
@@ -43,6 +46,11 @@ Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
 }
 
 Node::~Node() = default;
+
+IpczResult Node::Close() {
+  ShutDown();
+  return IPCZ_RESULT_OK;
+}
 
 void Node::ShutDown() {
   absl::flat_hash_map<NodeName, Ref<NodeLink>> node_links;
