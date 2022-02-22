@@ -495,7 +495,12 @@ TEST_CLIENT_F(MultiprocessRemotePortalTest, BasicMultiprocessClient, c) {
   ClosePortals({b});
 }
 
+#ifdef NDEBUG
 constexpr size_t kNumThroughputIterations = 1000;
+#else
+constexpr size_t kNumThroughputIterations = 50;
+#endif
+
 constexpr size_t kNumThroughputTestMessages = 50;
 
 TEST_F(MultiprocessRemotePortalTest, PingPong) {
