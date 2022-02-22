@@ -51,11 +51,11 @@ class ConnectTest : public test::MultinodeTestWithDriver {
 
     Parcel parcel;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(node1_to_node0, parcel));
-    ASSERT_EQ(1u, parcel.portals.size());
-    q = parcel.portals[0];
+    ASSERT_EQ(1u, parcel.handles.size());
+    q = parcel.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(node2_to_node0, parcel));
-    ASSERT_EQ(1u, parcel.portals.size());
-    p = parcel.portals[0];
+    ASSERT_EQ(1u, parcel.handles.size());
+    p = parcel.handles[0];
 
     while (GetNumRouters() > 6) {
       VerifyEndToEnd(q, p);

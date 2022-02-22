@@ -50,8 +50,8 @@ TEST_P(RemotePortalTest, TransferLocalPortal) {
   Parcel b_parcel;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, b_parcel));
   EXPECT_EQ(kMessageFromA, b_parcel.message);
-  ASSERT_EQ(1u, b_parcel.portals.size());
-  d = b_parcel.portals[0];
+  ASSERT_EQ(1u, b_parcel.handles.size());
+  d = b_parcel.handles[0];
 
   ClosePortals({a, b});
 
@@ -91,15 +91,15 @@ TEST_P(RemotePortalTest, TransferManyLocalPortals) {
   for (uint32_t i = 0; i < kNumIterations; ++i) {
     Parcel p;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-    ASSERT_EQ(1u, p.portals.size());
-    IpczHandle f = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    IpczHandle f = p.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(f, p));
     EXPECT_EQ("na", p.message);
 
     Parcel q;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, q));
-    ASSERT_EQ(1u, q.portals.size());
-    IpczHandle d = q.portals[0];
+    ASSERT_EQ(1u, q.handles.size());
+    IpczHandle d = q.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, q));
     EXPECT_EQ("ya", q.message);
 
@@ -131,12 +131,12 @@ TEST_P(RemotePortalTest, MultipleHops) {
   Put(b, "here", {&f1, 1});
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-  ASSERT_EQ(1u, p.portals.size());
-  IpczHandle f0 = p.portals[0];
+  ASSERT_EQ(1u, p.handles.size());
+  IpczHandle f0 = p.handles[0];
   Put(c, "ok ok", {&f0, 1});
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
-  ASSERT_EQ(1u, p.portals.size());
-  IpczHandle f2 = p.portals[0];
+  ASSERT_EQ(1u, p.handles.size());
+  IpczHandle f2 = p.handles[0];
 
   constexpr uint32_t kNumIterations = 100;
   for (uint32_t i = 0; i < kNumIterations; ++i) {
@@ -208,12 +208,12 @@ TEST_P(RemotePortalTest, MultipleHopsThenSendAndClose) {
   Put(b, "here", {&f1, 1});
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-  ASSERT_EQ(1u, p.portals.size());
-  IpczHandle f0 = p.portals[0];
+  ASSERT_EQ(1u, p.handles.size());
+  IpczHandle f0 = p.handles[0];
   Put(c, "ok ok", {&f0, 1});
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
-  ASSERT_EQ(1u, p.portals.size());
-  IpczHandle f2 = p.portals[0];
+  ASSERT_EQ(1u, p.handles.size());
+  IpczHandle f2 = p.handles[0];
 
   const std::string kMessage = "woot";
   Put(f2, kMessage);
@@ -246,12 +246,12 @@ TEST_P(RemotePortalTest, TransferBackAndForth) {
     Put(c, "hi");
     Put(a, "", {&d, 1});
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-    ASSERT_EQ(1u, p.portals.size());
-    d = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    d = p.handles[0];
     Put(b, "", {&d, 1});
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-    ASSERT_EQ(1u, p.portals.size());
-    d = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    d = p.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
     EXPECT_EQ("hi", p.message);
   }
@@ -292,23 +292,23 @@ TEST_P(RemotePortalTest, ExpansionInBothDirections) {
 
     Parcel p;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(from_left[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    a = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    a = p.handles[0];
 
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(from_right[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    b = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    b = p.handles[0];
 
     Put(from_left[i], "", {&a, 1});
     Put(from_right[i], "", {&b, 1});
 
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(to_left[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    a = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    a = p.handles[0];
 
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(to_right[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    b = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    b = p.handles[0];
   }
 
   while (GetNumRouters() > (2 + kNumHops * 4)) {
@@ -387,21 +387,21 @@ TEST_P(RemotePortalTest, LocalProxyBypass) {
 
   Parcel parcel;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, parcel));
-  ASSERT_EQ(1u, parcel.portals.size());
-  q = parcel.portals[0];
+  ASSERT_EQ(1u, parcel.handles.size());
+  q = parcel.handles[0];
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, parcel));
-  ASSERT_EQ(1u, parcel.portals.size());
-  p = parcel.portals[0];
+  ASSERT_EQ(1u, parcel.handles.size());
+  p = parcel.handles[0];
 
   Put(b, "", {&q, 1});
   Put(d, "", {&p, 1});
 
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, parcel));
-  ASSERT_EQ(1u, parcel.portals.size());
-  q = parcel.portals[0];
+  ASSERT_EQ(1u, parcel.handles.size());
+  q = parcel.handles[0];
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(c, parcel));
-  ASSERT_EQ(1u, parcel.portals.size());
-  p = parcel.portals[0];
+  ASSERT_EQ(1u, parcel.handles.size());
+  p = parcel.handles[0];
 
   Put(q, "hello");
   Put(p, "goodbye");
@@ -442,10 +442,10 @@ TEST_P(RemotePortalTest, SendPortalPair) {
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
   EXPECT_EQ(kMessage, p.message);
-  ASSERT_EQ(2u, p.portals.size());
+  ASSERT_EQ(2u, p.handles.size());
 
-  IpczHandle c = p.portals[0];
-  IpczHandle d = p.portals[1];
+  IpczHandle c = p.handles[0];
+  IpczHandle d = p.handles[1];
 
   ClosePortals({a, b});
 

@@ -108,10 +108,10 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
   if (result == IPCZ_RESULT_RESOURCE_EXHAUSTED) {
     std::vector<char> data(num_bytes);
     std::vector<IpczOSHandle> ipcz_os_handles(num_os_handles);
-    parcel.portals.resize(num_handles);
+    parcel.handles.resize(num_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
     result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(), &num_bytes,
-                      parcel.portals.data(), &num_handles,
+                      parcel.handles.data(), &num_handles,
                       ipcz_os_handles.data(), &num_os_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_OK);
 

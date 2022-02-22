@@ -19,8 +19,8 @@ TEST_F(PortalTransferTest, LocalToLocal) {
 
   // Local transfer is always instant.
   Parcel m = Get(p);
-  ASSERT_EQ(1u, m.portals.size());
-  IpczHandle c = m.portals[0];
+  ASSERT_EQ(1u, m.handles.size());
+  IpczHandle c = m.handles[0];
 
   // Local transfer preserves handle values.
   EXPECT_EQ(a, c);
@@ -37,8 +37,8 @@ TEST_F(PortalTransferTest, LocalToLocalWithParcels) {
   Put(q, {}, {&b, 1});
 
   Parcel m1 = Get(p);
-  ASSERT_EQ(1u, m1.portals.size());
-  IpczHandle c = m1.portals[0];
+  ASSERT_EQ(1u, m1.handles.size());
+  IpczHandle c = m1.handles[0];
 
   Parcel m2 = Get(c);
   EXPECT_EQ(kMessage, m2.message);

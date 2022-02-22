@@ -29,7 +29,7 @@ class TestBase : public testing::Test {
     Parcel& operator=(const Parcel&) = delete;
     ~Parcel();
     std::string message;
-    std::vector<IpczHandle> portals;
+    std::vector<IpczHandle> handles;
     std::vector<OSHandle> os_handles;
   };
 

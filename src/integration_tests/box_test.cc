@@ -84,9 +84,9 @@ TEST_P(BoxTest, TransferBox) {
   Parcel p;
   EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
   EXPECT_EQ(kMessage3, p.message);
-  ASSERT_EQ(1u, p.portals.size());
+  ASSERT_EQ(1u, p.handles.size());
 
-  box = p.portals[0];
+  box = p.handles[0];
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.Unbox(box, IPCZ_NO_FLAGS, nullptr, &blob_handle));
   Ref<Blob> blob = Blob::ReleaseFromHandle(blob_handle);

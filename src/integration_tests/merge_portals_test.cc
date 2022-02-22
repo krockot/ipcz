@@ -141,21 +141,21 @@ TEST_P(MergePortalsTest, MergeWithExtendedRemoteRoute) {
 
     Parcel p;
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(node_to_broker[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    a = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    a = p.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(node_to_broker[j], p));
-    ASSERT_EQ(1u, p.portals.size());
-    d = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    d = p.handles[0];
 
     Put(node_to_broker[i], "ok", {&a, 1});
     Put(node_to_broker[j], "ok", {&d, 1});
 
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(broker_to_node[i], p));
-    ASSERT_EQ(1u, p.portals.size());
-    a = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    a = p.handles[0];
     EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(broker_to_node[j], p));
-    ASSERT_EQ(1u, p.portals.size());
-    d = p.portals[0];
+    ASSERT_EQ(1u, p.handles.size());
+    d = p.handles[0];
   }
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.MergePortals(b, c, IPCZ_NO_FLAGS, nullptr));
