@@ -25,6 +25,7 @@ class APIObject : public RefCounted {
     kNode,
     kPortal,
     kTrap,
+    kBox,
   };
 
   explicit APIObject(ObjectType type);
@@ -51,6 +52,16 @@ class APIObject : public RefCounted {
   static Ref<APIObject> ReleaseHandle(IpczHandle handle) {
     return Ref<APIObject>(RefCounted::kAdoptExistingRef,
                           ToPtr<APIObject>(handle));
+  }
+
+  // Same as above but with type checking.
+  template <typename T>
+  static Ref<T> ReleaseHandleAs(IpczHandle handle) {
+    APIObject* object = ToPtr<APIObject>(handle);
+    if (!object || object->type_ != T::object_type()) {
+      return nullptr;
+    }
+    return Ref<T>(RefCounted::kAdoptExistingRef, static_cast<T*>(object));
   }
 
   // Closes this underlying object, ceasing its operations and freeing its

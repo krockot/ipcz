@@ -5,7 +5,14 @@
 #ifndef IPCZ_SRC_DRIVERS_SINGLE_PROCESS_REFERENCE_DRIVER_H_
 #define IPCZ_SRC_DRIVERS_SINGLE_PROCESS_REFERENCE_DRIVER_H_
 
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "ipcz/ipcz.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -15,6 +22,9 @@ namespace reference_drivers {
 // node operations and therefore all ipcz operations complete synchronously from
 // end to end.
 extern const IpczDriver kSingleProcessReferenceDriver;
+
+// Creates an unserializable test object. This object cannot be boxed.
+IpczDriverHandle CreateUnserializableTestObject();
 
 }  // namespace reference_drivers
 }  // namespace ipcz

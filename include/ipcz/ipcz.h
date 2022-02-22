@@ -1286,6 +1286,50 @@ struct IPCZ_ALIGN(8) IpczAPI {
                         const void* options,
                         IpczTrapConditionFlags* satisfied_condition_flags,
                         struct IpczPortalStatus* status);
+
+  // Boxes an object managed by a node's driver and returns a new IpczHandle to
+  // reference the box. The driver must support serialization of the input
+  // object for this to succeed.
+  //
+  // Boxes can be sent through portals along with other IpczHandles, effectively
+  // allowing drivers to introduce new types of transferrable objects via boxes.
+  //
+  // `flags` is ignored and must be 0.
+  //
+  // `options` is ignored and must be null.
+  //
+  // Returns:
+  //
+  //    IPCZ_RESULT_OK if the driver handle was boxed and a new IpczHandle is
+  //        returned in `handle`.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `driver_handle` was invalid.
+  //
+  //    IPCZ_RESULT_FAILED_PRECONDITION if the driver does not know how to
+  //        serialize the object referenced by `driver_handle`.
+  IpczResult (*Box)(IpczHandle node,
+                    IpczDriverHandle driver_handle,
+                    uint32_t flags,
+                    const void* options,
+                    IpczHandle* handle);
+
+  // Unboxes a driver object from an IpczHandle previously produced by Box().
+  //
+  // `flags` is ignored and must be 0.
+  //
+  // `options` is ignored and must be null.
+  //
+  // Returns:
+  //
+  //    IPCZ_RESULT_OK if the driver object was successfully unboxed. A driver
+  //        handle to the object is placed in `*driver_handle`.
+  //
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `handle` is invalid or does not
+  //        reference a box.
+  IpczResult (*Unbox)(IpczHandle handle,
+                      uint32_t flags,
+                      const void* options,
+                      IpczDriverHandle* driver_handle);
 };
 
 // Populates `api` with a table of ipcz API functions. The `size` field must be

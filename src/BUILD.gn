@@ -156,6 +156,8 @@ portable_source_set("impl") {
   sources = [
     "ipcz/api_object.cc",
     "ipcz/api_object.h",
+    "ipcz/box.cc",
+    "ipcz/box.h",
     "ipcz/buffer_id.h",
     "ipcz/driver_memory.cc",
     "ipcz/driver_memory.h",
@@ -251,6 +253,8 @@ portable_source_set("ipcz_sources") {
 
 portable_source_set("reference_drivers") {
   sources = [
+    "reference_drivers/blob.cc",
+    "reference_drivers/blob.h",
     "reference_drivers/channel.cc",
     "reference_drivers/channel.h",
     "reference_drivers/event.cc",
@@ -259,6 +263,8 @@ portable_source_set("reference_drivers") {
     "reference_drivers/memory.h",
     "reference_drivers/multiprocess_reference_driver.cc",
     "reference_drivers/multiprocess_reference_driver.h",
+    "reference_drivers/object.cc",
+    "reference_drivers/object.h",
     "reference_drivers/single_process_reference_driver.cc",
     "reference_drivers/single_process_reference_driver.h",
   ]
@@ -283,6 +289,7 @@ test("ipcz_tests") {
     "api_tests/arm_trap_api_test.cc",
     "api_tests/begin_get_api_test.cc",
     "api_tests/begin_put_api_test.cc",
+    "api_tests/box_api_test.cc",
     "api_tests/close_api_test.cc",
     "api_tests/connect_node_api_test.cc",
     "api_tests/create_node_api_test.cc",
@@ -294,6 +301,8 @@ test("ipcz_tests") {
     "api_tests/open_portals_api_test.cc",
     "api_tests/put_api_test.cc",
     "api_tests/query_portal_status_api_test.cc",
+    "api_tests/unbox_api_test.cc",
+    "integration_tests/box_test.cc",
     "integration_tests/connect_test.cc",
     "integration_tests/merge_portals_test.cc",
     "integration_tests/node_test.cc",

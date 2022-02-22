@@ -7,6 +7,8 @@
 #include <memory>
 #include <tuple>
 
+#include "ipcz/box.h"
+#include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/node.h"
 #include "ipcz/portal.h"
@@ -29,13 +31,12 @@
 #define MAYBE_EXPORT
 #endif
 
-using namespace ipcz;
-
 extern "C" {
 
 IpczResult Close(IpczHandle handle, uint32_t flags, const void* options) {
-  Ref<APIObject> doomed_object(RefCounted::kAdoptExistingRef,
-                               ToPtr<APIObject>(handle));
+  ipcz::Ref<ipcz::APIObject> doomed_object(
+      ipcz::RefCounted::kAdoptExistingRef,
+      ipcz::ToPtr<ipcz::APIObject>(handle));
   if (!doomed_object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -64,11 +65,11 @@ IpczResult CreateNode(const IpczDriver* driver,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  auto node_ptr = MakeRefCounted<Node>((flags & IPCZ_CREATE_NODE_AS_BROKER) != 0
-                                           ? Node::Type::kBroker
-                                           : Node::Type::kNormal,
-                                       *driver, driver_node);
-  *node = ToHandle(node_ptr.release());
+  auto node_ptr = ipcz::MakeRefCounted<ipcz::Node>(
+      (flags & IPCZ_CREATE_NODE_AS_BROKER) != 0 ? ipcz::Node::Type::kBroker
+                                                : ipcz::Node::Type::kNormal,
+      *driver, driver_node);
+  *node = ipcz::ToHandle(node_ptr.release());
   return IPCZ_RESULT_OK;
 }
 
@@ -79,7 +80,7 @@ IpczResult ConnectNode(IpczHandle node_handle,
                        IpczConnectNodeFlags flags,
                        const void* options,
                        IpczHandle* initial_portals) {
-  Node* node = APIObject::Get<Node>(node_handle);
+  ipcz::Node* node = ipcz::APIObject::Get<ipcz::Node>(node_handle);
   if (!node || driver_transport == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -96,12 +97,12 @@ IpczResult ConnectNode(IpczHandle node_handle,
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  OSProcess process;
+  ipcz::OSProcess process;
   if (target_process) {
     if (target_process->size < sizeof(IpczOSProcessHandle)) {
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
-    process = OSProcess::FromIpczOSProcessHandle(*target_process);
+    process = ipcz::OSProcess::FromIpczOSProcessHandle(*target_process);
   }
 
   return node->ConnectNode(
@@ -114,14 +115,14 @@ IpczResult OpenPortals(IpczHandle node_handle,
                        const void* options,
                        IpczHandle* portal0,
                        IpczHandle* portal1) {
-  Node* node = APIObject::Get<Node>(node_handle);
+  ipcz::Node* node = ipcz::APIObject::Get<ipcz::Node>(node_handle);
   if (!node || !portal0 || !portal1) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
   auto portals = node->OpenPortals();
-  *portal0 = ToHandle(portals.first.release());
-  *portal1 = ToHandle(portals.second.release());
+  *portal0 = ipcz::ToHandle(portals.first.release());
+  *portal1 = ipcz::ToHandle(portals.second.release());
   return IPCZ_RESULT_OK;
 }
 
@@ -129,14 +130,14 @@ IpczResult MergePortals(IpczHandle portal0,
                         IpczHandle portal1,
                         uint32_t flags,
                         const void* options) {
-  Portal* first = APIObject::Get<Portal>(portal0);
-  Portal* second = APIObject::Get<Portal>(portal1);
+  ipcz::Portal* first = ipcz::APIObject::Get<ipcz::Portal>(portal0);
+  ipcz::Portal* second = ipcz::APIObject::Get<ipcz::Portal>(portal1);
   if (!first || !second) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Ref<Portal> one(RefCounted::kAdoptExistingRef, first);
-  Ref<Portal> two(RefCounted::kAdoptExistingRef, second);
+  ipcz::Ref<ipcz::Portal> one(ipcz::RefCounted::kAdoptExistingRef, first);
+  ipcz::Ref<ipcz::Portal> two(ipcz::RefCounted::kAdoptExistingRef, second);
   IpczResult result = one->Merge(*two);
   if (result != IPCZ_RESULT_OK) {
     one.release();
@@ -151,7 +152,7 @@ IpczResult QueryPortalStatus(IpczHandle portal_handle,
                              uint32_t flags,
                              const void* options,
                              IpczPortalStatus* status) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -171,7 +172,7 @@ IpczResult Put(IpczHandle portal_handle,
                uint32_t num_os_handles,
                uint32_t flags,
                const IpczPutOptions* options) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -204,7 +205,7 @@ IpczResult BeginPut(IpczHandle portal_handle,
                     const IpczBeginPutOptions* options,
                     uint32_t* num_bytes,
                     void** data) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -235,7 +236,7 @@ IpczResult EndPut(IpczHandle portal_handle,
                   uint32_t num_os_handles,
                   IpczEndPutFlags flags,
                   const void* options) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -264,7 +265,7 @@ IpczResult Get(IpczHandle portal_handle,
                uint32_t* num_handles,
                IpczOSHandle* os_handles,
                uint32_t* num_os_handles) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -289,7 +290,7 @@ IpczResult BeginGet(IpczHandle portal_handle,
                     uint32_t* num_bytes,
                     uint32_t* num_handles,
                     uint32_t* num_os_handles) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -305,7 +306,7 @@ IpczResult EndGet(IpczHandle portal_handle,
                   uint32_t* num_handles,
                   struct IpczOSHandle* os_handles,
                   uint32_t* num_os_handles) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -331,7 +332,7 @@ IpczResult CreateTrap(IpczHandle portal_handle,
                       uint32_t flags,
                       const void* options,
                       IpczHandle* trap) {
-  Portal* portal = APIObject::Get<Portal>(portal_handle);
+  ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal || !trap || !handler) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -347,7 +348,7 @@ IpczResult ArmTrap(IpczHandle trap_handle,
                    const void* options,
                    IpczTrapConditionFlags* satisfied_condition_flags,
                    IpczPortalStatus* status) {
-  Trap* trap = APIObject::Get<Trap>(trap_handle);
+  ipcz::Trap* trap = ipcz::APIObject::Get<ipcz::Trap>(trap_handle);
   if (!trap) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -357,6 +358,50 @@ IpczResult ArmTrap(IpczHandle trap_handle,
   }
 
   return trap->Arm(satisfied_condition_flags, status);
+}
+
+IpczResult Box(IpczHandle node_handle,
+               IpczDriverHandle driver_handle,
+               uint32_t flags,
+               const void* options,
+               IpczHandle* handle) {
+  ipcz::Node* node = ipcz::APIObject::Get<ipcz::Node>(node_handle);
+  if (!node || driver_handle == IPCZ_INVALID_DRIVER_HANDLE || !handle) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  uint32_t num_bytes = 0;
+  uint32_t num_os_handles = 0;
+  IpczResult result =
+      node->driver().Serialize(driver_handle, IPCZ_NO_FLAGS, nullptr, nullptr,
+                               &num_bytes, nullptr, &num_os_handles);
+  if (result != IPCZ_RESULT_RESOURCE_EXHAUSTED) {
+    // The object can't be serialized, so don't allow it to be boxed either.
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  auto box = ipcz::MakeRefCounted<ipcz::Box>(
+      ipcz::DriverObject(ipcz::WrapRefCounted(node), driver_handle));
+  *handle = ipcz::ToHandle(box.release());
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult Unbox(IpczHandle handle,
+                 uint32_t flags,
+                 const void* options,
+                 IpczDriverHandle* driver_handle) {
+  if (!driver_handle) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  ipcz::Ref<ipcz::Box> box =
+      ipcz::APIObject::ReleaseHandleAs<ipcz::Box>(handle);
+  if (!box) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  *driver_handle = box->object().release();
+  return IPCZ_RESULT_OK;
 }
 
 constexpr IpczAPI kCurrentAPI = {
@@ -375,10 +420,12 @@ constexpr IpczAPI kCurrentAPI = {
     EndGet,
     CreateTrap,
     ArmTrap,
+    Box,
+    Unbox,
 };
 
 constexpr size_t kVersion0APISize =
-    offsetof(IpczAPI, ArmTrap) + sizeof(kCurrentAPI.ArmTrap);
+    offsetof(IpczAPI, Unbox) + sizeof(kCurrentAPI.Unbox);
 
 MAYBE_EXPORT IpczResult IpczGetAPI(IpczAPI* api) {
   if (!api || api->size < kVersion0APISize) {

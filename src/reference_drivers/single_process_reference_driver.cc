@@ -6,10 +6,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/object.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
@@ -26,27 +29,6 @@ namespace ipcz {
 namespace reference_drivers {
 
 namespace {
-
-class Object : public RefCounted {
- public:
-  enum Type : uint32_t {
-    kTransport,
-    kMemory,
-  };
-
-  explicit Object(Type type) : type_(type) {}
-
-  Type type() const { return type_; }
-
-  static Object* FromHandle(IpczDriverHandle handle) {
-    return ToPtr<Object>(handle);
-  }
-
- protected:
-  ~Object() override = default;
-
-  const Type type_;
-};
 
 class TransportWrapper : public RefCounted {
  public:
@@ -90,6 +72,12 @@ class InProcessTransport : public Object {
  public:
   InProcessTransport() : Object(kTransport) {}
   ~InProcessTransport() override = default;
+
+  // Object:
+  IpczResult Close() override {
+    SetPeer(nullptr);
+    return IPCZ_RESULT_OK;
+  }
 
   void SetPeer(Ref<InProcessTransport> peer) {
     ABSL_ASSERT(!peer ^ !peer_);
@@ -214,33 +202,29 @@ class InProcessMemory : public Object {
   const std::unique_ptr<uint8_t[]> data_;
 };
 
-struct IPCZ_ALIGN(8) SerializedObject {
-  Object::Type type;
-  IpczDriverHandle handle;
+class InProcessMapping : public Object {
+ public:
+  explicit InProcessMapping(Ref<InProcessMemory> memory)
+      : Object(kMapping), memory_(std::move(memory)) {}
+
+  size_t size() const { return memory_->size(); }
+  void* address() const { return memory_->address(); }
+
+ private:
+  ~InProcessMapping() override = default;
+
+  const Ref<InProcessMemory> memory_;
 };
 
 IpczResult IPCZ_CDECL Close(IpczDriverHandle handle,
                             uint32_t flags,
                             const void* options) {
-  Object* object = Object::FromHandle(handle);
+  Ref<Object> object = Object::ReleaseFromHandle(handle);
   if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  if (object->type() == Object::kTransport) {
-    Ref<InProcessTransport> transport(RefCounted::kAdoptExistingRef,
-                                      static_cast<InProcessTransport*>(object));
-    transport->SetPeer(nullptr);
-    return IPCZ_RESULT_OK;
-  }
-
-  if (object->type() == Object::kMemory) {
-    Ref<InProcessMemory> memory(RefCounted::kAdoptExistingRef,
-                                static_cast<InProcessMemory*>(object));
-    return IPCZ_RESULT_OK;
-  }
-
-  return IPCZ_RESULT_INVALID_ARGUMENT;
+  return object->Close();
 }
 
 IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
@@ -255,16 +239,20 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  const bool need_more_space = *num_bytes < sizeof(SerializedObject);
-  *num_bytes = sizeof(SerializedObject);
+  if (object->type() == Object::kUnserializableGarbage) {
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  // Since this is all in-process, "serialization" can just copy the handle.
+  constexpr size_t kRequiredNumBytes = sizeof(IpczDriverHandle);
+  const bool need_more_space = *num_bytes < kRequiredNumBytes;
+  *num_bytes = kRequiredNumBytes;
   *num_os_handles = 0;
   if (need_more_space) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  auto* wire = reinterpret_cast<SerializedObject*>(data);
-  wire->type = object->type();
-  wire->handle = handle;
+  *reinterpret_cast<IpczDriverHandle*>(data) = handle;
   return IPCZ_RESULT_OK;
 }
 
@@ -276,14 +264,9 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
                                   uint32_t flags,
                                   const void* options,
                                   IpczDriverHandle* driver_handle) {
-  ABSL_ASSERT(num_bytes == sizeof(SerializedObject));
+  ABSL_ASSERT(num_bytes == sizeof(IpczDriverHandle));
   ABSL_ASSERT(num_os_handles == 0);
-  const auto& wire = *reinterpret_cast<const SerializedObject*>(data);
-
-  Object* object = Object::FromHandle(wire.handle);
-  ABSL_ASSERT(object);
-  ABSL_ASSERT(object->type() == wire.type);
-  *driver_handle = wire.handle;
+  *driver_handle = *reinterpret_cast<const IpczDriverHandle*>(data);
   return IPCZ_RESULT_OK;
 }
 
@@ -367,8 +350,9 @@ IpczResult IPCZ_CDECL MapSharedMemory(IpczDriverHandle driver_memory,
                                       void** address,
                                       IpczDriverHandle* driver_mapping) {
   Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
-  *address = memory->address();
-  *driver_mapping = ToDriverHandle(memory.release());
+  auto mapping = MakeRefCounted<InProcessMapping>(std::move(memory));
+  *address = mapping->address();
+  *driver_mapping = ToDriverHandle(mapping.release());
   return IPCZ_RESULT_OK;
 }
 
@@ -388,6 +372,11 @@ const IpczDriver kSingleProcessReferenceDriver = {
     DuplicateSharedMemory,
     MapSharedMemory,
 };
+
+IpczDriverHandle CreateUnserializableTestObject() {
+  Ref<Object> garbage = MakeRefCounted<Object>(Object::kUnserializableGarbage);
+  return ToDriverHandle(garbage.release());
+}
 
 }  // namespace reference_drivers
 }  // namespace ipcz

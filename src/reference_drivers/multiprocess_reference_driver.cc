@@ -4,14 +4,17 @@
 
 #include "reference_drivers/multiprocess_reference_driver.h"
 
+#include <cstring>
 #include <memory>
 #include <tuple>
 #include <utility>
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/blob.h"
 #include "reference_drivers/channel.h"
 #include "reference_drivers/memory.h"
+#include "reference_drivers/object.h"
 #include "util/handle_util.h"
 #include "util/os_handle.h"
 #include "util/ref_counted.h"
@@ -26,29 +29,6 @@ namespace ipcz {
 namespace reference_drivers {
 
 namespace {
-
-class Object : public RefCounted {
- public:
-  enum Type : uint32_t {
-    kTransport,
-    kMemory,
-    kMapping,
-  };
-
-  explicit Object(Type type) : type_(type) {}
-
-  Type type() const { return type_; }
-
-  static Object* FromHandle(IpczDriverHandle handle) {
-    return ToPtr<Object>(handle);
-  }
-
- protected:
-  ~Object() override = default;
-
- private:
-  const Type type_;
-};
 
 class MultiprocessTransport : public Object {
  public:
@@ -190,12 +170,12 @@ struct IPCZ_ALIGN(8) SerializedObject {
 IpczResult IPCZ_CDECL Close(IpczDriverHandle handle,
                             uint32_t flags,
                             const void* options) {
-  Object* object = Object::FromHandle(handle);
+  Ref<Object> object = Object::ReleaseFromHandle(handle);
   if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Ref<Object> doomed_object(RefCounted::kAdoptExistingRef, object);
+  object->Close();
   return IPCZ_RESULT_OK;
 }
 
@@ -207,47 +187,73 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
                                 struct IpczOSHandle* os_handles,
                                 uint32_t* num_os_handles) {
   Object* object = Object::FromHandle(handle);
-  if (object->type() != Object::kTransport &&
-      object->type() != Object::kMemory) {
+  if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  const bool need_more_space =
-      *num_bytes < sizeof(SerializedObject) || *num_os_handles < 1;
-  *num_bytes = sizeof(SerializedObject);
-  *num_os_handles = 1;
+  size_t required_num_bytes = sizeof(SerializedObject);
+  size_t required_num_os_handles = 0;
+  switch (object->type()) {
+    case Object::kTransport:
+      required_num_os_handles = 1;
+      break;
+
+    case Object::kMemory:
+      required_num_os_handles = 1;
+      break;
+
+    case Object::kBlob:
+      required_num_bytes += static_cast<Blob*>(object)->message().size();
+      required_num_os_handles = static_cast<Blob*>(object)->handles().size();
+      break;
+
+    default:
+      return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  const bool need_more_space = *num_bytes < required_num_bytes ||
+                               *num_os_handles < required_num_os_handles;
+  *num_bytes = required_num_bytes;
+  *num_os_handles = required_num_os_handles;
   if (need_more_space) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  auto& wire = *reinterpret_cast<SerializedObject*>(data);
-  wire.type = object->type();
+  auto& header = *reinterpret_cast<SerializedObject*>(data);
+  header.type = object->type();
+  header.memory_size = 0;
+
   if (object->type() == Object::kTransport) {
-    Ref<MultiprocessTransport> transport(
-        RefCounted::kAdoptExistingRef,
-        static_cast<MultiprocessTransport*>(object));
+    auto transport = object->ReleaseAs<MultiprocessTransport>();
     Channel channel = transport->TakeChannel();
     if (!channel.is_valid()) {
+      std::ignore = transport.release();
       return IPCZ_RESULT_FAILED_PRECONDITION;
     }
 
-    wire.memory_size = 0;
     os_handles[0].size = sizeof(os_handles[0]);
-    if (!OSHandle::ToIpczOSHandle(channel.TakeHandle(), &os_handles[0])) {
-      return IPCZ_RESULT_UNKNOWN;
-    }
-
+    bool ok = OSHandle::ToIpczOSHandle(channel.TakeHandle(), &os_handles[0]);
+    ABSL_ASSERT(ok);
     return IPCZ_RESULT_OK;
   }
 
   if (object->type() == Object::kMemory) {
-    Ref<MultiprocessMemory> memory(static_cast<MultiprocessMemory*>(object));
-    wire.memory_size = static_cast<uint32_t>(memory->size());
-    if (!OSHandle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0])) {
-      std::ignore = memory.release();
-      return IPCZ_RESULT_UNKNOWN;
-    }
+    auto memory = object->ReleaseAs<MultiprocessMemory>();
+    header.memory_size = static_cast<uint32_t>(memory->size());
+    bool ok = OSHandle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0]);
+    ABSL_ASSERT(ok);
+    return IPCZ_RESULT_OK;
+  }
 
+  if (object->type() == Object::kBlob) {
+    auto blob = object->ReleaseAs<Blob>();
+    uint8_t* blob_data = reinterpret_cast<uint8_t*>(&header + 1);
+    memcpy(blob_data, blob->message().data(), blob->message().size());
+    for (size_t i = 0; i < blob->handles().size(); ++i) {
+      bool ok = OSHandle::ToIpczOSHandle(std::move(blob->handles()[i]),
+                                         &os_handles[i]);
+      ABSL_ASSERT(ok);
+    }
     return IPCZ_RESULT_OK;
   }
 
@@ -262,6 +268,28 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
                                   uint32_t flags,
                                   const void* options,
                                   IpczDriverHandle* driver_handle) {
+  if (num_bytes < sizeof(SerializedObject)) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  const SerializedObject& header =
+      *reinterpret_cast<const SerializedObject*>(data);
+  if (header.type == Object::kBlob) {
+    std::vector<OSHandle> handles(num_os_handles);
+    for (size_t i = 0; i < num_os_handles; ++i) {
+      handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
+      if (!handles[i].is_valid()) {
+        return IPCZ_RESULT_INVALID_ARGUMENT;
+      }
+    }
+
+    const char* string_data = reinterpret_cast<const char*>(&header + 1);
+    Ref<Blob> blob = MakeRefCounted<Blob>(
+        std::string_view(string_data, num_bytes), absl::MakeSpan(handles));
+    *driver_handle = ToDriverHandle(blob.release());
+    return IPCZ_RESULT_OK;
+  }
+
   if (num_bytes != sizeof(SerializedObject) || num_os_handles != 1) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -271,8 +299,7 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  const auto& wire = *reinterpret_cast<const SerializedObject*>(data);
-  if (wire.type == Object::kTransport) {
+  if (header.type == Object::kTransport) {
     Channel channel(std::move(handle));
     if (!channel.is_valid()) {
       return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -283,9 +310,9 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
     return IPCZ_RESULT_OK;
   }
 
-  if (wire.type == Object::kMemory) {
-    auto memory =
-        MakeRefCounted<MultiprocessMemory>(std::move(handle), wire.memory_size);
+  if (header.type == Object::kMemory) {
+    auto memory = MakeRefCounted<MultiprocessMemory>(std::move(handle),
+                                                     header.memory_size);
     *driver_handle = ToDriverHandle(memory.release());
     return IPCZ_RESULT_OK;
   }
