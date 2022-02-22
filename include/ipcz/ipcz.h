@@ -186,9 +186,9 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // shared memory regions, this also provides a stable interface for
   // applications to extend ipcz with new types of transferrable IpczHandles.
   // Driver objects which can be serialized by Serialize() and deserialized by
-  // Deserialize() can be wrapped as IpczHandles using the ipcz calls
-  // ipcz calls WrapDriverObject() and UnwrapDriverObject(). Such handles are
-  // transferrable through portals via Put() and Get() and related APIS.
+  // Deserialize() can be wrapped and unwrapped to and from IpczHandles using
+  // the ipcz calls Box() and Unbox(). Such handles are transferrable through
+  // portals via Put() and Get() and related APIs.
   //
   // On input, `*num_bytes` and `*num_os_handles` specify the amount of storage
   // available in `data` and `os_handles` respectively. If insufficient to store
