@@ -57,8 +57,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
 
-    auto buffer = connect.AppendSharedMemory(node_->driver(),
-                                             std::move(link_memory_to_share_));
+    auto buffer = connect.AppendSharedMemory(std::move(link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
     transport_->Transmit(connect, remote_process_);
@@ -136,7 +135,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
              << " from broker " << connect.params().broker_name.ToString();
 
     DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+        connect.TakeSharedMemory(node_, connect.params().buffer());
     if (!buffer_memory.is_valid()) {
       return false;
     }
@@ -203,7 +202,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
              << connect.params().connected_node_name.ToString();
 
     DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+        connect.TakeSharedMemory(node_, connect.params().buffer());
     if (!buffer_memory.is_valid()) {
       return false;
     }
@@ -275,8 +274,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_remote_portals = num_initial_portals_;
 
-    auto buffer = connect.AppendSharedMemory(node_->driver(),
-                                             std::move(link_memory_to_share_));
+    auto buffer = connect.AppendSharedMemory(std::move(link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
     transport_->Transmit(connect, remote_process_);
@@ -352,8 +350,8 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
 
-    auto buffer = connect.AppendSharedMemory(
-        node_->driver(), std::move(our_link_memory_to_share_));
+    auto buffer =
+        connect.AppendSharedMemory(std::move(our_link_memory_to_share_));
     connect.params().set_buffer(buffer);
 
     transport_->Transmit(connect, remote_process_);
@@ -375,7 +373,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
              << connect.params().sender_name.ToString();
 
     DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_->driver(), connect.params().buffer());
+        connect.TakeSharedMemory(node_, connect.params().buffer());
     if (!buffer_memory.is_valid()) {
       return false;
     }

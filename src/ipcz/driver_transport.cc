@@ -7,6 +7,7 @@
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/message_internal.h"
+#include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -91,46 +92,39 @@ DriverTransport::Message& DriverTransport::Message::operator=(const Message&) =
 
 DriverTransport::Message::~Message() = default;
 
-DriverTransport::DriverTransport(const IpczDriver& driver,
-                                 IpczDriverHandle driver_transport)
-    : driver_(driver), driver_transport_(driver_transport) {}
+DriverTransport::DriverTransport(DriverObject transport)
+    : transport_(std::move(transport)) {}
 
-DriverTransport::~DriverTransport() {
-  if (!serialized_ && driver_transport_ != IPCZ_INVALID_HANDLE) {
-    driver_.DestroyTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
-  }
-}
+DriverTransport::~DriverTransport() = default;
 
 // static
-DriverTransport::Pair DriverTransport::CreatePair(
-    const IpczDriver& driver,
-    IpczDriverHandle driver_node) {
+DriverTransport::Pair DriverTransport::CreatePair(Ref<Node> node) {
   IpczDriverHandle transport0;
   IpczDriverHandle transport1;
-  IpczResult result = driver.CreateTransports(
-      driver_node, IPCZ_NO_FLAGS, nullptr, &transport0, &transport1);
+  IpczResult result = node->driver().CreateTransports(
+      node->driver_node(), IPCZ_NO_FLAGS, nullptr, &transport0, &transport1);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  auto first = MakeRefCounted<DriverTransport>(driver, transport0);
-  auto second = MakeRefCounted<DriverTransport>(driver, transport1);
+  auto first = MakeRefCounted<DriverTransport>(DriverObject(node, transport0));
+  auto second = MakeRefCounted<DriverTransport>(
+      DriverObject(std::move(node), transport1));
   return {std::move(first), std::move(second)};
 }
 
 IpczDriverHandle DriverTransport::Release() {
-  IpczDriverHandle transport = IPCZ_INVALID_HANDLE;
-  std::swap(transport, driver_transport_);
-  return transport;
+  return transport_.release();
 }
 
 IpczResult DriverTransport::Activate() {
   // Acquire a self-reference, balanced in NotifyTransport() when the driver
   // invokes its activity handler with IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED.
   IpczHandle handle = ToHandle(WrapRefCounted(this).release());
-  return driver_.ActivateTransport(driver_transport_, handle, NotifyTransport,
-                                   IPCZ_NO_FLAGS, nullptr);
+  return transport_.node()->driver().ActivateTransport(
+      transport_.handle(), handle, NotifyTransport, IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::Deactivate() {
-  return driver_.DeactivateTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr);
+  return transport_.node()->driver().DeactivateTransport(
+      transport_.handle(), IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::TransmitMessage(const Message& message) {
@@ -144,70 +138,40 @@ IpczResult DriverTransport::TransmitMessage(const Message& message) {
     }
   }
 
-  return driver_.Transmit(
-      driver_transport_, message.data.data(),
+  return transport_.node()->driver().Transmit(
+      transport_.handle(), message.data.data(),
       static_cast<uint32_t>(message.data.size()), os_handles.data(),
       static_cast<uint32_t>(os_handles.size()), IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::Serialize(std::vector<uint8_t>& data,
                                       std::vector<OSHandle>& handles) {
-  uint32_t num_bytes = 0;
-  uint32_t num_os_handles = 0;
+  DriverObject::SerializedDimensions dimensions =
+      transport_.GetSerializedDimensions();
+  data.resize(dimensions.num_bytes);
+  handles.resize(dimensions.num_os_handles);
   IpczResult result =
-      driver_.SerializeTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr,
-                                 nullptr, &num_bytes, nullptr, &num_os_handles);
-  ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
-  data.resize(num_bytes);
-  std::vector<IpczOSHandle> os_handles(num_os_handles);
-  result = driver_.SerializeTransport(driver_transport_, IPCZ_NO_FLAGS, nullptr,
-                                      data.data(), &num_bytes,
-                                      os_handles.data(), &num_os_handles);
-  ABSL_ASSERT(result != IPCZ_RESULT_RESOURCE_EXHAUSTED);
+      transport_.Serialize(absl::MakeSpan(data), absl::MakeSpan(handles));
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
 
   serialized_ = true;
-
-  handles.resize(num_os_handles);
-  for (size_t i = 0; i < num_os_handles; ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
-  }
-
   return IPCZ_RESULT_OK;
 }
 
 // static
 Ref<DriverTransport> DriverTransport::Deserialize(
-    const IpczDriver& driver,
-    IpczDriverHandle driver_node,
+    Ref<Node> node,
     absl::Span<const uint8_t> data,
     absl::Span<OSHandle> handles) {
-  std::vector<IpczOSHandle> os_handles(handles.size());
-  bool fail = false;
-  for (size_t i = 0; i < handles.size(); ++i) {
-    os_handles[i].size = sizeof(os_handles[i]);
-    bool ok = OSHandle::ToIpczOSHandle(std::move(handles[i]), &os_handles[i]);
-    if (!ok) {
-      fail = true;
-    }
-  }
-
-  if (fail) {
+  DriverObject transport =
+      DriverObject::Deserialize(std::move(node), data, handles);
+  if (!transport.is_valid()) {
     return nullptr;
   }
 
-  IpczDriverHandle transport;
-  IpczResult result = driver.DeserializeTransport(
-      driver_node, data.data(), static_cast<uint32_t>(data.size()),
-      os_handles.data(), static_cast<uint32_t>(os_handles.size()),
-      /*target_process=*/nullptr, IPCZ_NO_FLAGS, nullptr, &transport);
-  if (result != IPCZ_RESULT_OK) {
-    return nullptr;
-  }
-
-  return MakeRefCounted<DriverTransport>(driver, transport);
+  return MakeRefCounted<DriverTransport>(std::move(transport));
 }
 
 IpczResult DriverTransport::Notify(const Message& message) {

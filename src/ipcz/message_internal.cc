@@ -54,7 +54,6 @@ uint32_t MessageBase::AppendHandles(absl::Span<OSHandle> handles) {
 }
 
 MessageBase::SharedMemoryParams MessageBase::AppendSharedMemory(
-    const IpczDriver& driver,
     DriverMemory memory) {
   SharedMemoryParams params{0, 0};
   if (!memory.is_valid()) {
@@ -74,9 +73,9 @@ MessageBase::SharedMemoryParams MessageBase::AppendSharedMemory(
   return {data_param, handles_param};
 }
 
-DriverMemory MessageBase::TakeSharedMemory(const IpczDriver& driver,
+DriverMemory MessageBase::TakeSharedMemory(Ref<Node> node,
                                            const SharedMemoryParams& params) {
-  return DriverMemory::Deserialize(driver,
+  return DriverMemory::Deserialize(std::move(node),
                                    GetArrayView<uint8_t>(std::get<0>(params)),
                                    GetHandlesView(std::get<1>(params)));
 }

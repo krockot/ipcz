@@ -45,7 +45,7 @@ DriverMemoryMapping::~DriverMemoryMapping() {
 
 void DriverMemoryMapping::Unmap() {
   if (is_valid()) {
-    driver_.UnmapSharedMemory(mapping_, 0, nullptr);
+    driver_.Close(mapping_, 0, nullptr);
     mapping_ = IPCZ_INVALID_DRIVER_HANDLE;
     address_ = nullptr;
     size_ = 0;

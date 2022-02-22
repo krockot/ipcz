@@ -132,9 +132,8 @@ class IPCZ_ALIGN(8) MessageBase {
     return AllocateGenericArray(sizeof(ElementType), num_elements);
   }
 
-  SharedMemoryParams AppendSharedMemory(const IpczDriver& driver,
-                                        DriverMemory memory);
-  DriverMemory TakeSharedMemory(const IpczDriver& driver,
+  SharedMemoryParams AppendSharedMemory(DriverMemory memory);
+  DriverMemory TakeSharedMemory(Ref<Node> node,
                                 const SharedMemoryParams& params);
 
   void* GetArrayData(uint32_t offset) {

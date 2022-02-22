@@ -15,23 +15,6 @@
 namespace ipcz {
 namespace test {
 
-namespace {
-
-IpczDriverHandle CreateTransportFromChannel(
-    reference_drivers::Channel& channel) {
-  IpczDriverHandle transport;
-  IpczOSHandle os_handle = {sizeof(os_handle)};
-  OSHandle::ToIpczOSHandle(channel.TakeHandle(), &os_handle);
-  IpczResult result =
-      reference_drivers::kMultiprocessReferenceDriver.DeserializeTransport(
-          IPCZ_INVALID_DRIVER_HANDLE, nullptr, 0, &os_handle, 1, nullptr,
-          IPCZ_NO_FLAGS, nullptr, &transport);
-  ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return transport;
-}
-
-}  // namespace
-
 MultiprocessTest::MultiprocessTest() {
   IpczCreateNodeFlags flags = IPCZ_NO_FLAGS;
   if (!TestClient::InClientProcess()) {
@@ -54,7 +37,9 @@ IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
 
   IpczHandle portal;
   IpczResult result =
-      ipcz.ConnectNode(node, CreateTransportFromChannel(client.channel()),
+      ipcz.ConnectNode(node,
+                       reference_drivers::CreateTransportFromChannel(
+                           std::move(client.channel())),
                        &process, 1, IPCZ_NO_FLAGS, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
@@ -63,9 +48,9 @@ IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
 IpczHandle MultiprocessTest::ConnectToBroker(
     reference_drivers::Channel& channel) {
   IpczHandle portal;
-  IpczResult result =
-      ipcz.ConnectNode(node, CreateTransportFromChannel(channel), nullptr, 1,
-                       IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
+  IpczResult result = ipcz.ConnectNode(
+      node, reference_drivers::CreateTransportFromChannel(std::move(channel)),
+      nullptr, 1, IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }

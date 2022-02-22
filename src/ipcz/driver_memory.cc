@@ -7,130 +7,84 @@
 #include <algorithm>
 
 #include "ipcz/ipcz.h"
+#include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
 
 DriverMemory::DriverMemory() = default;
 
-DriverMemory::DriverMemory(const IpczDriver& driver, size_t num_bytes)
-    : driver_(driver), size_(num_bytes) {
+DriverMemory::DriverMemory(DriverObject memory, size_t num_bytes)
+    : memory_(std::move(memory)), size_(num_bytes) {}
+
+DriverMemory::DriverMemory(Ref<Node> node, size_t num_bytes)
+    : size_(num_bytes) {
+  IpczDriverHandle handle;
   IpczResult result =
-      driver_.AllocateSharedMemory(num_bytes, 0, nullptr, &memory_);
+      node->driver().AllocateSharedMemory(num_bytes, 0, nullptr, &handle);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  memory_ = DriverObject(std::move(node), handle);
 }
 
-DriverMemory::DriverMemory(DriverMemory&& other)
-    : size_(0), memory_(IPCZ_INVALID_DRIVER_HANDLE) {
-  driver_ = other.driver_;
-  std::swap(size_, other.size_);
-  std::swap(memory_, other.memory_);
-}
+DriverMemory::DriverMemory(DriverMemory&& other) = default;
 
-DriverMemory& DriverMemory::operator=(DriverMemory&& other) {
-  Release();
-  driver_ = other.driver_;
-  size_ = other.size_;
-  std::swap(memory_, other.memory_);
-  return *this;
-}
+DriverMemory& DriverMemory::operator=(DriverMemory&& other) = default;
 
-DriverMemory::~DriverMemory() {
-  Release();
-}
+DriverMemory::~DriverMemory() = default;
 
 DriverMemory DriverMemory::Clone() {
   ABSL_ASSERT(is_valid());
-  DriverMemory new_memory;
-  new_memory.driver_ = driver_;
-  new_memory.size_ = size_;
-  IpczResult result =
-      driver_.DuplicateSharedMemory(memory_, 0, nullptr, &new_memory.memory_);
+
+  IpczDriverHandle handle;
+  IpczResult result = memory_.node()->driver().DuplicateSharedMemory(
+      memory_.handle(), 0, nullptr, &handle);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return new_memory;
+
+  return DriverMemory(DriverObject(memory_.node(), handle), size_);
 }
 
 DriverMemoryMapping DriverMemory::Map() {
   ABSL_ASSERT(is_valid());
   void* address;
   IpczDriverHandle mapping_handle;
-  IpczResult result =
-      driver_.MapSharedMemory(memory_, 0, nullptr, &address, &mapping_handle);
+  IpczResult result = memory_.node()->driver().MapSharedMemory(
+      memory_.handle(), 0, nullptr, &address, &mapping_handle);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return DriverMemoryMapping(driver_, mapping_handle, address, size_);
+  return DriverMemoryMapping(memory_.node()->driver(), mapping_handle, address,
+                             size_);
 }
 
 IpczResult DriverMemory::Serialize(std::vector<uint8_t>& data,
                                    std::vector<OSHandle>& handles) {
-  uint32_t num_bytes = 0;
-  uint32_t num_os_handles = 0;
-  IpczResult result =
-      driver_.SerializeSharedMemory(memory_, IPCZ_NO_FLAGS, nullptr, nullptr,
-                                    &num_bytes, nullptr, &num_os_handles);
-  ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
-  data.resize(num_bytes);
-  std::vector<IpczOSHandle> os_handles(num_os_handles);
-  for (IpczOSHandle& handle : os_handles) {
-    handle.size = sizeof(handle);
-  }
-  result = driver_.SerializeSharedMemory(memory_, IPCZ_NO_FLAGS, nullptr,
-                                         data.data(), &num_bytes,
-                                         os_handles.data(), &num_os_handles);
-  ABSL_ASSERT(result != IPCZ_RESULT_RESOURCE_EXHAUSTED);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
+  if (!memory_.is_valid()) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  handles.resize(num_os_handles);
-  for (size_t i = 0; i < num_os_handles; ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
-  }
-
-  memory_ = IPCZ_INVALID_DRIVER_HANDLE;
-  return IPCZ_RESULT_OK;
+  DriverObject::SerializedDimensions dimensions =
+      memory_.GetSerializedDimensions();
+  data.resize(dimensions.num_bytes);
+  handles.resize(dimensions.num_os_handles);
+  return memory_.Serialize(absl::MakeSpan(data), absl::MakeSpan(handles));
 }
 
 // static
-DriverMemory DriverMemory::Deserialize(const IpczDriver& driver,
+DriverMemory DriverMemory::Deserialize(Ref<Node> node,
                                        absl::Span<const uint8_t> data,
                                        absl::Span<OSHandle> handles) {
-  std::vector<IpczOSHandle> os_handles(handles.size());
-  bool fail = false;
-  for (size_t i = 0; i < handles.size(); ++i) {
-    os_handles[i].size = sizeof(os_handles[i]);
-    bool ok = OSHandle::ToIpczOSHandle(std::move(handles[i]), &os_handles[i]);
-    if (!ok) {
-      fail = true;
-    }
-  }
-
-  if (fail) {
+  DriverObject memory =
+      DriverObject::Deserialize(std::move(node), data, handles);
+  if (!memory.is_valid()) {
     return DriverMemory();
   }
 
   uint32_t region_size;
-  IpczDriverHandle memory;
-  IpczResult result = driver.DeserializeSharedMemory(
-      data.data(), static_cast<uint32_t>(data.size()), os_handles.data(),
-      static_cast<uint32_t>(os_handles.size()), IPCZ_NO_FLAGS, nullptr,
-      &region_size, &memory);
+  IpczResult result = memory.node()->driver().GetSharedMemoryInfo(
+      memory.handle(), IPCZ_NO_FLAGS, nullptr, &region_size);
   if (result != IPCZ_RESULT_OK) {
     return DriverMemory();
   }
 
-  DriverMemory new_memory;
-  new_memory.driver_ = driver;
-  new_memory.size_ = region_size;
-  new_memory.memory_ = memory;
-  return new_memory;
-}
-
-void DriverMemory::Release() {
-  if (is_valid()) {
-    driver_.ReleaseSharedMemory(memory_, 0, nullptr);
-    size_ = 0;
-    memory_ = IPCZ_INVALID_DRIVER_HANDLE;
-  }
+  return DriverMemory(std::move(memory), region_size);
 }
 
 }  // namespace ipcz

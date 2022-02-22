@@ -169,6 +169,69 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // application before passing this structure to any ipcz API functions.
   uint32_t size;
 
+  // Called by ipcz to request that the driver release the object identified by
+  // `handle`. This may be a transport, shared memory region, or any other type
+  // of object the driver defines and which can be inferred by the driver given
+  // the value of `handle`.
+  IpczResult (*Close)(IpczDriverHandle handle,
+                      uint32_t flags,
+                      const void* options);
+
+  // Serializes a driver object identified by `handle`, into a collection of
+  // bytes and OS handles which can be used to relocate it to another node --
+  // possibly in another process -- where it can be deserialized by
+  // Deserialize().
+  //
+  // Apart from being useful to ipcz for creating and passing transports and
+  // shared memory regions, this also provides a stable interface for
+  // applications to extend ipcz with new types of transferrable IpczHandles.
+  // Driver objects which can be serialized by Serialize() and deserialized by
+  // Deserialize() can be wrapped as IpczHandles using the ipcz calls
+  // ipcz calls WrapDriverObject() and UnwrapDriverObject(). Such handles are
+  // transferrable through portals via Put() and Get() and related APIS.
+  //
+  // On input, `*num_bytes` and `*num_os_handles` specify the amount of storage
+  // available in `data` and `os_handles` respectively. If insufficient to store
+  // the full serialized output, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  //
+  // In both success and failure cases, `*num_bytes` and `*num_os_handles` are
+  // updated with the exact amount of storage required for each before
+  // returning.
+  //
+  // If the caller's provided storage is sufficient, `data` and `os_handles`
+  // will be populated with the serialized transport, and this returns
+  // IPCZ_RESULT_OK. In this case `handle` is also invalidated.
+  //
+  // If the object identified by `handle` is not in an appropriate state for
+  // serialization (for example if it's a transport object which is currently
+  // active) or it is of a type for which the driver does not implement
+  // serialization, the driver may return IPCZ_RESULT_FAILED_PRECONDITION.
+  IpczResult (*Serialize)(IpczDriverHandle handle,
+                          uint32_t flags,
+                          const void* options,
+                          uint8_t* data,
+                          uint32_t* num_bytes,
+                          struct IpczOSHandle* os_handles,
+                          uint32_t* num_os_handles);
+
+  // Deserializes a driver object from a collection of bytes and handles which
+  // which was originally produced by Serialize().
+  //
+  // `driver_node` is the application-provided driver-side handle assigned to
+  // the node when created with CreateNode().
+  //
+  // Any return value other than IPCZ_RESULT_OK indicates an error and implies
+  // that `handle` is unmodified. Otherwise `handle` contains a driver handle
+  // to the deserialized object.
+  IpczResult (*Deserialize)(IpczDriverHandle driver_node,
+                            const uint8_t* data,
+                            uint32_t num_bytes,
+                            const struct IpczOSHandle* os_handles,
+                            uint32_t num_os_handles,
+                            uint32_t flags,
+                            const void* options,
+                            IpczDriverHandle* handle);
+
   // Creates a new pair of entangled bidirectional transports, returning them in
   // `first_transport` and `second_transport`. Implementation of the transport
   // is up to the driver, but:
@@ -201,68 +264,6 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                  IpczDriverHandle* first_transport,
                                  IpczDriverHandle* second_transport);
 
-  // Called by ipcz to request that the driver cease activity on the transport
-  // corresponding to `driver_transport` and clean up any associated resources.
-  // Once this is returns, both `driver_transport` and its corresponding
-  // `transport` IpczHandle (associated via ActivateTransport()) are
-  // invalidated.
-  IpczResult (*DestroyTransport)(IpczDriverHandle driver_transport,
-                                 uint32_t flags,
-                                 const void* options);
-
-  // Serializes a driver transport into a collection of bytes and handles which
-  // can be used to relocate it to another node -- possibly in another
-  // process -- where it can be deserialized by DeserializeTransport().
-  //
-  // On input, `*num_bytes` and `*num_os_handles` specify the amount of storage
-  // available in `data` and `os_handles` respectively. If insufficient to store
-  // the full serialized output, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
-  //
-  // In both success and failure cases, `*num_bytes` and `*num_os_handles` are
-  // updated with the exact amount of storage required for each before
-  // returning.
-  //
-  // If the caller's provided storage is sufficient, `data` and `os_handles`
-  // will be populated with the serialized transport, and this returns
-  // IPCZ_RESULT_OK. In this case `driver_transport` is also invalidated.
-  //
-  // Drivers are allowed but not required to support serialization of a
-  // transport which has already been activated by ActivateTransport(). If
-  // SerializeTransport() is called on such a transport, the driver may return
-  // IPCZ_RESULT_FAILED_PRECONDITION.
-  IpczResult (*SerializeTransport)(IpczDriverHandle driver_transport,
-                                   uint32_t flags,
-                                   const void* options,
-                                   uint8_t* data,
-                                   uint32_t* num_bytes,
-                                   struct IpczOSHandle* os_handles,
-                                   uint32_t* num_os_handles);
-
-  // Deserializes a driver transport from a collection of bytes and handles
-  // which was originally produced by SerializeTransport(). The transport must
-  // not be activated before this returns.
-  //
-  // `driver_node` is the application-provided driver-side handle assigned to
-  // the node when created with CreateNode().
-  //
-  // If ipcz has a known process handle to the remote process on the other end
-  // of the transport, it's provided to the driver in `target_process`.
-  // Otherwise `target_process` is null.
-  //
-  // Any return value other than IPCZ_RESULT_OK indicates an error, and the
-  // transport will be dropped by ipcz. Otherwise ipcz will imminently activate
-  // the transport via a call to the driver's ActivateTransport().
-  IpczResult (*DeserializeTransport)(
-      IpczDriverHandle driver_node,
-      const uint8_t* data,
-      uint32_t num_bytes,
-      const struct IpczOSHandle* os_handles,
-      uint32_t num_os_handles,
-      const struct IpczOSProcessHandle* target_process,
-      uint32_t flags,
-      const void* options,
-      IpczDriverHandle* driver_transport);
-
   // Called by ipcz to activate a transport. `driver_transport` is the
   // driver-side handle assigned to the transport by the driver, either as given
   // to ipcz via ConnectNode(), or as returned by the driver from an ipcz call
@@ -280,7 +281,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // Any return value other than IPCZ_RESULT_OK indicates an error, and the
   // endpoint will be dropped by ipcz. Otherwise the endpoint may be used
   // immediately to accept or submit data, and it should continue to operate
-  // until ipcz calls DestroyTransport() on `driver_transport`.
+  // until ipcz calls Close() on `driver_transport`.
   //
   // Note that `activity_handler` invocations MUST be mutually exclusive,
   // because transmissions from ipcz are expected to arrive and be processed
@@ -297,7 +298,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // Called by ipcz to deactivate a transport. Once this returns successfully,
   // the driver must make no further calls into this transport's activity
   // handler. ipcz may continue to use the transport for outgoing transmissions
-  // until DestroyTransport() is called.
+  // until the driver's Close() is also called on `driver_transport`.
   IpczResult (*DeactivateTransport)(IpczDriverHandle driver_transport,
                                     uint32_t flags,
                                     const void* options);
@@ -332,43 +333,19 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                      const void* options,
                                      IpczDriverHandle* driver_memory);
 
+  // Returns information about the shared memory region identified by
+  // `driver_memory`.
+  IpczResult (*GetSharedMemoryInfo)(IpczDriverHandle driver_memory,
+                                    uint32_t flags,
+                                    const void* options,
+                                    uint32_t* size);
+
   // Duplicates a shared memory region handle into a new distinct handle
   // referencing the same underlying region.
   IpczResult (*DuplicateSharedMemory)(IpczDriverHandle driver_memory,
                                       uint32_t flags,
                                       const void* options,
                                       IpczDriverHandle* new_driver_memory);
-
-  // Releases a handle to a shared memory region previously allocated by
-  // AllocateSharedMemory() or deserialized by DeserializeSharedMemory().
-  // Existing mappings of the region remain intact until explicitly unmapped.
-  IpczResult (*ReleaseSharedMemory)(IpczDriverHandle driver_memory,
-                                    uint32_t flags,
-                                    const void* options);
-
-  // Serializes a shared memory region for transmission over a driver transport.
-  // Semantics are similar to SerializeTransport() above. A serialized memory
-  // region does not need to be (and must not be) released by
-  // ReleaseSharedMemory().
-  IpczResult (*SerializeSharedMemory)(IpczDriverHandle driver_memory,
-                                      uint32_t flags,
-                                      const void* options,
-                                      uint8_t* data,
-                                      uint32_t* num_bytes,
-                                      struct IpczOSHandle* os_handles,
-                                      uint32_t* num_os_handles);
-
-  // Deserializes a shared memory region received over a driver transport.
-  // Semantics are similar to DeserializeTransport() above. The size of the
-  // region is output in `*region_size` on success.
-  IpczResult (*DeserializeSharedMemory)(const uint8_t* data,
-                                        uint32_t num_bytes,
-                                        const struct IpczOSHandle* os_handles,
-                                        uint32_t num_os_handles,
-                                        uint32_t flags,
-                                        const void* options,
-                                        uint32_t* region_size,
-                                        IpczDriverHandle* driver_memory);
 
   // Maps a shared memory region identified by `driver_memory` and returns its
   // mapped address in `address` on success and a driver handle in
@@ -378,11 +355,6 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                 const void* options,
                                 void** address,
                                 IpczDriverHandle* driver_mapping);
-
-  // Unmaps the shared memory region mapping identified by `driver_mapping`.
-  IpczResult (*UnmapSharedMemory)(IpczDriverHandle driver_mapping,
-                                  uint32_t flags,
-                                  const void* options);
 };
 
 }  // extern "C"

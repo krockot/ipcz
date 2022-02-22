@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/os_handle.h"
@@ -17,6 +18,8 @@
 #include "util/ref_counted.h"
 
 namespace ipcz {
+
+class Node;
 
 // Encapsulates shared ownership of a transport endpoint created by an ipcz
 // driver..
@@ -70,10 +73,9 @@ class DriverTransport : public RefCounted {
     virtual void OnTransportError() = 0;
   };
 
-  DriverTransport(const IpczDriver& driver, IpczDriverHandle driver_transport);
+  explicit DriverTransport(DriverObject transport);
 
-  static DriverTransport::Pair CreatePair(const IpczDriver& driver,
-                                          IpczDriverHandle driver_node);
+  static DriverTransport::Pair CreatePair(Ref<Node> node);
 
   // Set the object handling any incoming message or error notifications. This
   // is only safe to set before Activate() is called, or from within one of the
@@ -109,8 +111,7 @@ class DriverTransport : public RefCounted {
 
   // Deserializes a new transport from data and OS handles previously serialized
   // by Serialize() above.
-  static Ref<DriverTransport> Deserialize(const IpczDriver& driver,
-                                          IpczDriverHandle driver_node,
+  static Ref<DriverTransport> Deserialize(Ref<Node> node,
                                           absl::Span<const uint8_t> data,
                                           absl::Span<OSHandle> handles);
 
@@ -130,8 +131,7 @@ class DriverTransport : public RefCounted {
  private:
   ~DriverTransport() override;
 
-  const IpczDriver& driver_;
-  IpczDriverHandle driver_transport_;
+  DriverObject transport_;
 
   bool serialized_ = false;
   Listener* listener_ = nullptr;

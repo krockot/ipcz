@@ -161,6 +161,8 @@ portable_source_set("impl") {
     "ipcz/driver_memory.h",
     "ipcz/driver_memory_mapping.cc",
     "ipcz/driver_memory_mapping.h",
+    "ipcz/driver_object.cc",
+    "ipcz/driver_object.h",
     "ipcz/driver_transport.cc",
     "ipcz/driver_transport.h",
     "ipcz/fragment.cc",

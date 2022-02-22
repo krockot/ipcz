@@ -77,7 +77,8 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
     initial_portals[i] = ToHandle(portal.release());
   }
 
-  auto transport = MakeRefCounted<DriverTransport>(driver_, driver_transport);
+  auto transport = MakeRefCounted<DriverTransport>(
+      DriverObject(WrapRefCounted(this), driver_transport));
   IpczResult result =
       NodeConnector::ConnectNode(WrapRefCounted(this), transport,
                                  std::move(remote_process), flags, portals);
@@ -260,7 +261,7 @@ bool Node::OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
         DriverMemory primary_buffer_memory;
         NodeLinkMemory::Allocate(node, num_portals, primary_buffer_memory);
         std::pair<Ref<DriverTransport>, Ref<DriverTransport>> transports =
-            DriverTransport::CreatePair(node->driver(), node->driver_node());
+            DriverTransport::CreatePair(node);
         new_link->IntroduceNode(source_link->remote_node_name(), LinkSide::kA,
                                 std::move(transports.first),
                                 primary_buffer_memory.Clone());
@@ -300,7 +301,7 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   NodeLinkMemory::Allocate(WrapRefCounted(this), /*num_initial_portals=*/0,
                            primary_buffer_memory);
   std::pair<Ref<DriverTransport>, Ref<DriverTransport>> transports =
-      DriverTransport::CreatePair(driver_, driver_node_);
+      DriverTransport::CreatePair(WrapRefCounted(this));
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
                                  LinkSide::kA, std::move(transports.first),
                                  primary_buffer_memory.Clone());
@@ -319,7 +320,7 @@ bool Node::OnIntroduceNode(const NodeName& name,
   Ref<DriverTransport> transport;
   Ref<NodeLink> new_link;
   if (known) {
-    transport = DriverTransport::Deserialize(driver_, driver_node_,
+    transport = DriverTransport::Deserialize(WrapRefCounted(this),
                                              serialized_transport_data,
                                              serialized_transport_handles);
     if (transport) {
@@ -410,7 +411,7 @@ void Node::AllocateSharedMemory(size_t size,
   }
 
   if (!delegate) {
-    callback(DriverMemory(driver_, size));
+    callback(DriverMemory(WrapRefCounted(this), size));
     return;
   }
 

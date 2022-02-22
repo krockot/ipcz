@@ -206,8 +206,7 @@ void NodeLink::IntroduceNode(const NodeName& name,
   intro.params().transport_os_handles =
       intro.AppendHandles(absl::MakeSpan(transport_handles));
 
-  auto buffer =
-      intro.AppendSharedMemory(node_->driver(), std::move(link_buffer_memory));
+  auto buffer = intro.AppendSharedMemory(std::move(link_buffer_memory));
   intro.params().set_buffer(buffer);
 
   Transmit(intro);
@@ -253,7 +252,7 @@ void NodeLink::AddFragmentAllocatorBuffer(BufferId buffer_id,
   add.params().buffer_id = buffer_id;
   add.params().fragment_size = fragment_size;
 
-  auto buffer = add.AppendSharedMemory(node_->driver(), std::move(memory));
+  auto buffer = add.AppendSharedMemory(std::move(memory));
   add.params().set_buffer(buffer);
 
   Transmit(add);
@@ -396,8 +395,7 @@ bool NodeLink::OnRequestIndirectBrokerConnection(
 #endif
 
   auto transport =
-      DriverTransport::Deserialize(node_->driver(), node_->driver_node(),
-                                   transport_data, transport_os_handles);
+      DriverTransport::Deserialize(node_, transport_data, transport_os_handles);
   if (!transport) {
     return false;
   }
@@ -529,8 +527,7 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
   absl::Span<OSHandle> transport_os_handles =
       intro.GetHandlesView(intro.params().transport_os_handles);
 
-  DriverMemory memory =
-      intro.TakeSharedMemory(node_->driver(), intro.params().buffer());
+  DriverMemory memory = intro.TakeSharedMemory(node_, intro.params().buffer());
   if (!memory.is_valid()) {
     return false;
   }
@@ -542,7 +539,7 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
 bool NodeLink::OnAddFragmentAllocatorBuffer(
     msg::AddFragmentAllocatorBuffer& add) {
   DriverMemory buffer_memory =
-      add.TakeSharedMemory(node_->driver(), add.params().buffer());
+      add.TakeSharedMemory(node_, add.params().buffer());
   if (!buffer_memory.is_valid()) {
     return false;
   }
@@ -628,11 +625,11 @@ bool NodeLink::OnFlushRouter(const msg::FlushRouter& flush) {
 }
 
 bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
-  DriverMemory memory(node_->driver(), request.params().size);
+  DriverMemory memory(node_, request.params().size);
   msg::ProvideMemory provide;
   provide.params().size = request.params().size;
 
-  auto buffer = provide.AppendSharedMemory(node_->driver(), std::move(memory));
+  auto buffer = provide.AppendSharedMemory(std::move(memory));
   provide.params().set_buffer(buffer);
 
   Transmit(provide);
@@ -641,7 +638,7 @@ bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
 
 bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
   DriverMemory memory =
-      provide.TakeSharedMemory(node_->driver(), provide.params().buffer());
+      provide.TakeSharedMemory(node_, provide.params().buffer());
   if (!memory.is_valid()) {
     return false;
   }

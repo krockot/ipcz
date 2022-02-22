@@ -108,7 +108,7 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
     Ref<Node> node,
     size_t num_initial_portals,
     DriverMemory& primary_buffer_memory) {
-  primary_buffer_memory = DriverMemory(node->driver(), sizeof(PrimaryBuffer));
+  primary_buffer_memory = DriverMemory(node, sizeof(PrimaryBuffer));
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
 
   auto memory =
