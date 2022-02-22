@@ -175,6 +175,7 @@ portable_source_set("impl") {
     "ipcz/fragment_descriptor.h",
     "ipcz/fragment_ref.cc",
     "ipcz/fragment_ref.h",
+    "ipcz/handle_descriptor.h",
     "ipcz/link_side.cc",
     "ipcz/link_side.h",
     "ipcz/link_type.cc",
@@ -350,6 +351,10 @@ test("ipcz_tests") {
   }
 
   configs += [ ":ipcz_include_src_dir" ]
+
+  if (build_ipcz_standalone) {
+    defines = [ "IPCZ_STANDALONE" ]
+  }
 }
 
 group("all") {

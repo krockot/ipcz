@@ -26,9 +26,9 @@ Parcel::Parcel(Parcel&& other) = default;
 Parcel& Parcel::operator=(Parcel&& other) = default;
 
 Parcel::~Parcel() {
-  for (Ref<Portal>& portal : portals_) {
-    if (portal) {
-      portal->Close();
+  for (Ref<APIObject>& object : objects_) {
+    if (object) {
+      object->Close();
     }
   }
 }
@@ -38,8 +38,8 @@ void Parcel::SetData(std::vector<uint8_t> data) {
   data_view_ = absl::MakeSpan(data_);
 }
 
-void Parcel::SetPortals(PortalVector portals) {
-  portals_ = std::move(portals);
+void Parcel::SetObjects(ObjectVector objects) {
+  objects_ = std::move(objects);
 }
 
 void Parcel::SetOSHandles(std::vector<OSHandle> os_handles) {
@@ -51,32 +51,27 @@ void Parcel::ResizeData(size_t size) {
   data_view_ = absl::MakeSpan(data_);
 }
 
-void Parcel::Consume(IpczHandle* portals, IpczOSHandle* os_handles) {
-  ConsumePortalsAndHandles(portals, os_handles);
+void Parcel::Consume(IpczHandle* handles, IpczOSHandle* os_handles) {
+  ConsumeHandles(handles, os_handles);
   data_view_ = {};
 }
 
 void Parcel::ConsumePartial(size_t num_bytes_consumed,
-                            IpczHandle* portals,
+                            IpczHandle* handles,
                             IpczOSHandle* os_handles) {
   data_view_ = data_view_.subspan(num_bytes_consumed);
-  ConsumePortalsAndHandles(portals, os_handles);
+  ConsumeHandles(handles, os_handles);
 }
 
-void Parcel::ConsumePortalsAndHandles(IpczHandle* portals,
-                                      IpczOSHandle* os_handles) {
-  for (size_t i = 0; i < portals_.size(); ++i) {
-    portals[i] = ToHandle(portals_[i].release());
+void Parcel::ConsumeHandles(IpczHandle* handles, IpczOSHandle* os_handles) {
+  for (size_t i = 0; i < objects_.size(); ++i) {
+    handles[i] = ToHandle(objects_[i].release());
   }
   for (size_t i = 0; i < os_handles_.size(); ++i) {
     OSHandle::ToIpczOSHandle(std::move(os_handles_[i]), &os_handles[i]);
   }
-  portals_.clear();
+  objects_.clear();
   os_handles_.clear();
-}
-
-Parcel::PortalVector Parcel::TakePortals() {
-  return std::move(portals_);
 }
 
 std::string Parcel::Describe() const {
@@ -88,8 +83,8 @@ std::string Parcel::Describe() const {
     if (std::isalnum(data_view()[0])) {
       const absl::Span<const uint8_t> preview = data_view().subspan(0, 8);
       ss << "\"" << std::string(preview.begin(), preview.end());
-      if (preview.size() < data_view().size()) {
-        ss << "...\", " << data_view().size() << " bytes";
+      if (preview.size() < data_size()) {
+        ss << "...\", " << data_size() << " bytes";
       } else {
         ss << '"';
       }
@@ -97,11 +92,11 @@ std::string Parcel::Describe() const {
   } else {
     ss << "no data";
   }
-  if (!portals_view().empty()) {
-    ss << ", " << portals_view().size() << " portals";
+  if (!objects_view().empty()) {
+    ss << ", " << num_objects() << " handles";
   }
   if (!os_handles_view().empty()) {
-    ss << ", " << os_handles_view().size() << " handles";
+    ss << ", " << num_os_handles() << " OS handles";
   }
   ss << ")";
   return ss.str();

@@ -100,7 +100,7 @@ class Router : public RefCounted {
   // Attempts to send an outbound parcel originating from this Router. Called
   // only as a direct result of a Put() call on the router's owning portal.
   IpczResult SendOutboundParcel(absl::Span<const uint8_t> data,
-                                Parcel::PortalVector& portals,
+                                Parcel::ObjectVector& objects,
                                 std::vector<OSHandle>& os_handles);
 
   // Closes this side of the Router's own route. Only called on a Router to

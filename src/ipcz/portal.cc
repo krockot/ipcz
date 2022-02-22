@@ -32,17 +32,17 @@ namespace ipcz {
 
 namespace {
 
-bool ValidateAndAcquirePortalsForTransitFrom(
+bool ValidateAndAcquireObjectsForTransitFrom(
     Portal& sender,
     absl::Span<const IpczHandle> handles,
-    Parcel::PortalVector& portals) {
-  portals.resize(handles.size());
+    Parcel::ObjectVector& objects) {
+  objects.resize(handles.size());
   for (size_t i = 0; i < handles.size(); ++i) {
-    auto portal = WrapRefCounted(APIObject::Get<Portal>(handles[i]));
-    if (!portal || !portal->CanSendFrom(sender)) {
+    auto* object = ToPtr<APIObject>(handles[i]);
+    if (!object || !object->CanSendFrom(sender)) {
       return false;
     }
-    portals[i] = std::move(portal);
+    objects[i] = object;
   }
   return true;
 }
@@ -90,8 +90,8 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> handles,
                        absl::Span<const IpczOSHandle> ipcz_os_handles,
                        const IpczPutLimits* limits) {
-  Parcel::PortalVector portals;
-  if (!ValidateAndAcquirePortalsForTransitFrom(*this, handles, portals)) {
+  Parcel::ObjectVector objects;
+  if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -109,10 +109,10 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
   }
 
-  IpczResult result = router_->SendOutboundParcel(data, portals, os_handles);
+  IpczResult result = router_->SendOutboundParcel(data, objects, os_handles);
   if (result == IPCZ_RESULT_OK) {
-    // If the parcel was sent, the sender relinquished handle ownership and
-    // therefore implicitly releases its ref to each portal.
+    // If the parcel was sent, the sender relinquishes handle ownership and
+    // therefore implicitly releases its ref to each object.
     for (IpczHandle handle : handles) {
       APIObject::ReleaseHandle(handle);
     }
@@ -155,8 +155,8 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
                              absl::Span<const IpczHandle> handles,
                              absl::Span<const IpczOSHandle> ipcz_os_handles) {
-  Parcel::PortalVector portals;
-  if (!ValidateAndAcquirePortalsForTransitFrom(*this, handles, portals)) {
+  Parcel::ObjectVector objects;
+  if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -181,11 +181,11 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
   }
 
   IpczResult result = router_->SendOutboundParcel(
-      parcel.data_view().subspan(0, num_data_bytes_produced), portals,
+      parcel.data_view().subspan(0, num_data_bytes_produced), objects,
       os_handles);
   if (result == IPCZ_RESULT_OK) {
-    // If the parcel was sent, the sender relinquished handle ownership and
-    // therefore implicitly releases its ref to each portal.
+    // If the parcel was sent, the sender relinquishes handle ownership and
+    // therefore implicitly releases its ref to each object.
     for (IpczHandle handle : handles) {
       APIObject::ReleaseHandle(handle);
     }

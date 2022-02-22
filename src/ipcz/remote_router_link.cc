@@ -11,7 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include "ipcz/box.h"
 #include "ipcz/fragment_ref.h"
+#include "ipcz/handle_descriptor.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/node_link.h"
 #include "ipcz/node_messages.h"
@@ -186,37 +188,135 @@ bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
 }
 
 void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
-  const absl::Span<Ref<Portal>> portals = parcel.portals_view();
+  const absl::Span<Ref<APIObject>> objects = parcel.objects_view();
 
   msg::AcceptParcel accept;
   accept.params().sublink = sublink_;
   accept.params().sequence_number = parcel.sequence_number();
+
+  // The total number of OS handles may be extended by serialized driver
+  // objects. This indicates how many OS handles belong to the body of the
+  // parcel itself.
+  accept.params().num_parcel_os_handles =
+      static_cast<uint32_t>(parcel.num_os_handles());
+
+  // The first pass over the parcel is just to compute dimensions of
+  // variable-length arrays in the message.
+  size_t num_portals = 0;
+  size_t num_handle_bytes = 0;
+  size_t num_os_handles = parcel.num_os_handles();
+  for (Ref<APIObject>& object : objects) {
+    switch (object->object_type()) {
+      case APIObject::kPortal:
+        ++num_portals;
+        break;
+
+      case APIObject::kBox: {
+        Box& box = object->As<Box>();
+        auto dimensions = box.object().GetSerializedDimensions();
+        num_handle_bytes += dimensions.num_bytes;
+        num_os_handles += dimensions.num_os_handles;
+        break;
+      }
+
+      default:
+        LOG(FATAL) << "Attempted to transmit an invalid object.";
+    }
+  }
+
+  // Allocate all the arrays in the message. Note that each allocation may
+  // relocate the parcel data in memory, so views into these arrays should not
+  // be acquired until all allocations are complete.
   accept.params().parcel_data =
       accept.AllocateArray<uint8_t>(parcel.data_view().size());
+  accept.params().handle_descriptors =
+      accept.AllocateArray<HandleDescriptor>(objects.size());
   accept.params().new_routers =
-      accept.AllocateArray<RouterDescriptor>(portals.size());
-  accept.params().os_handles = accept.AppendHandles(parcel.os_handles_view());
+      accept.AllocateArray<RouterDescriptor>(num_portals);
+  accept.params().handle_data = accept.AllocateArray<uint8_t>(num_handle_bytes);
 
-  memcpy(accept.GetArrayView<uint8_t>(accept.params().parcel_data).data(),
-         parcel.data_view().data(), parcel.data_view().size());
-
-  absl::Span<RouterDescriptor> descriptors =
+  const absl::Span<uint8_t> parcel_data =
+      accept.GetArrayView<uint8_t>(accept.params().parcel_data);
+  const absl::Span<HandleDescriptor> handle_descriptors =
+      accept.GetArrayView<HandleDescriptor>(accept.params().handle_descriptors);
+  const absl::Span<RouterDescriptor> new_routers =
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
-  for (size_t i = 0; i < descriptors.size(); ++i) {
-    portals[i]->router()->SerializeNewRouter(*node_link(), descriptors[i]);
+
+  memcpy(parcel_data.data(), parcel.data_view().data(), parcel.data_size());
+
+  absl::InlinedVector<OSHandle, 4> os_handles(num_os_handles);
+  ABSL_ASSERT(os_handles.size() >= parcel.num_os_handles());
+  for (size_t i = 0; i < parcel.num_os_handles(); ++i) {
+    os_handles[i] = std::move(parcel.os_handles_view()[i]);
   }
+
+  absl::Span<uint8_t> remaining_handle_data =
+      accept.GetArrayView<uint8_t>(accept.params().handle_data);
+  absl::Span<OSHandle> remaining_os_handles =
+      absl::MakeSpan(os_handles).subspan(parcel.num_os_handles());
+
+  absl::InlinedVector<Ref<Router>, 4> routers;
+  absl::Span<RouterDescriptor> remaining_routers = new_routers;
+  for (size_t i = 0; i < objects.size(); ++i) {
+    APIObject& object = *objects[i];
+    HandleDescriptor& descriptor = handle_descriptors[i];
+    switch (object.object_type()) {
+      case APIObject::kPortal: {
+        descriptor.type = HandleDescriptor::kPortal;
+        ABSL_ASSERT(!remaining_routers.empty());
+
+        Ref<Router> router = object.As<Portal>().router();
+        router->SerializeNewRouter(*node_link(), remaining_routers[0]);
+        routers.push_back(std::move(router));
+        remaining_routers.remove_prefix(1);
+        break;
+      }
+
+      case APIObject::kBox: {
+        Box& box = object.As<Box>();
+        auto dimensions = box.object().GetSerializedDimensions();
+
+        ABSL_ASSERT(dimensions.num_bytes <= remaining_handle_data.size());
+        ABSL_ASSERT(dimensions.num_os_handles <= remaining_os_handles.size());
+
+        descriptor.type = HandleDescriptor::kBox;
+        descriptor.num_bytes = dimensions.num_bytes;
+        descriptor.num_os_handles = dimensions.num_os_handles;
+
+        IpczResult result = box.object().Serialize(
+            remaining_handle_data.first(dimensions.num_bytes),
+            remaining_os_handles.first(dimensions.num_os_handles));
+        ABSL_ASSERT(result == IPCZ_RESULT_OK);
+
+        remaining_handle_data.remove_prefix(dimensions.num_bytes);
+        remaining_os_handles.remove_prefix(dimensions.num_os_handles);
+        break;
+      }
+
+      default:
+        ABSL_ASSERT(false);
+        break;
+    }
+  }
+
+  accept.params().os_handles = accept.AppendHandles(absl::MakeSpan(os_handles));
 
   DVLOG(4) << "Transmitting " << parcel.Describe() << " over " << Describe();
 
   node_link()->Transmit(accept);
 
-  for (size_t i = 0; i < portals.size(); ++i) {
-    // It's important to move out references to any transferred portals, because
-    // when a parcel is destroyed, it will attempt to close any non-null portals
-    // it has. Transferred portals should be forgotten, not closed.
-    Ref<Portal> doomed_portal = std::move(portals[i]);
-    doomed_portal->router()->BeginProxyingToNewRouter(*node_link(),
-                                                      descriptors[i]);
+  // It's important to release references to any transferred objects, because
+  // when a parcel is destroyed it will attempt to close any non-null objects
+  // it's still referencing.
+  for (Ref<APIObject>& object : objects) {
+    Ref<APIObject> released_object = std::move(object);
+  }
+
+  // Now that the parcel has been transmitted, it's safe to start proxying from
+  // any routers who sent a new successor.
+  ABSL_ASSERT(routers.size() == new_routers.size());
+  for (size_t i = 0; i < routers.size(); ++i) {
+    routers[i]->BeginProxyingToNewRouter(*node_link(), new_routers[i]);
   }
 }
 

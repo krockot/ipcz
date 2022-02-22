@@ -10,6 +10,7 @@
 #include "ipcz/buffer_id.h"
 #include "ipcz/driver_transport.h"
 #include "ipcz/fragment_descriptor.h"
+#include "ipcz/handle_descriptor.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_side.h"
 #include "ipcz/message_internal.h"

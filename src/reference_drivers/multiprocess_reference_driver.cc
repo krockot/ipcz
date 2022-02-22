@@ -163,8 +163,9 @@ class MultiprocessMemory : public Object {
 struct IPCZ_ALIGN(8) SerializedObject {
   Object::Type type;
 
-  // Size of the memory region iff `type` is kMemory; otherwise zero.
-  uint32_t memory_size;
+  // Size of the memory region iff `type` is kMemory; size of the message data
+  // iff `type` is kBlob; zero otherwise.
+  uint32_t size;
 };
 
 IpczResult IPCZ_CDECL Close(IpczDriverHandle handle,
@@ -221,7 +222,7 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
 
   auto& header = *reinterpret_cast<SerializedObject*>(data);
   header.type = object->type();
-  header.memory_size = 0;
+  header.size = 0;
 
   if (object->type() == Object::kTransport) {
     auto transport = object->ReleaseAs<MultiprocessTransport>();
@@ -239,7 +240,7 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
 
   if (object->type() == Object::kMemory) {
     auto memory = object->ReleaseAs<MultiprocessMemory>();
-    header.memory_size = static_cast<uint32_t>(memory->size());
+    header.size = static_cast<uint32_t>(memory->size());
     bool ok = OSHandle::ToIpczOSHandle(memory->TakeHandle(), &os_handles[0]);
     ABSL_ASSERT(ok);
     return IPCZ_RESULT_OK;
@@ -249,6 +250,7 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
     auto blob = object->ReleaseAs<Blob>();
     uint8_t* blob_data = reinterpret_cast<uint8_t*>(&header + 1);
     memcpy(blob_data, blob->message().data(), blob->message().size());
+    header.size = static_cast<uint32_t>(blob->message().size());
     for (size_t i = 0; i < blob->handles().size(); ++i) {
       bool ok = OSHandle::ToIpczOSHandle(std::move(blob->handles()[i]),
                                          &os_handles[i]);
@@ -283,9 +285,13 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
       }
     }
 
+    if (sizeof(SerializedObject) + header.size > num_bytes) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
     const char* string_data = reinterpret_cast<const char*>(&header + 1);
     Ref<Blob> blob = MakeRefCounted<Blob>(
-        std::string_view(string_data, num_bytes), absl::MakeSpan(handles));
+        std::string_view(string_data, header.size), absl::MakeSpan(handles));
     *driver_handle = ToDriverHandle(blob.release());
     return IPCZ_RESULT_OK;
   }
@@ -311,8 +317,8 @@ IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
   }
 
   if (header.type == Object::kMemory) {
-    auto memory = MakeRefCounted<MultiprocessMemory>(std::move(handle),
-                                                     header.memory_size);
+    auto memory =
+        MakeRefCounted<MultiprocessMemory>(std::move(handle), header.size);
     *driver_handle = ToDriverHandle(memory.release());
     return IPCZ_RESULT_OK;
   }

@@ -19,10 +19,14 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/os_handle.h"
 #include "util/os_process.h"
+#include "util/ref_counted.h"
 
 #pragma pack(push, 1)
 
 namespace ipcz {
+
+class Node;
+
 namespace internal {
 
 // Header which begins all messages. The header layout is versioned for

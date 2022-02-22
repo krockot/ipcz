@@ -122,11 +122,11 @@ bool Router::WouldInboundParcelExceedLimits(size_t data_size,
 }
 
 IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
-                                      Parcel::PortalVector& portals,
+                                      Parcel::ObjectVector& objects,
                                       std::vector<OSHandle>& os_handles) {
   Parcel parcel;
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
-  parcel.SetPortals(std::move(portals));
+  parcel.SetObjects(std::move(objects));
   parcel.SetOSHandles(std::move(os_handles));
 
   {
@@ -345,12 +345,11 @@ IpczResult Router::GetNextIncomingParcel(void* data,
 
   Parcel& p = inbound_parcels_.NextParcel();
   const uint32_t data_capacity = num_bytes ? *num_bytes : 0;
-  const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
+  const uint32_t data_size = static_cast<uint32_t>(p.data_size());
   const uint32_t handles_capacity = num_handles ? *num_handles : 0;
-  const uint32_t handles_size = static_cast<uint32_t>(p.portals_view().size());
+  const uint32_t handles_size = static_cast<uint32_t>(p.num_objects());
   const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
-  const uint32_t os_handles_size =
-      static_cast<uint32_t>(p.os_handles_view().size());
+  const uint32_t os_handles_size = static_cast<uint32_t>(p.num_os_handles());
   if (num_bytes) {
     *num_bytes = data_size;
   }
@@ -367,7 +366,7 @@ IpczResult Router::GetNextIncomingParcel(void* data,
 
   Parcel parcel;
   inbound_parcels_.Pop(parcel);
-  memcpy(data, parcel.data_view().data(), parcel.data_view().size());
+  memcpy(data, parcel.data_view().data(), parcel.data_size());
   parcel.Consume(handles, os_handles);
 
   status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
@@ -395,10 +394,9 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
   }
 
   Parcel& p = inbound_parcels_.NextParcel();
-  const uint32_t data_size = static_cast<uint32_t>(p.data_view().size());
-  const uint32_t handles_size = static_cast<uint32_t>(p.portals_view().size());
-  const uint32_t os_handles_size =
-      static_cast<uint32_t>(p.os_handles_view().size());
+  const uint32_t data_size = static_cast<uint32_t>(p.data_size());
+  const uint32_t handles_size = static_cast<uint32_t>(p.num_objects());
+  const uint32_t os_handles_size = static_cast<uint32_t>(p.num_os_handles());
   if (data) {
     *data = p.data_view().data();
   }
@@ -412,7 +410,6 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
   if (num_handles) {
     *num_handles = handles_size;
   }
-
   if (num_os_handles) {
     *num_os_handles = os_handles_size;
   }
@@ -439,21 +436,20 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   const uint32_t handles_capacity = num_handles ? *num_handles : 0;
   const uint32_t os_handles_capacity = num_os_handles ? *num_os_handles : 0;
   if (num_handles) {
-    *num_handles = static_cast<uint32_t>(p.portals_view().size());
+    *num_handles = static_cast<uint32_t>(p.num_objects());
   }
   if (num_os_handles) {
-    *num_os_handles = static_cast<uint32_t>(p.os_handles_view().size());
+    *num_os_handles = static_cast<uint32_t>(p.num_os_handles());
   }
-  if (handles_capacity < p.portals_view().size() ||
-      os_handles_capacity < p.os_handles_view().size()) {
+  if (handles_capacity < p.num_objects() ||
+      os_handles_capacity < p.num_os_handles()) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
-  if (num_data_bytes_consumed > p.data_view().size()) {
+  if (num_data_bytes_consumed > p.data_size()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-
-  if (num_data_bytes_consumed < p.data_view().size()) {
+  if (num_data_bytes_consumed < p.data_size()) {
     p.ConsumePartial(num_data_bytes_consumed, handles, os_handles);
   } else {
     p.Consume(handles, os_handles);

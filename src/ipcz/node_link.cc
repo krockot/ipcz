@@ -11,8 +11,10 @@
 #include <utility>
 
 #include "build/build_config.h"
+#include "ipcz/box.h"
 #include "ipcz/fragment.h"
 #include "ipcz/fragment_descriptor.h"
+#include "ipcz/handle_descriptor.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/node.h"
 #include "ipcz/node_messages.h"
@@ -23,6 +25,7 @@
 #include "ipcz/router_link.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+#include "util/handle_util.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
 
@@ -435,33 +438,88 @@ bool NodeLink::OnAcceptIndirectBrokerConnection(
 }
 
 bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
-  const absl::Span<uint8_t> parcel_data =
+  absl::Span<const uint8_t> parcel_data =
       accept.GetArrayView<uint8_t>(accept.params().parcel_data);
-  const absl::Span<RouterDescriptor> new_routers =
+  absl::Span<const HandleDescriptor> handle_descriptors =
+      accept.GetArrayView<HandleDescriptor>(accept.params().handle_descriptors);
+  absl::Span<const RouterDescriptor> new_routers =
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
-  absl::Span<OSHandle> handles =
+  absl::Span<const uint8_t> handle_data =
+      accept.GetArrayView<uint8_t>(accept.params().handle_data);
+  absl::Span<OSHandle> os_handles =
       accept.GetHandlesView(accept.params().os_handles);
 
-  Parcel::PortalVector portals(new_routers.size());
-  for (size_t i = 0; i < new_routers.size(); ++i) {
-    Ref<Router> new_router = Router::Deserialize(new_routers[i], *this);
-    if (!new_router) {
+  const size_t num_parcel_os_handles = accept.params().num_parcel_os_handles;
+  if (num_parcel_os_handles > os_handles.size()) {
+    return false;
+  }
+
+  std::vector<OSHandle> parcel_os_handles(num_parcel_os_handles);
+  for (size_t i = 0; i < num_parcel_os_handles; ++i) {
+    parcel_os_handles[i] = std::move(os_handles[i]);
+  }
+  os_handles.remove_prefix(num_parcel_os_handles);
+
+  Parcel::ObjectVector objects(handle_descriptors.size());
+  for (size_t i = 0; i < handle_descriptors.size(); ++i) {
+    const HandleDescriptor& descriptor = handle_descriptors[i];
+    if (descriptor.num_bytes > handle_data.size() ||
+        descriptor.num_os_handles > os_handles.size()) {
       return false;
     }
 
-    portals[i] = MakeRefCounted<Portal>(node_, std::move(new_router));
-  }
+    switch (descriptor.type) {
+      case HandleDescriptor::kPortal: {
+        if (new_routers.empty()) {
+          return false;
+        }
 
-  std::vector<OSHandle> os_handles;
-  os_handles.reserve(handles.size());
-  for (OSHandle& handle : handles) {
-    os_handles.push_back(std::move(handle));
+        Ref<Router> new_router = Router::Deserialize(new_routers[0], *this);
+        if (!new_router) {
+          return false;
+        }
+
+        objects[i] = MakeRefCounted<Portal>(node_, std::move(new_router));
+        new_routers.remove_prefix(1);
+        break;
+      }
+
+      case HandleDescriptor::kBox: {
+        absl::InlinedVector<IpczOSHandle, 4> ipcz_os_handles(
+            descriptor.num_os_handles);
+        for (size_t j = 0; j < descriptor.num_os_handles; ++j) {
+          ipcz_os_handles[j].size = sizeof(ipcz_os_handles[j]);
+          if (!OSHandle::ToIpczOSHandle(std::move(os_handles[j]),
+                                        &ipcz_os_handles[i])) {
+            return false;
+          }
+        }
+
+        IpczDriverHandle driver_handle;
+        IpczResult result = node_->driver().Deserialize(
+            node_->driver_node(), handle_data.data(), descriptor.num_bytes,
+            ipcz_os_handles.data(), descriptor.num_os_handles, IPCZ_NO_FLAGS,
+            nullptr, &driver_handle);
+        if (result != IPCZ_RESULT_OK) {
+          return false;
+        }
+
+        objects[i] = MakeRefCounted<Box>(DriverObject(node_, driver_handle));
+        break;
+      }
+
+      default:
+        return false;
+    }
+
+    handle_data.remove_prefix(descriptor.num_bytes);
+    os_handles.remove_prefix(descriptor.num_os_handles);
   }
 
   Parcel parcel(accept.params().sequence_number);
   parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
-  parcel.SetPortals(std::move(portals));
-  parcel.SetOSHandles(std::move(os_handles));
+  parcel.SetObjects(std::move(objects));
+  parcel.SetOSHandles(std::move(parcel_os_handles));
   absl::optional<Sublink> sublink = GetSublink(accept.params().sublink);
   if (!sublink) {
     DVLOG(4) << "Dropping " << parcel.Describe() << " at "
