@@ -21,9 +21,7 @@ IpczResult Box::Close() {
 }
 
 bool Box::CanSendFrom(Portal& sender) {
-  // Unserializable driver objects can't be boxed in the first place.
-  ABSL_ASSERT(object_.IsSerializable());
-  return true;
+  return object_.is_valid() && object_.IsSerializable();
 }
 
 }  // namespace ipcz

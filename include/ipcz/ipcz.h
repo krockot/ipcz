@@ -914,7 +914,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
   //        `options` is non-null but invalid, one of the handles in `handles`
   //        is equal to `portal` or its (local) opposite if applicable, or if
-  //        any handle in `handles` or `os_handles` is invalid.
+  //        any handle in `handles` or `os_handles` is invalid or not
+  //        serializable.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
   //        least one of the specified limits would be violated by the
@@ -1311,9 +1312,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        returned in `handle`.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `driver_handle` was invalid.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if the driver does not know how to
-  //        serialize the object referenced by `driver_handle`.
   IpczResult (*Box)(IpczHandle node,
                     IpczDriverHandle driver_handle,
                     uint32_t flags,

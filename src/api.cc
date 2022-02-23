@@ -370,16 +370,6 @@ IpczResult Box(IpczHandle node_handle,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  uint32_t num_bytes = 0;
-  uint32_t num_os_handles = 0;
-  IpczResult result =
-      node->driver().Serialize(driver_handle, IPCZ_NO_FLAGS, nullptr, nullptr,
-                               &num_bytes, nullptr, &num_os_handles);
-  if (result != IPCZ_RESULT_RESOURCE_EXHAUSTED) {
-    // The object can't be serialized, so don't allow it to be boxed either.
-    return IPCZ_RESULT_FAILED_PRECONDITION;
-  }
-
   auto box = ipcz::MakeRefCounted<ipcz::Box>(
       ipcz::DriverObject(ipcz::WrapRefCounted(node), driver_handle));
   *handle = ipcz::ToHandle(box.release());
