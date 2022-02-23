@@ -41,13 +41,18 @@ IpczDriverHandle Blob::AcquireHandle(Ref<Blob> blob) {
 }
 
 // static
-Ref<Blob> Blob::ReleaseFromHandle(IpczDriverHandle handle) {
+Blob* Blob::FromHandle(IpczDriverHandle handle) {
   Object* object = Object::FromHandle(handle);
   if (!object || object->type() != kBlob) {
     return nullptr;
   }
 
-  return object->ReleaseAs<Blob>();
+  return static_cast<Blob*>(object);
+}
+
+// static
+Ref<Blob> Blob::ReleaseFromHandle(IpczDriverHandle handle) {
+  return Ref<Blob>(FromHandle(handle));
 }
 
 }  // namespace reference_drivers

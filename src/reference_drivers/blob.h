@@ -50,6 +50,7 @@ class Blob : public Object {
 
   static IpczDriverHandle AcquireHandle(Ref<Blob> blob);
 
+  static Blob* FromHandle(IpczDriverHandle handle);
   static Ref<Blob> ReleaseFromHandle(IpczDriverHandle handle);
 
  protected:

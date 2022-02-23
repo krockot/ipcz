@@ -387,7 +387,7 @@ IpczResult Box(IpczHandle node_handle,
 }
 
 IpczResult Unbox(IpczHandle handle,
-                 uint32_t flags,
+                 IpczUnboxFlags flags,
                  const void* options,
                  IpczDriverHandle* driver_handle) {
   if (!driver_handle) {
@@ -400,7 +400,12 @@ IpczResult Unbox(IpczHandle handle,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  *driver_handle = box->object().release();
+  if (flags & IPCZ_UNBOX_PEEK) {
+    *driver_handle = box->object().handle();
+    std::ignore = box.release();
+  } else {
+    *driver_handle = box->object().release();
+  }
   return IPCZ_RESULT_OK;
 }
 

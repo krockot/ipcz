@@ -55,6 +55,35 @@ TEST_P(BoxTest, CloseBox) {
   CloseHandles({node});
 }
 
+TEST_P(BoxTest, Peek) {
+  IpczHandle node = CreateBrokerNode();
+
+  constexpr const char kMessage[] = "Hello, world?";
+  IpczDriverHandle blob_handle = Blob::Create(kMessage);
+  IpczHandle box;
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.Box(node, blob_handle, IPCZ_NO_FLAGS, nullptr, &box));
+
+  blob_handle = IPCZ_INVALID_DRIVER_HANDLE;
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.Unbox(box, IPCZ_UNBOX_PEEK, nullptr, &blob_handle));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.Unbox(box, IPCZ_UNBOX_PEEK, nullptr, &blob_handle));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.Unbox(box, IPCZ_UNBOX_PEEK, nullptr, &blob_handle));
+
+  Blob* blob = Blob::FromHandle(blob_handle);
+  EXPECT_EQ(kMessage, blob->message());
+
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.Unbox(box, IPCZ_NO_FLAGS, nullptr, &blob_handle));
+
+  Ref<Blob> released_blob = Blob::ReleaseFromHandle(blob_handle);
+  EXPECT_EQ(blob, released_blob.get());
+
+  CloseHandles({node});
+}
+
 TEST_P(BoxTest, TransferBox) {
   IpczHandle node0 = CreateBrokerNode();
   IpczHandle node1 = CreateNonBrokerNode();

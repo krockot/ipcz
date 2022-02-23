@@ -491,12 +491,19 @@ typedef uint32_t IpczEndPutFlags;
 // aborted without committing any data, portals, or OS handles to the portal.
 #define IPCZ_END_PUT_ABORT IPCZ_FLAG_BIT(0)
 
-// See EndGet() and the IPC_END_GET_* flag descriptions below.
+// See EndGet() and the IPCZ_END_GET_* flag descriptions below.
 typedef uint32_t IpczEndGetFlags;
 
 // If this flag is given to EndGet(), any in-progress two-phase get operation is
 // aborted without consuming any data from the portal.
 #define IPCZ_END_GET_ABORT IPCZ_FLAG_BIT(0)
+
+// See Unbox() and the IPCZ_UNBOX_* flags described below.
+typedef uint32_t IpczUnboxFlags;
+
+// If set, the box is not consumed and the driver handle returned is not removed
+// from the box.
+#define IPCZ_UNBOX_PEEK IPCZ_FLAG_BIT(0)
 
 // Flags given by the `flags` field in IpczPortalStatus.
 typedef uint32_t IpczPortalStatusFlags;
@@ -1327,7 +1334,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_INVALID_ARGUMENT if `handle` is invalid or does not
   //        reference a box.
   IpczResult (*Unbox)(IpczHandle handle,
-                      uint32_t flags,
+                      IpczUnboxFlags flags,
                       const void* options,
                       IpczDriverHandle* driver_handle);
 };
