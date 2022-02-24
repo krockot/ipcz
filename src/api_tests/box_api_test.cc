@@ -23,13 +23,5 @@ TEST_F(BoxAPITest, InvalidArgs) {
             ipcz.Box(node, 42, IPCZ_NO_FLAGS, nullptr, nullptr));
 }
 
-TEST_F(BoxAPITest, Unserializable) {
-  IpczDriverHandle driver_handle =
-      reference_drivers::CreateUnserializableTestObject();
-  IpczHandle handle;
-  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.Box(node, driver_handle, IPCZ_NO_FLAGS, nullptr, &handle));
-}
-
 }  // namespace
 }  // namespace ipcz
