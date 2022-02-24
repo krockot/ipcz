@@ -131,7 +131,9 @@ typedef uint32_t IpczTransportActivityFlags;
 // ipcz to free associated resources.
 #define IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED IPCZ_FLAG_BIT(1)
 
+#if defined(__cplusplus)
 extern "C" {
+#endif
 
 // Notifies ipcz of activity on a transport. `transport` must be a handle to a
 // transport which is currently activated. This handle is acquired exclusively
@@ -357,7 +359,9 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                 IpczDriverHandle* driver_mapping);
 };
 
+#if defined(__cplusplus)
 }  // extern "C"
+#endif
 
 // See CreateNode() and the IPCZ_CREATE_NODE_* flag descriptions below.
 typedef uint32_t IpczCreateNodeFlags;
@@ -458,7 +462,7 @@ struct IPCZ_ALIGN(8) IpczPutOptions {
   uint32_t size;
 
   // Optional limits to apply when determining if the Put() should be completed.
-  const IpczPutLimits* limits;
+  const struct IpczPutLimits* limits;
 };
 
 // See BeginPut() and the IPCZ_BEGIN_PUT_* flags described below.
@@ -481,7 +485,7 @@ struct IPCZ_ALIGN(8) IpczBeginPutOptions {
 
   // Optional limits to apply when determining if the BeginPut() should be
   // completed.
-  const IpczPutLimits* limits;
+  const struct IpczPutLimits* limits;
 };
 
 // See EndPut() and the IPCZ_END_PUT_* flags described below.
@@ -628,14 +632,16 @@ struct IPCZ_ALIGN(8) IpczTrapEvent {
   IpczTrapConditionFlags condition_flags;
 
   // The current status of the portal which triggered this event.
-  const IpczPortalStatus* status;
+  const struct IpczPortalStatus* status;
 };
 
 // An application-defined function to be invoked by a trap when its observed
 // conditions are satisfied on the monitored portal.
 typedef void (*IpczTrapEventHandler)(const struct IpczTrapEvent* event);
 
+#if defined(__cplusplus)
 extern "C" {
+#endif
 
 // Table of API functions defined by ipcz. Instances of this structure may be
 // populated by passing them to IpczGetAPI().
@@ -1364,6 +1370,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
 //       table required to host API version 0.
 IpczResult IpczGetAPI(struct IpczAPI* api);
 
+#if defined(__cplusplus)
 }  // extern "C"
+#endif
 
 #endif  // IPCZ_INCLUDE_IPCZ_IPCZ_H_
