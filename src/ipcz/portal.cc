@@ -19,7 +19,6 @@
 #include "ipcz/parcel.h"
 #include "ipcz/router.h"
 #include "ipcz/router_link_state.h"
-#include "ipcz/trap.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -277,17 +276,6 @@ IpczResult Portal::AbortGet() {
   }
 
   in_two_phase_get_ = false;
-  return IPCZ_RESULT_OK;
-}
-
-IpczResult Portal::CreateTrap(const IpczTrapConditions& conditions,
-                              IpczTrapEventHandler handler,
-                              uint64_t context,
-                              IpczHandle& trap) {
-  auto new_trap =
-      MakeRefCounted<Trap>(WrapRefCounted(this), conditions, handler, context);
-  router_->AddTrap(new_trap);
-  trap = ToHandle(new_trap.release());
   return IPCZ_RESULT_OK;
 }
 

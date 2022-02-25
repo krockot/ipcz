@@ -553,6 +553,12 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
 // trap should observe.
 typedef uint32_t IpczTrapConditionFlags;
 
+// Triggers a trap event when the trap's portal is itself closed. This condition
+// is always observed even if not explicitly set in the IpczTrapConditions given
+// to the Trap() call. If a portal is closed while a trap is installed on it,
+// an event will fire for the trap with this condition flag set.
+#define IPCZ_TRAP_REMOVED IPCZ_FLAG_BIT(0)
+
 // Triggers a trap event whenever the opposite portal is closed. Typically
 // applications are interested in the more specific IPCZ_TRAP_DEAD.
 #define IPCZ_TRAP_PEER_CLOSED IPCZ_FLAG_BIT(1)
@@ -563,38 +569,34 @@ typedef uint32_t IpczTrapConditionFlags;
 #define IPCZ_TRAP_DEAD IPCZ_FLAG_BIT(2)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
-// this portal meets or exceeds the threshold given by `min_local_parcels` in
+// this portal exceeds the threshold given by `min_local_parcels` in
 // IpczTrapConditions.
 #define IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval by
-// this portal meets or exceeds the threshold given by `min_local_bytes` in
+// this portal exceeds the threshold given by `min_local_bytes` in
 // IpczTrapConditions.
 #define IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES IPCZ_FLAG_BIT(4)
-
-// Triggers a trap event whenever the number of parcels queued for retrieval by
-// this portal increases by any amount.
-#define IPCZ_TRAP_NEW_LOCAL_PARCEL IPCZ_FLAG_BIT(5)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_parcels`
 // in IpczTrapConditions.
-#define IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS IPCZ_FLAG_BIT(6)
+#define IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS IPCZ_FLAG_BIT(5)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_bytes` in
 // in IpczTrapConditions.
-#define IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES IPCZ_FLAG_BIT(7)
+#define IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES IPCZ_FLAG_BIT(6)
 
 // Triggers a trap event whenever the number of queued remote parcels decreases
 // by any amount.
-#define IPCZ_TRAP_CONSUMED_REMOTE_PARCEL IPCZ_FLAG_BIT(8)
+#define IPCZ_TRAP_CONSUMED_REMOTE_PARCEL IPCZ_FLAG_BIT(7)
 
 // A structure describing portal conditions necessary to trigger a trap and
 // invoke its event handler.
 struct IPCZ_ALIGN(8) IpczTrapConditions {
   // The exact size of this structure in bytes. Must be set accurately before
-  // passing the structure to CreateTrap() or ArmTrap().
+  // passing the structure to Trap().
   uint32_t size;
 
   // See the IPCZ_TRAP_* flags described above.
@@ -624,8 +626,8 @@ struct IPCZ_ALIGN(8) IpczTrapEvent {
   // version is being provided to the handler.
   uint32_t size;
 
-  // The context value originally given to CreateTrap() when creating the trap
-  // which fired this event.
+  // The context value that was given to Trap() when installing the trap that
+  // fired this event.
   uint64_t context;
 
   // Flags indicating which condition(s) triggered this event.
@@ -1221,30 +1223,32 @@ struct IPCZ_ALIGN(8) IpczAPI {
                        struct IpczOSHandle* os_handles,
                        uint32_t* num_os_handles);
 
-  // Creates a trap to catch interesting changes to a portal's state.
+  // Attempts to install a trap to catch interesting changes to a portal's
+  // state. The condition(s) to observe are specified in `conditions`.
+  // Regardless of what conditions the caller specifies, all successfully
+  // installed traps also implicitly observe IPCZ_TRAP_REMOVED.
   //
-  // Traps are created in a disarmed state and must be armed explicitly by a
-  // call to ArmTrap(). Once armed they can fire the given `handler` exactly
-  // once, at which point they are automatically disarmed again.
+  // If successful, ipcz guarantees that `handler` will be invoked -- with the
+  // the `context` field of the invocation's IpczTrapEvent reflecting the value
+  // of `context` given here -- once any of the specified conditions have been
+  // met.
   //
-  // An armed trap will invoke its `handler` as soon as any condition described
-  // by `conditions` becomes satisfied. For example if `conditions` specifies an
-  // interest in IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS with a value of 0 in
-  // `min_local_parcels` and the trap is armed, then `handler` will be invoked
-  // as soon as there is at least one incoming parcel available for retrieval on
-  // `portal`.
+  // Immediately before invoking its handler, the trap is removed from the
+  // portal and must be reinstalled in order to observe further state changes.
   //
-  // When `handler` is invoked, it's passed the value of `context`, which
-  // applications may use to differentiate between multiple traps using the same
-  // handler. It's also passed an IpczPortalStatus structure indicating details
-  // about the portal's state at the time of the invocation.
+  // When a portal is closed, any traps still installed on it are notified by
+  // invoking their handler with IPCZ_TRAP_REMOVED in the event's
+  // `condition_flags`. This effectively guarantees that all installed traps
+  // eventually see a handler invocation.
   //
-  // A disarmed trap will never invoke its handler.
+  // Note that `handler` may be invoked from any thread that can modify the
+  // state of the observed portal. This is limited to threads which make direct
+  // ipcz calls on the portal, and any threads on which the portal's node may
+  // receive notifications from a driver transport.
   //
-  // Note that a portal's state may be changed by any thread, including an
-  // internal ipcz thread observing incoming parcels from out-of-process.
-  // Because of this, application developers must be mindful of thread safety
-  // within `handler` and whatever logic might arm or destroy traps.
+  // If any of the specified conditions are already met, the trap is not
+  // installed and this call returns IPCZ_RESULT_FAILED_PRECONDITION. See below
+  // for details.
   //
   // `flags` is ignored and must be 0.
   //
@@ -1252,54 +1256,27 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if the trap was created successfully as described above.
-  //        `*trap* is populated with a handle the application may use in
-  //        subsequent calls to ArmTrap().
+  //    IPCZ_RESULT_OK if the trap was installed successfully. In this case
+  //        `flags` and `status` arguments are ignored.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `conditions` is
-  //        null or invalid, `handler` is null, or `trap` is null.
-  IpczResult (*CreateTrap)(IpczHandle portal,
-                           const struct IpczTrapConditions* conditions,
-                           IpczTrapEventHandler handler,
-                           uint64_t context,
-                           uint32_t flags,
-                           const void* options,
-                           IpczHandle* trap);
-
-  // Arms a trap.
+  //        null or invalid, `handler` is null, or `status` is non-null but its
+  //        `size` field specifies an invalid value.
   //
-  // If successful the trap may invoke its event handler at any time on any
-  // thread, as soon as its specified conditions become satisfied.
-  // Once this occurs the trap is once again disarmed and must be re-armed by
-  // another call to ArmTrap().
-  //
-  // If the trap's conditions are already satisfied at the time of this call,
-  // the call fails with IPCZ_RESULT_FAILED_PRECONDITION. See below for
-  // additional details.
-  //
-  // Returns:
-  //
-  //    IPCZ_RESULT_OK if the trap was successfully armed. In this case the
-  //        `conditions` and `status` arguments ignored.
-  //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `trap` is invalid,
-  //        `satisfied_condition_flags` is non-null but invalid, or `status` is
-  //        non-null but invalid.
-  //
-  //    IPCZ_RESULT_ALREADY_EXISTS if the trap was already armed. In this case
-  //        the `conditions` and `status` arguments ignored.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if one or more of the trap's conditions
-  //        are already satisfied, such that the trap would fire an event
-  //        immediately once armed. If `satisfied_condition_flags` is non-null
-  //        it will be populated to indicate which satisfied condition(s)
-  //        blocked the arming of the trap, and if `status` is not null it will
-  //        be populated with details about the portal's current status.
-  IpczResult (*ArmTrap)(IpczHandle trap,
-                        uint32_t flags,
-                        const void* options,
-                        IpczTrapConditionFlags* satisfied_condition_flags,
-                        struct IpczPortalStatus* status);
+  //    IPCZ_RESULT_FAILED_PRECONDITION if the conditions specified are already
+  //        met on the portal. If `satisfied_condition_flags` is non-null, then
+  //        its pointee value will be updated to reflect the flags in
+  //        `conditions` which were already satisfied by the portal's state. If
+  //        `status` is non-null, a copy of the portal's last known status will
+  //        also be stored there.
+  IpczResult (*Trap)(IpczHandle portal,
+                     const struct IpczTrapConditions* conditions,
+                     IpczTrapEventHandler handler,
+                     uint64_t context,
+                     uint32_t flags,
+                     const void* options,
+                     IpczTrapConditionFlags* satisfied_condition_flags,
+                     struct IpczPortalStatus* status);
 
   // Boxes an object managed by a node's driver and returns a new IpczHandle to
   // reference the box. The driver must support serialization of the input

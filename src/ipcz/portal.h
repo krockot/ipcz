@@ -74,15 +74,6 @@ class Portal : public APIObject {
                        uint32_t* num_os_handles);
   IpczResult AbortGet();
 
-  IpczResult CreateTrap(const IpczTrapConditions& conditions,
-                        IpczTrapEventHandler handler,
-                        uint64_t context,
-                        IpczHandle& trap);
-  IpczResult ArmTrap(IpczHandle trap,
-                     IpczTrapConditionFlags* satisfied_condition_flags,
-                     IpczPortalStatus* status);
-  IpczResult DestroyTrap(IpczHandle trap);
-
  private:
   ~Portal() override;
 

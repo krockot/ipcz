@@ -13,6 +13,7 @@
 #include "ipcz/ipcz.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
+#include "util/function.h"
 #include "util/os_handle.h"
 #include "util/os_process.h"
 
@@ -76,11 +77,21 @@ class TestBase : public testing::Test {
   Parcel Get(IpczHandle portal);
   bool DiscardNextParcel(IpczHandle portal);
 
+  using Handler = Function<void(const IpczTrapEvent& e)>;
+  IpczResult Trap(IpczHandle portal,
+                  const IpczTrapConditions& conditions,
+                  Handler handler,
+                  IpczTrapConditionFlags* satisfied_condition_flags = nullptr,
+                  IpczPortalStatus* status = nullptr);
+
   void VerifyEndToEnd(IpczHandle a, IpczHandle b);
   bool PortalsAreLocalPeers(IpczHandle a, IpczHandle b);
   void LogPortalRoute(IpczHandle a);
   static size_t GetNumRouters();
   static void DumpAllRouters();
+
+ private:
+  static void OnTrapEvent(const IpczTrapEvent* event);
 };
 
 }  // namespace test

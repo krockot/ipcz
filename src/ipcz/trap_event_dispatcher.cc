@@ -12,24 +12,32 @@ TrapEventDispatcher::~TrapEventDispatcher() {
   DispatchAll();
 }
 
-void TrapEventDispatcher::DeferEvent(
-    Ref<Trap> trap,
-    const IpczTrapConditionFlags condition_flags,
-    const IpczPortalStatus& status) {
-  events_.emplace_back();
-  Event& event = events_.back();
-  event.trap = std::move(trap);
-  event.condition_flags = condition_flags;
-  event.status = status;
+void TrapEventDispatcher::DeferEvent(IpczTrapEventHandler handler,
+                                     uint64_t context,
+                                     IpczTrapConditionFlags flags,
+                                     const IpczPortalStatus& status) {
+  events_.emplace_back(handler, context, flags, status);
 }
 
 void TrapEventDispatcher::DispatchAll() {
   for (const Event& event : events_) {
-    event.trap->MaybeDispatchEvent(event.condition_flags, event.status);
+    const IpczTrapEvent trap_event = {
+        .size = sizeof(trap_event),
+        .context = event.context,
+        .condition_flags = event.flags,
+        .status = &event.status,
+    };
+    event.handler(&trap_event);
   }
 }
 
 TrapEventDispatcher::Event::Event() = default;
+
+TrapEventDispatcher::Event::Event(IpczTrapEventHandler handler,
+                                  uint64_t context,
+                                  IpczTrapConditionFlags flags,
+                                  IpczPortalStatus status)
+    : handler(handler), context(context), flags(flags), status(status) {}
 
 TrapEventDispatcher::Event::Event(const Event&) = default;
 

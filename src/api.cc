@@ -13,7 +13,6 @@
 #include "ipcz/node.h"
 #include "ipcz/portal.h"
 #include "ipcz/router.h"
-#include "ipcz/trap.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -325,39 +324,26 @@ IpczResult EndGet(IpczHandle portal_handle,
                            num_os_handles);
 }
 
-IpczResult CreateTrap(IpczHandle portal_handle,
-                      const IpczTrapConditions* conditions,
-                      IpczTrapEventHandler handler,
-                      uint64_t context,
-                      uint32_t flags,
-                      const void* options,
-                      IpczHandle* trap) {
+IpczResult Trap(IpczHandle portal_handle,
+                const IpczTrapConditions* conditions,
+                IpczTrapEventHandler handler,
+                uint64_t context,
+                uint32_t flags,
+                const void* options,
+                IpczTrapConditionFlags* satisfied_condition_flags,
+                IpczPortalStatus* status) {
   ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
-  if (!portal || !trap || !handler) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-  if (!conditions || conditions->size < sizeof(IpczTrapConditions)) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  return portal->CreateTrap(*conditions, handler, context, *trap);
-}
-
-IpczResult ArmTrap(IpczHandle trap_handle,
-                   uint32_t flags,
-                   const void* options,
-                   IpczTrapConditionFlags* satisfied_condition_flags,
-                   IpczPortalStatus* status) {
-  ipcz::Trap* trap = ipcz::APIObject::Get<ipcz::Trap>(trap_handle);
-  if (!trap) {
+  if (!portal || !handler || !conditions ||
+      conditions->size < sizeof(*conditions)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  if (status && status->size < sizeof(IpczPortalStatus)) {
+  if (status && status->size < sizeof(*status)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return trap->Arm(satisfied_condition_flags, status);
+  return portal->router()->Trap(*conditions, handler, context,
+                                satisfied_condition_flags, status);
 }
 
 IpczResult Box(IpczHandle node_handle,
@@ -413,8 +399,7 @@ constexpr IpczAPI kCurrentAPI = {
     Get,
     BeginGet,
     EndGet,
-    CreateTrap,
-    ArmTrap,
+    Trap,
     Box,
     Unbox,
 };

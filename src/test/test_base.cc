@@ -17,6 +17,8 @@
 #include "util/os_process.h"
 #include "util/ref_counted.h"
 
+#include "util/log.h"
+
 namespace ipcz {
 namespace test {
 
@@ -130,27 +132,22 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
 IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
   reference_drivers::Event event;
   reference_drivers::Event::Notifier notifier = event.MakeNotifier();
-  IpczTrapConditions conditions = {sizeof(conditions)};
-  conditions.flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD;
-  conditions.min_local_parcels = 0;
-  const auto handler = [](const IpczTrapEvent* event) {
-    reinterpret_cast<reference_drivers::Event::Notifier*>(event->context)
-        ->Notify();
+  IpczTrapConditions conditions = {
+      .size = sizeof(conditions),
+      .flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD,
+      .min_local_parcels = 0,
   };
-  const auto context =
-      static_cast<uint64_t>(reinterpret_cast<uintptr_t>(&notifier));
-  IpczHandle trap;
-  EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.CreateTrap(portal, &conditions, handler, context,
-                            IPCZ_NO_FLAGS, nullptr, &trap));
-  IpczResult result =
-      ipcz.ArmTrap(trap, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr);
+  bool removed = false;
+  IpczResult result = Trap(
+      portal, conditions, [&removed, &notifier](const IpczTrapEvent& event) {
+        removed = (event.condition_flags & IPCZ_TRAP_REMOVED) != 0;
+        notifier.Notify();
+      });
   if (result == IPCZ_RESULT_OK) {
     event.Wait();
   } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {
     return result;
   }
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(trap, IPCZ_NO_FLAGS, nullptr));
 
   return MaybeGet(portal, parcel);
 }
@@ -174,6 +171,17 @@ bool TestBase::DiscardNextParcel(IpczHandle portal) {
   }
 
   return WaitToGet(portal, p) == IPCZ_RESULT_OK;
+}
+
+IpczResult TestBase::Trap(IpczHandle portal,
+                          const IpczTrapConditions& conditions,
+                          Handler handler,
+                          IpczTrapConditionFlags* satisfied_condition_flags,
+                          IpczPortalStatus* status) {
+  auto context = static_cast<uint64_t>(
+      reinterpret_cast<uintptr_t>(new Handler(std::move(handler))));
+  return ipcz.Trap(portal, &conditions, &OnTrapEvent, context, IPCZ_NO_FLAGS,
+                   nullptr, satisfied_condition_flags, status);
 }
 
 void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
@@ -209,6 +217,13 @@ size_t TestBase::GetNumRouters() {
 // static
 void TestBase::DumpAllRouters() {
   return RouterTracker::DumpRouters();
+}
+
+// static
+void TestBase::OnTrapEvent(const IpczTrapEvent* event) {
+  std::unique_ptr<Handler> handler(
+      reinterpret_cast<Handler*>(static_cast<uintptr_t>(event->context)));
+  (*handler)(*event);
 }
 
 }  // namespace test

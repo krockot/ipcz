@@ -8,13 +8,10 @@
 #include <cstdint>
 
 #include "ipcz/ipcz.h"
-#include "ipcz/trap.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
-
-class Trap;
 
 // Accumulates IpczTrapEvent dispatches to specific handlers. Handler invocation
 // is deferred until DispatchAll() is called or the TrapEventDispatcher is
@@ -28,26 +25,30 @@ class TrapEventDispatcher {
   TrapEventDispatcher();
   ~TrapEventDispatcher();
 
-  void DeferEvent(Ref<Trap> trap,
-                  const IpczTrapConditionFlags condition_flags,
+  void DeferEvent(IpczTrapEventHandler handler,
+                  uint64_t context,
+                  IpczTrapConditionFlags flags,
                   const IpczPortalStatus& status);
-
   void DispatchAll();
 
  private:
   struct Event {
     Event();
+    Event(IpczTrapEventHandler handler,
+          uint64_t context,
+          IpczTrapConditionFlags flags,
+          IpczPortalStatus status);
     Event(const Event&);
     Event& operator=(const Event&);
     ~Event();
 
-    Ref<Trap> trap;
-    IpczTrapConditionFlags condition_flags;
+    IpczTrapEventHandler handler;
+    uint64_t context;
+    IpczTrapConditionFlags flags;
     IpczPortalStatus status;
   };
 
   using DeferredEventQueue = absl::InlinedVector<Event, 4>;
-
   DeferredEventQueue events_;
 };
 

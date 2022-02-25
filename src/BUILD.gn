@@ -226,8 +226,6 @@ portable_source_set("impl") {
     "ipcz/router_tracker.h",
     "ipcz/sequence_number.h",
     "ipcz/sublink_id.h",
-    "ipcz/trap.cc",
-    "ipcz/trap.h",
     "ipcz/trap_event_dispatcher.cc",
     "ipcz/trap_event_dispatcher.h",
     "ipcz/trap_set.cc",
@@ -287,14 +285,12 @@ config("ipcz_include_src_dir") {
 
 test("ipcz_tests") {
   sources = [
-    "api_tests/arm_trap_api_test.cc",
     "api_tests/begin_get_api_test.cc",
     "api_tests/begin_put_api_test.cc",
     "api_tests/box_api_test.cc",
     "api_tests/close_api_test.cc",
     "api_tests/connect_node_api_test.cc",
     "api_tests/create_node_api_test.cc",
-    "api_tests/create_trap_api_test.cc",
     "api_tests/end_get_api_test.cc",
     "api_tests/end_put_api_test.cc",
     "api_tests/get_api_test.cc",
@@ -302,6 +298,7 @@ test("ipcz_tests") {
     "api_tests/open_portals_api_test.cc",
     "api_tests/put_api_test.cc",
     "api_tests/query_portal_status_api_test.cc",
+    "api_tests/trap_api_test.cc",
     "api_tests/unbox_api_test.cc",
     "integration_tests/box_test.cc",
     "integration_tests/connect_test.cc",

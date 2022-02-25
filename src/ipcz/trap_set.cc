@@ -4,43 +4,110 @@
 
 #include "ipcz/trap_set.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "ipcz/ipcz.h"
-#include "ipcz/trap.h"
+#include "ipcz/trap_event_dispatcher.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
 
+namespace {
+
+IpczTrapConditionFlags GetSatisfiedConditions(
+    const IpczTrapConditions& conditions,
+    const IpczPortalStatus& status) {
+  IpczTrapConditionFlags event_flags = 0;
+  if ((conditions.flags & IPCZ_TRAP_PEER_CLOSED) &&
+      (status.flags & IPCZ_PORTAL_STATUS_PEER_CLOSED)) {
+    event_flags |= IPCZ_TRAP_PEER_CLOSED;
+  }
+  if ((conditions.flags & IPCZ_TRAP_DEAD) &&
+      (status.flags & IPCZ_PORTAL_STATUS_DEAD)) {
+    event_flags |= IPCZ_TRAP_DEAD;
+  }
+  if ((conditions.flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS) &&
+      status.num_local_parcels > conditions.min_local_parcels) {
+    event_flags |= IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS;
+  }
+  if ((conditions.flags & IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES) &&
+      status.num_local_bytes > conditions.min_local_bytes) {
+    event_flags |= IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES;
+  }
+  if ((conditions.flags & IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS) &&
+      status.num_remote_parcels < conditions.max_remote_parcels) {
+    event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS;
+  }
+  if ((conditions.flags & IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES) &&
+      status.num_remote_bytes < conditions.max_remote_bytes) {
+    event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES;
+  }
+  return event_flags;
+}
+
+}  // namespace
+
 TrapSet::TrapSet() = default;
-
-TrapSet::TrapSet(TrapSet&&) = default;
-
-TrapSet& TrapSet::operator=(TrapSet&&) = default;
 
 TrapSet::~TrapSet() = default;
 
-void TrapSet::Add(Ref<Trap> trap) {
-  traps_.insert(std::move(trap));
-}
+IpczResult TrapSet::Add(const IpczTrapConditions& conditions,
+                        IpczTrapEventHandler handler,
+                        uint64_t context,
+                        const IpczPortalStatus& current_status,
+                        IpczTrapConditionFlags* satisfied_condition_flags,
+                        IpczPortalStatus* status) {
+  last_known_status_ = current_status;
+  IpczTrapConditionFlags flags =
+      GetSatisfiedConditions(conditions, current_status);
+  if (flags != 0) {
+    if (satisfied_condition_flags) {
+      *satisfied_condition_flags = flags;
+    }
+    if (status) {
+      uint32_t size =
+          std::min(status->size, static_cast<uint32_t>(sizeof(current_status)));
+      memcpy(status, &current_status, size);
+      status->size = size;
+    }
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
 
-void TrapSet::Remove(Trap& trap) {
-  traps_.erase(&trap);
+  traps_.emplace_back(conditions, handler, context);
+  return IPCZ_RESULT_OK;
 }
 
 void TrapSet::UpdatePortalStatus(const IpczPortalStatus& status,
-                                 Trap::UpdateReason reason,
                                  TrapEventDispatcher& dispatcher) {
-  for (const Ref<Trap>& trap : traps_) {
-    trap->UpdatePortalStatus(status, reason, dispatcher);
+  last_known_status_ = status;
+  for (auto* it = traps_.begin(); it != traps_.end();) {
+    const Trap& trap = *it;
+    const IpczTrapConditionFlags flags =
+        GetSatisfiedConditions(trap.conditions, status);
+    if (!flags) {
+      ++it;
+      continue;
+    }
+
+    dispatcher.DeferEvent(trap.handler, trap.context, flags, status);
+    it = traps_.erase(it);
   }
 }
 
-void TrapSet::DisableAllAndClear() {
-  for (const Ref<Trap>& trap : traps_) {
-    trap->Disable();
+void TrapSet::RemoveAll(TrapEventDispatcher& dispatcher) {
+  for (const Trap& trap : traps_) {
+    dispatcher.DeferEvent(trap.handler, trap.context, IPCZ_TRAP_REMOVED,
+                          last_known_status_);
   }
   traps_.clear();
 }
+
+TrapSet::Trap::Trap(IpczTrapConditions conditions,
+                    IpczTrapEventHandler handler,
+                    uint64_t context)
+    : conditions(conditions), handler(handler), context(context) {}
+
+TrapSet::Trap::~Trap() = default;
 
 }  // namespace ipcz

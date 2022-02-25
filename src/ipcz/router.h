@@ -19,7 +19,6 @@
 #include "ipcz/route_edge.h"
 #include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
-#include "ipcz/trap.h"
 #include "ipcz/trap_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -168,8 +167,11 @@ class Router : public RefCounted {
                                          IpczOSHandle* os_handles,
                                          uint32_t* num_os_handles);
 
-  void AddTrap(Ref<Trap> trap);
-  void RemoveTrap(Trap& trap);
+  IpczResult Trap(const IpczTrapConditions& conditions,
+                  IpczTrapEventHandler handler,
+                  uint64_t context,
+                  IpczTrapConditionFlags* satisfied_condition_flags,
+                  IpczPortalStatus* status);
 
   // Serializes a description of a new Router to be introduced on a receiving
   // node as an extension of this route. Also makes any necessary state changes
@@ -267,9 +269,8 @@ class Router : public RefCounted {
   // this router, iff this is a terminal router.
   IpczPortalStatus status_ ABSL_GUARDED_BY(mutex_) = {sizeof(status_)};
 
-  // A set of traps installed by a controlling portal where applicable. These
-  // traps are notified about any interesting state changes within the router so
-  // that the application's event handlers can be invoked accordingly.
+  // A set of traps installed via a controlling portal where applicable. These
+  // traps are notified about any interesting state changes within the router.
   TrapSet traps_ ABSL_GUARDED_BY(mutex_);
 
   // An edge connecting this router outward to another router closer to the

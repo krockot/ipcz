@@ -24,7 +24,6 @@ class APIObject : public RefCounted {
   enum ObjectType {
     kNode,
     kPortal,
-    kTrap,
     kBox,
   };
 

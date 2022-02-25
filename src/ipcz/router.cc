@@ -26,7 +26,6 @@
 #include "ipcz/router_tracker.h"
 #include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
-#include "ipcz/trap.h"
 #include "ipcz/trap_event_dispatcher.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
@@ -146,10 +145,11 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
 }
 
 void Router::CloseRoute() {
+  TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
     ABSL_ASSERT(!inward_edge_);
-    traps_.DisableAllAndClear();
+    traps_.RemoveAll(dispatcher);
     bool ok = outbound_parcels_.SetFinalSequenceLength(
         outbound_parcels_.GetCurrentSequenceLength());
     ABSL_ASSERT(ok);
@@ -263,8 +263,7 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
     if (!inward_edge_) {
       status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
       status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
-      traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kParcelReceived,
-                                dispatcher);
+      traps_.UpdatePortalStatus(status_, dispatcher);
     }
   }
 
@@ -309,8 +308,7 @@ bool Router::AcceptRouteClosureFrom(LinkType link_type,
         if (inbound_parcels_.IsDead()) {
           status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
         }
-        traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kRouteClosed,
-                                  dispatcher);
+        traps_.UpdatePortalStatus(status_, dispatcher);
       }
     } else if (link_type == LinkType::kBridge) {
       if (!outbound_parcels_.SetFinalSequenceLength(sequence_length)) {
@@ -373,8 +371,7 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kParcelConsumed,
-                              dispatcher);
+    traps_.UpdatePortalStatus(status_, dispatcher);
   }
 
   return IPCZ_RESULT_OK;
@@ -463,29 +460,29 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.UpdatePortalStatus(status_, Trap::UpdateReason::kParcelConsumed,
-                              dispatcher);
+    traps_.UpdatePortalStatus(status_, dispatcher);
   }
   return IPCZ_RESULT_OK;
 }
 
-void Router::AddTrap(Ref<Trap> trap) {
+IpczResult Router::Trap(const IpczTrapConditions& conditions,
+                        IpczTrapEventHandler handler,
+                        uint64_t context,
+                        IpczTrapConditionFlags* satisfied_condition_flags,
+                        IpczPortalStatus* status) {
   absl::MutexLock lock(&mutex_);
-  traps_.Add(std::move(trap));
-}
-
-void Router::RemoveTrap(Trap& trap) {
-  absl::MutexLock lock(&mutex_);
-  traps_.Remove(trap);
+  return traps_.Add(conditions, handler, context, status_,
+                    satisfied_condition_flags, status);
 }
 
 void Router::SerializeNewRouter(NodeLink& to_node_link,
                                 RouterDescriptor& descriptor) {
+  TrapEventDispatcher dispatcher;
   Ref<Router> local_peer;
   bool initiate_proxy_bypass = false;
   {
     absl::MutexLock lock(&mutex_);
-    traps_.DisableAllAndClear();
+    traps_.RemoveAll(dispatcher);
     local_peer = outward_edge_.GetLocalPeer();
     initiate_proxy_bypass = outward_edge_.TryLockPrimaryLinkForBypass(
         to_node_link.remote_node_name());
