@@ -490,7 +490,7 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
         for (size_t j = 0; j < descriptor.num_os_handles; ++j) {
           ipcz_os_handles[j].size = sizeof(ipcz_os_handles[j]);
           if (!OSHandle::ToIpczOSHandle(std::move(os_handles[j]),
-                                        &ipcz_os_handles[i])) {
+                                        &ipcz_os_handles[j])) {
             return false;
           }
         }
