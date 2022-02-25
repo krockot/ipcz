@@ -17,6 +17,7 @@ namespace {
 
 IpczTrapConditionFlags GetSatisfiedConditions(
     const IpczTrapConditions& conditions,
+    TrapSet::UpdateReason reason,
     const IpczPortalStatus& status) {
   IpczTrapConditionFlags event_flags = 0;
   if ((conditions.flags & IPCZ_TRAP_PEER_CLOSED) &&
@@ -43,6 +44,10 @@ IpczTrapConditionFlags GetSatisfiedConditions(
       status.num_remote_bytes < conditions.max_remote_bytes) {
     event_flags |= IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES;
   }
+  if ((conditions.flags & IPCZ_TRAP_NEW_LOCAL_PARCEL) &&
+      reason == TrapSet::UpdateReason::kNewLocalParcel) {
+    event_flags |= IPCZ_TRAP_NEW_LOCAL_PARCEL;
+  }
   return event_flags;
 }
 
@@ -59,8 +64,8 @@ IpczResult TrapSet::Add(const IpczTrapConditions& conditions,
                         IpczTrapConditionFlags* satisfied_condition_flags,
                         IpczPortalStatus* status) {
   last_known_status_ = current_status;
-  IpczTrapConditionFlags flags =
-      GetSatisfiedConditions(conditions, current_status);
+  IpczTrapConditionFlags flags = GetSatisfiedConditions(
+      conditions, UpdateReason::kInstallTrap, current_status);
   if (flags != 0) {
     if (satisfied_condition_flags) {
       *satisfied_condition_flags = flags;
@@ -79,12 +84,13 @@ IpczResult TrapSet::Add(const IpczTrapConditions& conditions,
 }
 
 void TrapSet::UpdatePortalStatus(const IpczPortalStatus& status,
+                                 UpdateReason reason,
                                  TrapEventDispatcher& dispatcher) {
   last_known_status_ = status;
   for (auto* it = traps_.begin(); it != traps_.end();) {
     const Trap& trap = *it;
     const IpczTrapConditionFlags flags =
-        GetSatisfiedConditions(trap.conditions, status);
+        GetSatisfiedConditions(trap.conditions, reason, status);
     if (!flags) {
       ++it;
       continue;

@@ -263,7 +263,8 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
     if (!inward_edge_) {
       status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
       status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
-      traps_.UpdatePortalStatus(status_, dispatcher);
+      traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kNewLocalParcel,
+                                dispatcher);
     }
   }
 
@@ -308,7 +309,8 @@ bool Router::AcceptRouteClosureFrom(LinkType link_type,
         if (inbound_parcels_.IsDead()) {
           status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
         }
-        traps_.UpdatePortalStatus(status_, dispatcher);
+        traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kPeerClosed,
+                                  dispatcher);
       }
     } else if (link_type == LinkType::kBridge) {
       if (!outbound_parcels_.SetFinalSequenceLength(sequence_length)) {
@@ -371,7 +373,8 @@ IpczResult Router::GetNextIncomingParcel(void* data,
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.UpdatePortalStatus(status_, dispatcher);
+    traps_.UpdatePortalStatus(
+        status_, TrapSet::UpdateReason::kLocalParcelConsumed, dispatcher);
   }
 
   return IPCZ_RESULT_OK;
@@ -460,7 +463,8 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
-    traps_.UpdatePortalStatus(status_, dispatcher);
+    traps_.UpdatePortalStatus(
+        status_, TrapSet::UpdateReason::kLocalParcelConsumed, dispatcher);
   }
   return IPCZ_RESULT_OK;
 }

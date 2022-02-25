@@ -16,6 +16,15 @@ class TrapEventDispatcher;
 // A set of traps installed a portal.
 class TrapSet {
  public:
+  // The reason for each status update when something happens that might
+  // interest a trap. This is useful for observing edge-triggered conditions.
+  enum class UpdateReason {
+    kInstallTrap,
+    kNewLocalParcel,
+    kPeerClosed,
+    kLocalParcelConsumed,
+  };
+
   TrapSet();
   TrapSet(const TrapSet&) = delete;
   TrapSet& operator=(const TrapSet&) = delete;
@@ -32,6 +41,7 @@ class TrapSet {
                  IpczTrapConditionFlags* satisfied_condition_flags,
                  IpczPortalStatus* status);
   void UpdatePortalStatus(const IpczPortalStatus& status,
+                          UpdateReason reason,
                           TrapEventDispatcher& dispatcher);
   void RemoveAll(TrapEventDispatcher& dispatcher);
 

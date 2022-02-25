@@ -551,46 +551,63 @@ struct IPCZ_ALIGN(8) IpczPortalStatus {
 
 // Flags given to IpczTrapConditions to indicate which types of conditions a
 // trap should observe.
+//
+// Note that each type of condition may be considered edge-triggered or
+// level-triggered. An edge-triggered condition is one which is only
+// observable momentarily in response to a state change, while a level-triggered
+// condition is continuously observable as long as some constraint about a
+// portal's state is met.
+//
+// Level-triggered conditions can cause a Trap() attempt to fail if they're
+// already satisfied when attempting to install a trap to monitor them.
 typedef uint32_t IpczTrapConditionFlags;
 
 // Triggers a trap event when the trap's portal is itself closed. This condition
 // is always observed even if not explicitly set in the IpczTrapConditions given
 // to the Trap() call. If a portal is closed while a trap is installed on it,
-// an event will fire for the trap with this condition flag set.
+// an event will fire for the trap with this condition flag set. This condition
+// is effectively edge-triggered, because as soon as it becomes true, any
+// observing trap as well as its observed subject cease to exist.
 #define IPCZ_TRAP_REMOVED IPCZ_FLAG_BIT(0)
 
 // Triggers a trap event whenever the opposite portal is closed. Typically
 // applications are interested in the more specific IPCZ_TRAP_DEAD.
+// Level-triggered.
 #define IPCZ_TRAP_PEER_CLOSED IPCZ_FLAG_BIT(1)
 
 // Triggers a trap event whenever there are no more parcels available to
 // retrieve from this portal AND the opposite portal is closed. This means the
 // portal will never again have parcels to retrieve and is effectively useless.
+// Level-triggered.
 #define IPCZ_TRAP_DEAD IPCZ_FLAG_BIT(2)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval by
 // this portal exceeds the threshold given by `min_local_parcels` in
-// IpczTrapConditions.
+// IpczTrapConditions. Level-triggered.
 #define IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS IPCZ_FLAG_BIT(3)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval by
 // this portal exceeds the threshold given by `min_local_bytes` in
-// IpczTrapConditions.
+// IpczTrapConditions. Level-triggered.
 #define IPCZ_TRAP_ABOVE_MIN_LOCAL_BYTES IPCZ_FLAG_BIT(4)
 
 // Triggers a trap event whenever the number of parcels queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_parcels`
-// in IpczTrapConditions.
+// IpczTrapConditions. Level-triggered.
 #define IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS IPCZ_FLAG_BIT(5)
 
 // Triggers a trap event whenever the number of bytes queued for retrieval on
 // the opposite portal drops below the threshold given by `max_remote_bytes` in
-// in IpczTrapConditions.
+// IpczTrapConditions. Level-triggered.
 #define IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES IPCZ_FLAG_BIT(6)
 
+// Triggers a trap event whenever the number of locally available parcels
+// increases by any amount. Edge-triggered.
+#define IPCZ_TRAP_NEW_LOCAL_PARCEL IPCZ_FLAG_BIT(7)
+
 // Triggers a trap event whenever the number of queued remote parcels decreases
-// by any amount.
-#define IPCZ_TRAP_CONSUMED_REMOTE_PARCEL IPCZ_FLAG_BIT(7)
+// by any amount. Edge-triggered.
+#define IPCZ_TRAP_CONSUMED_REMOTE_PARCEL IPCZ_FLAG_BIT(8)
 
 // A structure describing portal conditions necessary to trigger a trap and
 // invoke its event handler.

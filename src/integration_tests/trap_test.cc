@@ -180,5 +180,28 @@ TEST_F(TrapTest, AutomaticRemoval) {
   ClosePortals({b});
 }
 
+TEST_F(TrapTest, NewLocalParcel) {
+  IpczHandle a, b;
+  OpenPortals(node, &a, &b);
+
+  Put(b, "hi");
+
+  bool tripped = false;
+  IpczTrapConditions conditions = {
+      .size = sizeof(conditions),
+      .flags = IPCZ_TRAP_NEW_LOCAL_PARCEL,
+  };
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            Trap(a, conditions, [&tripped](const IpczTrapEvent& e) {
+              EXPECT_NE(0u, e.condition_flags & IPCZ_TRAP_NEW_LOCAL_PARCEL);
+              tripped = true;
+            }));
+
+  EXPECT_FALSE(tripped);
+  Put(b, "hihihihi");
+  EXPECT_TRUE(tripped);
+  ClosePortals({a, b});
+}
+
 }  // namespace
 }  // namespace ipcz
