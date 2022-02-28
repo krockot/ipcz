@@ -10,11 +10,11 @@
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
 #include <lib/zx/handle.h>
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
 #include <mach/mach.h>
 #endif
 
@@ -27,28 +27,28 @@ class OSHandle {
  public:
   enum class Type {
     kInvalid,
-#if defined(OS_WIN) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA)
     kHandle,
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
     kMachSendRight,
     kMachReceiveRight,
 #endif
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
     kFileDescriptor,
 #endif
   };
 
   OSHandle();
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   explicit OSHandle(HANDLE handle);
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
   explicit OSHandle(zx::handle handle);
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   OSHandle(mach_port_t port, Type type);
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   explicit OSHandle(int fd);
 #endif
 
@@ -76,7 +76,7 @@ class OSHandle {
   // it.
   OSHandle Clone() const;
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   bool is_valid() const { return is_valid_handle(); }
   bool is_valid_handle() const { return handle_ != INVALID_HANDLE_VALUE; }
   bool is_handle() const { return type_ == Type::kHandle; }
@@ -87,7 +87,7 @@ class OSHandle {
     std::swap(handle, handle_);
     return handle;
   }
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
   bool is_valid() const { return is_valid_fd() || is_valid_handle(); }
   bool is_valid_handle() const { return handle_.is_valid(); }
   bool is_handle() const { return type_ == Type::kHandle; }
@@ -104,7 +104,7 @@ class OSHandle {
     }
     return handle_.release();
   }
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   bool is_valid() const { return is_valid_fd() || is_valid_mach_port(); }
   bool is_valid_mach_port() const {
     return is_valid_mach_send() || is_valid_mach_receive();
@@ -135,11 +135,11 @@ class OSHandle {
     }
     return mach_receive_right_;
   }
-#elif defined(OS_POSIX)
+#elif BUILDFLAG(IS_POSIX)
   bool is_valid() const { return is_valid_fd(); }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   bool is_valid_fd() const { return fd_ != -1; }
   bool is_fd() const { return type_ == Type::kFileDescriptor; }
   int fd() const { return fd_; }
@@ -153,16 +153,16 @@ class OSHandle {
 
  private:
   Type type_ = Type::kInvalid;
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   HANDLE handle_ = INVALID_HANDLE_VALUE;
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
   zx::handle handle_;
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   mach_port_t mach_send_right_ = MACH_PORT_NULL;
   mach_port_t mach_receive_right_ = MACH_PORT_NULL;
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   int fd_ = -1;
 #endif
 };

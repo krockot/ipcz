@@ -19,7 +19,7 @@
 #include "util/os_handle.h"
 #include "util/ref_counted.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define IPCZ_CDECL __cdecl
 #else
 #define IPCZ_CDECL

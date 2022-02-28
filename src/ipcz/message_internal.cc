@@ -14,7 +14,7 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/os_handle.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -93,7 +93,7 @@ void MessageBase::Serialize(absl::Span<const ParamMetadata> params,
     }
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   // On Windows, all handles have been released and absorbed into the data
   // payload.
   handles_.clear();
@@ -119,7 +119,7 @@ size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
     this_data.type = OSHandleDataType::kFileDescriptor;
     this_data.index = static_cast<uint32_t>(base_handle_index + i);
     this_data.value = 0;
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
     HANDLE h = handles[i].ReleaseHandle();
     if (remote_process.is_valid()) {
       // If we have a valid handle to the remote process, we assume we must
@@ -232,7 +232,7 @@ bool MessageBase::DeserializeDataAndHandles(
             reinterpret_cast<OSHandleData*>(&header + 1);
         for (size_t i = 0; i < header.num_elements; ++i) {
           const size_t index = handle_data[i].index;
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
           if (index >= handles_.size()) {
             handles_.resize(index + 1);
           }

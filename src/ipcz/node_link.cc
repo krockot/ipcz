@@ -401,7 +401,7 @@ bool NodeLink::OnRequestIndirectBrokerConnection(
   }
 
   OSProcess new_node_process;
-#if defined(OS_WIN) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA)
   if (process_handles.size() == 1) {
     new_node_process = OSProcess(process_handles[0].handle());
     process_handles[0].release();

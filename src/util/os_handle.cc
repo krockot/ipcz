@@ -9,18 +9,18 @@
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
 #include <lib/fdio/limits.h>
 #include <lib/zx/handle.h>
 #include <zircon/status.h>
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 #include <errno.h>
 #include <unistd.h>
 #endif
@@ -29,12 +29,12 @@ namespace ipcz {
 
 OSHandle::OSHandle() = default;
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 OSHandle::OSHandle(HANDLE handle) : type_(Type::kHandle), handle_(handle) {}
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
 OSHandle::OSHandle(zx::handle handle)
     : type_(Type::kHandle), handle_(std::move(handle)) {}
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
 OSHandle::OSHandle(mach_port_t port, Type type) : type_(type) {
   ABSL_ASSERT(type_ == Type::kMachSendRight ||
               type_ == Type::kMachReceiveRight);
@@ -46,19 +46,19 @@ OSHandle::OSHandle(mach_port_t port, Type type) : type_(type) {
 }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
 OSHandle::OSHandle(int fd) : type_(Type::kFileDescriptor), fd_(fd) {}
 #endif
 
 OSHandle::OSHandle(OSHandle&& other) : type_(other.type_) {
-#if defined(OS_WIN) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA)
   handle_ = std::move(other.handle_);
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   mach_send_right_ = other.mach_send_right_;
   mach_receive_right_ = other.mach_receive_right_;
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   fd_ = other.fd_;
 #endif
 
@@ -69,14 +69,14 @@ OSHandle& OSHandle::operator=(OSHandle&& other) {
   reset();
   type_ = other.type_;
 
-#if defined(OS_WIN) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA)
   handle_ = std::move(other.handle_);
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   mach_send_right_ = other.mach_send_right_;
   mach_receive_right_ = other.mach_receive_right_;
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   fd_ = other.fd_;
 #endif
 
@@ -96,16 +96,16 @@ bool OSHandle::ToIpczOSHandle(OSHandle handle, IpczOSHandle* os_handle) {
     return false;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   os_handle->type = IPCZ_OS_HANDLE_WINDOWS;
   os_handle->value = static_cast<uint64_t>(
       reinterpret_cast<uintptr_t>(handle.ReleaseHandle()));
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
   if (handle.is_handle()) {
     os_handle->type = IPCZ_OS_HANDLE_FUCHSIA;
     os_handle->value = static_cast<uint64_t>(handle.ReleaseHandle());
   }
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
   if (handle.is_mach_send_right()) {
     os_handle->type = IPCZ_OS_HANDLE_MACH_SEND_RIGHT;
     os_handle->value = static_cast<uint64_t>(handle.ReleaseMachSendRight());
@@ -115,7 +115,7 @@ bool OSHandle::ToIpczOSHandle(OSHandle handle, IpczOSHandle* os_handle) {
   }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
   if (handle.is_fd()) {
     os_handle->type = IPCZ_OS_HANDLE_FILE_DESCRIPTOR;
     os_handle->value = static_cast<uint64_t>(handle.ReleaseFD());
@@ -127,7 +127,7 @@ bool OSHandle::ToIpczOSHandle(OSHandle handle, IpczOSHandle* os_handle) {
 // static
 OSHandle OSHandle::FromIpczOSHandle(const IpczOSHandle& os_handle) {
   switch (os_handle.type) {
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case IPCZ_OS_HANDLE_WINDOWS: {
       HANDLE handle =
           reinterpret_cast<HANDLE>(static_cast<uintptr_t>(os_handle.value));
@@ -136,7 +136,7 @@ OSHandle OSHandle::FromIpczOSHandle(const IpczOSHandle& os_handle) {
       }
       break;
     }
-#elif defined(OS_FUCHSIA)
+#elif BUILDFLAG(IS_FUCHSIA)
     case IPCZ_OS_HANDLE_FUCHSIA: {
       zx::handle handle(os_handle.value);
       if (handle.is_valid()) {
@@ -144,7 +144,7 @@ OSHandle OSHandle::FromIpczOSHandle(const IpczOSHandle& os_handle) {
       }
       break;
     }
-#elif defined(OS_MAC)
+#elif BUILDFLAG(IS_MAC)
     case IPCZ_OS_HANDLE_MACH_SEND_RIGHT: {
       mach_port_t port = static_cast<mach_port_t>(os_handle.value);
       if (port != MACH_PORT_NULL) {
@@ -162,7 +162,7 @@ OSHandle OSHandle::FromIpczOSHandle(const IpczOSHandle& os_handle) {
     }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
     case IPCZ_OS_HANDLE_FILE_DESCRIPTOR:
       return OSHandle(static_cast<int>(os_handle.value));
 #endif
@@ -178,19 +178,19 @@ void OSHandle::reset() {
     case Type::kInvalid:
       return;
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case Type::kHandle:
       ::CloseHandle(handle_);
       return;
 #endif
 
-#if defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_FUCHSIA)
     case Type::kHandle:
       handle_.reset();
       return;
 #endif
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     case Type::kMachSendRight: {
       kern_return_t kr =
           mach_port_deallocate(mach_task_self(), mach_send_right_);
@@ -206,7 +206,7 @@ void OSHandle::reset() {
     }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
     case Type::kFileDescriptor: {
       int rv = close(fd_);
       ABSL_ASSERT(rv == 0 || errno == EINTR);
@@ -217,7 +217,7 @@ void OSHandle::reset() {
 }
 
 void OSHandle::release() {
-#if defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_FUCHSIA)
   if (type_ == Type::kHandle) {
     (void)handle_.release();
   }
@@ -230,7 +230,7 @@ OSHandle OSHandle::Clone() const {
     case Type::kInvalid:
       return OSHandle();
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     case Type::kHandle: {
       ABSL_ASSERT(handle_ != INVALID_HANDLE_VALUE);
 
@@ -247,7 +247,7 @@ OSHandle OSHandle::Clone() const {
     }
 #endif
 
-#if defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_FUCHSIA)
     case Type::kHandle:
       ABSL_ASSERT(handle_.is_valid());
 
@@ -256,7 +256,7 @@ OSHandle OSHandle::Clone() const {
       return OSHandle(std::move(dupe));
 #endif
 
-#if defined(OS_MAC)
+#if BUILDFLAG(IS_MAC)
     case Type::kMachSendRight: {
       ABSL_ASSERT(mach_send_right_ != MACH_PORT_NULL);
       kern_return_t kr = mach_port_mod_refs(mach_task_self(), mach_send_right_,
@@ -274,7 +274,7 @@ OSHandle OSHandle::Clone() const {
     }
 #endif
 
-#if defined(OS_POSIX) || defined(OS_FUCHSIA)
+#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
     case Type::kFileDescriptor: {
       ABSL_ASSERT(fd_ != -1);
       int dupe = dup(fd_);

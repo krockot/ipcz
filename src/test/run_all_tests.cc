@@ -20,7 +20,7 @@
 #include "standalone/base/logging.h"
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 

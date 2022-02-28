@@ -17,7 +17,7 @@
 
 #include "util/log.h"
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #define IPCZ_CDECL __cdecl
 #else
 #define IPCZ_CDECL

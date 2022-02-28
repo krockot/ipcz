@@ -12,7 +12,7 @@
 #include "reference_drivers/multiprocess_reference_driver.h"
 #include "util/function.h"
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 #include <errno.h>
 #include <sys/resource.h>
 #include <sys/types.h>
@@ -20,7 +20,7 @@
 #include <unistd.h>
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -68,9 +68,9 @@ void TestClientSupport::RunEntryPoint(const std::string& name,
 // static
 reference_drivers::Channel TestClientSupport::RecoverClientChannel(
     uint64_t channel_handle) {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   return reference_drivers::Channel(OSHandle(static_cast<int>(channel_handle)));
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   return reference_drivers::Channel(OSHandle(
       reinterpret_cast<HANDLE>(static_cast<uintptr_t>(channel_handle))));
 #else
@@ -98,7 +98,7 @@ TestClient::TestClient(const char* entry_point) {
   ABSL_ASSERT(channel_.is_valid());
   ABSL_ASSERT(client_channel.is_valid());
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   pid_t pid = fork();
   ABSL_ASSERT(pid >= 0);
 
@@ -131,7 +131,7 @@ TestClient::TestClient(const char* entry_point) {
   }
 
   process_ = OSProcess(pid);
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   STARTUPINFOEXW startup_info = {};
   startup_info.StartupInfo.cb = sizeof(startup_info);
   SIZE_T size = 0;
@@ -183,7 +183,7 @@ TestClient::~TestClient() {
 }
 
 int TestClient::Wait() {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   ABSL_ASSERT(process_.is_valid());
 
   int status;
@@ -196,7 +196,7 @@ int TestClient::Wait() {
   }
 
   return -1;
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   if (::WaitForSingleObject(process_.handle(), INFINITE) != WAIT_OBJECT_0) {
     return -1;
   }

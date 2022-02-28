@@ -20,14 +20,14 @@
 #include "util/log.h"
 #include "util/random.h"
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 #include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -39,13 +39,13 @@ namespace {
 // "4 kB should be enough for anyone." -- anonymous
 constexpr size_t kMaxDataSize = 4096;
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 constexpr size_t kMaxHandlesPerMessage = 64;
 #endif
 
 }  // namespace
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 struct Channel::PendingIO {
   PendingIO() = default;
   ~PendingIO() = default;
@@ -150,7 +150,7 @@ Channel::~Channel() {
 
 // static
 std::pair<Channel, Channel> Channel::CreateChannelPair() {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   int fds[2];
   int result = socketpair(AF_UNIX, SOCK_STREAM, 0, fds);
   if (result != 0) {
@@ -166,7 +166,7 @@ std::pair<Channel, Channel> Channel::CreateChannelPair() {
   }
 
   return std::make_pair(Channel(OSHandle(fds[0])), Channel(OSHandle(fds[1])));
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   std::wstringstream ss;
   ss << "\\\\.\\pipe\\ipcz." << ::GetCurrentProcessId() << "."
      << ::GetCurrentThreadId() << "." << RandomUint64();
@@ -224,7 +224,7 @@ void Channel::StopListening() {
     shutdown_notifier_.Notify();
     io_thread_->join();
     io_thread_.reset();
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     pending_read_.reset();
 #endif
   }
@@ -260,7 +260,7 @@ void Channel::Send(Message message) {
 absl::optional<Channel::Message> Channel::SendInternal(Message message) {
   ABSL_ASSERT(handle_.is_valid());
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   size_t num_valid_handles = 0;
   for (const OSHandle& handle : message.handles) {
     if (handle.is_valid()) {
@@ -319,7 +319,7 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 
     return remainder;
   }
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   // Windows does not transport handles out-of-band from the rest of the data.
   ABSL_ASSERT(message.handles.empty());
 
@@ -338,7 +338,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler message_handler,
     return;
   }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
   if (!StartRead()) {
     return;
   }
@@ -350,7 +350,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler message_handler,
       absl::MutexLock lock(&queue_mutex_);
       have_out_messages = !outgoing_queue_.empty();
     }
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
     pollfd poll_fds[3];
     poll_fds[0].fd = handle_.fd();
     poll_fds[0].events = POLLIN | (have_out_messages ? POLLOUT : 0);
@@ -431,7 +431,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler message_handler,
       }
       ABSL_ASSERT((msg.msg_flags & MSG_CTRUNC) == 0);
     }
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
     // We don't queue outgoing messages on Windows.
     ABSL_ASSERT(!have_out_messages);
 
@@ -481,7 +481,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler message_handler,
       }
     }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
     if (pending_read_ && pending_read_->is_complete()) {
       if (!StartRead()) {
         return;
@@ -547,7 +547,7 @@ void Channel::CommitRead(size_t num_bytes) {
       absl::Span<uint8_t>(unread_data_.data(), unread_data_.size() + num_bytes);
 }
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 bool Channel::StartRead() {
   if (!pending_read_) {
     pending_read_ = std::make_unique<PendingIO>();

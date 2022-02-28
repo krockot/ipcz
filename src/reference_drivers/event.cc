@@ -6,13 +6,13 @@
 
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -36,7 +36,7 @@ OSHandle Event::Notifier::TakeHandle() {
 void Event::Notifier::Notify() {
   ABSL_ASSERT(is_valid());
 
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
   const uint64_t value = 0xfffffffffffffffe;
   int result;
   do {
@@ -52,7 +52,7 @@ void Event::Notifier::Notify() {
     ABSL_ASSERT(errno == EAGAIN);
     return;
   }
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   ::SetEvent(handle_.handle());
 #else
 #error "Missing Event impl for this platform.";
@@ -64,11 +64,11 @@ Event::Notifier Event::Notifier::Clone() {
 }
 
 Event::Event() {
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
   int fd = eventfd(0, EFD_NONBLOCK);
   ABSL_ASSERT(fd >= 0);
   handle_ = OSHandle(fd);
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   HANDLE h = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
   ABSL_ASSERT(h != INVALID_HANDLE_VALUE);
   handle_ = OSHandle(h);
@@ -92,7 +92,7 @@ OSHandle Event::TakeHandle() {
 Event::Notifier Event::MakeNotifier() {
   ABSL_ASSERT(is_valid());
 
-#if defined(OS_LINUX) || defined(OS_WIN)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_WIN)
   return Notifier(handle_.Clone());
 #else
 #error "Missing Event impl for this platform.";
@@ -102,7 +102,7 @@ Event::Notifier Event::MakeNotifier() {
 void Event::Wait() {
   ABSL_ASSERT(is_valid());
 
-#if defined(OS_LINUX)
+#if BUILDFLAG(IS_LINUX)
   pollfd fd;
   fd.fd = handle_.fd();
   fd.events = POLLIN;
@@ -117,7 +117,7 @@ void Event::Wait() {
   } while (result == -1 && errno == EINTR);
 
   ABSL_ASSERT(result == 8 || (result == -1 && errno == EAGAIN));
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   ::WaitForSingleObject(handle_.handle(), INFINITE);
   ::ResetEvent(handle_.handle());
 #else

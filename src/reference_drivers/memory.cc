@@ -7,14 +7,14 @@
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -48,11 +48,11 @@ Memory::Mapping::~Mapping() {
 
 void Memory::Mapping::Reset() {
   if (base_address_) {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
     munmap(base_address_, size_);
     base_address_ = nullptr;
     size_ = 0;
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
     ::UnmapViewOfFile(base_address_);
 #endif
   }
@@ -64,7 +64,7 @@ Memory::Memory(OSHandle handle, size_t size)
     : handle_(std::move(handle)), size_(size) {}
 
 Memory::Memory(size_t size) {
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   int fd = memfd_create("/ipcz/mem", MFD_ALLOW_SEALING);
   ABSL_ASSERT(fd >= 0);
 
@@ -76,7 +76,7 @@ Memory::Memory(size_t size) {
 
   handle_ = OSHandle(fd);
   size_ = size;
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   HANDLE h = ::CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
                                  0, static_cast<DWORD>(size), nullptr);
   const HANDLE process = ::GetCurrentProcess();
@@ -103,12 +103,12 @@ Memory Memory::Clone() {
 
 Memory::Mapping Memory::Map() {
   ABSL_ASSERT(is_valid());
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   void* addr =
       mmap(nullptr, size_, PROT_READ | PROT_WRITE, MAP_SHARED, handle_.fd(), 0);
   ABSL_ASSERT(addr && addr != MAP_FAILED);
   return Mapping(addr, size_);
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   void* addr = ::MapViewOfFile(handle_.handle(), FILE_MAP_READ | FILE_MAP_WRITE,
                                0, 0, size_);
   ABSL_ASSERT(addr);

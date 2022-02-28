@@ -10,12 +10,12 @@
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/log_severity.h"
 
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
 #include <sys/types.h>
 #include <unistd.h>
 #endif
 
-#if defined(OS_WIN)
+#if BUILDFLAG(IS_WIN)
 #include <windows.h>
 #endif
 
@@ -30,10 +30,10 @@ std::atomic_int g_verbosity_level{0};
 
 LogMessage::LogMessage(const char* file, int line, Level level) {
   stream_ << "[";
-#if defined(OS_POSIX)
+#if BUILDFLAG(IS_POSIX)
   stream_ << getpid() << ":" << gettid() << ":";
   const char* trimmed_file = strrchr(file, '/') + 1;
-#elif defined(OS_WIN)
+#elif BUILDFLAG(IS_WIN)
   const char* trimmed_file = file;
   stream_ << (::GetCurrentProcessId()) << ":" << ::GetCurrentThreadId() << ":";
 #else
