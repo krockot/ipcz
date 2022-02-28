@@ -35,7 +35,8 @@ class LocalRouterLink : public RouterLink {
   // RouterLink:
   LinkType GetType() const override;
   Ref<Router> GetLocalTarget() override;
-  bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) override;
+  bool IsRemoteLinkTo(const NodeLink& node_link,
+                      SublinkId sublink) const override;
   void MarkSideStable() override;
   bool TryLockForBypass(const NodeName& bypass_request_source) override;
   bool TryLockForClosure() override;
@@ -46,6 +47,7 @@ class LocalRouterLink : public RouterLink {
                                const IpczPutLimits& limits) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
+  void AcceptRouteDisconnection() override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     SublinkId proxy_peer_sublink) override;
   void StopProxying(SequenceNumber proxy_inbound_sequence_length,

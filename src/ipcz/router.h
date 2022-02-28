@@ -150,6 +150,10 @@ class Router : public RefCounted {
   bool AcceptRouteClosureFrom(LinkType link_type,
                               SequenceNumber sequence_length);
 
+  // Accepts notification that the route has been unexpectedly disconnected
+  // somewhere at or beyond one of this router's links of type `link_type`.
+  void AcceptRouteDisconnectionFrom(LinkType link_type);
+
   // Retrieves the next available inbound parcel from this Router, if present.
   IpczResult GetNextIncomingParcel(void* data,
                                    uint32_t* num_bytes,
@@ -222,6 +226,10 @@ class Router : public RefCounted {
   // result, Flush() may delete `this` if it happens to cause this Router's last
   // reference to be dropped.
   void Flush(bool force_bypass_attempt = false);
+
+  // Notifies this router that the given NodeLink `link` was been disconnected
+  // while its sublink `sublink` was bound to this router.
+  void NotifyLinkDisconnected(const NodeLink& link, SublinkId sublink);
 
  private:
   friend class LocalRouterLink;

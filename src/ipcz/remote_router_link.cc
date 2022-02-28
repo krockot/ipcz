@@ -130,7 +130,8 @@ Ref<Router> RemoteRouterLink::GetLocalTarget() {
   return nullptr;
 }
 
-bool RemoteRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
+bool RemoteRouterLink::IsRemoteLinkTo(const NodeLink& node_link,
+                                      SublinkId sublink) const {
   return node_link_.get() == &node_link && sublink_ == sublink;
 }
 
@@ -325,6 +326,12 @@ void RemoteRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   route_closed.params().sublink = sublink_;
   route_closed.params().sequence_length = sequence_length;
   node_link()->Transmit(route_closed);
+}
+
+void RemoteRouterLink::AcceptRouteDisconnection() {
+  msg::RouteDisconnected disconnect;
+  disconnect.params().sublink = sublink_;
+  node_link()->Transmit(disconnect);
 }
 
 void RemoteRouterLink::StopProxying(

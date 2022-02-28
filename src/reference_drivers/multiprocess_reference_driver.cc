@@ -61,7 +61,8 @@ class MultiprocessTransport : public Object {
             return false;
           }
           return true;
-        });
+        },
+        [transport = WrapRefCounted(this)]() { transport->OnError(); });
   }
 
   void Deactivate() {

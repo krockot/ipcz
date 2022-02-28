@@ -258,6 +258,13 @@ IPCZ_MSG_BEGIN(SetRouterLinkStateFragment, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(FragmentDescriptor, descriptor)
 IPCZ_MSG_END()
 
+// Notifies a node that one of its routes has been broken by spontaneous
+// disconnection, e.g. if a node crashed.
+IPCZ_MSG_BEGIN(RouteDisconnected, IPCZ_MSG_ID(23), IPCZ_MSG_VERSION(0))
+  // A sublink identifying the affected route to the receiving node.
+  IPCZ_MSG_PARAM(SublinkId, sublink)
+IPCZ_MSG_END()
+
 // Informs the recipient that its outward peer is a proxy which has locked its
 // own outward (and implicitly central) link for impending bypass. This means
 // it's safe for the recipient of this message to send a BypassProxy message

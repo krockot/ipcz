@@ -9,6 +9,7 @@
 #include "ipcz/node_name.h"
 #include "ipcz/parcel.h"
 #include "ipcz/sequence_number.h"
+#include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
@@ -16,6 +17,7 @@
 
 namespace ipcz {
 
+class NodeLink;
 class ParcelQueue;
 class Router;
 class RouterLink;
@@ -103,6 +105,10 @@ class RouteEdge {
 
   // Releases this edge's decaying link and returns a reference to the caller.
   Ref<RouterLink> ReleaseDecayingLink();
+
+  // Indicates whether either link on this edge is routed over the given
+  // NodeLink and SubLinkId.
+  bool IsRoutedThrough(const NodeLink& link, SublinkId sublink) const;
 
   // Flushes any transmittable parcels from the given `parcels` queue, based on
   // the current state of this edge. If this edge has a decaying link and

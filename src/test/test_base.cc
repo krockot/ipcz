@@ -137,12 +137,9 @@ IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
       .flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD,
       .min_local_parcels = 0,
   };
-  bool removed = false;
-  IpczResult result = Trap(
-      portal, conditions, [&removed, &notifier](const IpczTrapEvent& event) {
-        removed = (event.condition_flags & IPCZ_TRAP_REMOVED) != 0;
-        notifier.Notify();
-      });
+  IpczResult result =
+      Trap(portal, conditions,
+           [&notifier](const IpczTrapEvent& event) { notifier.Notify(); });
   if (result == IPCZ_RESULT_OK) {
     event.Wait();
   } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {

@@ -197,7 +197,8 @@ OSHandle Channel::TakeHandle() {
   return std::move(handle_);
 }
 
-void Channel::Listen(MessageHandler handler) {
+void Channel::Listen(MessageHandler message_handler,
+                     ErrorHandler error_handler) {
   StopListening();
 
   if (read_buffer_.empty()) {
@@ -211,7 +212,8 @@ void Channel::Listen(MessageHandler handler) {
   Event outgoing_queue_event;
   shutdown_notifier_ = shutdown_event.MakeNotifier();
   outgoing_queue_notifier_ = outgoing_queue_event.MakeNotifier();
-  io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this, std::move(handler),
+  io_thread_.emplace(&Channel::ReadMessagesOnIOThread, this,
+                     std::move(message_handler), std::move(error_handler),
                      std::move(shutdown_event),
                      std::move(outgoing_queue_event));
 }
@@ -327,7 +329,8 @@ absl::optional<Channel::Message> Channel::SendInternal(Message message) {
 #endif
 }
 
-void Channel::ReadMessagesOnIOThread(MessageHandler handler,
+void Channel::ReadMessagesOnIOThread(MessageHandler message_handler,
+                                     ErrorHandler error_handler,
                                      Event shutdown_event,
                                      Event outgoing_queue_event) {
   if (!handle_.is_valid() || !shutdown_event.is_valid() ||
@@ -396,6 +399,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       result = recvmsg(handle_.fd(), &msg, 0);
     } while (result == -1 && errno == EINTR);
     if (result <= 0) {
+      error_handler();
       return;
     }
 
@@ -445,6 +449,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
     }
 
     if (io_error_) {
+      error_handler();
       return;
     }
 
@@ -462,7 +467,7 @@ void Channel::ReadMessagesOnIOThread(MessageHandler handler,
       auto handle_view = absl::MakeSpan(unread_handles_.data(), header_data[1]);
       unread_data_ = unread_data_.subspan(header_data[0]);
       unread_handles_ = unread_handles_.subspan(header_data[1]);
-      if (!handler(Message(Data(data_view), handle_view))) {
+      if (!message_handler(Message(Data(data_view), handle_view))) {
         LOG(ERROR) << "disconnecting Channel for bad message: "
                    << HexDump(data_view);
         return;

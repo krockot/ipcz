@@ -15,6 +15,8 @@
 #include "util/os_handle.h"
 #include "util/ref_counted.h"
 
+#include "util/log.h"
+
 #if defined(OS_WIN)
 #define IPCZ_CDECL __cdecl
 #else

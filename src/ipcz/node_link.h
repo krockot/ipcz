@@ -212,6 +212,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool OnAcceptParcel(msg::AcceptParcel& message);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateFragment(const msg::SetRouterLinkStateFragment& set);
+  bool OnRouteDisconnected(const msg::RouteDisconnected& disconnect);
   bool OnRequestIntroduction(const msg::RequestIntroduction& request);
   bool OnIntroduceNode(msg::IntroduceNode& intro);
   bool OnAddFragmentAllocatorBuffer(msg::AddFragmentAllocatorBuffer& add);
@@ -241,7 +242,8 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   const Ref<NodeLinkMemory> memory_;
 
   absl::Mutex mutex_;
-  bool active_ = true;
+  bool active_ ABSL_GUARDED_BY(mutex_) = true;
+  bool broken_ ABSL_GUARDED_BY(mutex_) = false;
 
   // Messages transmitted from this NodeLink may traverse either the driver
   // transport OR some shared memory queue. Each message is assigned a sequence

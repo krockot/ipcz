@@ -2,12 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "test/multinode_test.h"
 #include "test/multiprocess_test.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "util/os_process.h"
+
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+#endif
 
 namespace ipcz {
 namespace {
@@ -557,6 +562,31 @@ TEST_CLIENT_F(MultiprocessRemotePortalTest, PingPongClient, c) {
   ClosePortals({b});
 }
 
+TEST_F(MultiprocessRemotePortalTest, Disconnect) {
+  test::TestClient client("DisconnectClient");
+  IpczHandle a = ConnectToClient(client);
+
+  Parcel p;
+  Put(a, "hi");
+  EXPECT_EQ(IPCZ_RESULT_NOT_FOUND, WaitToGet(a, p));
+
+  ClosePortals({a});
+}
+
+TEST_CLIENT_F(MultiprocessRemotePortalTest, DisconnectClient, c) {
+  IpczHandle b = ConnectToBroker(c);
+
+  Parcel p;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ("hi", p.message);
+
+  // Bye!
+#if BUILDFLAG(IS_WIN)
+  ::TerminateProcess(::GetCurrentProcess(), 0);
+#else
+  _exit(0);
+#endif
+}
 INSTANTIATE_MULTINODE_TEST_SUITE_P(RemotePortalTest);
 
 }  // namespace

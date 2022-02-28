@@ -82,7 +82,10 @@ class Channel {
   OSHandle TakeHandle();
 
   using MessageHandler = Function<bool(Message)>;
-  void Listen(MessageHandler handler);
+  using ErrorHandler = Function<void()>;
+  void Listen(
+      MessageHandler message_handler,
+      ErrorHandler error_handler = [] {});
 
   void StopListening();
 
@@ -94,7 +97,8 @@ class Channel {
   // Attempts to send, without queueing, and if it fails to send any or all of
   // the message contents, returns a view of what's left.
   absl::optional<Message> SendInternal(Message message);
-  void ReadMessagesOnIOThread(MessageHandler handler,
+  void ReadMessagesOnIOThread(MessageHandler message_handler,
+                              ErrorHandler error_handler,
                               Event shutdown_event,
                               Event outgoing_queue_event);
   void TryFlushingQueue();

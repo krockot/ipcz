@@ -77,7 +77,8 @@ Ref<Router> LocalRouterLink::GetLocalTarget() {
   return state_->side(side_.opposite());
 }
 
-bool LocalRouterLink::IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) {
+bool LocalRouterLink::IsRemoteLinkTo(const NodeLink& node_link,
+                                     SublinkId sublink) const {
   return false;
 }
 
@@ -135,6 +136,10 @@ void LocalRouterLink::AcceptParcel(Parcel& parcel) {
 void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
   state_->side(side_.opposite())
       ->AcceptRouteClosureFrom(state_->type(), sequence_length);
+}
+
+void LocalRouterLink::AcceptRouteDisconnection() {
+  state_->side(side_.opposite())->AcceptRouteDisconnectionFrom(state_->type());
 }
 
 void LocalRouterLink::RequestProxyBypassInitiation(

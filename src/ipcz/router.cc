@@ -257,7 +257,7 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
   {
     absl::MutexLock lock(&mutex_);
     if (!inbound_parcels_.Push(std::move(parcel))) {
-      return false;
+      return true;
     }
 
     if (!inward_edge_) {
@@ -322,6 +322,45 @@ bool Router::AcceptRouteClosureFrom(LinkType link_type,
 
   Flush();
   return true;
+}
+
+void Router::AcceptRouteDisconnectionFrom(LinkType link_type) {
+  TrapEventDispatcher dispatcher;
+  Ref<RouterLink> forward_primary_link;
+  Ref<RouterLink> forward_decayling_link;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (link_type.is_peripheral_inward()) {
+      forward_primary_link = outward_edge_.ReleasePrimaryLink();
+      forward_decayling_link = outward_edge_.ReleaseDecayingLink();
+    } else if (inward_edge_) {
+      forward_primary_link = inward_edge_->ReleasePrimaryLink();
+      forward_decayling_link = inward_edge_->ReleaseDecayingLink();
+    } else if (bridge_) {
+      forward_primary_link = bridge_->ReleasePrimaryLink();
+      forward_decayling_link = bridge_->ReleaseDecayingLink();
+    } else {
+      status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
+      if (!inbound_parcels_.final_sequence_length()) {
+        inbound_parcels_.SetFinalSequenceLength(
+            inbound_parcels_.GetCurrentSequenceLength());
+      }
+      if (inbound_parcels_.IsDead()) {
+        status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
+      }
+      traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kPeerClosed,
+                                dispatcher);
+    }
+  }
+
+  if (forward_primary_link) {
+    forward_primary_link->AcceptRouteDisconnection();
+  }
+  if (forward_decayling_link) {
+    forward_decayling_link->AcceptRouteDisconnection();
+  }
+
+  Flush();
 }
 
 IpczResult Router::GetNextIncomingParcel(void* data,
@@ -1222,6 +1261,25 @@ void Router::Flush(bool force_bypass_attempt) {
   }
 
   outward_link->FlushOtherSideIfWaiting();
+}
+
+void Router::NotifyLinkDisconnected(const NodeLink& link, SublinkId sublink) {
+  bool outward_disconnect = false;
+  bool inward_disconnect = false;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (outward_edge_.IsRoutedThrough(link, sublink)) {
+      outward_disconnect = true;
+    } else if (inward_edge_ && inward_edge_->IsRoutedThrough(link, sublink)) {
+      inward_disconnect = true;
+    }
+  }
+
+  if (outward_disconnect) {
+    AcceptRouteDisconnectionFrom(LinkType::kPeripheralOutward);
+  } else if (inward_disconnect) {
+    AcceptRouteDisconnectionFrom(LinkType::kPeripheralInward);
+  }
 }
 
 bool Router::MaybeInitiateSelfRemoval() {

@@ -39,10 +39,10 @@ class RouterLink : public RefCounted {
   // that Router is local to the same node as the Router on this side.
   virtual Ref<Router> GetLocalTarget() = 0;
 
-  // Returns the NodeLink and SublinkId used by this RouterLink to communicate
-  // with the Router on the other side of this link, if and only if that Router
-  // lives on a different node from the Router on this side.
-  virtual bool IsRemoteLinkTo(NodeLink& node_link, SublinkId sublink) = 0;
+  // Indicates whether this RouterLink is a remote link which runs over the
+  // identified sublink on the identified NodeLink.
+  virtual bool IsRemoteLinkTo(const NodeLink& node_link,
+                              SublinkId sublink) const = 0;
 
   // Signals that this side of the link is in a stable state suitable for one
   // side or the other to lock the link, either for bypass or closure
@@ -97,6 +97,11 @@ class RouterLink : public RefCounted {
   // indicate that the route endpoint closer to the sender has been closed after
   // sending a total of `sequence_length` parcels.
   virtual void AcceptRouteClosure(SequenceNumber sequence_length) = 0;
+
+  // Passes a notification to the Router on the other side of this link to
+  // indicate that its route has been broken by a disconnection somewhere on
+  // the caller's side of the link.
+  virtual void AcceptRouteDisconnection() = 0;
 
   // Requests that the Router on the other side of this link initiate a bypass
   // of the Router on this side of the link. The provided parameters are enough

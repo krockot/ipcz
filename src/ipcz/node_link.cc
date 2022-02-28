@@ -335,7 +335,18 @@ IpczResult NodeLink::OnTransportMessage(
   return FlushSharedMemoryMessages(sequence_number + 1);
 }
 
-void NodeLink::OnTransportError() {}
+void NodeLink::OnTransportError() {
+  SublinkMap sublinks;
+  {
+    absl::MutexLock lock(&mutex_);
+    broken_ = true;
+    std::swap(sublinks, sublinks_);
+  }
+
+  for (auto& [id, sublink] : sublinks) {
+    sublink.receiver->NotifyLinkDisconnected(*this, id);
+  }
+}
 
 bool NodeLink::OnConnectFromBrokerToNonBroker(
     msg::ConnectFromBrokerToNonBroker& connect) {
@@ -562,6 +573,17 @@ bool NodeLink::OnSetRouterLinkStateFragment(
 
   sublink->router_link->SetLinkState(
       memory().AdoptFragmentRef<RouterLinkState>(set.params().descriptor));
+  return true;
+}
+
+bool NodeLink::OnRouteDisconnected(const msg::RouteDisconnected& disconnect) {
+  const SublinkId sublink = disconnect.params().sublink;
+  Ref<Router> router = GetRouter(sublink);
+  if (!router) {
+    return true;
+  }
+
+  router->NotifyLinkDisconnected(*this, sublink);
   return true;
 }
 

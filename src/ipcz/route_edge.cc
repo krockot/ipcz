@@ -48,6 +48,16 @@ Ref<RouterLink> RouteEdge::ReleaseDecayingLink() {
   return std::move(decaying_link_);
 }
 
+bool RouteEdge::IsRoutedThrough(const NodeLink& link, SublinkId sublink) const {
+  if (primary_link_ && primary_link_->IsRemoteLinkTo(link, sublink)) {
+    return true;
+  }
+  if (decaying_link_ && decaying_link_->IsRemoteLinkTo(link, sublink)) {
+    return true;
+  }
+  return false;
+}
+
 void RouteEdge::FlushParcelsFromQueue(
     ParcelQueue& parcels,
     FlushedParcelQueue& parcels_to_decaying_link,
