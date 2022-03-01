@@ -107,6 +107,25 @@ struct ParamMetadata {
   bool is_handle_array;
 };
 
+// TODO: These functions have been hastily ripped out of MessageBase for reuse
+// by message relay in NodeLink. Fix it.
+MessageHeaderV0& GetMessageHeader(absl::Span<uint8_t> message_data);
+bool IsMessageHeaderValid(absl::Span<uint8_t> message_data);
+absl::Span<uint8_t> GetMessageParamsData(absl::Span<uint8_t> message_data);
+void SerializeMessageHandleData(absl::Span<uint8_t> message_data,
+                                absl::Span<OSHandle> handles,
+                                absl::Span<const ParamMetadata> metadata,
+                                const OSProcess& remote_process);
+
+template <typename ElementType>
+absl::Span<ElementType> GetMessageDataArrayView(
+    absl::Span<uint8_t> message_data,
+    uint32_t offset) {
+  ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&message_data[offset]);
+  return absl::MakeSpan(reinterpret_cast<ElementType*>(&header + 1),
+                        header.num_elements);
+}
+
 class IPCZ_ALIGN(8) MessageBase {
  public:
   using SharedMemoryParams = std::tuple<uint32_t, uint32_t>;
@@ -147,9 +166,7 @@ class IPCZ_ALIGN(8) MessageBase {
 
   template <typename ElementType>
   absl::Span<ElementType> GetArrayView(uint32_t offset) {
-    ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
-    return absl::MakeSpan(reinterpret_cast<ElementType*>(&header + 1),
-                          header.num_elements);
+    return GetMessageDataArrayView<ElementType>(absl::MakeSpan(data_), offset);
   }
 
   absl::Span<OSHandle> GetHandlesView(uint32_t offset) {
@@ -173,10 +190,6 @@ class IPCZ_ALIGN(8) MessageBase {
  protected:
   size_t Align(size_t x) { return (x + 7) & ~7; }
 
-  size_t SerializeHandleArray(uint32_t param_offset,
-                              uint32_t base_handle_index,
-                              absl::Span<OSHandle> handles,
-                              const OSProcess& remote_process);
   bool DeserializeDataAndHandles(
       size_t params_size,
       uint32_t params_current_version,

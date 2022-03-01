@@ -16,6 +16,7 @@
 #include "ipcz/fragment_descriptor.h"
 #include "ipcz/handle_descriptor.h"
 #include "ipcz/ipcz.h"
+#include "ipcz/message_internal.h"
 #include "ipcz/node.h"
 #include "ipcz/node_messages.h"
 #include "ipcz/portal.h"
@@ -272,9 +273,65 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
   Transmit(request);
 }
 
+bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
+  absl::Span<uint8_t> data = relay.GetArrayView<uint8_t>(relay.params().data);
+  absl::Span<OSHandle> handles = relay.GetHandlesView(relay.params().handles);
+  internal::MessageHeaderV0& header = internal::GetMessageHeader(data);
+  if (!internal::IsMessageHeaderValid(data)) {
+    return false;
+  }
+
+  absl::Span<const internal::ParamMetadata> metadata;
+  switch (header.message_id) {
+    case msg::AcceptParcel::kId:
+      metadata = absl::MakeSpan(msg::AcceptParcel::kMetadata);
+      break;
+
+    case msg::AddFragmentAllocatorBuffer::kId:
+      metadata = absl::MakeSpan(msg::AcceptParcel::kMetadata);
+      break;
+
+    default:
+      DVLOG(2) << "Ignoring unexpected broker message relay for ID "
+               << static_cast<int>(header.message_id);
+      return true;
+  }
+
+  internal::SerializeMessageHandleData(data, handles, metadata, OSProcess());
+#if BUILDFLAG(IS_WIN)
+  for (OSHandle& handle : handles) {
+    handle.release();
+  }
+  handles = {};
+#endif
+
+  IpczResult result =
+      DispatchMessage(DriverTransport::Message({data}, handles));
+  return result == IPCZ_RESULT_OK;
+}
+
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {
+#if BUILDFLAG(IS_WIN)
+  // OS handles in messages may only be transmitted if we have a handle to the
+  // remote process (implying that we are relatively more privileged), or if
+  // the remote process is a broker or otherwise known to be more privileged
+  // (and may therefore duplicate our own handles itself). In other cases where
+  // relative privilege is equal or ambigious, we must relay OS handles
+  // through the broker.
+  if (!remote_process_.is_valid() && remote_node_type_ != Node::Type::kBroker &&
+      !message.handles_view().empty()) {
+    auto broker = node_->GetBrokerLink();
+    if (!broker) {
+      return;
+    }
+
+    broker->RelayMessage(remote_node_name_, message);
+    return;
+  }
+#endif
+
   message.Serialize(metadata, remote_process_);
 
   size_t small_size_class = 0;
@@ -313,6 +370,21 @@ void NodeLink::TransmitMessage(
       transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
   transport_->TransmitMessage(DriverTransport::Message(
       DriverTransport::Data(message.data_view()), message.handles_view()));
+}
+
+void NodeLink::RelayMessage(const NodeName& to_node,
+                            internal::MessageBase& message) {
+  ABSL_ASSERT(remote_node_type_ == Node::Type::kBroker);
+  msg::RelayMessage relay;
+  relay.params().destination = to_node;
+  relay.params().data =
+      relay.AllocateArray<uint8_t>(message.data_view().size());
+
+  relay.params().handles = relay.AppendHandles(message.handles_view());
+  memcpy(relay.GetArrayData(relay.params().data), message.data_view().data(),
+         message.data_view().size());
+
+  Transmit(relay);
 }
 
 IpczResult NodeLink::OnTransportMessage(
@@ -752,6 +824,22 @@ bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
 
   sublink->receiver->AcceptLogRouteTraceFrom(sublink->router_link->GetType());
   return true;
+}
+
+bool NodeLink::OnRelayMessage(msg::RelayMessage& relay) {
+  if (node_->type() != Node::Type::kBroker) {
+    return false;
+  }
+
+  return node_->RelayMessage(remote_node_name_, relay);
+}
+
+bool NodeLink::OnAcceptRelayedMessage(msg::AcceptRelayedMessage& relay) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  return node_->AcceptRelayedMessage(relay);
 }
 
 bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {

@@ -412,6 +412,26 @@ IPCZ_MSG_BEGIN(LogRouteTrace, IPCZ_MSG_ID(240), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()
 
+// Relays a message payload from its source to an intermediate broker. Used to
+// transmit OS handles on Windows, when the sender and receiver of a message are
+// both insufficiently privileged or trusted to directly duplicate the others'
+// handles.
+IPCZ_MSG_BEGIN(RelayMessage, IPCZ_MSG_ID(253), IPCZ_MSG_VERSION(0))
+  // The node to which this message's contents should ultimately be relayed.
+  IPCZ_MSG_PARAM(NodeName, destination)
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, data)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(handles)
+IPCZ_MSG_END()
+
+// Relays a message payload from an intermediate broker to its destination. This
+// is the completion of RelayMessage above. Must only be accepted from a broker.
+IPCZ_MSG_BEGIN(AcceptRelayedMessage, IPCZ_MSG_ID(254), IPCZ_MSG_VERSION(0))
+  // The node which originally transmitted this message through the broker.
+  IPCZ_MSG_PARAM(NodeName, source)
+  IPCZ_MSG_PARAM_ARRAY(uint8_t, data)
+  IPCZ_MSG_PARAM_HANDLE_ARRAY(handles)
+IPCZ_MSG_END()
+
 // Empty (header-only) message used to force a wake of the receiving node to
 // process other messages conveyed through shared memory.
 IPCZ_MSG_BEGIN(FlushLink, IPCZ_MSG_ID(255), IPCZ_MSG_VERSION(0))

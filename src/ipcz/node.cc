@@ -424,4 +424,37 @@ void Node::SetAllocationDelegate(Ref<NodeLink> link) {
   allocation_delegate_link_ = std::move(link);
 }
 
+bool Node::RelayMessage(const NodeName& from_node, msg::RelayMessage& relay) {
+  ABSL_ASSERT(type_ == Type::kBroker);
+  auto link = GetLink(relay.params().destination);
+  if (!link) {
+    // This doesn't imply a bad request. For example, the destination node may
+    // have recently crashed and the broker has already dropped its link.
+    return true;
+  }
+
+  absl::Span<uint8_t> data = relay.GetArrayView<uint8_t>(relay.params().data);
+  absl::Span<OSHandle> handles = relay.GetHandlesView(relay.params().handles);
+
+  // Simply copy the data and re-serialize the handles over to a new message
+  // targeting the requested destination.
+  msg::AcceptRelayedMessage new_relay;
+  new_relay.params().source = from_node;
+  new_relay.params().data = new_relay.AllocateArray<uint8_t>(data.size());
+  new_relay.params().handles = new_relay.AppendHandles(handles);
+  memcpy(new_relay.GetArrayData(new_relay.params().data), data.data(),
+         data.size());
+  link->Transmit(new_relay);
+  return true;
+}
+
+bool Node::AcceptRelayedMessage(msg::AcceptRelayedMessage& relay) {
+  auto link = GetLink(relay.params().source);
+  if (!link) {
+    return true;
+  }
+
+  return link->DispatchRelayedMessage(relay);
+}
+
 }  // namespace ipcz

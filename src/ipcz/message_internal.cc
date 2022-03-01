@@ -21,6 +21,82 @@
 namespace ipcz {
 namespace internal {
 
+namespace {
+
+size_t SerializeHandleArray(absl::Span<uint8_t> message_data,
+                            uint32_t param_offset,
+                            uint32_t base_handle_index,
+                            absl::Span<OSHandle> handles,
+                            const OSProcess& remote_process) {
+  absl::Span<uint8_t> params_data = GetMessageParamsData(message_data);
+  uint32_t array_offset =
+      *reinterpret_cast<uint32_t*>(&params_data[param_offset]);
+  absl::Span<OSHandleData> handle_data =
+      GetMessageDataArrayView<OSHandleData>(message_data, array_offset);
+
+  for (size_t i = 0; i < handle_data.size(); ++i) {
+    OSHandleData& this_data = handle_data[i];
+    this_data.header.size = sizeof(this_data);
+    this_data.header.version = 0;
+    ABSL_ASSERT(handles[i].is_valid());
+
+#if defined(OS_POSIX)
+    this_data.type = OSHandleDataType::kFileDescriptor;
+    this_data.index = static_cast<uint32_t>(base_handle_index + i);
+    this_data.value = 0;
+#elif BUILDFLAG(IS_WIN)
+    HANDLE h = handles[i].ReleaseHandle();
+    if (remote_process.is_valid()) {
+      // If we have a valid handle to the remote process, we assume we must
+      // duplicate every HANDLE value to it before encoding them.
+      HANDLE remote_handle = INVALID_HANDLE_VALUE;
+      BOOL ok = ::DuplicateHandle(
+          ::GetCurrentProcess(), h, remote_process.handle(), &remote_handle, 0,
+          FALSE, DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS);
+      ABSL_ASSERT(ok);
+      h = remote_handle;
+    }
+    this_data.type = OSHandleDataType::kWindowsHandle;
+    this_data.index = static_cast<uint32_t>(base_handle_index + i);
+    this_data.value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(h));
+#endif
+  }
+
+  return handle_data.size();
+}
+
+}  // namespace
+
+MessageHeaderV0& GetMessageHeader(absl::Span<uint8_t> message_data) {
+  return *reinterpret_cast<MessageHeaderV0*>(message_data.data());
+}
+
+bool IsMessageHeaderValid(absl::Span<uint8_t> message_data) {
+  return message_data.size() >= sizeof(internal::MessageHeaderV0) &&
+         GetMessageHeader(message_data).size <= message_data.size();
+}
+
+absl::Span<uint8_t> GetMessageParamsData(absl::Span<uint8_t> message_data) {
+  ABSL_ASSERT(IsMessageHeaderValid(message_data));
+  return message_data.subspan(GetMessageHeader(message_data).size);
+}
+
+void SerializeMessageHandleData(absl::Span<uint8_t> message_data,
+                                absl::Span<OSHandle> handles,
+                                absl::Span<const ParamMetadata> params,
+                                const OSProcess& remote_process) {
+  size_t base_handle_index = 0;
+  for (const ParamMetadata& param : params) {
+    if (param.is_handle_array) {
+      size_t num_handles =
+          SerializeHandleArray(message_data, param.offset, base_handle_index,
+                               handles, remote_process);
+      handles = handles.subspan(num_handles);
+      base_handle_index += num_handles;
+    }
+  }
+}
+
 MessageBase::MessageBase(uint8_t message_id, size_t params_size)
     : data_(sizeof(MessageHeader) + params_size),
       message_id_(message_id),
@@ -82,62 +158,13 @@ DriverMemory MessageBase::TakeSharedMemory(Ref<Node> node,
 
 void MessageBase::Serialize(absl::Span<const ParamMetadata> params,
                             const OSProcess& remote_process) {
-  absl::Span<OSHandle> handles = handles_view();
-  size_t base_handle_index = 0;
-  for (const ParamMetadata& param : params) {
-    if (param.is_handle_array) {
-      size_t num_handles = SerializeHandleArray(param.offset, base_handle_index,
-                                                handles, remote_process);
-      handles = handles.subspan(num_handles);
-      base_handle_index += num_handles;
-    }
-  }
-
+  SerializeMessageHandleData(data_view(), handles_view(), params,
+                             remote_process);
 #if BUILDFLAG(IS_WIN)
   // On Windows, all handles have been released and absorbed into the data
   // payload.
   handles_.clear();
 #endif
-}
-
-size_t MessageBase::SerializeHandleArray(uint32_t param_offset,
-                                         uint32_t base_handle_index,
-                                         absl::Span<OSHandle> handles,
-                                         const OSProcess& remote_process) {
-  uint32_t array_offset =
-      *reinterpret_cast<uint32_t*>(&params_data_view()[param_offset]);
-  absl::Span<OSHandleData> handle_data =
-      GetArrayView<OSHandleData>(array_offset);
-
-  for (size_t i = 0; i < handle_data.size(); ++i) {
-    OSHandleData& this_data = handle_data[i];
-    this_data.header.size = sizeof(this_data);
-    this_data.header.version = 0;
-    ABSL_ASSERT(handles[i].is_valid());
-
-#if defined(OS_POSIX)
-    this_data.type = OSHandleDataType::kFileDescriptor;
-    this_data.index = static_cast<uint32_t>(base_handle_index + i);
-    this_data.value = 0;
-#elif BUILDFLAG(IS_WIN)
-    HANDLE h = handles[i].ReleaseHandle();
-    if (remote_process.is_valid()) {
-      // If we have a valid handle to the remote process, we assume we must
-      // duplicate every HANDLE value to it before encoding them.
-      HANDLE remote_handle = INVALID_HANDLE_VALUE;
-      BOOL ok = ::DuplicateHandle(
-          ::GetCurrentProcess(), h, remote_process.handle(), &remote_handle, 0,
-          FALSE, DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS);
-      ABSL_ASSERT(ok);
-      h = remote_handle;
-    }
-    this_data.type = OSHandleDataType::kWindowsHandle;
-    this_data.index = static_cast<uint32_t>(base_handle_index + i);
-    this_data.value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(h));
-#endif
-  }
-
-  return handle_data.size();
 }
 
 bool MessageBase::DeserializeDataAndHandles(

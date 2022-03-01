@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "build/build_config.h"
 #include "ipcz/buffer_id.h"
 #include "ipcz/driver_transport.h"
 #include "ipcz/fragment_descriptor.h"

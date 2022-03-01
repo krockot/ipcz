@@ -175,6 +175,11 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   using RequestMemoryCallback = Function<void(DriverMemory)>;
   void RequestMemory(uint32_t size, RequestMemoryCallback callback);
 
+  // Simulates receipt of a new transport message from the remote node. This is
+  // called by the local Node with a message that was relayed to it by a broker
+  // on behalf of this NodeLink's remote node.
+  bool DispatchRelayedMessage(msg::AcceptRelayedMessage& relay);
+
  private:
   NodeLink(Ref<Node> node,
            LinkSide link_side,
@@ -189,6 +194,8 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   void TransmitMessage(internal::MessageBase& message,
                        absl::Span<const internal::ParamMetadata> metadata);
+
+  void RelayMessage(const NodeName& to_node, internal::MessageBase& message);
 
   // DriverTransport::Listener:
   IpczResult OnTransportMessage(
@@ -226,6 +233,8 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool OnRequestMemory(const msg::RequestMemory& request);
   bool OnProvideMemory(msg::ProvideMemory& provide);
   bool OnLogRouteTrace(const msg::LogRouteTrace& log_request);
+  bool OnRelayMessage(msg::RelayMessage& relay);
+  bool OnAcceptRelayedMessage(msg::AcceptRelayedMessage& relay);
   bool OnFlushLink(const msg::FlushLink& flush);
 
   IpczResult FlushSharedMemoryMessages(uint64_t max_sequence_number);

@@ -167,6 +167,14 @@ class Node : public APIObject {
   // due to, e.g., security restrictions.
   void SetAllocationDelegate(Ref<NodeLink> link);
 
+  // Unpacks `relay` and forwards it along to the identified relay destination.
+  // Called only on brokers.
+  bool RelayMessage(const NodeName& from_node, msg::RelayMessage& relay);
+
+  // Accepts a message relayed by a broker, unwrapping, deserializing, and
+  // dispatching the embedded message.
+  bool AcceptRelayedMessage(msg::AcceptRelayedMessage& relay);
+
  private:
   ~Node() override;
 
