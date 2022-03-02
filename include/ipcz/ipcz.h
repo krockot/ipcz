@@ -1230,7 +1230,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if the two-phase operation was successfully completed or
   //        aborted. Note that if the frontmost parcel wasn't fully consumed by
   //        the caller, it will remain in queue with the rest of its data intact
-  //        for a subsequent get operation to retrieve.
+  //        for a subsequent get operation to retrieve. Exactly `num_handles`
+  //        handles will be copied into `handles` and `num_os_handles` OS
+  //        handles will be copied into `os_handles`.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, if `num_handles` is
   //        non-zero but `handles` is null, or if `num_os_handles` is non-zero
@@ -1244,12 +1246,12 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        in progress on `portal`.
   IpczResult (*EndGet)(IpczHandle portal,
                        uint32_t num_bytes_consumed,
+                       uint32_t num_handles,
+                       uint32_t num_os_handles,
                        IpczEndGetFlags flags,
                        const void* options,
                        IpczHandle* handles,
-                       uint32_t num_handles,
-                       struct IpczOSHandle* os_handles,
-                       uint32_t num_os_handles);
+                       struct IpczOSHandle* os_handles);
 
   // Attempts to install a trap to catch interesting changes to a portal's
   // state. The condition(s) to observe are specified in `conditions`.

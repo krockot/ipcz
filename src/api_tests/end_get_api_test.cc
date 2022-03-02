@@ -15,8 +15,8 @@ using EndGetAPITest = test::APITest;
 TEST_F(EndGetAPITest, InvalidArgs) {
   // Invalid portal.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.EndGet(IPCZ_INVALID_HANDLE, 0, IPCZ_NO_FLAGS, nullptr, nullptr,
-                        0, nullptr, 0));
+            ipcz.EndGet(IPCZ_INVALID_HANDLE, 0, 0, 0, IPCZ_NO_FLAGS, nullptr,
+                        nullptr, nullptr));
 }
 
 TEST_F(EndGetAPITest, OutOfRange) {
@@ -37,17 +37,18 @@ TEST_F(EndGetAPITest, OutOfRange) {
   EXPECT_EQ(1u, num_os_handles);
 
   EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE,
-            ipcz.EndGet(p, num_bytes * 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0,
-                        nullptr, 0));
+            ipcz.EndGet(p, num_bytes * 2, 0, 0, IPCZ_NO_FLAGS, nullptr, nullptr,
+                        nullptr));
   EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE,
-            ipcz.EndGet(p, 0, IPCZ_NO_FLAGS, nullptr, portals, 3, nullptr, 0));
+            ipcz.EndGet(p, 0, 3, 0, IPCZ_NO_FLAGS, nullptr, portals, nullptr));
 
   IpczOSHandle os_handles[2] = {{.size = sizeof(IpczOSHandle)}};
-  EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE, ipcz.EndGet(p, 0, IPCZ_NO_FLAGS, nullptr,
-                                                  nullptr, 0, os_handles, 2));
+  EXPECT_EQ(
+      IPCZ_RESULT_OUT_OF_RANGE,
+      ipcz.EndGet(p, 0, 0, 2, IPCZ_NO_FLAGS, nullptr, nullptr, os_handles));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, num_bytes, IPCZ_NO_FLAGS, nullptr,
-                                        portals, 2, os_handles, 1));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, num_bytes, 2, 1, IPCZ_NO_FLAGS,
+                                        nullptr, portals, os_handles));
 
   std::ignore = OSHandle::FromIpczOSHandle(os_handles[0]);
   CloseHandles(portals);
@@ -55,7 +56,7 @@ TEST_F(EndGetAPITest, OutOfRange) {
 
 TEST_F(EndGetAPITest, NoGetInProgress) {
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.EndGet(q, 0, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
+            ipcz.EndGet(q, 0, 0, 0, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
 }
 
 TEST_F(EndGetAPITest, Abort) {
@@ -66,8 +67,8 @@ TEST_F(EndGetAPITest, Abort) {
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
                                           &num_bytes, nullptr, nullptr));
 
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 0, IPCZ_END_GET_ABORT, nullptr,
-                                        nullptr, 0, nullptr, 0));
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 0, 0, 0, IPCZ_END_GET_ABORT, nullptr,
+                                        nullptr, nullptr));
 
   // Another get operation should now be able to proceed.
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
@@ -90,7 +91,7 @@ TEST_F(EndGetAPITest, PartialData) {
   ASSERT_EQ(6u, num_bytes);
   EXPECT_EQ("ab", get_string(data, 2));
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
+            ipcz.EndGet(p, 2, 0, 0, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
                                           &num_bytes, nullptr, nullptr));
@@ -98,7 +99,7 @@ TEST_F(EndGetAPITest, PartialData) {
   ASSERT_EQ(4u, num_bytes);
   EXPECT_EQ("cd", get_string(data, 2));
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
+            ipcz.EndGet(p, 2, 0, 0, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
                                           &num_bytes, nullptr, nullptr));
@@ -106,7 +107,7 @@ TEST_F(EndGetAPITest, PartialData) {
   ASSERT_EQ(2u, num_bytes);
   EXPECT_EQ("ef", get_string(data, 2));
   EXPECT_EQ(IPCZ_RESULT_OK,
-            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
+            ipcz.EndGet(p, 2, 0, 0, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr));
 }
 
 }  // namespace

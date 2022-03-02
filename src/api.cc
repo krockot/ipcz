@@ -299,12 +299,12 @@ IpczResult BeginGet(IpczHandle portal_handle,
 
 IpczResult EndGet(IpczHandle portal_handle,
                   uint32_t num_bytes_consumed,
+                  uint32_t num_handles,
+                  uint32_t num_os_handles,
                   IpczEndGetFlags flags,
                   const void* options,
                   IpczHandle* handles,
-                  uint32_t num_handles,
-                  struct IpczOSHandle* os_handles,
-                  uint32_t num_os_handles) {
+                  struct IpczOSHandle* os_handles) {
   ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
