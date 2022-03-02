@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "ipcz/ipcz.h"
+#include "reference_drivers/memory.h"
 #include "test/api_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -58,6 +59,35 @@ TEST_F(BeginGetAPITest, Empty) {
   EXPECT_EQ(IPCZ_RESULT_UNAVAILABLE,
             ipcz.BeginGet(q, IPCZ_NO_FLAGS, nullptr, &data, &num_bytes, nullptr,
                           nullptr));
+}
+
+TEST_F(BeginGetAPITest, InsufficientStorage) {
+  IpczHandle portals[2];
+  OpenPortals(&portals[0], &portals[1]);
+  OSHandle handle = reference_drivers::Memory(64).TakeHandle();
+  Put(q, "hey!", portals, {&handle, 1});
+
+  const void* data;
+  uint32_t num_bytes;
+  uint32_t num_handles;
+  uint32_t num_os_handles;
+  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
+            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
+                          nullptr));
+  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
+            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data, &num_bytes, nullptr,
+                          nullptr));
+  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
+            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data, &num_bytes,
+                          &num_handles, nullptr));
+
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data, &num_bytes,
+                          &num_handles, &num_os_handles));
+
+  EXPECT_EQ(4u, num_bytes);
+  EXPECT_EQ(2u, num_handles);
+  EXPECT_EQ(1u, num_os_handles);
 }
 
 TEST_F(BeginGetAPITest, Dead) {

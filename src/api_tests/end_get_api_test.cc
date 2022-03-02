@@ -13,30 +13,13 @@ namespace {
 using EndGetAPITest = test::APITest;
 
 TEST_F(EndGetAPITest, InvalidArgs) {
-  // Invalid port.
+  // Invalid portal.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
             ipcz.EndGet(IPCZ_INVALID_HANDLE, 0, IPCZ_NO_FLAGS, nullptr, nullptr,
-                        nullptr, nullptr, nullptr));
-
-  // Larger reported data consumption than exposed by BeginGet().
-  Put(q, "hi");
-  const void* data;
-  uint32_t num_bytes;
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
-                                          &num_bytes, nullptr, nullptr));
-  EXPECT_EQ(2u, num_bytes);
-  EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.EndGet(p, num_bytes * 2, IPCZ_NO_FLAGS, nullptr, nullptr,
-                        nullptr, nullptr, nullptr));
+                        0, nullptr, 0));
 }
 
-TEST_F(EndGetAPITest, NoGetInProgress) {
-  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.EndGet(q, 0, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,
-                        nullptr));
-}
-
-TEST_F(EndGetAPITest, InsufficientStorage) {
+TEST_F(EndGetAPITest, OutOfRange) {
   IpczHandle portals[2];
   OpenPortals(&portals[0], &portals[1]);
   OSHandle handle = reference_drivers::Memory(64).TakeHandle();
@@ -44,35 +27,35 @@ TEST_F(EndGetAPITest, InsufficientStorage) {
 
   const void* data;
   uint32_t num_bytes;
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
-                                          &num_bytes, nullptr, nullptr));
-
+  uint32_t num_handles;
+  uint32_t num_os_handles;
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data, &num_bytes,
+                          &num_handles, &num_os_handles));
   EXPECT_EQ(4u, num_bytes);
-
-  // Start with no space for anything. Counts should be updated.
-  uint32_t num_portals = 0;
-  uint32_t num_os_handles = 0;
-  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.EndGet(p, num_bytes, IPCZ_NO_FLAGS, nullptr, nullptr,
-                        &num_portals, nullptr, &num_os_handles));
-  EXPECT_EQ(2u, num_portals);
+  EXPECT_EQ(2u, num_handles);
   EXPECT_EQ(1u, num_os_handles);
 
-  // Verify the same result when only one of the arguments is insufficient.
-  num_portals = 0;
-  IpczOSHandle os_handle = {sizeof(os_handle)};
-  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.EndGet(p, num_bytes, IPCZ_NO_FLAGS, nullptr, nullptr,
-                        &num_portals, &os_handle, &num_os_handles));
-  EXPECT_EQ(2u, num_portals);
-  EXPECT_EQ(1u, num_os_handles);
+  EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE,
+            ipcz.EndGet(p, num_bytes * 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0,
+                        nullptr, 0));
+  EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE,
+            ipcz.EndGet(p, 0, IPCZ_NO_FLAGS, nullptr, portals, 3, nullptr, 0));
 
-  num_os_handles = 0;
-  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
-            ipcz.EndGet(p, num_bytes, IPCZ_NO_FLAGS, nullptr, portals,
-                        &num_portals, nullptr, &num_os_handles));
-  EXPECT_EQ(2u, num_portals);
-  EXPECT_EQ(1u, num_os_handles);
+  IpczOSHandle os_handles[2] = {{.size = sizeof(IpczOSHandle)}};
+  EXPECT_EQ(IPCZ_RESULT_OUT_OF_RANGE, ipcz.EndGet(p, 0, IPCZ_NO_FLAGS, nullptr,
+                                                  nullptr, 0, os_handles, 2));
+
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, num_bytes, IPCZ_NO_FLAGS, nullptr,
+                                        portals, 2, os_handles, 1));
+
+  std::ignore = OSHandle::FromIpczOSHandle(os_handles[0]);
+  CloseHandles(portals);
+}
+
+TEST_F(EndGetAPITest, NoGetInProgress) {
+  EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
+            ipcz.EndGet(q, 0, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
 }
 
 TEST_F(EndGetAPITest, Abort) {
@@ -84,7 +67,7 @@ TEST_F(EndGetAPITest, Abort) {
                                           &num_bytes, nullptr, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 0, IPCZ_END_GET_ABORT, nullptr,
-                                        nullptr, nullptr, nullptr, nullptr));
+                                        nullptr, 0, nullptr, 0));
 
   // Another get operation should now be able to proceed.
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
@@ -106,24 +89,24 @@ TEST_F(EndGetAPITest, PartialData) {
   ASSERT_TRUE(data);
   ASSERT_EQ(6u, num_bytes);
   EXPECT_EQ("ab", get_string(data, 2));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
-                                        nullptr, nullptr, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
                                           &num_bytes, nullptr, nullptr));
   ASSERT_TRUE(data);
   ASSERT_EQ(4u, num_bytes);
   EXPECT_EQ("cd", get_string(data, 2));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
-                                        nullptr, nullptr, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.BeginGet(p, IPCZ_NO_FLAGS, nullptr, &data,
                                           &num_bytes, nullptr, nullptr));
   ASSERT_TRUE(data);
   ASSERT_EQ(2u, num_bytes);
   EXPECT_EQ("ef", get_string(data, 2));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr,
-                                        nullptr, nullptr, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndGet(p, 2, IPCZ_NO_FLAGS, nullptr, nullptr, 0, nullptr, 0));
 }
 
 }  // namespace

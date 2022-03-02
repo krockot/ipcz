@@ -57,7 +57,8 @@ class Portal : public APIObject {
                        absl::Span<const IpczOSHandle> ipcz_os_handles);
   IpczResult AbortPut();
 
-  IpczResult Get(void* data,
+  IpczResult Get(IpczGetFlags flags,
+                 void* data,
                  uint32_t* num_data_bytes,
                  IpczHandle* handles,
                  uint32_t* num_handles,
@@ -68,10 +69,8 @@ class Portal : public APIObject {
                       uint32_t* num_handles,
                       uint32_t* num_os_handles);
   IpczResult CommitGet(uint32_t num_data_bytes_consumed,
-                       IpczHandle* handles,
-                       uint32_t* num_handles,
-                       IpczOSHandle* os_handles,
-                       uint32_t* num_os_handles);
+                       absl::Span<IpczHandle> handles,
+                       absl::Span<IpczOSHandle> os_handles);
   IpczResult AbortGet();
 
  private:

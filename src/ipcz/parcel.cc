@@ -35,43 +35,42 @@ Parcel::~Parcel() {
 
 void Parcel::SetData(std::vector<uint8_t> data) {
   data_ = std::move(data);
-  data_view_ = absl::MakeSpan(data_);
+  data_offset_ = 0;
 }
 
 void Parcel::SetObjects(ObjectVector objects) {
   objects_ = std::move(objects);
+  object_offset_ = 0;
 }
 
 void Parcel::SetOSHandles(std::vector<OSHandle> os_handles) {
   os_handles_ = std::move(os_handles);
+  os_handle_offset_ = 0;
 }
 
 void Parcel::ResizeData(size_t size) {
   data_.resize(size);
-  data_view_ = absl::MakeSpan(data_);
 }
 
-void Parcel::Consume(IpczHandle* handles, IpczOSHandle* os_handles) {
-  ConsumeHandles(handles, os_handles);
-  data_view_ = {};
-}
-
-void Parcel::ConsumePartial(size_t num_bytes_consumed,
-                            IpczHandle* handles,
-                            IpczOSHandle* os_handles) {
-  data_view_ = data_view_.subspan(num_bytes_consumed);
-  ConsumeHandles(handles, os_handles);
-}
-
-void Parcel::ConsumeHandles(IpczHandle* handles, IpczOSHandle* os_handles) {
-  for (size_t i = 0; i < objects_.size(); ++i) {
-    handles[i] = ToHandle(objects_[i].release());
+void Parcel::Consume(size_t num_bytes,
+                     absl::Span<IpczHandle> out_handles,
+                     absl::Span<IpczOSHandle> out_os_handles) {
+  auto data = data_view();
+  auto objects = objects_view();
+  auto os_handles = os_handles_view();
+  ABSL_ASSERT(num_bytes <= data.size());
+  ABSL_ASSERT(out_handles.size() <= objects.size());
+  ABSL_ASSERT(out_os_handles.size() <= os_handles.size());
+  for (size_t i = 0; i < out_handles.size(); ++i) {
+    out_handles[i] = ToHandle(objects[i].release());
   }
-  for (size_t i = 0; i < os_handles_.size(); ++i) {
-    OSHandle::ToIpczOSHandle(std::move(os_handles_[i]), &os_handles[i]);
+  for (size_t i = 0; i < out_os_handles.size(); ++i) {
+    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &out_os_handles[i]);
   }
-  objects_.clear();
-  os_handles_.clear();
+
+  data_offset_ += num_bytes;
+  object_offset_ += out_handles.size();
+  os_handle_offset_ += out_os_handles.size();
 }
 
 std::string Parcel::Describe() const {

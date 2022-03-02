@@ -201,6 +201,27 @@ bool ParcelQueue::Pop(Parcel& parcel) {
   return true;
 }
 
+bool ParcelQueue::Consume(size_t num_bytes,
+                          absl::Span<IpczHandle> handles,
+                          absl::Span<IpczOSHandle> os_handles) {
+  if (!HasNextParcel()) {
+    return false;
+  }
+
+  Parcel& p = NextParcel();
+  p.Consume(num_bytes, handles, os_handles);
+  if (p.empty()) {
+    Parcel discarded;
+    const bool ok = Pop(discarded);
+    ABSL_ASSERT(ok);
+    return true;
+  }
+
+  // Partial consumption, only update accounting.
+  parcels_[0]->num_bytes_in_span -= num_bytes;
+  return true;
+}
+
 Parcel& ParcelQueue::NextParcel() {
   ABSL_ASSERT(HasNextParcel());
   return parcels_[0]->parcel;

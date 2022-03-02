@@ -118,6 +118,66 @@ TEST_F(GetAPITest, OutputExactDimensionsOnSuccess) {
   ClosePortals({out_portals[0], out_portals[1]});
 }
 
+TEST_F(GetAPITest, Partial) {
+  uint32_t data[] = {1, 2, 3, 4, 5};
+
+  IpczHandle portals[2];
+  OpenPortals(&portals[0], &portals[1]);
+
+  IpczOSHandle os_handle = {sizeof(os_handle)};
+  OSHandle::ToIpczOSHandle(reference_drivers::Memory(64).TakeHandle(),
+                           &os_handle);
+
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz.Put(q, data, sizeof(data), portals, 2,
+                                     &os_handle, 1, IPCZ_NO_FLAGS, nullptr));
+
+  // Insufficient storage with IPCZ_GET_PARTIAL should still result in a
+  // successful Get().
+  uint32_t out_data[2];
+  uint32_t num_bytes = sizeof(out_data);
+  IpczHandle out_handle;
+  uint32_t num_handles = 1;
+  IpczOSHandle out_os_handle = {.size = sizeof(out_os_handle)};
+  uint32_t num_os_handles = 1;
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Get(p, IPCZ_GET_PARTIAL, nullptr, out_data,
+                                     &num_bytes, &out_handle, &num_handles,
+                                     &out_os_handle, &num_os_handles));
+  EXPECT_EQ(sizeof(out_data), num_bytes);
+  EXPECT_EQ(1u, out_data[0]);
+  EXPECT_EQ(2u, out_data[1]);
+  EXPECT_EQ(1u, num_handles);
+  EXPECT_EQ(1u, num_os_handles);
+  CloseHandles({out_handle});
+
+  std::ignore = OSHandle::FromIpczOSHandle(out_os_handle);
+
+  // A second partial read should grab more stuff from the same parcel.
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Get(p, IPCZ_GET_PARTIAL, nullptr, out_data,
+                                     &num_bytes, &out_handle, &num_handles,
+                                     &out_os_handle, &num_os_handles));
+  EXPECT_EQ(sizeof(out_data), num_bytes);
+  EXPECT_EQ(3u, out_data[0]);
+  EXPECT_EQ(4u, out_data[1]);
+  EXPECT_EQ(1u, num_handles);
+  EXPECT_EQ(0u, num_os_handles);
+  CloseHandles({out_handle});
+
+  // One final partial read to get the last of the data.
+  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Get(p, IPCZ_GET_PARTIAL, nullptr, out_data,
+                                     &num_bytes, &out_handle, &num_handles,
+                                     &out_os_handle, &num_os_handles));
+  EXPECT_EQ(sizeof(out_data[0]), num_bytes);
+  EXPECT_EQ(5u, out_data[0]);
+  EXPECT_EQ(0u, num_handles);
+  EXPECT_EQ(0u, num_os_handles);
+
+  // Now the portal is empty, so there's nothing to read even partially.
+  EXPECT_EQ(
+      IPCZ_RESULT_UNAVAILABLE,
+      ipcz.Get(p, IPCZ_GET_PARTIAL, nullptr, out_data, &num_bytes, &out_handle,
+               &num_handles, &out_os_handle, &num_os_handles));
+}
+
 TEST_F(GetAPITest, Empty) {
   EXPECT_EQ(IPCZ_RESULT_UNAVAILABLE,
             ipcz.Get(q, IPCZ_NO_FLAGS, nullptr, nullptr, nullptr, nullptr,

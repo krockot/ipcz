@@ -256,7 +256,7 @@ IpczResult EndPut(IpczHandle portal_handle,
 }
 
 IpczResult Get(IpczHandle portal_handle,
-               uint32_t flags,
+               IpczGetFlags flags,
                const void* options,
                void* data,
                uint32_t* num_bytes,
@@ -278,7 +278,7 @@ IpczResult Get(IpczHandle portal_handle,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return portal->Get(data, num_bytes, handles, num_handles, os_handles,
+  return portal->Get(flags, data, num_bytes, handles, num_handles, os_handles,
                      num_os_handles);
 }
 
@@ -302,17 +302,17 @@ IpczResult EndGet(IpczHandle portal_handle,
                   IpczEndGetFlags flags,
                   const void* options,
                   IpczHandle* handles,
-                  uint32_t* num_handles,
+                  uint32_t num_handles,
                   struct IpczOSHandle* os_handles,
-                  uint32_t* num_os_handles) {
+                  uint32_t num_os_handles) {
   ipcz::Portal* portal = ipcz::APIObject::Get<ipcz::Portal>(portal_handle);
   if (!portal) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_handles && *num_handles > 0 && !handles) {
+  if (num_handles > 0 && !handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (num_os_handles && *num_os_handles && !os_handles) {
+  if (num_os_handles > 0 && !os_handles) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -320,8 +320,9 @@ IpczResult EndGet(IpczHandle portal_handle,
     return portal->AbortGet();
   }
 
-  return portal->CommitGet(num_bytes_consumed, handles, num_handles, os_handles,
-                           num_os_handles);
+  return portal->CommitGet(num_bytes_consumed,
+                           absl::MakeSpan(handles, num_handles),
+                           absl::MakeSpan(os_handles, num_os_handles));
 }
 
 IpczResult Trap(IpczHandle portal_handle,

@@ -8,10 +8,12 @@
 #include <cstddef>
 #include <vector>
 
+#include "ipcz/ipcz.h"
 #include "ipcz/parcel.h"
 #include "ipcz/sequence_number.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
+#include "third_party/abseil-cpp/absl/types/span.h"
 
 namespace ipcz {
 
@@ -116,6 +118,13 @@ class ParcelQueue {
   // populating `parcel` with its contents and returning true on success. On
   // failure `parcel` is untouched and this returns false.
   bool Pop(Parcel& parcel);
+
+  // Consumes some or all of the next (in sequence order) parcel in the queue if
+  // available. If the entire parcel is consumed, it's also popped from the
+  // queue. Returns true on success, or false if no parcel was available.
+  bool Consume(size_t num_bytes,
+               absl::Span<IpczHandle> handles,
+               absl::Span<IpczOSHandle> os_handles);
 
   // Gets a reference to the next parcel. This reference is NOT stable across
   // ANY non-const ParcelQueue methods.

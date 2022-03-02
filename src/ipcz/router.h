@@ -155,7 +155,8 @@ class Router : public RefCounted {
   void AcceptRouteDisconnectionFrom(LinkType link_type);
 
   // Retrieves the next available inbound parcel from this Router, if present.
-  IpczResult GetNextIncomingParcel(void* data,
+  IpczResult GetNextIncomingParcel(IpczGetFlags flags,
+                                   void* data,
                                    uint32_t* num_bytes,
                                    IpczHandle* handles,
                                    uint32_t* num_handles,
@@ -166,10 +167,8 @@ class Router : public RefCounted {
                                         uint32_t* num_handles,
                                         uint32_t* num_os_handles);
   IpczResult CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
-                                         IpczHandle* handles,
-                                         uint32_t* num_handles,
-                                         IpczOSHandle* os_handles,
-                                         uint32_t* num_os_handles);
+                                         absl::Span<IpczHandle> handles,
+                                         absl::Span<IpczOSHandle> os_handles);
 
   IpczResult Trap(const IpczTrapConditions& conditions,
                   IpczTrapEventHandler handler,
