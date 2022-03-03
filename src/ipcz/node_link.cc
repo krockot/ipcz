@@ -10,7 +10,6 @@
 #include <cstring>
 #include <utility>
 
-#include "build/build_config.h"
 #include "ipcz/box.h"
 #include "ipcz/fragment.h"
 #include "ipcz/fragment_descriptor.h"

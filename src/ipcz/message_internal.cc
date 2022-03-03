@@ -10,7 +10,6 @@
 #include <cstring>
 #include <utility>
 
-#include "build/build_config.h"
 #include "ipcz/driver_object.h"
 #include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"

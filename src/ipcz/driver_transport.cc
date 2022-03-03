@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/message_internal.h"
 #include "ipcz/node.h"
@@ -13,23 +12,17 @@
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
 
-#if BUILDFLAG(IS_WIN)
-#define IPCZ_CDECL __cdecl
-#else
-#define IPCZ_CDECL
-#endif
-
 namespace ipcz {
 
 namespace {
 
-IpczResult IPCZ_CDECL NotifyTransport(IpczHandle transport,
-                                      const uint8_t* data,
-                                      uint32_t num_bytes,
-                                      const IpczDriverHandle* driver_handles,
-                                      uint32_t num_driver_handles,
-                                      IpczTransportActivityFlags flags,
-                                      const void* options) {
+IpczResult IPCZ_API NotifyTransport(IpczHandle transport,
+                                    const uint8_t* data,
+                                    uint32_t num_bytes,
+                                    const IpczDriverHandle* driver_handles,
+                                    uint32_t num_driver_handles,
+                                    IpczTransportActivityFlags flags,
+                                    const void* options) {
   if (transport == IPCZ_INVALID_HANDLE) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
