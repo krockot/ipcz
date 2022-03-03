@@ -12,9 +12,8 @@
 
 #include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -34,7 +33,7 @@ class DriverTransport : public RefCounted {
     ~Descriptor();
 
     std::vector<uint8_t> data;
-    std::vector<OSHandle> handles;
+    std::vector<DriverObject> objects;
   };
 
   class Data : public absl::Span<const uint8_t> {
@@ -51,13 +50,13 @@ class DriverTransport : public RefCounted {
 
   struct Message {
     Message(Data data);
-    Message(Data data, absl::Span<OSHandle> handles);
+    Message(Data data, absl::Span<const IpczDriverHandle> handles);
     Message(const Message&);
     Message& operator=(const Message&);
     ~Message();
 
     Data data;
-    absl::Span<OSHandle> handles;
+    absl::Span<const IpczDriverHandle> handles;
   };
 
   class Listener {
@@ -83,47 +82,46 @@ class DriverTransport : public RefCounted {
   // are mutually exclusive). `listener` must outlive this DriverTransport.
   void set_listener(Listener* listener) { listener_ = listener; }
 
+  const DriverObject& driver_object() const { return transport_; }
+
+  DriverObject TakeDriverObject() {
+    ABSL_ASSERT(!listener_);
+    return std::move(transport_);
+  }
+
   // Releases the driver handle so that it's no longer controlled by this
   // DriverTranport.
   IpczDriverHandle Release();
 
-  // Begins listening on the transport for incoming data and OS handles. Once
-  // this is called, the transport's Listener may be invoked by the driver at
-  // any time from arbitrary threads. The driver will continue listening until
-  // Deactivate() is called.
+  // Begins listening on the transport for incoming data and driver objects.
+  // Once this is called, the transport's Listener may be invoked by the driver
+  // at any time from arbitrary threads. The driver will continue listening
+  // until Deactivate() is called.
   IpczResult Activate();
 
-  // Requests that the driver cease listening for incoming data and OS handles
-  // on this transport. Once a transport is deactivated, it can never be
+  // Requests that the driver cease listening for incoming data and driver
+  // objects on this transport. Once a transport is deactivated, it can never be
   // reactivated.
   IpczResult Deactivate();
 
-  // Asks the driver to submit the data and/or OS handles in `message` for
+  // Asks the driver to submit the data and/or driver objects in `message` for
   // transmission from this transport endpoint to the corresponding opposite
   // endpoint.
   IpczResult TransmitMessage(const Message& message);
 
-  // Serializes this transport into a collection of `data` and `handles` for
-  // transmission over some other transport. A transport must not be serialized
-  // once it has been activated.
-  IpczResult Serialize(std::vector<uint8_t>& data,
-                       std::vector<OSHandle>& handles);
-
-  // Deserializes a new transport from data and OS handles previously serialized
-  // by Serialize() above.
-  static Ref<DriverTransport> Deserialize(Ref<Node> node,
-                                          absl::Span<const uint8_t> data,
-                                          absl::Span<OSHandle> handles);
-
   // Transmits a Node message over this transport.
   template <typename T>
-  IpczResult Transmit(T& message, const OSProcess& remote_process) {
-    message.Serialize(T::kMetadata, remote_process);
-    return TransmitMessage(
-        Message(Data(message.data_view()), message.handles_view()));
+  IpczResult Transmit(T& message) {
+    IpczResult result = message.Serialize(T::kMetadata, *this);
+    if (result != IPCZ_RESULT_OK) {
+      return result;
+    }
+
+    return TransmitMessage(Message(Data(message.data_view()),
+                                   message.transmissible_driver_handles()));
   }
 
-  // Invoked by the driver any time this transport receives data and/or OS
+  // Invoked by the driver any time this transport receives data and/or driver
   // handles to be passed back into ipcz.
   IpczResult Notify(const Message& message);
   void NotifyError();
@@ -133,7 +131,6 @@ class DriverTransport : public RefCounted {
 
   DriverObject transport_;
 
-  bool serialized_ = false;
   Listener* listener_ = nullptr;
 };
 

@@ -8,10 +8,8 @@
 #include "reference_drivers/multiprocess_reference_driver.h"
 #include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "util/os_process.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 namespace {
 
@@ -29,7 +27,7 @@ const IpczDriver* GetDriver(MultinodeTest::DriverMode mode) {
 }
 
 IpczConnectNodeFlags GetExtraNonBrokerFlags(MultinodeTest::DriverMode mode) {
-  if (mode == ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc) {
+  if (mode == MultinodeTest::DriverMode::kAsyncDelegatedAlloc) {
     return IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE;
   }
   return IPCZ_NO_FLAGS;
@@ -70,20 +68,17 @@ IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
   IpczHandle portal;
   IpczConnectNodeFlags flags = IPCZ_CONNECT_NODE_TO_BROKER;
   flags |= GetExtraNonBrokerFlags(mode);
-  IpczResult result = ipcz.ConnectNode(non_broker_node, transport, nullptr, 1,
-                                       flags, nullptr, &portal);
+  IpczResult result =
+      ipcz.ConnectNode(non_broker_node, transport, 1, flags, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }
 
 IpczHandle MultinodeTest::ConnectToNonBroker(IpczHandle broker_node,
                                              IpczDriverHandle transport) {
-  IpczOSProcessHandle process = {sizeof(process)};
-  OSProcess::ToIpczOSProcessHandle(OSProcess::GetCurrent(), process);
-
   IpczHandle portal;
-  IpczResult result = ipcz.ConnectNode(broker_node, transport, &process, 1,
-                                       IPCZ_NO_FLAGS, nullptr, &portal);
+  IpczResult result = ipcz.ConnectNode(broker_node, transport, 1, IPCZ_NO_FLAGS,
+                                       nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }
@@ -101,5 +96,4 @@ void MultinodeTest::Connect(IpczHandle broker_node,
   *non_broker_portal = ConnectToBroker(mode, non_broker_node, transport1);
 }
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test

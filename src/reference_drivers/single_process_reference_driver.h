@@ -12,7 +12,6 @@
 
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {

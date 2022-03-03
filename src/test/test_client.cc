@@ -69,9 +69,10 @@ void TestClientSupport::RunEntryPoint(const std::string& name,
 reference_drivers::Channel TestClientSupport::RecoverClientChannel(
     uint64_t channel_handle) {
 #if BUILDFLAG(IS_POSIX)
-  return reference_drivers::Channel(OSHandle(static_cast<int>(channel_handle)));
+  return reference_drivers::Channel(
+      reference_drivers::OSHandle(static_cast<int>(channel_handle)));
 #elif BUILDFLAG(IS_WIN)
-  return reference_drivers::Channel(OSHandle(
+  return reference_drivers::Channel(reference_drivers::OSHandle(
       reinterpret_cast<HANDLE>(static_cast<uintptr_t>(channel_handle))));
 #else
 #error "Need to implement this for the current platform."
@@ -130,7 +131,7 @@ TestClient::TestClient(const char* entry_point) {
     return;
   }
 
-  process_ = OSProcess(pid);
+  process_ = reference_drivers::OSProcess(pid);
 #elif BUILDFLAG(IS_WIN)
   STARTUPINFOEXW startup_info = {};
   startup_info.StartupInfo.cb = sizeof(startup_info);
@@ -144,7 +145,7 @@ TestClient::TestClient(const char* entry_point) {
   }
   startup_info.lpAttributeList = attrs;
 
-  OSHandle handle = client_channel.TakeHandle();
+  reference_drivers::OSHandle handle = client_channel.TakeHandle();
   HANDLE handle_value = handle.handle();
   ::SetHandleInformation(handle.handle(), HANDLE_FLAG_INHERIT,
                          HANDLE_FLAG_INHERIT);
@@ -169,7 +170,7 @@ TestClient::TestClient(const char* entry_point) {
                             &startup_info.StartupInfo, &process_info);
   ABSL_ASSERT(ok);
   ::DeleteProcThreadAttributeList(attrs);
-  process_ = OSProcess(process_info.hProcess);
+  process_ = reference_drivers::OSProcess(process_info.hProcess);
 #else
 #error "Need to implement this for the current platform."
 #endif

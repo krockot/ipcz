@@ -23,7 +23,6 @@
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -99,8 +98,7 @@ class Router : public RefCounted {
   // Attempts to send an outbound parcel originating from this Router. Called
   // only as a direct result of a Put() call on the router's owning portal.
   IpczResult SendOutboundParcel(absl::Span<const uint8_t> data,
-                                Parcel::ObjectVector& objects,
-                                std::vector<OSHandle>& os_handles);
+                                Parcel::ObjectVector& objects);
 
   // Closes this side of the Router's own route. Only called on a Router to
   // which a Portal is currently attached, and only by that Portal.
@@ -159,16 +157,12 @@ class Router : public RefCounted {
                                    void* data,
                                    uint32_t* num_bytes,
                                    IpczHandle* handles,
-                                   uint32_t* num_handles,
-                                   IpczOSHandle* os_handles,
-                                   uint32_t* num_os_handles);
+                                   uint32_t* num_handles);
   IpczResult BeginGetNextIncomingParcel(const void** data,
                                         uint32_t* num_data_bytes,
-                                        uint32_t* num_handles,
-                                        uint32_t* num_os_handles);
+                                        uint32_t* num_handles);
   IpczResult CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
-                                         absl::Span<IpczHandle> handles,
-                                         absl::Span<IpczOSHandle> os_handles);
+                                         absl::Span<IpczHandle> handles);
 
   IpczResult Trap(const IpczTrapConditions& conditions,
                   IpczTrapEventHandler handler,

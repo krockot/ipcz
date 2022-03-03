@@ -5,6 +5,8 @@
 #include "ipcz/driver_memory.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <utility>
 
 #include "ipcz/ipcz.h"
 #include "ipcz/node.h"
@@ -14,8 +16,18 @@ namespace ipcz {
 
 DriverMemory::DriverMemory() = default;
 
-DriverMemory::DriverMemory(DriverObject memory, size_t num_bytes)
-    : memory_(std::move(memory)), size_(num_bytes) {}
+DriverMemory::DriverMemory(DriverObject memory) : memory_(std::move(memory)) {
+  if (memory_.is_valid()) {
+    uint32_t region_size;
+    IpczResult result = memory_.node()->driver().GetSharedMemoryInfo(
+        memory_.handle(), IPCZ_NO_FLAGS, nullptr, &region_size);
+    if (result == IPCZ_RESULT_OK) {
+      size_ = region_size;
+    } else {
+      memory_.reset();
+    }
+  }
+}
 
 DriverMemory::DriverMemory(Ref<Node> node, size_t num_bytes)
     : size_(num_bytes) {
@@ -40,7 +52,7 @@ DriverMemory DriverMemory::Clone() {
       memory_.handle(), 0, nullptr, &handle);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
-  return DriverMemory(DriverObject(memory_.node(), handle), size_);
+  return DriverMemory(DriverObject(memory_.node(), handle));
 }
 
 DriverMemoryMapping DriverMemory::Map() {
@@ -52,39 +64,6 @@ DriverMemoryMapping DriverMemory::Map() {
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return DriverMemoryMapping(memory_.node()->driver(), mapping_handle, address,
                              size_);
-}
-
-IpczResult DriverMemory::Serialize(std::vector<uint8_t>& data,
-                                   std::vector<OSHandle>& handles) {
-  if (!memory_.is_valid()) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  DriverObject::SerializedDimensions dimensions =
-      memory_.GetSerializedDimensions();
-  data.resize(dimensions.num_bytes);
-  handles.resize(dimensions.num_os_handles);
-  return memory_.Serialize(absl::MakeSpan(data), absl::MakeSpan(handles));
-}
-
-// static
-DriverMemory DriverMemory::Deserialize(Ref<Node> node,
-                                       absl::Span<const uint8_t> data,
-                                       absl::Span<OSHandle> handles) {
-  DriverObject memory =
-      DriverObject::Deserialize(std::move(node), data, handles);
-  if (!memory.is_valid()) {
-    return DriverMemory();
-  }
-
-  uint32_t region_size;
-  IpczResult result = memory.node()->driver().GetSharedMemoryInfo(
-      memory.handle(), IPCZ_NO_FLAGS, nullptr, &region_size);
-  if (result != IPCZ_RESULT_OK) {
-    return DriverMemory();
-  }
-
-  return DriverMemory(std::move(memory), region_size);
 }
 
 }  // namespace ipcz

@@ -8,61 +8,91 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <utility>
 
 #include "build/build_config.h"
+#include "ipcz/driver_object.h"
+#include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
+#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
-
-#if BUILDFLAG(IS_WIN)
-#include <windows.h>
-#endif
 
 namespace ipcz {
 namespace internal {
 
 namespace {
 
-size_t SerializeHandleArray(absl::Span<uint8_t> message_data,
-                            uint32_t param_offset,
-                            uint32_t base_handle_index,
-                            absl::Span<OSHandle> handles,
-                            const OSProcess& remote_process) {
-  absl::Span<uint8_t> params_data = GetMessageParamsData(message_data);
-  uint32_t array_offset =
-      *reinterpret_cast<uint32_t*>(&params_data[param_offset]);
-  absl::Span<OSHandleData> handle_data =
-      GetMessageDataArrayView<OSHandleData>(message_data, array_offset);
-
-  for (size_t i = 0; i < handle_data.size(); ++i) {
-    OSHandleData& this_data = handle_data[i];
-    this_data.header.size = sizeof(this_data);
-    this_data.header.version = 0;
-    ABSL_ASSERT(handles[i].is_valid());
-
-#if defined(OS_POSIX)
-    this_data.type = OSHandleDataType::kFileDescriptor;
-    this_data.index = static_cast<uint32_t>(base_handle_index + i);
-    this_data.value = 0;
-#elif BUILDFLAG(IS_WIN)
-    HANDLE h = handles[i].ReleaseHandle();
-    if (remote_process.is_valid()) {
-      // If we have a valid handle to the remote process, we assume we must
-      // duplicate every HANDLE value to it before encoding them.
-      HANDLE remote_handle = INVALID_HANDLE_VALUE;
-      BOOL ok = ::DuplicateHandle(
-          ::GetCurrentProcess(), h, remote_process.handle(), &remote_handle, 0,
-          FALSE, DUPLICATE_CLOSE_SOURCE | DUPLICATE_SAME_ACCESS);
-      ABSL_ASSERT(ok);
-      h = remote_handle;
-    }
-    this_data.type = OSHandleDataType::kWindowsHandle;
-    this_data.index = static_cast<uint32_t>(base_handle_index + i);
-    this_data.value = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(h));
-#endif
+IpczResult SerializeDriverObject(
+    uint32_t data_offset,
+    const DriverTransport& transport,
+    MessageBase& message,
+    absl::InlinedVector<IpczDriverHandle, 2>& transmissible_handles) {
+  // TODO: pass driver transport handle to driver's Serialize()
+  DriverObjectData* data =
+      reinterpret_cast<DriverObjectData*>(&message.data_view()[data_offset]);
+  DriverObject object =
+      std::move(message.driver_objects()[data->first_driver_handle]);
+  if (!object.is_valid()) {
+    data->num_driver_handles = 0;
+    return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  return handle_data.size();
+  // NOTE: `data` may be invalid after the allocation below. It's nulled here to
+  // help catch accidental reuse.
+  data = nullptr;
+
+  uint32_t driver_data_array = 0;
+  DriverObject::SerializedDimensions dimensions =
+      object.GetSerializedDimensions();
+  if (dimensions.num_bytes > 0) {
+    driver_data_array = message.AllocateArray<uint8_t>(dimensions.num_bytes);
+  }
+
+  const uint32_t first_handle =
+      static_cast<uint32_t>(transmissible_handles.size());
+  data = reinterpret_cast<DriverObjectData*>(&message.data_view()[data_offset]);
+  absl::Span<uint8_t> driver_data =
+      message.GetArrayView<uint8_t>(driver_data_array);
+  data->driver_data_array = driver_data_array;
+  data->num_driver_handles = dimensions.num_driver_handles;
+  data->first_driver_handle = first_handle;
+
+  transmissible_handles.resize(transmissible_handles.size() +
+                               dimensions.num_driver_handles);
+  return object.Serialize(
+      driver_data, absl::MakeSpan(transmissible_handles)
+                       .subspan(first_handle, dimensions.num_driver_handles));
+}
+
+bool DeserializeDriverObject(MessageBase& message,
+                             DriverObjectData& object_data,
+                             absl::Span<const IpczDriverHandle> handles,
+                             const DriverTransport& transport) {
+  // TODO: pass driver transport handle to driver's Deserialize()
+
+  // TODO: validate the array driver data array location, size, etc.
+
+  auto driver_data =
+      message.GetArrayView<uint8_t>(object_data.driver_data_array);
+  if (object_data.num_driver_handles > handles.size()) {
+    return false;
+  }
+
+  if (handles.size() - object_data.num_driver_handles <
+      object_data.first_driver_handle) {
+    return false;
+  }
+
+  DriverObject object = DriverObject::Deserialize(
+      transport.driver_object().node(), driver_data,
+      handles.subspan(object_data.first_driver_handle,
+                      object_data.num_driver_handles));
+  if (!object.is_valid()) {
+    return false;
+  }
+
+  message.AppendDriverObject(std::move(object), object_data);
+  return true;
 }
 
 }  // namespace
@@ -76,25 +106,11 @@ bool IsMessageHeaderValid(absl::Span<uint8_t> message_data) {
          GetMessageHeader(message_data).size <= message_data.size();
 }
 
-absl::Span<uint8_t> GetMessageParamsData(absl::Span<uint8_t> message_data) {
-  ABSL_ASSERT(IsMessageHeaderValid(message_data));
-  return message_data.subspan(GetMessageHeader(message_data).size);
-}
-
-void SerializeMessageHandleData(absl::Span<uint8_t> message_data,
-                                absl::Span<OSHandle> handles,
-                                absl::Span<const ParamMetadata> params,
-                                const OSProcess& remote_process) {
-  size_t base_handle_index = 0;
-  for (const ParamMetadata& param : params) {
-    if (param.is_handle_array) {
-      size_t num_handles =
-          SerializeHandleArray(message_data, param.offset, base_handle_index,
-                               handles, remote_process);
-      handles = handles.subspan(num_handles);
-      base_handle_index += num_handles;
-    }
-  }
+IpczResult SerializeMessageDriverObjects(absl::Span<uint8_t> message_data,
+                                         absl::Span<DriverObject> objects,
+                                         absl::Span<const ParamMetadata> params,
+                                         const DriverTransport& transport) {
+  return IPCZ_RESULT_UNIMPLEMENTED;
 }
 
 MessageBase::MessageBase(uint8_t message_id, size_t params_size)
@@ -111,6 +127,9 @@ MessageBase::~MessageBase() = default;
 
 uint32_t MessageBase::AllocateGenericArray(size_t element_size,
                                            size_t num_elements) {
+  if (num_elements == 0) {
+    return 0;
+  }
   size_t offset = Align(data_.size());
   size_t num_bytes = Align(sizeof(ArrayHeader) + element_size * num_elements);
   data_.resize(offset + num_bytes);
@@ -120,62 +139,106 @@ uint32_t MessageBase::AllocateGenericArray(size_t element_size,
   return offset;
 }
 
-uint32_t MessageBase::AppendHandles(absl::Span<OSHandle> handles) {
-  uint32_t offset = AllocateGenericArray(sizeof(OSHandleData), handles.size());
-  handles_.reserve(handles_.size() + handles.size());
-  for (OSHandle& handle : handles) {
-    handles_.push_back(std::move(handle));
+uint32_t MessageBase::AppendDriverObjects(absl::Span<DriverObject> objects) {
+  const uint32_t array_param = AllocateArray<DriverObjectData>(objects.size());
+  const absl::Span<DriverObjectData> object_data =
+      GetArrayView<DriverObjectData>(array_param);
+  for (size_t i = 0; i < objects.size(); ++i) {
+    AppendDriverObject(std::move(objects[i]), object_data[i]);
   }
-  return offset;
+  return array_param;
 }
 
-MessageBase::SharedMemoryParams MessageBase::AppendSharedMemory(
-    DriverMemory memory) {
-  SharedMemoryParams params{0, 0};
-  if (!memory.is_valid()) {
-    return params;
+void MessageBase::AppendDriverObject(DriverObject object,
+                                     DriverObjectData& data) {
+  // This is only a placeholder used later by Serialize() to locate the
+  // serializable object.
+  data.driver_data_array = 0;
+  data.first_driver_handle = static_cast<uint32_t>(driver_objects_.size());
+  data.num_driver_handles = 1;
+  driver_objects_.push_back(std::move(object));
+}
+
+DriverObject MessageBase::TakeDriverObject(const DriverObjectData& data) {
+  // When properly deserialized, every logical driver object field in a message
+  // should correspond to a single attached DriverObject. This is validated
+  // during deserialization, so these assertions are safe.
+  ABSL_ASSERT(data.num_driver_handles == 1);
+  ABSL_ASSERT(driver_objects_.size() > data.first_driver_handle);
+  return std::move(driver_objects_[data.first_driver_handle]);
+}
+
+IpczResult MessageBase::Serialize(absl::Span<const ParamMetadata> params,
+                                  const DriverTransport& transport) {
+  absl::InlinedVector<IpczDriverHandle, 2> transmissible_handles;
+  for (const auto& param : params) {
+    switch (param.type) {
+      case ParamType::kDriverObject: {
+        IpczResult result = SerializeDriverObject(
+            GetDataOffset(&GetParamValueAt<DriverObjectData>(param.offset)),
+            transport, *this, transmissible_handles);
+        if (result != IPCZ_RESULT_OK) {
+          return result;
+        }
+        break;
+      }
+
+      case ParamType::kDriverObjectArray: {
+        const uint32_t array_data_offset =
+            GetParamValueAt<uint32_t>(param.offset);
+        const size_t num_objects =
+            GetArrayView<DriverObjectData>(array_data_offset).size();
+        for (size_t i = 0; i < num_objects; ++i) {
+          // Note that the address of this array can move on each iteration, as
+          // SerializeDriverObject may need to reallocate the data buffer. Hence
+          // we resolve it from the array offset each time.
+          auto data = GetArrayView<DriverObjectData>(array_data_offset);
+          IpczResult result = SerializeDriverObject(
+              GetDataOffset(&data[i]), transport, *this, transmissible_handles);
+          if (result != IPCZ_RESULT_OK) {
+            return result;
+          }
+        }
+        break;
+      }
+
+      default:
+        // No additional work needed to serialize plain data.
+        break;
+    }
   }
 
-  std::vector<uint8_t> data;
-  std::vector<OSHandle> handles;
-  IpczResult result = memory.Serialize(data, handles);
-  if (result != IPCZ_RESULT_OK) {
-    return params;
+  // Sanity check: all driver objects must have been taken and serialized.
+  for (const auto& object : driver_objects_) {
+    ABSL_ASSERT(!object.is_valid());
   }
 
-  uint32_t data_param = AllocateArray<uint8_t>(data.size());
-  memcpy(GetArrayData(data_param), data.data(), data.size());
-  uint32_t handles_param = AppendHandles(absl::MakeSpan(handles));
-  return {data_param, handles_param};
+  // Replace the set of consumed serializable objects with a new set of readily
+  // transmissible objects provided by the driver.
+  transmissible_driver_handles_ = std::move(transmissible_handles);
+  return IPCZ_RESULT_OK;
 }
 
-DriverMemory MessageBase::TakeSharedMemory(Ref<Node> node,
-                                           const SharedMemoryParams& params) {
-  return DriverMemory::Deserialize(std::move(node),
-                                   GetArrayView<uint8_t>(std::get<0>(params)),
-                                   GetHandlesView(std::get<1>(params)));
+void MessageBase::Adopt(absl::Span<uint8_t> data,
+                        absl::Span<DriverObject> objects) {
+  data_.resize(data.size());
+  std::copy(data.begin(), data.end(), data_.begin());
+  driver_objects_.resize(objects.size());
+  std::move(objects.begin(), objects.end(), driver_objects_.begin());
 }
 
-void MessageBase::Serialize(absl::Span<const ParamMetadata> params,
-                            const OSProcess& remote_process) {
-  SerializeMessageHandleData(data_view(), handles_view(), params,
-                             remote_process);
-#if BUILDFLAG(IS_WIN)
-  // On Windows, all handles have been released and absorbed into the data
-  // payload.
-  handles_.clear();
-#endif
-}
-
-bool MessageBase::DeserializeDataAndHandles(
+bool MessageBase::DeserializeFromTransport(
     size_t params_size,
     uint32_t params_current_version,
     absl::Span<const ParamMetadata> params_metadata,
     absl::Span<const uint8_t> data,
-    absl::Span<OSHandle> handles,
-    const OSProcess& remote_process) {
+    absl::Span<const IpczDriverHandle> handles,
+    const DriverTransport& transport) {
   // Copy the data into a local message object to avoid any TOCTOU issues in
   // case `data` is in unsafe shared memory.
+  //
+  // TODO: we don't really need to copy the whole message, but this is safe and
+  // good enough for now.
   data_.resize(data.size());
   memcpy(data_.data(), data.data(), data.size());
 
@@ -222,8 +285,7 @@ bool MessageBase::DeserializeDataAndHandles(
     return false;
   }
 
-  // Finally, validate each parameter.
-  handles_.resize(handles.size());
+  // Finally, validate each parameter and unpack driver objects.
   for (const ParamMetadata& param : params_metadata) {
     if (param.offset + param.size > params_header.size) {
       return false;
@@ -232,6 +294,11 @@ bool MessageBase::DeserializeDataAndHandles(
     if (param.array_element_size > 0) {
       const uint32_t array_offset =
           *reinterpret_cast<uint32_t*>(&params_data[param.offset]);
+      if (array_offset == 0) {
+        // Null array, no more validation required.
+        continue;
+      }
+
       if (array_offset >= data_.size()) {
         return false;
       }
@@ -253,49 +320,34 @@ bool MessageBase::DeserializeDataAndHandles(
       if (header.num_elements > max_num_elements) {
         return false;
       }
+    }
 
-      if (param.is_handle_array) {
-        OSHandleData* handle_data =
-            reinterpret_cast<OSHandleData*>(&header + 1);
-        for (size_t i = 0; i < header.num_elements; ++i) {
-          const size_t index = handle_data[i].index;
-#if BUILDFLAG(IS_WIN)
-          if (index >= handles_.size()) {
-            handles_.resize(index + 1);
-          }
-          if (handles_[index].is_valid()) {
-            return false;
-          }
-
-          HANDLE h = reinterpret_cast<HANDLE>(
-              static_cast<uintptr_t>(handle_data[i].value));
-          if (h != INVALID_HANDLE_VALUE && remote_process.is_valid()) {
-            HANDLE local_handle = INVALID_HANDLE_VALUE;
-            BOOL ok = ::DuplicateHandle(
-                remote_process.handle(), h, ::GetCurrentProcess(),
-                &local_handle, 0, FALSE,
-                DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE);
-            ABSL_ASSERT(ok);
-            h = local_handle;
-          }
-
-          OSHandle handle(h);
-          if (!handle.is_valid()) {
-            return false;
-          }
-
-          handles_[index] = std::move(handle);
-#else
-          if (index >= handles.size() || handles_[index].is_valid()) {
-            return false;
-          }
-
-          handles_[index] = std::move(handles[index]);
-#endif
+    switch (param.type) {
+      case ParamType::kDriverObject:
+        if (!DeserializeDriverObject(
+                *this, GetParamValueAt<DriverObjectData>(param.offset), handles,
+                transport)) {
+          return false;
         }
+        break;
+
+      case ParamType::kDriverObjectArray: {
+        auto objects = GetArrayView<DriverObjectData>(
+            GetParamValueAt<uint32_t>(param.offset));
+        for (DriverObjectData& object : objects) {
+          if (!DeserializeDriverObject(*this, object, handles, transport)) {
+            return false;
+          }
+        }
+        break;
       }
+
+      default:
+        break;
     }
   }
+
+  // TODO: we should clean up driver objects on failure
 
   return true;
 }

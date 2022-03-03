@@ -25,7 +25,6 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
 #include "util/mpsc_queue.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {

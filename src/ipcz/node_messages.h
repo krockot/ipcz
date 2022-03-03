@@ -20,10 +20,12 @@
 #include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
+#include "util/ref_counted.h"
 
 namespace ipcz {
+
+class Node;
+
 namespace msg {
 
 // This file is used to push message definitions through the preprocessor to

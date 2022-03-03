@@ -9,13 +9,9 @@
 #include "ipcz/message_internal.h"
 #include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
-
-#include "util/log.h"
 
 #if BUILDFLAG(IS_WIN)
 #define IPCZ_CDECL __cdecl
@@ -30,8 +26,8 @@ namespace {
 IpczResult IPCZ_CDECL NotifyTransport(IpczHandle transport,
                                       const uint8_t* data,
                                       uint32_t num_bytes,
-                                      const struct IpczOSHandle* os_handles,
-                                      uint32_t num_os_handles,
+                                      const IpczDriverHandle* driver_handles,
+                                      uint32_t num_driver_handles,
                                       IpczTransportActivityFlags flags,
                                       const void* options) {
   if (transport == IPCZ_INVALID_HANDLE) {
@@ -50,14 +46,9 @@ IpczResult IPCZ_CDECL NotifyTransport(IpczHandle transport,
     return IPCZ_RESULT_OK;
   }
 
-  absl::InlinedVector<OSHandle, 2> handles;
-  handles.resize(num_os_handles);
-  for (size_t i = 0; i < num_os_handles; ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
-  }
-
   return t.Notify(DriverTransport::Message(
-      absl::Span<const uint8_t>(data, num_bytes), absl::MakeSpan(handles)));
+      absl::MakeSpan(data, num_bytes),
+      absl::MakeSpan(driver_handles, num_driver_handles)));
 }
 
 }  // namespace
@@ -84,7 +75,8 @@ absl::Span<const char> DriverTransport::Data::AsString() const {
 
 DriverTransport::Message::Message(Data data) : data(data) {}
 
-DriverTransport::Message::Message(Data data, absl::Span<OSHandle> handles)
+DriverTransport::Message::Message(Data data,
+                                  absl::Span<const IpczDriverHandle> handles)
     : data(data), handles(handles) {}
 
 DriverTransport::Message::Message(const Message&) = default;
@@ -130,50 +122,10 @@ IpczResult DriverTransport::Deactivate() {
 }
 
 IpczResult DriverTransport::TransmitMessage(const Message& message) {
-  absl::InlinedVector<IpczOSHandle, 2> os_handles;
-  for (size_t i = 0; i < message.handles.size(); ++i) {
-    if (message.handles[i].is_valid()) {
-      os_handles.push_back({sizeof(IpczOSHandle)});
-      bool ok = OSHandle::ToIpczOSHandle(std::move(message.handles[i]),
-                                         &os_handles.back());
-      ABSL_ASSERT(ok);
-    }
-  }
-
   return transport_.node()->driver().Transmit(
       transport_.handle(), message.data.data(),
-      static_cast<uint32_t>(message.data.size()), os_handles.data(),
-      static_cast<uint32_t>(os_handles.size()), IPCZ_NO_FLAGS, nullptr);
-}
-
-IpczResult DriverTransport::Serialize(std::vector<uint8_t>& data,
-                                      std::vector<OSHandle>& handles) {
-  DriverObject::SerializedDimensions dimensions =
-      transport_.GetSerializedDimensions();
-  data.resize(dimensions.num_bytes);
-  handles.resize(dimensions.num_os_handles);
-  IpczResult result =
-      transport_.Serialize(absl::MakeSpan(data), absl::MakeSpan(handles));
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  serialized_ = true;
-  return IPCZ_RESULT_OK;
-}
-
-// static
-Ref<DriverTransport> DriverTransport::Deserialize(
-    Ref<Node> node,
-    absl::Span<const uint8_t> data,
-    absl::Span<OSHandle> handles) {
-  DriverObject transport =
-      DriverObject::Deserialize(std::move(node), data, handles);
-  if (!transport.is_valid()) {
-    return nullptr;
-  }
-
-  return MakeRefCounted<DriverTransport>(std::move(transport));
+      static_cast<uint32_t>(message.data.size()), message.handles.data(),
+      static_cast<uint32_t>(message.handles.size()), IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::Notify(const Message& message) {

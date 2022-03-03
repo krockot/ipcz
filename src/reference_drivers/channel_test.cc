@@ -6,9 +6,9 @@
 
 #include <tuple>
 
+#include "reference_drivers/os_handle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {

@@ -15,7 +15,6 @@
 #include "ipcz/sequence_number.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -36,13 +35,11 @@ class Parcel {
   SequenceNumber sequence_number() const { return sequence_number_; }
 
   bool empty() const {
-    return data_offset_ == data_.size() && object_offset_ == objects_.size() &&
-           os_handle_offset_ == os_handles_.size();
+    return data_offset_ == data_.size() && object_offset_ == objects_.size();
   }
 
   void SetData(std::vector<uint8_t> data);
   void SetObjects(ObjectVector objects);
-  void SetOSHandles(std::vector<OSHandle> os_handles);
 
   void ResizeData(size_t size);
 
@@ -62,17 +59,7 @@ class Parcel {
   }
   size_t num_objects() const { return objects_view().size(); }
 
-  absl::Span<OSHandle> os_handles_view() {
-    return absl::MakeSpan(os_handles_).subspan(os_handle_offset_);
-  }
-  absl::Span<const OSHandle> os_handles_view() const {
-    return absl::MakeSpan(os_handles_).subspan(os_handle_offset_);
-  }
-  size_t num_os_handles() const { return os_handles_view().size(); }
-
-  void Consume(size_t num_bytes,
-               absl::Span<IpczHandle> out_handles,
-               absl::Span<IpczOSHandle> out_os_handles);
+  void Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles);
 
   // Produces a log-friendly description of the Parcel, useful for various
   // debugging log messages.
@@ -82,13 +69,11 @@ class Parcel {
   SequenceNumber sequence_number_ = 0;
   std::vector<uint8_t> data_;
   ObjectVector objects_;
-  std::vector<OSHandle> os_handles_;
 
   // Base indices into the above storage vectors, tracking the first unconsumed
   // element in each.
   size_t data_offset_ = 0;
   size_t object_offset_ = 0;
-  size_t os_handle_offset_ = 0;
 };
 
 }  // namespace ipcz

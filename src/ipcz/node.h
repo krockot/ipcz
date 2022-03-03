@@ -20,7 +20,6 @@
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -63,12 +62,10 @@ class Node : public APIObject {
   void ShutDown();
 
   // Connects to another node using `driver_transport` for I/O to and from the
-  // other node. If the caller has a handle to the process which hosts the
-  // remote node, it may be provided by `remote_process`. `initial_portals` is
-  // a collection of new portals who will immediately begin to route parcels
-  // over a link to the new node, assuming the link is established successfully.
+  // other node. `initial_portals` is a collection of new portals who will
+  // immediately begin to route parcel over a link to the new node, assuming the
+  // link is established successfully.
   IpczResult ConnectNode(IpczDriverHandle driver_transport,
-                         OSProcess remote_process,
                          IpczConnectNodeFlags flags,
                          absl::Span<IpczHandle> initial_portals);
 
@@ -119,7 +116,6 @@ class Node : public APIObject {
   bool OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
                                          uint64_t request_id,
                                          Ref<DriverTransport> transport,
-                                         OSProcess process,
                                          uint32_t num_initial_portals);
 
   // Handles an incoming introduction request. This message is only accepted by
@@ -141,8 +137,7 @@ class Node : public APIObject {
                        bool known,
                        LinkSide link_side,
                        Ref<NodeLinkMemory> link_memory,
-                       absl::Span<const uint8_t> serialized_transport_data,
-                       absl::Span<OSHandle> serialized_transport_handles);
+                       Ref<DriverTransport> transport);
 
   // Handles an incoming request to bypass a proxying router on another node.
   bool OnBypassProxy(NodeLink& from_node_link, const msg::BypassProxy& bypass);

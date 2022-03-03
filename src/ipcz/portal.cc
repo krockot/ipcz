@@ -24,7 +24,6 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
 #include "util/log.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -87,7 +86,6 @@ IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
 
 IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> handles,
-                       absl::Span<const IpczOSHandle> ipcz_os_handles,
                        const IpczPutLimits* limits) {
   Parcel::ObjectVector objects;
   if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
@@ -103,21 +101,12 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  std::vector<OSHandle> os_handles(ipcz_os_handles.size());
-  for (size_t i = 0; i < os_handles.size(); ++i) {
-    os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
-  }
-
-  IpczResult result = router_->SendOutboundParcel(data, objects, os_handles);
+  IpczResult result = router_->SendOutboundParcel(data, objects);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.
     for (IpczHandle handle : handles) {
       APIObject::ReleaseHandle(handle);
-    }
-  } else {
-    for (OSHandle& os_handle : os_handles) {
-      os_handle.release();
     }
   }
 
@@ -152,8 +141,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 }
 
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
-                             absl::Span<const IpczHandle> handles,
-                             absl::Span<const IpczOSHandle> ipcz_os_handles) {
+                             absl::Span<const IpczHandle> handles) {
   Parcel::ObjectVector objects;
   if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -174,14 +162,8 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     pending_parcel_.reset();
   }
 
-  std::vector<OSHandle> os_handles(ipcz_os_handles.size());
-  for (size_t i = 0; i < ipcz_os_handles.size(); ++i) {
-    os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
-  }
-
   IpczResult result = router_->SendOutboundParcel(
-      parcel.data_view().subspan(0, num_data_bytes_produced), objects,
-      os_handles);
+      parcel.data_view().subspan(0, num_data_bytes_produced), objects);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.
@@ -192,10 +174,6 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     absl::MutexLock lock(&mutex_);
     in_two_phase_put_ = false;
   } else {
-    for (OSHandle& os_handle : os_handles) {
-      os_handle.release();
-    }
-
     absl::MutexLock lock(&mutex_);
     pending_parcel_.emplace(std::move(parcel));
   }
@@ -218,23 +196,19 @@ IpczResult Portal::Get(IpczGetFlags flags,
                        void* data,
                        uint32_t* num_data_bytes,
                        IpczHandle* handles,
-                       uint32_t* num_handles,
-                       IpczOSHandle* os_handles,
-                       uint32_t* num_os_handles) {
+                       uint32_t* num_handles) {
   absl::MutexLock lock(&mutex_);
   if (in_two_phase_get_) {
     return IPCZ_RESULT_ALREADY_EXISTS;
   }
 
   return router_->GetNextIncomingParcel(flags, data, num_data_bytes, handles,
-                                        num_handles, os_handles,
-                                        num_os_handles);
+                                        num_handles);
 }
 
 IpczResult Portal::BeginGet(const void** data,
                             uint32_t* num_data_bytes,
-                            uint32_t* num_handles,
-                            uint32_t* num_os_handles) {
+                            uint32_t* num_handles) {
   absl::MutexLock lock(&mutex_);
   if (in_two_phase_get_) {
     return IPCZ_RESULT_ALREADY_EXISTS;
@@ -244,8 +218,8 @@ IpczResult Portal::BeginGet(const void** data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  IpczResult result = router_->BeginGetNextIncomingParcel(
-      data, num_data_bytes, num_handles, num_os_handles);
+  IpczResult result =
+      router_->BeginGetNextIncomingParcel(data, num_data_bytes, num_handles);
   if (result == IPCZ_RESULT_OK) {
     in_two_phase_get_ = true;
   }
@@ -253,15 +227,14 @@ IpczResult Portal::BeginGet(const void** data,
 }
 
 IpczResult Portal::CommitGet(uint32_t num_data_bytes_consumed,
-                             absl::Span<IpczHandle> handles,
-                             absl::Span<IpczOSHandle> os_handles) {
+                             absl::Span<IpczHandle> handles) {
   absl::MutexLock lock(&mutex_);
   if (!in_two_phase_get_) {
     return IPCZ_RESULT_FAILED_PRECONDITION;
   }
 
-  IpczResult result = router_->CommitGetNextIncomingParcel(
-      num_data_bytes_consumed, handles, os_handles);
+  IpczResult result =
+      router_->CommitGetNextIncomingParcel(num_data_bytes_consumed, handles);
   if (result == IPCZ_RESULT_OK) {
     in_two_phase_get_ = false;
   }

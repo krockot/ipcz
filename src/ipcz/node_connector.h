@@ -13,7 +13,6 @@
 #include "ipcz/link_side.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -45,7 +44,6 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
   using ConnectCallback = Function<void(Ref<NodeLink> new_link)>;
   static IpczResult ConnectNode(Ref<Node> node,
                                 Ref<DriverTransport> transport,
-                                OSProcess remote_process,
                                 IpczCreateNodeFlags flags,
                                 const std::vector<Ref<Portal>>& initial_portals,
                                 ConnectCallback callback = nullptr);
@@ -60,7 +58,6 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
   static IpczResult ConnectNodeIndirect(Ref<Node> node,
                                         Ref<NodeLink> referrer,
                                         Ref<DriverTransport> transport,
-                                        OSProcess remote_process,
                                         uint32_t num_initial_portals,
                                         ConnectIndirectCallback callback);
 
@@ -71,7 +68,6 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
  protected:
   NodeConnector(Ref<Node> node,
                 Ref<DriverTransport> transport,
-                OSProcess remote_process,
                 IpczCreateNodeFlags flags,
                 std::vector<Ref<Portal>> waiting_portals,
                 ConnectCallback callback);
@@ -91,7 +87,6 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
 
   const Ref<Node> node_;
   const Ref<DriverTransport> transport_;
-  OSProcess remote_process_;
   const IpczCreateNodeFlags flags_;
   const std::vector<Ref<Portal>> waiting_portals_;
   Ref<NodeConnector> active_self_;

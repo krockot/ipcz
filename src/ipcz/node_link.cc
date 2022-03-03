@@ -40,12 +40,11 @@ Ref<NodeLink> NodeLink::Create(Ref<Node> node,
                                Node::Type remote_node_type,
                                uint32_t remote_protocol_version,
                                Ref<DriverTransport> transport,
-                               OSProcess remote_process,
                                Ref<NodeLinkMemory> memory) {
-  auto link = WrapRefCounted(new NodeLink(
-      std::move(node), link_side, local_node_name, remote_node_name,
-      remote_node_type, remote_protocol_version, std::move(transport),
-      std::move(remote_process), std::move(memory)));
+  auto link = WrapRefCounted(
+      new NodeLink(std::move(node), link_side, local_node_name,
+                   remote_node_name, remote_node_type, remote_protocol_version,
+                   std::move(transport), std::move(memory)));
   link->memory().SetNodeLink(link);
   return link;
 }
@@ -57,7 +56,6 @@ NodeLink::NodeLink(Ref<Node> node,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    Ref<DriverTransport> transport,
-                   OSProcess remote_process,
                    Ref<NodeLinkMemory> memory)
     : node_(std::move(node)),
       link_side_(link_side),
@@ -66,7 +64,6 @@ NodeLink::NodeLink(Ref<Node> node,
       remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
       transport_(std::move(transport)),
-      remote_process_(std::move(remote_process)),
       memory_(std::move(memory)) {
   transport_->set_listener(this);
 }
@@ -141,16 +138,8 @@ void NodeLink::Deactivate() {
 
 void NodeLink::RequestIndirectBrokerConnection(
     Ref<DriverTransport> transport,
-    OSProcess new_node_process,
     size_t num_initial_portals,
     IndirectBrokerConnectionCallback callback) {
-  std::vector<uint8_t> transport_data;
-  std::vector<OSHandle> transport_handles;
-  if (transport) {
-    IpczResult result = transport->Serialize(transport_data, transport_handles);
-    ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  }
-
   uint64_t request_id;
   {
     absl::MutexLock lock(&mutex_);
@@ -162,23 +151,8 @@ void NodeLink::RequestIndirectBrokerConnection(
   request.params().request_id = request_id;
   request.params().num_initial_portals =
       static_cast<uint32_t>(num_initial_portals);
-
-  request.params().transport_data =
-      request.AllocateArray<uint8_t>(transport_data.size());
-  memcpy(request.GetArrayData(request.params().transport_data),
-         transport_data.data(), transport_data.size());
-
-  request.params().transport_os_handles =
-      request.AppendHandles(absl::MakeSpan(transport_handles));
-
-  OSHandle process_handle = new_node_process.TakeAsHandle();
-  std::vector<OSHandle> process_handles;
-  if (process_handle.is_valid()) {
-    process_handles.push_back(std::move(process_handle));
-  }
-  request.params().process_handle =
-      request.AppendHandles(absl::MakeSpan(process_handles));
-
+  request.AppendDriverObject(transport->TakeDriverObject(),
+                             request.params().transport);
   Transmit(request);
 }
 
@@ -192,27 +166,14 @@ void NodeLink::IntroduceNode(const NodeName& name,
                              LinkSide link_side,
                              Ref<DriverTransport> transport,
                              DriverMemory link_buffer_memory) {
-  std::vector<uint8_t> transport_data;
-  std::vector<OSHandle> transport_handles;
-  if (transport) {
-    IpczResult result = transport->Serialize(transport_data, transport_handles);
-    ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  }
-
   msg::IntroduceNode intro;
   intro.params().name = name;
   intro.params().known = (transport != nullptr);
   intro.params().link_side = link_side;
-  intro.params().transport_data =
-      intro.AllocateArray<uint8_t>(transport_data.size());
-  memcpy(intro.GetArrayData(intro.params().transport_data),
-         transport_data.data(), transport_data.size());
-  intro.params().transport_os_handles =
-      intro.AppendHandles(absl::MakeSpan(transport_handles));
-
-  auto buffer = intro.AppendSharedMemory(std::move(link_buffer_memory));
-  intro.params().set_buffer(buffer);
-
+  intro.AppendDriverObject(transport->TakeDriverObject(),
+                           intro.params().transport);
+  intro.AppendDriverObject(link_buffer_memory.TakeDriverObject(),
+                           intro.params().buffer);
   Transmit(intro);
 }
 
@@ -255,10 +216,7 @@ void NodeLink::AddFragmentAllocatorBuffer(BufferId buffer_id,
   msg::AddFragmentAllocatorBuffer add;
   add.params().buffer_id = buffer_id;
   add.params().fragment_size = fragment_size;
-
-  auto buffer = add.AppendSharedMemory(std::move(memory));
-  add.params().set_buffer(buffer);
-
+  add.AppendDriverObject(memory.TakeDriverObject(), add.params().buffer);
   Transmit(add);
 }
 
@@ -274,65 +232,54 @@ void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
 }
 
 bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
+  // TODO: clean up these hacks
+
   absl::Span<uint8_t> data = relay.GetArrayView<uint8_t>(relay.params().data);
-  absl::Span<OSHandle> handles = relay.GetHandlesView(relay.params().handles);
+  if (data.size() < sizeof(internal::MessageHeaderV0)) {
+    return false;
+  }
+
   internal::MessageHeaderV0& header = internal::GetMessageHeader(data);
   if (!internal::IsMessageHeaderValid(data)) {
     return false;
   }
 
-  absl::Span<const internal::ParamMetadata> metadata;
   switch (header.message_id) {
-    case msg::AcceptParcel::kId:
-      metadata = absl::MakeSpan(msg::AcceptParcel::kMetadata);
-      break;
+    case msg::AcceptParcel::kId: {
+      msg::AcceptParcel accept;
+      accept.Adopt(data, relay.driver_objects());
+      return OnAcceptParcel(accept);
+    }
 
-    case msg::AddFragmentAllocatorBuffer::kId:
-      metadata = absl::MakeSpan(msg::AcceptParcel::kMetadata);
-      break;
+    case msg::AddFragmentAllocatorBuffer::kId: {
+      msg::AddFragmentAllocatorBuffer add;
+      add.Adopt(data, relay.driver_objects());
+      return OnAddFragmentAllocatorBuffer(add);
+    }
 
     default:
       DVLOG(2) << "Ignoring unexpected broker message relay for ID "
                << static_cast<int>(header.message_id);
       return true;
   }
-
-  internal::SerializeMessageHandleData(data, handles, metadata, OSProcess());
-#if BUILDFLAG(IS_WIN)
-  for (OSHandle& handle : handles) {
-    handle.release();
-  }
-  handles = {};
-#endif
-
-  IpczResult result =
-      DispatchMessage(DriverTransport::Message({data}, handles));
-  return result == IPCZ_RESULT_OK;
 }
 
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {
-#if BUILDFLAG(IS_WIN)
-  // OS handles in messages may only be transmitted if we have a handle to the
-  // remote process (implying that we are relatively more privileged), or if
-  // the remote process is a broker or otherwise known to be more privileged
-  // (and may therefore duplicate our own handles itself). In other cases where
-  // relative privilege is equal or ambigious, we must relay OS handles
-  // through the broker.
-  if (!remote_process_.is_valid() && remote_node_type_ != Node::Type::kBroker &&
-      !message.handles_view().empty()) {
+  IpczResult result = message.Serialize(metadata, *transport_);
+  if (result == IPCZ_RESULT_PERMISSION_DENIED) {
+    // The driver has indicated that it can't transmit this message through our
+    // transport and that the message must instead be relayed through a broker.
     auto broker = node_->GetBrokerLink();
     if (!broker) {
+      DLOG(ERROR) << "Cannot relay message without a broker link.";
       return;
     }
 
     broker->RelayMessage(remote_node_name_, message);
     return;
   }
-#endif
-
-  message.Serialize(metadata, remote_process_);
 
   size_t small_size_class = 0;
   if (message.data_view().size() <= 64) {
@@ -341,7 +288,7 @@ void NodeLink::TransmitMessage(
     small_size_class = 256;
   }
 
-  if (small_size_class && message.handles_view().empty()) {
+  if (small_size_class && message.transmissible_driver_handles().empty()) {
     // For messages which are small with no handles, prefer transmission through
     // shared memory.
     Fragment fragment = memory().AllocateFragment(small_size_class);
@@ -368,8 +315,9 @@ void NodeLink::TransmitMessage(
 
   message.header().transport_sequence_number =
       transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
-  transport_->TransmitMessage(DriverTransport::Message(
-      DriverTransport::Data(message.data_view()), message.handles_view()));
+  transport_->TransmitMessage(
+      DriverTransport::Message(DriverTransport::Data(message.data_view()),
+                               message.transmissible_driver_handles()));
 }
 
 void NodeLink::RelayMessage(const NodeName& to_node,
@@ -379,11 +327,10 @@ void NodeLink::RelayMessage(const NodeName& to_node,
   relay.params().destination = to_node;
   relay.params().data =
       relay.AllocateArray<uint8_t>(message.data_view().size());
-
-  relay.params().handles = relay.AppendHandles(message.handles_view());
   memcpy(relay.GetArrayData(relay.params().data), message.data_view().data(),
          message.data_view().size());
-
+  relay.params().driver_objects =
+      relay.AppendDriverObjects(message.driver_objects());
   Transmit(relay);
 }
 
@@ -461,34 +408,14 @@ bool NodeLink::OnRequestIndirectBrokerConnection(
     return false;
   }
 
-  absl::Span<uint8_t> transport_data =
-      request.GetArrayView<uint8_t>(request.params().transport_data);
-  absl::Span<OSHandle> transport_os_handles =
-      request.GetHandlesView(request.params().transport_os_handles);
-  absl::Span<OSHandle> process_handles =
-      request.GetHandlesView(request.params().process_handle);
-
-  if (process_handles.size() > 1) {
+  auto transport = request.TakeDriverObject(request.params().transport);
+  if (!transport.is_valid()) {
     return false;
   }
-
-  OSProcess new_node_process;
-#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_FUCHSIA)
-  if (process_handles.size() == 1) {
-    new_node_process = OSProcess(process_handles[0].handle());
-    process_handles[0].release();
-  }
-#endif
-
-  auto transport =
-      DriverTransport::Deserialize(node_, transport_data, transport_os_handles);
-  if (!transport) {
-    return false;
-  }
-
   return node_->OnRequestIndirectBrokerConnection(
-      *this, request.params().request_id, std::move(transport),
-      std::move(new_node_process), request.params().num_initial_portals);
+      *this, request.params().request_id,
+      MakeRefCounted<DriverTransport>(std::move(transport)),
+      request.params().num_initial_portals);
 }
 
 bool NodeLink::OnAcceptIndirectBrokerConnection(
@@ -527,30 +454,11 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
       accept.GetArrayView<HandleDescriptor>(accept.params().handle_descriptors);
   absl::Span<const RouterDescriptor> new_routers =
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
-  absl::Span<const uint8_t> handle_data =
-      accept.GetArrayView<uint8_t>(accept.params().handle_data);
-  absl::Span<OSHandle> os_handles =
-      accept.GetHandlesView(accept.params().os_handles);
-
-  const size_t num_parcel_os_handles = accept.params().num_parcel_os_handles;
-  if (num_parcel_os_handles > os_handles.size()) {
-    return false;
-  }
-
-  std::vector<OSHandle> parcel_os_handles(num_parcel_os_handles);
-  for (size_t i = 0; i < num_parcel_os_handles; ++i) {
-    parcel_os_handles[i] = std::move(os_handles[i]);
-  }
-  os_handles.remove_prefix(num_parcel_os_handles);
+  auto driver_objects = accept.driver_objects();
 
   Parcel::ObjectVector objects(handle_descriptors.size());
   for (size_t i = 0; i < handle_descriptors.size(); ++i) {
     const HandleDescriptor& descriptor = handle_descriptors[i];
-    if (descriptor.num_bytes > handle_data.size() ||
-        descriptor.num_os_handles > os_handles.size()) {
-      return false;
-    }
-
     switch (descriptor.type) {
       case HandleDescriptor::kPortal: {
         if (new_routers.empty()) {
@@ -568,41 +476,23 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
       }
 
       case HandleDescriptor::kBox: {
-        absl::InlinedVector<IpczOSHandle, 4> ipcz_os_handles(
-            descriptor.num_os_handles);
-        for (size_t j = 0; j < descriptor.num_os_handles; ++j) {
-          ipcz_os_handles[j].size = sizeof(ipcz_os_handles[j]);
-          if (!OSHandle::ToIpczOSHandle(std::move(os_handles[j]),
-                                        &ipcz_os_handles[j])) {
-            return false;
-          }
-        }
-
-        IpczDriverHandle driver_handle;
-        IpczResult result = node_->driver().Deserialize(
-            node_->driver_node(), handle_data.data(), descriptor.num_bytes,
-            ipcz_os_handles.data(), descriptor.num_os_handles, IPCZ_NO_FLAGS,
-            nullptr, &driver_handle);
-        if (result != IPCZ_RESULT_OK) {
+        if (driver_objects.empty()) {
           return false;
         }
 
-        objects[i] = MakeRefCounted<Box>(DriverObject(node_, driver_handle));
+        objects[i] = MakeRefCounted<Box>(std::move(driver_objects[0]));
+        driver_objects.remove_prefix(1);
         break;
       }
 
       default:
         return false;
     }
-
-    handle_data.remove_prefix(descriptor.num_bytes);
-    os_handles.remove_prefix(descriptor.num_os_handles);
   }
 
   Parcel parcel(accept.params().sequence_number);
   parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   parcel.SetObjects(std::move(objects));
-  parcel.SetOSHandles(std::move(parcel_os_handles));
   absl::optional<Sublink> sublink = GetSublink(accept.params().sublink);
   if (!sublink) {
     DVLOG(4) << "Dropping " << parcel.Describe() << " at "
@@ -671,27 +561,26 @@ bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
   const NodeName name = intro.params().name;
   const bool known = intro.params().known;
   if (!known) {
+    node_->OnIntroduceNode(name, known, intro.params().link_side, nullptr,
+                           nullptr);
     return true;
   }
 
-  absl::Span<uint8_t> transport_data =
-      intro.GetArrayView<uint8_t>(intro.params().transport_data);
-  absl::Span<OSHandle> transport_os_handles =
-      intro.GetHandlesView(intro.params().transport_os_handles);
-
-  DriverMemory memory = intro.TakeSharedMemory(node_, intro.params().buffer());
-  if (!memory.is_valid()) {
+  DriverObject transport_object =
+      intro.TakeDriverObject(intro.params().transport);
+  DriverMemory memory(intro.TakeDriverObject(intro.params().buffer));
+  if (!transport_object.is_valid() || !memory.is_valid()) {
     return false;
   }
-  return node_->OnIntroduceNode(name, known, intro.params().link_side,
-                                NodeLinkMemory::Adopt(node_, std::move(memory)),
-                                transport_data, transport_os_handles);
+  return node_->OnIntroduceNode(
+      name, known, intro.params().link_side,
+      NodeLinkMemory::Adopt(node_, std::move(memory)),
+      MakeRefCounted<DriverTransport>(std::move(transport_object)));
 }
 
 bool NodeLink::OnAddFragmentAllocatorBuffer(
     msg::AddFragmentAllocatorBuffer& add) {
-  DriverMemory buffer_memory =
-      add.TakeSharedMemory(node_, add.params().buffer());
+  DriverMemory buffer_memory(add.TakeDriverObject(add.params().buffer));
   if (!buffer_memory.is_valid()) {
     return false;
   }
@@ -780,17 +669,14 @@ bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
   DriverMemory memory(node_, request.params().size);
   msg::ProvideMemory provide;
   provide.params().size = request.params().size;
-
-  auto buffer = provide.AppendSharedMemory(std::move(memory));
-  provide.params().set_buffer(buffer);
-
+  provide.AppendDriverObject(memory.TakeDriverObject(),
+                             provide.params().buffer);
   Transmit(provide);
   return true;
 }
 
 bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
-  DriverMemory memory =
-      provide.TakeSharedMemory(node_, provide.params().buffer());
+  DriverMemory memory(provide.TakeDriverObject(provide.params().buffer));
   if (!memory.is_valid()) {
     return false;
   }

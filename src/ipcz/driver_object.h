@@ -9,7 +9,6 @@
 
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -34,11 +33,17 @@ class DriverObject {
 
   bool is_valid() const { return handle_ != IPCZ_INVALID_DRIVER_HANDLE; }
 
+  // Indicates whether this DriverObject is transmissible as-is, meaning ipcz
+  // can pass its handle directly to Transmit() on a driver transport.
+  bool IsTransmissible() const;
+
+  // Indicates whether this DriverObject can be serialized into a collection of
+  // data and transmissible subobjects for transmission over a driver transport.
   bool IsSerializable() const;
 
   struct SerializedDimensions {
     uint32_t num_bytes;
-    uint32_t num_os_handles;
+    uint32_t num_driver_handles;
   };
   SerializedDimensions GetSerializedDimensions() const;
 
@@ -46,17 +51,22 @@ class DriverObject {
   // least large enough to support the object's serialized dimensions. If short,
   // returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
+  // Handles placed into `handles` must be transmissible by the driver without
+  // further serialization.
+  //
   // May also return IPCZ_RESULT_FAILED_PRECONDITION if the object is not
   // currently in a serializable state, or IPCZ_RESULT_DATA_LOSS if the driver
   // cannot serialize this type of object.
-  IpczResult Serialize(absl::Span<uint8_t> data, absl::Span<OSHandle> handles);
+  IpczResult Serialize(absl::Span<uint8_t> data,
+                       absl::Span<IpczDriverHandle> handles);
 
   // Asks the node to deserialize a driver object from a series of bytes and
-  // OS handles produced by a prior call to Serialize(). Returns an opaque
-  // IpczDriverHandle on success or IPCZ_INVALID_DRIVER_HANDLE on failure.
+  // transmissible driver objects produced by a prior call to Serialize().
+  // Returns an opaque IpczDriverHandle on success or IPCZ_INVALID_DRIVER_HANDLE
+  // on failure.
   static DriverObject Deserialize(Ref<Node> node,
                                   absl::Span<const uint8_t> data,
-                                  absl::Span<OSHandle> handles);
+                                  absl::Span<const IpczDriverHandle> handles);
 
  private:
   Ref<Node> node_;

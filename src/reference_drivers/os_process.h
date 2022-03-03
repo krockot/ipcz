@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_UTIL_OS_PROCESS_H_
-#define IPCZ_SRC_UTIL_OS_PROCESS_H_
+#ifndef IPCZ_SRC_REFERENCE_DRIVERS_OS_PROCESS_H_
+#define IPCZ_SRC_REFERENCE_DRIVERS_OS_PROCESS_H_
 
 #include <cstdint>
 
 #include <sys/types.h>
 
 #include "build/build_config.h"
-#include "ipcz/ipcz.h"
-#include "util/os_handle.h"
+#include "reference_drivers/os_handle.h"
+#include "reference_drivers/os_process.h"
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -19,7 +19,7 @@
 #include <zircon/types.h>
 #endif
 
-namespace ipcz {
+namespace ipcz::reference_drivers {
 
 // Platform-specific, unscoped raw process handle types and constants.
 #if BUILDFLAG(IS_WIN)
@@ -51,9 +51,6 @@ class OSProcess {
   OSProcess(const OSProcess&) = delete;
   OSProcess& operator=(const OSProcess&) = delete;
   ~OSProcess();
-
-  static OSProcess FromIpczOSProcessHandle(const IpczOSProcessHandle& handle);
-  static bool ToIpczOSProcessHandle(OSProcess procss, IpczOSProcessHandle& out);
 
   static OSProcess GetCurrent();
 
@@ -101,6 +98,6 @@ class OSProcess {
 #endif
 };
 
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
-#endif  // IPCZ_SRC_UTIL_OS_PROCESS_H_
+#endif  // IPCZ_SRC_REFERENCE_DRIVERS_OS_PROCESS_H_

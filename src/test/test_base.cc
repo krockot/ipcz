@@ -13,8 +13,6 @@
 #include "ipcz/router_tracker.h"
 #include "reference_drivers/event.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 #include "util/log.h"
@@ -44,32 +42,24 @@ TestBase::~TestBase() {
 
 IpczHandle TestBase::ConnectNode(IpczHandle node,
                                  IpczDriverHandle driver_transport,
-                                 const OSProcess& process,
                                  IpczConnectNodeFlags flags) {
-  IpczOSProcessHandle ipcz_process = {sizeof(ipcz_process)};
-  const bool has_process =
-      process.is_valid() &&
-      OSProcess::ToIpczOSProcessHandle(process.Clone(), ipcz_process);
-
   const uint32_t num_initial_portals = 1;
   IpczHandle initial_portal;
-  IpczResult result = ipcz.ConnectNode(
-      node, driver_transport, has_process ? &ipcz_process : nullptr,
-      num_initial_portals, flags, nullptr, &initial_portal);
+  IpczResult result =
+      ipcz.ConnectNode(node, driver_transport, num_initial_portals, flags,
+                       nullptr, &initial_portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return initial_portal;
 }
 
 IpczHandle TestBase::ConnectToBroker(IpczHandle node,
                                      IpczDriverHandle driver_transport) {
-  return ConnectNode(node, driver_transport, OSProcess(),
-                     IPCZ_CONNECT_NODE_TO_BROKER);
+  return ConnectNode(node, driver_transport, IPCZ_CONNECT_NODE_TO_BROKER);
 }
 
 IpczHandle TestBase::ConnectToNonBroker(IpczHandle node,
-                                        IpczDriverHandle driver_transport,
-                                        const OSProcess& process) {
-  return ConnectNode(node, driver_transport, process, IPCZ_NO_FLAGS);
+                                        IpczDriverHandle driver_transport) {
+  return ConnectNode(node, driver_transport, IPCZ_NO_FLAGS);
 }
 
 void TestBase::OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b) {
@@ -79,29 +69,18 @@ void TestBase::OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b) {
 
 void TestBase::Put(IpczHandle portal,
                    const std::string& str,
-                   absl::Span<IpczHandle> handles,
-                   absl::Span<OSHandle> os_handles) {
-  std::vector<IpczOSHandle> ipcz_os_handles(os_handles.size());
-  for (size_t i = 0; i < os_handles.size(); ++i) {
-    ipcz_os_handles[i].size = sizeof(ipcz_os_handles[i]);
-    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &ipcz_os_handles[i]);
-  }
-
+                   absl::Span<IpczHandle> handles) {
   ASSERT_EQ(IPCZ_RESULT_OK,
             ipcz.Put(portal, str.data(), static_cast<uint32_t>(str.length()),
                      handles.data(), static_cast<uint32_t>(handles.size()),
-                     ipcz_os_handles.data(),
-                     static_cast<uint32_t>(ipcz_os_handles.size()),
                      IPCZ_NO_FLAGS, nullptr));
 }
 
 IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
   uint32_t num_bytes = 0;
   uint32_t num_handles = 0;
-  uint32_t num_os_handles = 0;
-  IpczResult result =
-      ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes, nullptr,
-               &num_handles, nullptr, &num_os_handles);
+  IpczResult result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr,
+                               &num_bytes, nullptr, &num_handles);
   if (result == IPCZ_RESULT_OK) {
     parcel = {};
     return IPCZ_RESULT_OK;
@@ -109,20 +88,13 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
 
   if (result == IPCZ_RESULT_RESOURCE_EXHAUSTED) {
     std::vector<char> data(num_bytes);
-    std::vector<IpczOSHandle> ipcz_os_handles(num_os_handles);
     parcel.handles.resize(num_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
     result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(), &num_bytes,
-                      parcel.handles.data(), &num_handles,
-                      ipcz_os_handles.data(), &num_os_handles);
+                      parcel.handles.data(), &num_handles);
     ABSL_ASSERT(result == IPCZ_RESULT_OK);
 
     parcel.message = {data.begin(), data.end()};
-    parcel.os_handles.resize(num_os_handles);
-    for (size_t i = 0; i < num_os_handles; ++i) {
-      parcel.os_handles[i] = OSHandle::FromIpczOSHandle(ipcz_os_handles[i]);
-    }
-
     return IPCZ_RESULT_OK;
   }
 

@@ -22,18 +22,18 @@ TEST_F(ConnectNodeAPITest, InvalidArgs) {
 
   // Invalid node.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ConnectNode(IPCZ_INVALID_HANDLE, transports[0], nullptr, 1,
+            ipcz.ConnectNode(IPCZ_INVALID_HANDLE, transports[0], 1,
                              IPCZ_NO_FLAGS, nullptr, &portal));
 
   // Zero initial portals.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ConnectNode(node, transports[0], nullptr, 0, IPCZ_NO_FLAGS,
-                             nullptr, &portal));
+            ipcz.ConnectNode(node, transports[0], 0, IPCZ_NO_FLAGS, nullptr,
+                             &portal));
 
   // Null portal storage.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ConnectNode(node, transports[0], nullptr, 1, IPCZ_NO_FLAGS,
-                             nullptr, nullptr));
+            ipcz.ConnectNode(node, transports[0], 1, IPCZ_NO_FLAGS, nullptr,
+                             nullptr));
 
   IpczHandle broker;
   EXPECT_EQ(IPCZ_RESULT_OK,
@@ -45,11 +45,11 @@ TEST_F(ConnectNodeAPITest, InvalidArgs) {
   // IPCZ_CONNECT_NODE_SHARE_BROKER.
   EXPECT_EQ(
       IPCZ_RESULT_INVALID_ARGUMENT,
-      ipcz.ConnectNode(broker, transports[0], nullptr, 1,
+      ipcz.ConnectNode(broker, transports[0], 1,
                        IPCZ_CONNECT_NODE_INHERIT_BROKER, nullptr, &portal));
 
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,
-            ipcz.ConnectNode(broker, transports[0], nullptr, 1,
+            ipcz.ConnectNode(broker, transports[0], 1,
                              IPCZ_CONNECT_NODE_SHARE_BROKER, nullptr, &portal));
 }
 

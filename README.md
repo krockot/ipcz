@@ -65,7 +65,7 @@ there they can create and connect nodes and establish portals for higher-level
 communication.
 
 Applications *must* provide each node with an implementation of the
-`IpczDriverAPI` structure, implementing straightforward operations to create,
+`IpczDriver` structure, implementing straightforward operations to create,
 serialize, deserialize, and use I/O transport mechanisms and shared memory
 regions. See [reference drivers](src/reference_drivers) for examples.
 

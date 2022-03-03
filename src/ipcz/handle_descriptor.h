@@ -16,23 +16,12 @@ struct IPCZ_ALIGN(8) HandleDescriptor {
     // parcel. It does not consume any other data, or any OS handles.
     kPortal = 0,
 
-    // A box handle consumes a driver-defined number of bytes and OS handles
-    // from the message that carries it. The amount consumed is serialized in
-    // the `num_bytes` and `num_os_handles` fields below.
-    //
-    // Bytes and OS handles are consumed sequentially from a aggregate fields in
-    // the AcceptParcel message; namely `handle_data` and `os_handles` array
-    // fields.
+    // A box handle consumes the next available deserialized DriverObject in the
+    // parcel.
     kBox = 1,
   };
 
   Type type;
-
-  // The number of bytes of handle data to consume for this handle.
-  uint32_t num_bytes;
-
-  // The number of OS handles to consume for this handle.
-  uint32_t num_os_handles;
 };
 
 }  // namespace ipcz

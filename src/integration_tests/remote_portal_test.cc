@@ -4,11 +4,11 @@
 
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
+#include "reference_drivers/os_handle.h"
 #include "test/multinode_test.h"
 #include "test/multiprocess_test.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "util/os_process.h"
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>

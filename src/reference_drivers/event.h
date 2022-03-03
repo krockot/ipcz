@@ -5,7 +5,7 @@
 #ifndef IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
 #define IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_
 
-#include "util/os_handle.h"
+#include "reference_drivers/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {

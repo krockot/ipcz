@@ -6,14 +6,10 @@
 #define IPCZ_SRC_IPCZ_DRIVER_MEMORY_H_
 
 #include <cstddef>
-#include <cstdint>
-#include <vector>
 
 #include "ipcz/driver_memory_mapping.h"
 #include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
-#include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -27,7 +23,7 @@ class DriverMemory {
   DriverMemory();
 
   // Takes ownership of an existing driver memory object.
-  DriverMemory(DriverObject memory, size_t num_bytes);
+  explicit DriverMemory(DriverObject memory);
 
   // Asks the node to allocate a new driver shared memory region of at least
   // `num_bytes` in size.
@@ -43,6 +39,8 @@ class DriverMemory {
 
   DriverObject& driver_object() { return memory_; }
 
+  DriverObject TakeDriverObject() { return std::move(memory_); }
+
   // Asks the driver to clone this memory object and return a new one which
   // references the same underlying memory region.
   DriverMemory Clone();
@@ -50,18 +48,6 @@ class DriverMemory {
   // Asks the driver to map this memory object into the process's address space
   // and returns a scoper to control the mapping's lifetime.
   DriverMemoryMapping Map();
-
-  // Asks the driver to serialize this memory object into a series of bytes
-  // and/or OS handles suitable to send over a driver transport, to be
-  // deserialized intact on another node.
-  IpczResult Serialize(std::vector<uint8_t>& data,
-                       std::vector<OSHandle>& handles);
-
-  // Asks `driver` to deserialize a memory object from a series of bytes and/or
-  // OS handles received over a driver transport.
-  static DriverMemory Deserialize(Ref<Node> node,
-                                  absl::Span<const uint8_t> data,
-                                  absl::Span<OSHandle> handles);
 
  private:
   DriverObject memory_;

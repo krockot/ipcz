@@ -14,12 +14,12 @@
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "reference_drivers/event.h"
+#include "reference_drivers/os_handle.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {

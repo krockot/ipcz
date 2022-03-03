@@ -18,7 +18,8 @@
     name();                                              \
     ~name();                                             \
     bool Deserialize(const DriverTransport::Message&,    \
-                     const OSProcess& remote_process);   \
+                     const Ref<Node>& node,              \
+                     const DriverTransport& transport);  \
                                                          \
     static constexpr internal::ParamMetadata kMetadata[] = {
 #define IPCZ_MSG_END() \
@@ -27,14 +28,16 @@
   }                    \
   ;
 
-#define IPCZ_MSG_PARAM(type, name) \
-  {offsetof(ParamsType, name), sizeof(ParamsType::name), 0, false},
-#define IPCZ_MSG_PARAM_ARRAY(type, name) \
-  {offsetof(ParamsType, name), sizeof(ParamsType::name), sizeof(type), false},
-#define IPCZ_MSG_PARAM_HANDLE_ARRAY(name)                \
+#define IPCZ_MSG_PARAM(type, name)                          \
+  {offsetof(ParamsType, name), sizeof(ParamsType::name), 0, \
+   internal::ParamType::kData},
+#define IPCZ_MSG_PARAM_ARRAY(type, name)                               \
+  {offsetof(ParamsType, name), sizeof(ParamsType::name), sizeof(type), \
+   internal::ParamType::kDataArray},
+#define IPCZ_MSG_PARAM_DRIVER_OBJECT(name)                  \
+  {offsetof(ParamsType, name), sizeof(ParamsType::name), 0, \
+   internal::ParamType::kDriverObject},
+#define IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(name)         \
   {offsetof(ParamsType, name), sizeof(ParamsType::name), \
-   sizeof(internal::OSHandleData), true},
-
-#define IPCZ_MSG_PARAM_SHARED_MEMORY(name)   \
-  IPCZ_MSG_PARAM_ARRAY(uint8_t, name##_data) \
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(name##_handles)
+   sizeof(internal::DriverObjectData),                   \
+   internal::ParamType::kDriverObjectArray},

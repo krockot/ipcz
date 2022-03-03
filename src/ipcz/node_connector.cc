@@ -27,13 +27,11 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
  public:
   NodeConnectorForBrokerToNonBroker(Ref<Node> node,
                                     Ref<DriverTransport> transport,
-                                    OSProcess remote_process,
                                     IpczConnectNodeFlags flags,
                                     std::vector<Ref<Portal>> waiting_portals,
                                     ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
-                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)),
@@ -56,11 +54,10 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     connect.params().receiver_name = new_remote_node_name_;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-
-    auto buffer = connect.AppendSharedMemory(std::move(link_memory_to_share_));
-    connect.params().set_buffer(buffer);
-
-    transport_->Transmit(connect, remote_process_);
+    connect.AppendDriverObject(link_memory_to_share_.TakeDriverObject(),
+                               connect.params().buffer);
+    IpczResult result = transport_->Transmit(connect);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -70,7 +67,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectFromNonBrokerToBroker connect;
-    if (!connect.Deserialize(message, remote_process_)) {
+    if (!connect.Deserialize(message, node_, *transport_)) {
       return false;
     }
 
@@ -81,7 +78,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
         NodeLink::Create(node_, LinkSide::kA, broker_name_,
                          new_remote_node_name_, Node::Type::kNormal,
                          connect.params().protocol_version, transport_,
-                         std::move(remote_process_), std::move(link_memory_)),
+                         std::move(link_memory_)),
         LinkSide::kA, connect.params().num_initial_portals);
     return true;
   }
@@ -97,13 +94,11 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
  public:
   NodeConnectorForNonBrokerToBroker(Ref<Node> node,
                                     Ref<DriverTransport> transport,
-                                    OSProcess remote_process,
                                     IpczConnectNodeFlags flags,
                                     std::vector<Ref<Portal>> waiting_portals,
                                     ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
-                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)) {}
@@ -116,7 +111,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     msg::ConnectFromNonBrokerToBroker connect;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    transport_->Transmit(connect, remote_process_);
+    transport_->Transmit(connect);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -126,7 +121,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToNonBroker connect;
-    if (!connect.Deserialize(message, remote_process_)) {
+    if (!connect.Deserialize(message, node_, *transport_)) {
       return false;
     }
 
@@ -134,8 +129,8 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
              << "name " << connect.params().receiver_name.ToString()
              << " from broker " << connect.params().broker_name.ToString();
 
-    DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_, connect.params().buffer());
+    DriverMemory buffer_memory(
+        connect.TakeDriverObject(connect.params().buffer));
     if (!buffer_memory.is_valid()) {
       return false;
     }
@@ -144,7 +139,6 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
         node_, LinkSide::kB, connect.params().receiver_name,
         connect.params().broker_name, Node::Type::kBroker,
         connect.params().protocol_version, transport_,
-        std::move(remote_process_),
         NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
     node_->SetAssignedName(connect.params().receiver_name);
     node_->SetBrokerLink(new_link);
@@ -162,13 +156,11 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
   NodeConnectorForIndirectNonBrokerToBroker(
       Ref<Node> node,
       Ref<DriverTransport> transport,
-      OSProcess remote_process,
       IpczConnectNodeFlags flags,
       std::vector<Ref<Portal>> waiting_portals,
       ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
-                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)) {}
@@ -182,7 +174,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     msg::ConnectToBrokerIndirect connect;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-    transport_->Transmit(connect, remote_process_);
+    transport_->Transmit(connect);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -192,7 +184,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerIndirect connect;
-    if (!connect.Deserialize(message, remote_process_)) {
+    if (!connect.Deserialize(message, node_, *transport_)) {
       return false;
     }
 
@@ -201,8 +193,8 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
              << connect.params().receiver_name.ToString() << " referred by "
              << connect.params().connected_node_name.ToString();
 
-    DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_, connect.params().buffer());
+    DriverMemory buffer_memory(
+        connect.TakeDriverObject(connect.params().buffer));
     if (!buffer_memory.is_valid()) {
       return false;
     }
@@ -211,7 +203,6 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
         node_, LinkSide::kB, connect.params().receiver_name,
         connect.params().broker_name, Node::Type::kBroker,
         connect.params().protocol_version, transport_,
-        std::move(remote_process_),
         NodeLinkMemory::Adopt(node_, std::move(buffer_memory)));
 
     absl::Span<const Ref<Portal>> portals = absl::MakeSpan(waiting_portals_);
@@ -241,12 +232,10 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
   NodeConnectorForIndirectBrokerToNonBroker(Ref<Node> node,
                                             Ref<NodeLink> referrer,
                                             Ref<DriverTransport> transport,
-                                            OSProcess remote_process,
                                             uint32_t num_initial_portals,
                                             ConnectIndirectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
-                      std::move(remote_process),
                       IPCZ_NO_FLAGS,
                       {},
                       [this](Ref<NodeLink> link) {
@@ -273,11 +262,10 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     connect.params().connected_node_name = referrer_->remote_node_name();
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_remote_portals = num_initial_portals_;
-
-    auto buffer = connect.AppendSharedMemory(std::move(link_memory_to_share_));
-    connect.params().set_buffer(buffer);
-
-    transport_->Transmit(connect, remote_process_);
+    connect.AppendDriverObject(link_memory_to_share_.TakeDriverObject(),
+                               connect.params().buffer);
+    IpczResult result = transport_->Transmit(connect);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -287,7 +275,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectToBrokerIndirect connect;
-    if (!connect.Deserialize(message, remote_process_)) {
+    if (!connect.Deserialize(message, node_, *transport_)) {
       return false;
     }
 
@@ -302,7 +290,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
         NodeLink::Create(node_, LinkSide::kA, broker_name_,
                          new_remote_node_name_, Node::Type::kNormal,
                          connect.params().protocol_version, transport_,
-                         std::move(remote_process_), std::move(link_memory_)),
+                         std::move(link_memory_)),
         LinkSide::kA, num_remote_portals_);
     return true;
   }
@@ -322,13 +310,11 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
  public:
   NodeConnectorForBrokerToBroker(Ref<Node> node,
                                  Ref<DriverTransport> transport,
-                                 OSProcess remote_process,
                                  IpczConnectNodeFlags flags,
                                  std::vector<Ref<Portal>> waiting_portals,
                                  ConnectCallback callback)
       : NodeConnector(std::move(node),
                       std::move(transport),
-                      std::move(remote_process),
                       flags,
                       std::move(waiting_portals),
                       std::move(callback)),
@@ -349,12 +335,10 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     connect.params().sender_name = local_name_;
     connect.params().protocol_version = msg::kProtocolVersion;
     connect.params().num_initial_portals = num_portals();
-
-    auto buffer =
-        connect.AppendSharedMemory(std::move(our_link_memory_to_share_));
-    connect.params().set_buffer(buffer);
-
-    transport_->Transmit(connect, remote_process_);
+    connect.AppendDriverObject(our_link_memory_to_share_.TakeDriverObject(),
+                               connect.params().buffer);
+    IpczResult result = transport_->Transmit(connect);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
   }
 
   bool OnMessage(uint8_t message_id,
@@ -364,7 +348,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToBroker connect;
-    if (!connect.Deserialize(message, remote_process_)) {
+    if (!connect.Deserialize(message, node_, *transport_)) {
       return false;
     }
 
@@ -372,8 +356,8 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
              << local_name_.ToString() << " from broker "
              << connect.params().sender_name.ToString();
 
-    DriverMemory buffer_memory =
-        connect.TakeSharedMemory(node_, connect.params().buffer());
+    DriverMemory buffer_memory(
+        connect.TakeDriverObject(connect.params().buffer));
     if (!buffer_memory.is_valid()) {
       return false;
     }
@@ -389,7 +373,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
         NodeLink::Create(node_, link_side, local_name_,
                          connect.params().sender_name, Node::Type::kBroker,
                          connect.params().protocol_version, transport_,
-                         std::move(remote_process_), std::move(link_memory)),
+                         std::move(link_memory)),
         link_side, connect.params().num_initial_portals);
     return true;
   }
@@ -403,7 +387,6 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
 std::pair<Ref<NodeConnector>, IpczResult> CreateConnector(
     Ref<Node> node,
     Ref<DriverTransport> transport,
-    OSProcess remote_process,
     IpczCreateNodeFlags flags,
     const std::vector<Ref<Portal>>& initial_portals,
     NodeConnector::ConnectCallback callback) {
@@ -412,34 +395,30 @@ std::pair<Ref<NodeConnector>, IpczResult> CreateConnector(
   const bool inherit_broker = (flags & IPCZ_CONNECT_NODE_INHERIT_BROKER) != 0;
   if (from_broker) {
     if (to_broker) {
-      return {
-          MakeRefCounted<NodeConnectorForBrokerToBroker>(
-              std::move(node), std::move(transport), std::move(remote_process),
-              flags, initial_portals, std::move(callback)),
-          IPCZ_RESULT_OK};
+      return {MakeRefCounted<NodeConnectorForBrokerToBroker>(
+                  std::move(node), std::move(transport), flags, initial_portals,
+                  std::move(callback)),
+              IPCZ_RESULT_OK};
     }
 
-    return {
-        MakeRefCounted<NodeConnectorForBrokerToNonBroker>(
-            std::move(node), std::move(transport), std::move(remote_process),
-            flags, initial_portals, std::move(callback)),
-        IPCZ_RESULT_OK};
+    return {MakeRefCounted<NodeConnectorForBrokerToNonBroker>(
+                std::move(node), std::move(transport), flags, initial_portals,
+                std::move(callback)),
+            IPCZ_RESULT_OK};
   }
 
   if (to_broker) {
-    return {
-        MakeRefCounted<NodeConnectorForNonBrokerToBroker>(
-            std::move(node), std::move(transport), std::move(remote_process),
-            flags, initial_portals, std::move(callback)),
-        IPCZ_RESULT_OK};
+    return {MakeRefCounted<NodeConnectorForNonBrokerToBroker>(
+                std::move(node), std::move(transport), flags, initial_portals,
+                std::move(callback)),
+            IPCZ_RESULT_OK};
   }
 
   if (inherit_broker) {
-    return {
-        MakeRefCounted<NodeConnectorForIndirectNonBrokerToBroker>(
-            std::move(node), std::move(transport), std::move(remote_process),
-            flags, initial_portals, std::move(callback)),
-        IPCZ_RESULT_OK};
+    return {MakeRefCounted<NodeConnectorForIndirectNonBrokerToBroker>(
+                std::move(node), std::move(transport), flags, initial_portals,
+                std::move(callback)),
+            IPCZ_RESULT_OK};
   }
 
   return {nullptr, IPCZ_RESULT_FAILED_PRECONDITION};
@@ -451,7 +430,6 @@ std::pair<Ref<NodeConnector>, IpczResult> CreateConnector(
 IpczResult NodeConnector::ConnectNode(
     Ref<Node> node,
     Ref<DriverTransport> transport,
-    OSProcess remote_process,
     IpczCreateNodeFlags flags,
     const std::vector<Ref<Portal>>& initial_portals,
     ConnectCallback callback) {
@@ -468,7 +446,6 @@ IpczResult NodeConnector::ConnectNode(
   }
   if (share_broker) {
     node->AddBrokerCallback([node, transport = std::move(transport),
-                             remote_process = std::move(remote_process),
                              initial_portals](
                                 Ref<NodeLink> broker_link) mutable {
       DVLOG(4) << "Requesting indirect broker connection from node "
@@ -480,8 +457,7 @@ IpczResult NodeConnector::ConnectNode(
       // who will complete a handshake with the new non-broker before
       // introducing `node` to it and vice versa.
       broker_link->RequestIndirectBrokerConnection(
-          std::move(transport), std::move(remote_process),
-          initial_portals.size(),
+          std::move(transport), initial_portals.size(),
           [node, initial_portals](const NodeName& connected_node_name,
                                   uint32_t num_remote_portals) {
             if (!connected_node_name.is_valid()) {
@@ -512,9 +488,9 @@ IpczResult NodeConnector::ConnectNode(
     return IPCZ_RESULT_OK;
   }
 
-  auto [connector, result] = CreateConnector(
-      std::move(node), std::move(transport), std::move(remote_process), flags,
-      initial_portals, std::move(callback));
+  auto [connector, result] =
+      CreateConnector(std::move(node), std::move(transport), flags,
+                      initial_portals, std::move(callback));
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
@@ -528,26 +504,23 @@ IpczResult NodeConnector::ConnectNodeIndirect(
     Ref<Node> node,
     Ref<NodeLink> referrer,
     Ref<DriverTransport> transport,
-    OSProcess remote_process,
     uint32_t num_initial_portals,
     ConnectIndirectCallback callback) {
   ABSL_ASSERT(node->type() == Node::Type::kBroker);
   auto connector = MakeRefCounted<NodeConnectorForIndirectBrokerToNonBroker>(
-      node, std::move(referrer), std::move(transport),
-      std::move(remote_process), num_initial_portals, std::move(callback));
+      node, std::move(referrer), std::move(transport), num_initial_portals,
+      std::move(callback));
   connector->ActivateTransportAndConnect();
   return IPCZ_RESULT_OK;
 }
 
 NodeConnector::NodeConnector(Ref<Node> node,
                              Ref<DriverTransport> transport,
-                             OSProcess remote_process,
                              IpczCreateNodeFlags flags,
                              std::vector<Ref<Portal>> waiting_portals,
                              ConnectCallback callback)
     : node_(std::move(node)),
       transport_(std::move(transport)),
-      remote_process_(std::move(remote_process)),
       flags_(flags),
       waiting_portals_(std::move(waiting_portals)),
       callback_(std::move(callback)) {}

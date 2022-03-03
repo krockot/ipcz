@@ -33,7 +33,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToNonBroker,
 
   // A serialized shared memory region to serve as the new NodeLink's primary
   // buffer.
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Initial greeting sent by a non-broker node when ConnectNode() is invoked with
@@ -100,7 +100,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerIndirect, IPCZ_MSG_ID(3), IPCZ_MSG_VERSION(0))
 
   // A serialized shared memory region to serve as the new NodeLink's primary
   // buffer.
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Message sent from a broker to another broker, to establish a link between
@@ -123,7 +123,7 @@ IPCZ_MSG_BEGIN(ConnectFromBrokerToBroker, IPCZ_MSG_ID(4), IPCZ_MSG_VERSION(0))
   // the broker with the numericlly lesser NodeName is adopted as the primary
   // link buffer (buffer ID 0). The other buffer is adopted by convention as
   // the first auxilliary NodeLinkMemory buffer, with a BufferId of 1.
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Requests that a broker node accept a new non-broker client, introduced
@@ -149,9 +149,7 @@ IPCZ_MSG_BEGIN(RequestIndirectBrokerConnection,
                IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint64_t, request_id)
   IPCZ_MSG_PARAM(uint32_t, num_initial_portals)
-  IPCZ_MSG_PARAM_ARRAY(uint8_t, transport_data)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(transport_os_handles)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(process_handle)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(transport)
 IPCZ_MSG_END()
 
 // A reply to RequestIndirectBrokerConnection. If `success` is true, this
@@ -204,9 +202,8 @@ IPCZ_MSG_BEGIN(IntroduceNode, IPCZ_MSG_ID(13), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(NodeName, name)
   IPCZ_MSG_PARAM(bool, known)
   IPCZ_MSG_PARAM(LinkSide, link_side)
-  IPCZ_MSG_PARAM_ARRAY(uint8_t, transport_data)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(transport_os_handles)
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(transport)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Shares a new link buffer with the receiver for use by a FragmentAllocator.
@@ -219,7 +216,7 @@ IPCZ_MSG_BEGIN(AddFragmentAllocatorBuffer, IPCZ_MSG_ID(14), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, fragment_size)
 
   // A handle to the driver-managed, read-write-mappable buffer.
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Conveys the contents of a parcel from one router to another across a node
@@ -229,10 +226,8 @@ IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SequenceNumber, sequence_number)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, parcel_data)
   IPCZ_MSG_PARAM_ARRAY(HandleDescriptor, handle_descriptors)
-  IPCZ_MSG_PARAM(uint32_t, num_parcel_os_handles)
   IPCZ_MSG_PARAM_ARRAY(RouterDescriptor, new_routers)
-  IPCZ_MSG_PARAM_ARRAY(uint8_t, handle_data)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(os_handles)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)
 IPCZ_MSG_END()
 
 // Notifies a node that the route has been closed on one side. This message
@@ -403,7 +398,7 @@ IPCZ_MSG_END()
 // other nodes.
 IPCZ_MSG_BEGIN(ProvideMemory, IPCZ_MSG_ID(65), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(uint32_t, size)
-  IPCZ_MSG_PARAM_SHARED_MEMORY(buffer)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT(buffer)
 IPCZ_MSG_END()
 
 // Requests that the receiving Router log a description of itself and forward
@@ -420,7 +415,7 @@ IPCZ_MSG_BEGIN(RelayMessage, IPCZ_MSG_ID(253), IPCZ_MSG_VERSION(0))
   // The node to which this message's contents should ultimately be relayed.
   IPCZ_MSG_PARAM(NodeName, destination)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, data)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(handles)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)
 IPCZ_MSG_END()
 
 // Relays a message payload from an intermediate broker to its destination. This
@@ -429,7 +424,7 @@ IPCZ_MSG_BEGIN(AcceptRelayedMessage, IPCZ_MSG_ID(254), IPCZ_MSG_VERSION(0))
   // The node which originally transmitted this message through the broker.
   IPCZ_MSG_PARAM(NodeName, source)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, data)
-  IPCZ_MSG_PARAM_HANDLE_ARRAY(handles)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)
 IPCZ_MSG_END()
 
 // Empty (header-only) message used to force a wake of the receiving node to

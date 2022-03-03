@@ -124,8 +124,6 @@ portable_source_set("util") {
     "util/log.h",
     "util/mpsc_queue.h",
     "util/mutex_locks.h",
-    "util/os_handle.h",
-    "util/os_process.h",
     "util/random.h",
     "util/ref_counted.h",
     "util/stack_trace.h",
@@ -136,8 +134,6 @@ portable_source_set("util") {
     "util/hex_dump.cc",
     "util/mpsc_queue.cc",
     "util/mutex_locks.cc",
-    "util/os_handle.cc",
-    "util/os_process.cc",
     "util/random.cc",
     "util/ref_counted.cc",
     "util/stack_trace.cc",
@@ -264,8 +260,14 @@ portable_source_set("reference_drivers") {
     "reference_drivers/multiprocess_reference_driver.h",
     "reference_drivers/object.cc",
     "reference_drivers/object.h",
+    "reference_drivers/os_handle.cc",
+    "reference_drivers/os_handle.h",
+    "reference_drivers/os_process.cc",
+    "reference_drivers/os_process.h",
     "reference_drivers/single_process_reference_driver.cc",
     "reference_drivers/single_process_reference_driver.h",
+    "reference_drivers/wrapped_os_handle.cc",
+    "reference_drivers/wrapped_os_handle.h",
   ]
 
   deps = [ "//third_party/abseil-cpp:absl" ]

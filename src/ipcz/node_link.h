@@ -30,8 +30,6 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -71,7 +69,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
                               Node::Type remote_node_type,
                               uint32_t remote_protocol_version,
                               Ref<DriverTransport> transport,
-                              OSProcess remote_process,
                               Ref<NodeLinkMemory> memory);
 
   const Ref<Node>& node() const { return node_; }
@@ -133,7 +130,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
       Function<void(const NodeName&, uint32_t num_remote_portals)>;
   void RequestIndirectBrokerConnection(
       Ref<DriverTransport> transport,
-      OSProcess new_node_process,
       size_t num_initial_portals,
       IndirectBrokerConnectionCallback callback);
 
@@ -188,7 +184,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
            Ref<DriverTransport> transport,
-           OSProcess remote_process,
            Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
@@ -247,7 +242,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
   const Ref<DriverTransport> transport_;
-  const OSProcess remote_process_;
   const Ref<NodeLinkMemory> memory_;
 
   absl::Mutex mutex_;

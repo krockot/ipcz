@@ -13,10 +13,10 @@
 #include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "reference_drivers/object.h"
+#include "reference_drivers/os_handle.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 #if BUILDFLAG(IS_WIN)
@@ -37,11 +37,11 @@ class TransportWrapper : public RefCounted {
       : transport_(transport), activity_handler_(activity_handler) {}
 
   IpczResult Notify(absl::Span<const uint8_t> data,
-                    absl::Span<const IpczOSHandle> os_handles) {
+                    absl::Span<const IpczDriverHandle> handles) {
     IpczResult result = activity_handler_(
         transport_, data.data(), static_cast<uint32_t>(data.size()),
-        os_handles.data(), static_cast<uint32_t>(os_handles.size()),
-        IPCZ_NO_FLAGS, nullptr);
+        handles.data(), static_cast<uint32_t>(handles.size()), IPCZ_NO_FLAGS,
+        nullptr);
     if (result != IPCZ_RESULT_OK && result != IPCZ_RESULT_UNIMPLEMENTED) {
       NotifyError();
     }
@@ -65,7 +65,7 @@ class TransportWrapper : public RefCounted {
 
 struct SavedMessage {
   std::vector<uint8_t> data;
-  std::vector<OSHandle> handles;
+  std::vector<IpczDriverHandle> handles;
 };
 
 class InProcessTransport : public Object {
@@ -107,7 +107,7 @@ class InProcessTransport : public Object {
   }
 
   IpczResult Transmit(absl::Span<const uint8_t> data,
-                      absl::Span<const IpczOSHandle> os_handles) {
+                      absl::Span<const IpczDriverHandle> handles) {
     Ref<InProcessTransport> peer;
     Ref<TransportWrapper> peer_transport;
     {
@@ -115,10 +115,8 @@ class InProcessTransport : public Object {
       if (!peer_active_) {
         SavedMessage message;
         message.data = std::vector<uint8_t>(data.begin(), data.end());
-        message.handles.resize(os_handles.size());
-        for (size_t i = 0; i < os_handles.size(); ++i) {
-          message.handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
-        }
+        message.handles =
+            std::vector<IpczDriverHandle>(handles.begin(), handles.end());
         saved_messages_.push_back(std::move(message));
         return IPCZ_RESULT_OK;
       }
@@ -133,7 +131,7 @@ class InProcessTransport : public Object {
     }
 
     if (peer_transport) {
-      peer_transport->Notify(data, os_handles);
+      peer_transport->Notify(data, handles);
     }
     return IPCZ_RESULT_OK;
   }
@@ -165,12 +163,7 @@ class InProcessTransport : public Object {
       }
 
       for (SavedMessage& m : saved_messages) {
-        std::vector<IpczOSHandle> os_handles(m.handles.size());
-        for (size_t i = 0; i < m.handles.size(); ++i) {
-          os_handles[i].size = sizeof(os_handles[i]);
-          OSHandle::ToIpczOSHandle(std::move(m.handles[i]), &os_handles[i]);
-        }
-        peer_transport->Notify(m.data, absl::MakeSpan(os_handles));
+        peer_transport->Notify(m.data, m.handles);
       }
     }
   }
@@ -232,8 +225,8 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
                                 const void* options,
                                 uint8_t* data,
                                 uint32_t* num_bytes,
-                                struct IpczOSHandle* os_handles,
-                                uint32_t* num_os_handles) {
+                                IpczDriverHandle* handles,
+                                uint32_t* num_handles) {
   Object* object = Object::FromHandle(handle);
   if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
@@ -247,7 +240,7 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
   constexpr size_t kRequiredNumBytes = sizeof(IpczDriverHandle);
   const bool need_more_space = *num_bytes < kRequiredNumBytes;
   *num_bytes = kRequiredNumBytes;
-  *num_os_handles = 0;
+  *num_handles = 0;
   if (need_more_space) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
@@ -259,13 +252,13 @@ IpczResult IPCZ_CDECL Serialize(IpczDriverHandle handle,
 IpczResult IPCZ_CDECL Deserialize(IpczDriverHandle driver_node,
                                   const uint8_t* data,
                                   uint32_t num_bytes,
-                                  const IpczOSHandle* os_handles,
-                                  uint32_t num_os_handles,
+                                  const IpczDriverHandle* handles,
+                                  uint32_t num_handles,
                                   uint32_t flags,
                                   const void* options,
                                   IpczDriverHandle* driver_handle) {
   ABSL_ASSERT(num_bytes == sizeof(IpczDriverHandle));
-  ABSL_ASSERT(num_os_handles == 0);
+  ABSL_ASSERT(num_handles == 0);
   *driver_handle = *reinterpret_cast<const IpczDriverHandle*>(data);
   return IPCZ_RESULT_OK;
 }
@@ -303,13 +296,13 @@ IpczResult IPCZ_CDECL DeactivateTransport(IpczDriverHandle driver_transport,
 IpczResult IPCZ_CDECL Transmit(IpczDriverHandle driver_transport,
                                const uint8_t* data,
                                uint32_t num_bytes,
-                               const struct IpczOSHandle* os_handles,
-                               uint32_t num_os_handles,
+                               const IpczDriverHandle* handles,
+                               uint32_t num_handles,
                                uint32_t flags,
                                const void* options) {
   return ToRef<InProcessTransport>(driver_transport)
-      .Transmit(absl::Span<const uint8_t>(data, num_bytes),
-                absl::Span<const IpczOSHandle>(os_handles, num_os_handles));
+      .Transmit(absl::MakeSpan(data, num_bytes),
+                absl::MakeSpan(handles, num_handles));
 }
 
 IpczResult IPCZ_CDECL AllocateSharedMemory(uint32_t num_bytes,

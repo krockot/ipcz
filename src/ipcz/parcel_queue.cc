@@ -201,15 +201,13 @@ bool ParcelQueue::Pop(Parcel& parcel) {
   return true;
 }
 
-bool ParcelQueue::Consume(size_t num_bytes,
-                          absl::Span<IpczHandle> handles,
-                          absl::Span<IpczOSHandle> os_handles) {
+bool ParcelQueue::Consume(size_t num_bytes, absl::Span<IpczHandle> handles) {
   if (!HasNextParcel()) {
     return false;
   }
 
   Parcel& p = NextParcel();
-  p.Consume(num_bytes, handles, os_handles);
+  p.Consume(num_bytes, handles);
   if (p.empty()) {
     Parcel discarded;
     const bool ok = Pop(discarded);

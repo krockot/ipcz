@@ -10,8 +10,8 @@
 #include <string>
 
 #include "reference_drivers/channel.h"
+#include "reference_drivers/os_process.h"
 #include "util/function.h"
-#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -46,14 +46,14 @@ class TestClient {
   static void SetInClientProcess(bool in_client_process);
   static bool InClientProcess();
 
-  const OSProcess& process() const { return process_; }
+  const reference_drivers::OSProcess& process() const { return process_; }
   reference_drivers::Channel& channel() { return channel_; }
 
   // Waits for the child process to terminate and returns its exit code.
   int Wait();
 
  private:
-  OSProcess process_;
+  reference_drivers::OSProcess process_;
   reference_drivers::Channel channel_;
 };
 

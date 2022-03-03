@@ -62,56 +62,6 @@ typedef uint32_t IpczResult;
 #define IPCZ_ALIGNED(value, alignment) \
   ((((value) + ((alignment)-1)) / (alignment)) * (alignment))
 
-// Enumeration which specifies the kind of value held by an IpczOSHandle struct.
-// These refer to handles allocated by the application through OS APIs, not
-// objects created by ipcz.
-typedef uint32_t IpczOSHandleType;
-
-// A POSIX file descriptor. Supported everywhere except Windows.
-#define IPCZ_OS_HANDLE_FILE_DESCRIPTOR ((IpczOSHandleType)0)
-
-// A Windows HANDLE. Supported only on Windows.
-#define IPCZ_OS_HANDLE_WINDOWS ((IpczOSHandleType)1)
-
-// A Mach send right. Supported only on macOS.
-#define IPCZ_OS_HANDLE_MACH_SEND_RIGHT ((IpczOSHandleType)2)
-
-// A Mach receive right. Supported only on macOS.
-#define IPCZ_OS_HANDLE_MACH_RECEIVE_RIGHT ((IpczOSHandleType)3)
-
-// A Fuchsia handle. Supported only on Fuchsia.
-#define IPCZ_OS_HANDLE_FUCHSIA ((IpczOSHandleType)4)
-
-// Describes a platform-specific handle to an OS resource. Some ipcz functions
-// accept specific kinds of OS object handles to consume or manipulate, and this
-// is the structure used to represent them.
-struct IPCZ_ALIGN(8) IpczOSHandle {
-  // The exact size of this structure in bytes. Must be set accurately in any
-  // instance of this structure before passing it to an ipcz function.
-  uint32_t size;
-
-  // The type of this handle.
-  IpczOSHandleType type;
-
-  // An opaque representation of the OS handle. Meaning depends on the value of
-  // `type`. Depending on platform, this may be, for example, a zero-extended
-  // file descriptor value, a Windows HANDLE value, a macOS mach_port_t, etc.
-  uint64_t value;
-};
-
-// Describes an opaque platform-specific handle to an OS-level process.
-struct IPCZ_ALIGN(8) IpczOSProcessHandle {
-  // The exact size of this structure in bytes. Must be set accurately in any
-  // instance of this structure before passing it to an ipcz function.
-  uint32_t size;
-
-  // The process handle's value. For Windows this is a valid process HANDLE
-  // value or pseudohandle. For Fuchsia it must be a zx_handle_t identifying a
-  // process object, and for all other (POSIX-compatible) systems it must be a
-  // PID (i.e. pid_t).
-  uint64_t value;
-};
-
 // An opaque handle value created by an IpczDriver implementation. ipcz uses
 // such handles to provide relevant context when calling back into the driver.
 typedef uint64_t IpczDriverHandle;
@@ -140,7 +90,7 @@ extern "C" {
 // by the driver transport via an ipcz call to the driver's ActivateTransport(),
 // which also provides this handler to the driver.
 //
-// The driver must use this to feed incoming data and OS handles from the
+// The driver must use this to feed incoming data and driver handles from the
 // transport to ipcz, or to inform ipcz of any error conditions resulting in
 // unexpected and irrecoverable dysfunction of the transport.
 //
@@ -151,8 +101,8 @@ typedef IpczResult (*IpczTransportActivityHandler)(
     IpczHandle transport,
     const uint8_t* data,
     uint32_t num_bytes,
-    const struct IpczOSHandle* os_handles,
-    uint32_t num_os_handles,
+    const IpczDriverHandle* driver_handles,
+    uint32_t num_driver_handles,
     IpczTransportActivityFlags flags,
     const void* options);
 
@@ -179,9 +129,10 @@ struct IPCZ_ALIGN(8) IpczDriver {
                       uint32_t flags,
                       const void* options);
 
-  // Serializes a driver object identified by `handle`, into a collection of
-  // bytes and OS handles which can be used to relocate it to another node --
-  // possibly in another process -- where it can be deserialized by
+  // Serializes a driver object -- which may not itself be transmissible by the
+  // driver -- into a collection of bytes and other (transmissible) driver
+  // objects which can be used to relocate it to another node -- possibly in
+  // another process -- where it can then be deserialized by the same driver's
   // Deserialize().
   //
   // Apart from being useful to ipcz for creating and passing transports and
@@ -192,29 +143,33 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // the ipcz calls Box() and Unbox(). Such handles are transferrable through
   // portals via Put() and Get() and related APIs.
   //
-  // On input, `*num_bytes` and `*num_os_handles` specify the amount of storage
-  // available in `data` and `os_handles` respectively. If insufficient to store
-  // the full serialized output, this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // On input, `*num_bytes` and `*num_driver_handles` specify the amount of
+  // storage available in `data` and `driver_handles` respectively. If
+  // insufficient to stor the full serialized output, this returns
+  // IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
-  // In both success and failure cases, `*num_bytes` and `*num_os_handles` are
-  // updated with the exact amount of storage required for each before
+  // In both success and failure cases, `*num_bytes` and `*num_driver_handles`
+  // are updated with the exact amount of storage required for each before
   // returning.
   //
-  // If the caller's provided storage is sufficient, `data` and `os_handles`
-  // will be populated with the serialized transport, and this returns
+  // If the caller's provided storage is sufficient, `data` and `driver_handles`
+  // will be populated with the serialized transport and this returns
   // IPCZ_RESULT_OK. In this case `handle` is also invalidated.
   //
   // If the object identified by `handle` is not in an appropriate state for
   // serialization (for example if it's a transport object which is currently
   // active) or it is of a type for which the driver does not implement
   // serialization, the driver may return IPCZ_RESULT_FAILED_PRECONDITION.
+  //
+  // Finally, if `handle` is already transmissible by the driver as-is without
+  // further serialization, the driver must return IPCZ_RESULT_ALREADY_EXISTS.
   IpczResult (*Serialize)(IpczDriverHandle handle,
                           uint32_t flags,
                           const void* options,
                           uint8_t* data,
                           uint32_t* num_bytes,
-                          struct IpczOSHandle* os_handles,
-                          uint32_t* num_os_handles);
+                          IpczDriverHandle* driver_handles,
+                          uint32_t* num_driver_handles);
 
   // Deserializes a driver object from a collection of bytes and handles which
   // which was originally produced by Serialize().
@@ -228,8 +183,8 @@ struct IPCZ_ALIGN(8) IpczDriver {
   IpczResult (*Deserialize)(IpczDriverHandle driver_node,
                             const uint8_t* data,
                             uint32_t num_bytes,
-                            const struct IpczOSHandle* os_handles,
-                            uint32_t num_os_handles,
+                            const IpczDriverHandle* driver_handles,
+                            uint32_t num_driver_handles,
                             uint32_t flags,
                             const void* options,
                             IpczDriverHandle* handle);
@@ -241,7 +196,8 @@ struct IPCZ_ALIGN(8) IpczDriver {
   //  - interconnecting nodes must use compatible driver implementations
   //
   //  - in a multiprocess environment, transports must be capable of
-  //    transmitting data and OS handles across a process boundary
+  //    transmitting data and (transmissible) driver handles across a process
+  //    boundary
   //
   //  - the handles and data comprising each transport should be fully
   //    sufficient to operate the transport from another node if those handles
@@ -305,7 +261,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                     uint32_t flags,
                                     const void* options);
 
-  // Called by ipcz to delegate transmission of data and OS handles over the
+  // Called by ipcz to delegate transmission of data and driver handles over the
   // identified transport endpoint. If the driver cannot fulfill the request,
   // it must return a result other than IPCZ_RESULT_OK, and this will cause the
   // transport's connection to be severed.
@@ -318,12 +274,12 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // were transmitted.
   //
   // If ipcz only wants to wake the peer node rather than transmit data or
-  // handles, `num_bytes` and `num_os_handles` may both be zero.
+  // handles, `num_bytes` and `num_driver_handles` may both be zero.
   IpczResult (*Transmit)(IpczDriverHandle driver_transport,
                          const uint8_t* data,
                          uint32_t num_bytes,
-                         const struct IpczOSHandle* os_handles,
-                         uint32_t num_os_handles,
+                         const IpczDriverHandle* driver_handles,
+                         uint32_t num_driver_handles,
                          uint32_t flags,
                          const void* options);
 
@@ -368,11 +324,12 @@ typedef uint32_t IpczCreateNodeFlags;
 
 // Indicates that the created node will serve as the broker in its cluster.
 //
-// Brokers are expected to live in relatively trusted processes -- not elevated
-// in privilege but also generally not restricted by sandbox constraints and not
-// prone to processing risky, untrusted data -- as they're responsible for
-// helping other nodes establish direct lines of communication, as well as in
-// some cases facilitating proxying of data and relaying of OS handles.
+// Brokers are expected to live in relatively trusted processes -- not
+// necessarily elevated in privilege but also generally not restricted by
+// sandbox constraints and not prone to processing risky, untrusted data -- as
+// they're responsible for helping other nodes establish direct lines of
+// communication as well as in some cases relaying data and driver handles
+// between lesser-privileged nodes.
 //
 // Broker nodes do not expose any additional ipcz APIs or require much other
 // special care on the part of the application**, but every cluster of connected
@@ -405,35 +362,15 @@ typedef uint32_t IpczConnectNodeFlags;
 #define IPCZ_CONNECT_NODE_SHARE_BROKER IPCZ_FLAG_BIT(2)
 
 // ipcz may periodically allocate shared memory regions to facilitate
-// communication between two nodes. In most runtime environments, even within
-// a security sandbox, ipcz can do do this safely and directly by interfacing
-// with the OS. In some environments however (e.g. in some Windows sandbox
-// environments) direct allocation is not possible, and in such cases, a node
-// must delegate this responsibility to some other trusted node in the system,
-// typically the broker node.
+// communication between two nodes. In many runtime environments, even within
+// a security sandbox, the driver can do do this safely and directly by
+// interfacing with the OS. In some environments however, direct allocation is
+// not possible. In such cases a node must delegate this responsibility to some
+// other trusted node in the system, typically the broker node.
 //
-// Specifying this flag ensures that all shared memory allocation elicited by
-// this node will be delegated to the remote node to which the caller is
-// connecting.
+// Specifying this flag ensures that all shared memory allocation elicited the
+// connecting node will be delegated to the connectee.
 #define IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE IPCZ_FLAG_BIT(3)
-
-// In some environments (in particular on Windows) the relative privilege level
-// of each node's host process may impact how ipcz manages OS handle transfer
-// and potentially other transactions between the two processes. Normally ipcz
-// will assume an appropriate relative privilege level based on which side of
-// a connection is a broker and which is a non-broker. If however a broker
-// wishes to connect to a node within a process of even higher privilege than
-// its own process, it must specify this flag. The corresponding ConnectNode()
-// call on the more privigeled node's end must include
-// IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL.
-#define IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(4)
-
-// See the above comments regarding relative privilege level. If a node is
-// hosted by a process with a higher privilege level than the broker to which
-// it's connecting (implying IPCZ_CONNECT_NODE_TO_BROKER is also specified),
-// this flag must also be specified. The correspoding ConnectNode() call on the
-// broker node's end must include IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE_LEVEL.
-#define IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE_LEVEL IPCZ_FLAG_BIT(5)
 
 // Optional limits provided by IpczPutOptions for Put() or IpczBeginPutOptions
 // for BeginPut().
@@ -492,7 +429,7 @@ struct IPCZ_ALIGN(8) IpczBeginPutOptions {
 typedef uint32_t IpczEndPutFlags;
 
 // If this flag is given to EndPut(), any in-progress two-phase put operation is
-// aborted without committing any data, portals, or OS handles to the portal.
+// aborted without committing a parcel to the portal.
 #define IPCZ_END_PUT_ABORT IPCZ_FLAG_BIT(0)
 
 // See Get() and the IPCZ_GET_* flag descriptions below.
@@ -735,7 +672,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // `driver_node` is a driver-side handle to assign to the node throughout its
   // lifetime. This handle provides the driver with additional context when ipcz
-  // makes driver API calls pertaining to a specific node.
+  // makes driver API calls pertaining to a specific node. May be
+  // IPCZ_INVALID_DRIVER_HANDLE if not used by the driver.
   //
   // If `flags` contains IPCZ_CREATE_NODE_AS_BROKER then the node will act as
   // the broker in its cluster of connected nodes. See details on that flag
@@ -765,11 +703,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // transport to whatever other node will use it with its own corresponding
   // ConnectNode() call.
   //
-  // If the caller has a process handle to the process in which the other node
-  // lives, it should be provided in `target_process`. If `node` is a broker
-  // node, a valid process handle may be required on Windows for the transport
-  // to be fully operational.
-  //
   // If IPCZ_CONNECT_NODE_TO_BROKER is given in `flags`, the remote node must
   // be a broker node, and the calling node will treat it as such. If the
   // calling node is also a broker, the brokers' respective networks will be
@@ -793,13 +726,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // success, all returned portal handles are usable immediately by the
   // application.
   //
-  // Finally, if a node connecting to a broker is hosted in a process more
-  // privileged than the broker's own node, the more privileged node must
-  // specify IPCZ_CONNECT_NODE_TO_LOWER_PRIVILEGE, and the broker node must
-  // specify IPCZ_CONNECT_NODE_TO_HIGHER_PRIVILEGE in its corresponding call to
-  // ConnectNode(). This ensures that OS handles can be properly transferred to
-  // and from the more privileged process.
-  //
   // Returns:
   //
   //    IPCZ_RESULT_OK if all arguments were valid and connection was initiated.
@@ -816,7 +742,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        flags which are invalid for `node` or invalid when combined.
   IpczResult (*ConnectNode)(IpczHandle node,
                             IpczDriverHandle driver_transport,
-                            const struct IpczOSProcessHandle* target_process,
                             uint32_t num_initial_portals,
                             IpczConnectNodeFlags flags,
                             const void* options,
@@ -824,10 +749,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
 
   // Opens two new portals which exist as each other's opposite.
   //
-  // Data, other portals, and OS handles can be put in a portal with put
-  // operations (see Put(), BeginPut(), EndPut()). Anything placed into a portal
-  // can be retrieved in the same order by get operations (Get(), BeginGet(),
-  // EndGet()) on the opposite portal.
+  // Data and handles can be put in a portal with put operations (see Put(),
+  // BeginPut(), EndPut()). Anything placed into a portal can be retrieved in
+  // the same order by get operations (Get(), BeginGet(), EndGet()) on the
+  // opposite portal.
   //
   // To open portals which span two different nodes at creation time, see
   // ConnectNode().
@@ -916,10 +841,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
                                   const void* options,
                                   struct IpczPortalStatus* status);
 
-  // Puts any combination of raw data, ipcz handles, and OS handles into the
-  // portal identified by `portal`. Everything put into a portal can be
-  // retrieved in the same order by a corresponding get operation on the
-  // opposite portal.
+  // Puts any combination of data and handles into the portal identified by
+  // `portal`. Everything put into a portal can be retrieved in the same order
+  // by a corresponding get operation on the opposite portal.
   //
   // `flags` is unused and must be IPCZ_NO_FLAGS.
   //
@@ -946,10 +870,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
   //        `num_bytes` is non-zero, `handles` is null but `num_handles` is
-  //        non-zero, `os_handles` is null but `num_os_handles` is non-zero,
-  //        `options` is non-null but invalid, one of the handles in `handles`
-  //        is equal to `portal` or its (local) opposite if applicable, or if
-  //        any handle in `handles` or `os_handles` is invalid or not
+  //        non-zero, `options` is non-null but invalid, one of the handles in
+  //        `handles` is equal to `portal` or its (local) opposite if
+  //        applicable, or if any handle in `handles` is invalid or not
   //        serializable.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if `options->limits` is non-null and at
@@ -959,16 +882,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
   //
-  //    IPCZ_RESULT_PERMISSION_DENIED if the caller attempted to place handles
-  //        into the portal which could not be transferred to the other side due
-  //        to OS-level privilege constraints.
+  //    IPCZ_RESULT_DATA_LOSS if the caller attempted to place handles into the
+  //        portal which could not be transferred to the other side due some
+  //        constraint of the driver (e.g., if a boxed driver object was not in
+  //        a transmissible state.)
   IpczResult (*Put)(IpczHandle portal,
                     const void* data,
                     uint32_t num_bytes,
                     const IpczHandle* handles,
                     uint32_t num_handles,
-                    const struct IpczOSHandle* os_handles,
-                    uint32_t num_os_handles,
                     uint32_t flags,
                     const struct IpczPutOptions* options);
 
@@ -1031,8 +953,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // `num_bytes_produced` specifies the number of bytes actually written into
   // the buffer that was returned from the original BeginPut() call.
   //
-  // Usage of `handles`, `num_handles`, `os_handles` and `num_os_handles` is
-  // identical to Put().
+  // Usage of `handles` and `num_handles` is identical to Put().
   //
   // If this call fails (returning anything other than IPCZ_RESULT_OK), any
   // provided handles remain property of the caller. If it succeeds, their
@@ -1057,33 +978,34 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        parcel enqueued for retrieval by the opposite portal.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `num_handles` is
-  //        non-zero but `handles` is null, `num_os_handles` is non-zero but
-  //        `os_handles` is null, `num_bytes_produced` is larger than the
-  //        capacity of the buffer originally returned by BeginPut(), or any
-  //        handle in `handles` or `os_handles` is invalid.
+  //        non-zero but `handles` is null, `num_bytes_produced` is larger than
+  //        the capacity of the buffer originally returned by BeginPut(), or any
+  //        handle in `handles` is invalid or not serializable.
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase put operation
   //        in progress on `portal`.
   //
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
+  //
+  //    IPCZ_RESULT_DATA_LOSS if the caller attempted to place handles into the
+  //        portal which could not be transferred to the other side due some
+  //        constraint of the driver (e.g., if a boxed driver object was not in
+  //        a transmissible state.)
   IpczResult (*EndPut)(IpczHandle portal,
                        uint32_t num_bytes_produced,
                        const IpczHandle* handles,
                        uint32_t num_handles,
-                       const struct IpczOSHandle* os_handles,
-                       uint32_t num_os_handles,
                        IpczEndPutFlags flags,
                        const void* options);
 
-  // Retrieves some combination of raw data, ipcz handles, and OS handles from a
-  // portal, as placed by a prior put operation on the opposite portal.
+  // Retrieves some combination of data and handles from a portal, as placed by
+  // a prior put operation on the opposite portal.
   //
-  // On input, the values pointed to by `num_bytes`, `num_handles`, and
-  // `num_os_handles` must specify the capacity of each corresponding buffer
-  // argument. A null pointer implies zero capacity. It is an error to specify
-  // non-zero capacity if the corresponding buffer (`data`, `handles`, or
-  // `os_handles`) is null.
+  // On input, the values pointed to by `num_bytes` and `num_handles` must
+  // specify the capacity of each corresponding buffer argument. A null pointer
+  // implies zero capacity. It is an error to specify non-zero capacity if the
+  // corresponding buffer (`data` or `handles`) is null.
   //
   // Normally the data consumed by this call is copied directly to the address
   // given by the `data` argument, and `*num_bytes` specifies how many bytes of
@@ -1100,8 +1022,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // If IPCZ_GET_PARTIAL is specified, the call succeeds as long as a parcel is
   // available, and the caller retrieves as much data and handles as their
   // expressed capacity will allow. In this case, the in/out capacity arguments
-  // (`num_bytes`, `num_handles`, and `num_os_handles`) are still updated as
-  // specified in the IPCZ_RESULT_OK details below.
+  // (`num_bytes` and `num_handles`) are still updated as specified in the
+  // IPCZ_RESULT_OK details below.
   //
   // `options` is ignored and must be null.
   //
@@ -1109,14 +1031,14 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_OK if there was at a parcel available in the portal's queue
   //        and its data and handles were able to be copied into the caller's
-  //        provided buffers. In this case values pointed to by `num_bytes`,
-  //        `num_handles`, and `num_os_handles` (for each one that is non-null)
-  //        are updated to reflect what was actually consumed. Note that the
-  //        caller assumes ownership of all returned handles.
+  //        provided buffers. In this case values pointed to by `num_bytes` and
+  //        `num_handles` (for each one that is non-null) are updated to reflect
+  //        what was actually consumed. Note that the caller assumes ownership
+  //        of all returned handles.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, `data` is null but
-  //        `*num_bytes` is non-zero, `handles` is null but `*num_handles` is
-  //        non-zero, or `os_handles` is null but `*num_os_handles` os non-zero.
+  //        `*num_bytes` is non-zero, or `handles` is null but `*num_handles` is
+  //        non-zero.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel would exceed
   //        the caller's specified capacity for either data bytes or handles,
@@ -1142,28 +1064,23 @@ struct IPCZ_ALIGN(8) IpczAPI {
                     void* data,
                     uint32_t* num_bytes,
                     IpczHandle* handles,
-                    uint32_t* num_handles,
-                    struct IpczOSHandle* os_handles,
-                    uint32_t* num_os_handles);
+                    uint32_t* num_handles);
 
-  // Begins a two-phase get operation on `portal` to retrieve data, ipcz
-  // handles, and OS handles. While a two-phase get operation is in progress on
-  // a portal, all other get operations on the same portal will fail with
-  // IPCZ_RESULT_ALREADY_EXISTS.
+  // Begins a two-phase get operation on `portal` to retrieve data and handles.
+  // While a two-phase get operation is in progress on a portal, all other get
+  // operations on the same portal will fail with IPCZ_RESULT_ALREADY_EXISTS.
   //
   // Unlike a plain Get() call, two-phase get operations allow the application
   // to read directly from parcel memory, potentially reducing memory access
   // costs by eliminating redundant copying and caching.
   //
   // If `data` or `num_bytes` is null and the available parcel has at least one
-  // byte of data, or if there are ipcz or OS handles present but `num_handles`
-  // or (respectively) `num_os_handles` is null, this returns
-  // IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // byte of data, or if there are handles present but `num_handles` is null,
+  // this returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
   //
   // Otherwise a successful BeginGet() updates values pointed to by `data`,
-  // `num_bytes`, `num_handles` and `num_os_handles` to convey the parcel's
-  // data storage and capacity as well as the capacity required to read out any
-  // ipcz or OS handles.
+  // `num_bytes`, and `num_handles` to convey the parcel's data storage and
+  // capacity as well as the capacity required to read out any handles.
   //
   // NOTE: When performing two-phase get operations, callers should be mindful
   // of time-of-check/time-of-use (TOCTOU) vulnerabilities. Exposed parcel
@@ -1181,16 +1098,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_OK if the two-phase get was successfully initiated. In this
   //        case both `*data` and `*num_bytes` are updated (if `data` and
   //        `num_bytes` were non-null) to describe the portal memory from which
-  //        the application is free to read parcel data. If `num_handles` or
-  //        `num_os_handles` is non-null, the value pointed to is updated to
-  //        reflect the number of corresponding handles available to retrieve.
+  //        the application is free to read parcel data. If `num_handles` is
+  //        is non-null, the value pointed to is updated to reflect the number
+  //        of handles available to retrieve.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid.
   //
   //    IPCZ_RESULT_RESOURCE_EXHAUSTED if the next available parcel has at least
   //        one data byte but `data` or `num_bytes` is null; or if the parcel
-  //        has any ipcz or OS handles but `num_handles` or `num_os_handles` is
-  //        null, respectively.
+  //        has any handles but `num_handles` null.
   //
   //    IPCZ_RESULT_UNAVAILABLE if the portal's parcel queue is currently empty.
   //        In this case callers should wait before attempting to get anything
@@ -1207,17 +1123,15 @@ struct IPCZ_ALIGN(8) IpczAPI {
                          const void* options,
                          const void** data,
                          uint32_t* num_bytes,
-                         uint32_t* num_handles,
-                         uint32_t* num_os_handles);
+                         uint32_t* num_handles);
 
   // Ends the two-phase get operation started by the most recent successful call
   // to BeginGet() on `portal`.
   //
   // `num_bytes_consumed` specifies the number of bytes actually read from the
   // buffer that was returned from the original BeginGet() call. `num_handles`
-  // and `num_os_handles` specify the capacity of `handles` and `os_handles`
-  // respectively, and must be no larger than the capacities indicated by the
-  // corresponding outputs from BeginGet().
+  // specifies the capacity of `handles` and must be no larger than the
+  // capacity indicated by the corresponding output from BeginGet().
   //
   // If IPCZ_END_GET_ABORT is given in `flags` and there is a two-phase get
   // operation in progress on `portal`, all other arguments are ignored and the
@@ -1231,27 +1145,22 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //        aborted. Note that if the frontmost parcel wasn't fully consumed by
   //        the caller, it will remain in queue with the rest of its data intact
   //        for a subsequent get operation to retrieve. Exactly `num_handles`
-  //        handles will be copied into `handles` and `num_os_handles` OS
-  //        handles will be copied into `os_handles`.
+  //        handles will be copied into `handles`.
   //
-  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, if `num_handles` is
-  //        non-zero but `handles` is null, or if `num_os_handles` is non-zero
-  //        but `os_handles` is null.
+  //    IPCZ_RESULT_INVALID_ARGUMENT if `portal` is invalid, or if `num_handles`
+  //        is non-zero but `handles` is null.
   //
-  //    IPCZ_RESULT_OUT_OF_RANGE if any of `num_bytes_consumed`, `num_handles`,
-  //        or `num_os_handles` is larger than the capacity returned by the
-  //        corresponding BeginGet().
+  //    IPCZ_RESULT_OUT_OF_RANGE if either `num_bytes_consumed` or `num_handles`
+  //        is larger than the capacity returned by BeginGet().
   //
   //    IPCZ_RESULT_FAILED_PRECONDITION if there was no two-phase get operation
   //        in progress on `portal`.
   IpczResult (*EndGet)(IpczHandle portal,
                        uint32_t num_bytes_consumed,
                        uint32_t num_handles,
-                       uint32_t num_os_handles,
                        IpczEndGetFlags flags,
                        const void* options,
-                       IpczHandle* handles,
-                       struct IpczOSHandle* os_handles);
+                       IpczHandle* handles);
 
   // Attempts to install a trap to catch interesting changes to a portal's
   // state. The condition(s) to observe are specified in `conditions`.
@@ -1309,8 +1218,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
                      struct IpczPortalStatus* status);
 
   // Boxes an object managed by a node's driver and returns a new IpczHandle to
-  // reference the box. The driver must support serialization of the input
-  // object for this to succeed.
+  // reference the box. If the driver is able to serialize the boxed object, the
+  // box can be placed into a portal for transmission to the other side.
   //
   // Boxes can be sent through portals along with other IpczHandles, effectively
   // allowing drivers to introduce new types of transferrable objects via boxes.

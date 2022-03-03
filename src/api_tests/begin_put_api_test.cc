@@ -74,13 +74,13 @@ TEST_F(BeginPutAPITest, ParcelLimit) {
   uint32_t num_bytes = 4;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
@@ -88,8 +88,8 @@ TEST_F(BeginPutAPITest, ParcelLimit) {
   limits.max_queued_parcels = 3;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));
@@ -110,13 +110,13 @@ TEST_F(BeginPutAPITest, DataLimit) {
   uint32_t num_bytes = 4;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
@@ -124,8 +124,8 @@ TEST_F(BeginPutAPITest, DataLimit) {
   limits.max_queued_bytes = 12;
   EXPECT_EQ(IPCZ_RESULT_OK,
             ipcz.BeginPut(a, IPCZ_NO_FLAGS, &options, &num_bytes, &data));
-  EXPECT_EQ(IPCZ_RESULT_OK, ipcz.EndPut(a, num_bytes, nullptr, 0, nullptr, 0,
-                                        IPCZ_NO_FLAGS, nullptr));
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            ipcz.EndPut(a, num_bytes, nullptr, 0, IPCZ_NO_FLAGS, nullptr));
 
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(a, IPCZ_NO_FLAGS, nullptr));
   EXPECT_EQ(IPCZ_RESULT_OK, ipcz.Close(b, IPCZ_NO_FLAGS, nullptr));

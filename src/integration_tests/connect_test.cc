@@ -14,12 +14,9 @@ class ConnectTest : public test::MultinodeTestWithDriver {
   IpczHandle ConnectNode(IpczHandle node,
                          IpczDriverHandle transport,
                          IpczConnectNodeFlags flags) {
-    IpczOSProcessHandle process = {sizeof(process)};
-    OSProcess::ToIpczOSProcessHandle(OSProcess::GetCurrent(), process);
-
     IpczHandle portal;
-    EXPECT_EQ(IPCZ_RESULT_OK, ipcz.ConnectNode(node, transport, &process, 1,
-                                               flags, nullptr, &portal));
+    EXPECT_EQ(IPCZ_RESULT_OK,
+              ipcz.ConnectNode(node, transport, 1, flags, nullptr, &portal));
     return portal;
   }
 
@@ -91,25 +88,19 @@ TEST_P(ConnectTest, NonBrokerToNonBrokerWithoutBroker) {
   IpczDriverHandle transports[2];
   CreateTransports(&transports[0], &transports[1]);
 
-  IpczOSProcessHandle process = {sizeof(process)};
-  OSProcess::ToIpczOSProcessHandle(OSProcess::GetCurrent(), process);
-
   IpczHandle portal;
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.ConnectNode(node_a, transports[0], &process, 1, IPCZ_NO_FLAGS,
-                             nullptr, &portal));
+            ipcz.ConnectNode(node_a, transports[0], 1, IPCZ_NO_FLAGS, nullptr,
+                             &portal));
 
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
-            ipcz.ConnectNode(node_b, transports[1], &process, 1, IPCZ_NO_FLAGS,
-                             nullptr, &portal));
+            ipcz.ConnectNode(node_b, transports[1], 1, IPCZ_NO_FLAGS, nullptr,
+                             &portal));
 }
 
 TEST_P(ConnectTest, InheritBrokerConflict) {
   IpczHandle node_a = CreateNonBrokerNode();
   IpczHandle node_b = CreateNonBrokerNode();
-
-  IpczOSProcessHandle process = {sizeof(process)};
-  OSProcess::ToIpczOSProcessHandle(OSProcess::GetCurrent(), process);
 
   IpczDriverHandle transports[2];
   CreateTransports(&transports[0], &transports[1]);

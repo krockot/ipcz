@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_UTIL_OS_HANDLE_H_
-#define IPCZ_SRC_UTIL_OS_HANDLE_H_
+#ifndef IPCZ_SRC_REFERENCE_DRIVERS_OS_HANDLE_H_
+#define IPCZ_SRC_REFERENCE_DRIVERS_OS_HANDLE_H_
 
 #include <algorithm>
 
 #include "build/build_config.h"
-#include "ipcz/ipcz.h"
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -18,7 +17,7 @@
 #include <mach/mach.h>
 #endif
 
-namespace ipcz {
+namespace ipcz::reference_drivers {
 
 // Generic scoper to wrap various types of platform-specific OS handles.
 // Depending on target platform, an OSHandle may be a Windows HANDLE, a POSIX
@@ -59,9 +58,6 @@ class OSHandle {
   OSHandle& operator=(OSHandle&& other);
 
   ~OSHandle();
-
-  static bool ToIpczOSHandle(OSHandle handle, IpczOSHandle* os_handle);
-  static OSHandle FromIpczOSHandle(const IpczOSHandle& os_handle);
 
   Type type() const { return type_; }
 
@@ -167,6 +163,6 @@ class OSHandle {
 #endif
 };
 
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
-#endif  // IPCZ_SRC_UTIL_OS_HANDLE_H_
+#endif  // IPCZ_SRC_REFERENCE_DRIVERS_OS_HANDLE_H_

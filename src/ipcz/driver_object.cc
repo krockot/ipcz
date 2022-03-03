@@ -5,6 +5,7 @@
 #include "ipcz/driver_object.h"
 
 #include <cstdint>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -52,16 +53,31 @@ IpczDriverHandle DriverObject::release() {
   return handle;
 }
 
+bool DriverObject::IsTransmissible() const {
+  if (!is_valid()) {
+    return false;
+  }
+
+  uint32_t num_bytes = 0;
+  uint32_t num_driver_handles = 0;
+  IpczResult result =
+      node_->driver().Serialize(handle_, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                &num_bytes, 0, &num_driver_handles);
+  return result == IPCZ_RESULT_ALREADY_EXISTS;
+}
+
 bool DriverObject::IsSerializable() const {
   if (!is_valid()) {
     return false;
   }
 
   uint32_t num_bytes = 0;
-  uint32_t num_os_handles = 0;
-  IpczResult result = node_->driver().Serialize(
-      handle_, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes, 0, &num_os_handles);
-  return result == IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  uint32_t num_driver_handles = 0;
+  IpczResult result =
+      node_->driver().Serialize(handle_, IPCZ_NO_FLAGS, nullptr, nullptr,
+                                &num_bytes, 0, &num_driver_handles);
+  return result == IPCZ_RESULT_RESOURCE_EXHAUSTED ||
+         result == IPCZ_RESULT_ALREADY_EXISTS;
 }
 
 DriverObject::SerializedDimensions DriverObject::GetSerializedDimensions()
@@ -70,62 +86,44 @@ DriverObject::SerializedDimensions DriverObject::GetSerializedDimensions()
   DriverObject::SerializedDimensions dimensions = {};
   IpczResult result = node_->driver().Serialize(
       handle_, IPCZ_NO_FLAGS, nullptr, nullptr, &dimensions.num_bytes, nullptr,
-      &dimensions.num_os_handles);
+      &dimensions.num_driver_handles);
   ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
-  ABSL_ASSERT(dimensions.num_bytes > 0 || dimensions.num_os_handles > 0);
+  ABSL_ASSERT(dimensions.num_bytes > 0 || dimensions.num_driver_handles > 0);
   return dimensions;
 }
 
 IpczResult DriverObject::Serialize(absl::Span<uint8_t> data,
-                                   absl::Span<OSHandle> handles) {
+                                   absl::Span<IpczDriverHandle> handles) {
   if (!is_valid()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  absl::InlinedVector<IpczOSHandle, 4> os_handles(handles.size());
-  for (auto& handle : os_handles) {
-    handle.size = sizeof(handle);
-  }
+  // ipcz should never ask to serialize already-transmissible objects.
+  ABSL_ASSERT(!IsTransmissible());
 
   uint32_t num_bytes = static_cast<uint32_t>(data.size());
-  uint32_t num_os_handles = static_cast<uint32_t>(handles.size());
+  uint32_t num_handles = static_cast<uint32_t>(handles.size());
   IpczResult result =
       node_->driver().Serialize(handle_, IPCZ_NO_FLAGS, nullptr, data.data(),
-                                &num_bytes, os_handles.data(), &num_os_handles);
+                                &num_bytes, handles.data(), &num_handles);
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
 
   release();
-  for (size_t i = 0; i < num_os_handles; ++i) {
-    handles[i] = OSHandle::FromIpczOSHandle(os_handles[i]);
-  }
   return IPCZ_RESULT_OK;
 }
 
 // static
-DriverObject DriverObject::Deserialize(Ref<Node> node,
-                                       absl::Span<const uint8_t> data,
-                                       absl::Span<OSHandle> handles) {
-  std::vector<IpczOSHandle> os_handles(handles.size());
-  bool fail = false;
-  for (size_t i = 0; i < handles.size(); ++i) {
-    os_handles[i].size = sizeof(os_handles[i]);
-    bool ok = OSHandle::ToIpczOSHandle(std::move(handles[i]), &os_handles[i]);
-    if (!ok) {
-      fail = true;
-    }
-  }
-
-  if (fail) {
-    return DriverObject();
-  }
-
+DriverObject DriverObject::Deserialize(
+    Ref<Node> node,
+    absl::Span<const uint8_t> data,
+    absl::Span<const IpczDriverHandle> handles) {
   IpczDriverHandle handle;
   IpczResult result = node->driver().Deserialize(
       node->driver_node(), data.data(), static_cast<uint32_t>(data.size()),
-      os_handles.data(), static_cast<uint32_t>(os_handles.size()),
-      IPCZ_NO_FLAGS, nullptr, &handle);
+      handles.data(), static_cast<uint32_t>(handles.size()), IPCZ_NO_FLAGS,
+      nullptr, &handle);
   if (result != IPCZ_RESULT_OK) {
     return DriverObject();
   }

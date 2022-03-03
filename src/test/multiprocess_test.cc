@@ -9,8 +9,6 @@
 #include "reference_drivers/multiprocess_reference_driver.h"
 #include "test/test_client.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -32,15 +30,12 @@ MultiprocessTest::~MultiprocessTest() {
 }
 
 IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
-  IpczOSProcessHandle process = {sizeof(process)};
-  OSProcess::ToIpczOSProcessHandle(client.process().Clone(), process);
-
   IpczHandle portal;
   IpczResult result =
       ipcz.ConnectNode(node,
                        reference_drivers::CreateTransportFromChannel(
                            std::move(client.channel())),
-                       &process, 1, IPCZ_NO_FLAGS, nullptr, &portal);
+                       1, IPCZ_NO_FLAGS, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }
@@ -50,7 +45,7 @@ IpczHandle MultiprocessTest::ConnectToBroker(
   IpczHandle portal;
   IpczResult result = ipcz.ConnectNode(
       node, reference_drivers::CreateTransportFromChannel(std::move(channel)),
-      nullptr, 1, IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
+      1, IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }

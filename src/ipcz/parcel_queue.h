@@ -122,9 +122,7 @@ class ParcelQueue {
   // Consumes some or all of the next (in sequence order) parcel in the queue if
   // available. If the entire parcel is consumed, it's also popped from the
   // queue. Returns true on success, or false if no parcel was available.
-  bool Consume(size_t num_bytes,
-               absl::Span<IpczHandle> handles,
-               absl::Span<IpczOSHandle> os_handles);
+  bool Consume(size_t num_bytes, absl::Span<IpczHandle> handles);
 
   // Gets a reference to the next parcel. This reference is NOT stable across
   // ANY non-const ParcelQueue methods.

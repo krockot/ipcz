@@ -13,18 +13,18 @@
 #include <vector>
 
 #include "ipcz/driver_memory.h"
+#include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 #include "util/ref_counted.h"
 
 #pragma pack(push, 1)
 
 namespace ipcz {
 
+class DriverTransport;
 class Node;
 
 namespace internal {
@@ -66,56 +66,30 @@ struct IPCZ_ALIGN(8) ArrayHeader {
   uint32_t num_elements;
 };
 
-enum OSHandleDataType : uint8_t {
-  // No handle. Only valid if the handle slot was designated as optional.
-  kNone = 0,
-
-  // A POSIX file descriptor. Encoded handle value is a 0-based index into the
-  // array of actual file descriptors attached to the message, indicating which
-  // file descriptor to associate with this handle slot.
-  kFileDescriptor = 1,
-
-  // A Windows HANDLE. The encoded handle value is a HANDLE value. Depending on
-  // the relationship between the sender and receiver, the HANDLE value may
-  // belong to the sending process or the receiving process.
-  kWindowsHandle = 2,
-
-  // TODO: etc...
+struct IPCZ_ALIGN(8) DriverObjectData {
+  uint32_t driver_data_array;
+  uint16_t first_driver_handle;
+  uint16_t num_driver_handles;
 };
 
-// Wire format for encoded OS handles.
-//
-// TODO: revisit for other platforms, version safety, extensibility.
-struct IPCZ_ALIGN(8) OSHandleData {
-  StructHeader header;
-
-  OSHandleDataType type;
-  uint8_t padding[3];
-  uint32_t index;
-  uint64_t value;
+enum class ParamType {
+  kData,
+  kDataArray,
+  kDriverObject,
+  kDriverObjectArray,
 };
-
-template <typename T>
-constexpr size_t GetNumOSHandles() {
-  return (sizeof(T) - sizeof(StructHeader)) / sizeof(OSHandleData);
-}
 
 struct ParamMetadata {
   uint32_t offset;
   uint32_t size;
   uint32_t array_element_size;
-  bool is_handle_array;
+  ParamType type;
 };
 
 // TODO: These functions have been hastily ripped out of MessageBase for reuse
 // by message relay in NodeLink. Fix it.
 MessageHeaderV0& GetMessageHeader(absl::Span<uint8_t> message_data);
 bool IsMessageHeaderValid(absl::Span<uint8_t> message_data);
-absl::Span<uint8_t> GetMessageParamsData(absl::Span<uint8_t> message_data);
-void SerializeMessageHandleData(absl::Span<uint8_t> message_data,
-                                absl::Span<OSHandle> handles,
-                                absl::Span<const ParamMetadata> metadata,
-                                const OSProcess& remote_process);
 
 template <typename ElementType>
 absl::Span<ElementType> GetMessageDataArrayView(
@@ -145,19 +119,23 @@ class IPCZ_ALIGN(8) MessageBase {
   absl::Span<uint8_t> params_data_view() {
     return absl::MakeSpan(&data_[header().size], data_.size() - header().size);
   }
-  absl::Span<OSHandle> handles_view() { return absl::MakeSpan(handles_); }
+  absl::Span<DriverObject> driver_objects() {
+    return absl::MakeSpan(driver_objects_);
+  }
+  absl::Span<IpczDriverHandle> transmissible_driver_handles() {
+    return absl::MakeSpan(transmissible_driver_handles_);
+  }
 
   uint32_t AllocateGenericArray(size_t element_size, size_t num_elements);
-  uint32_t AppendHandles(absl::Span<OSHandle> handles);
+  uint32_t AppendDriverObjects(absl::Span<DriverObject> objects);
+
+  void AppendDriverObject(DriverObject object, DriverObjectData& data);
+  DriverObject TakeDriverObject(const DriverObjectData& data);
 
   template <typename ElementType>
   uint32_t AllocateArray(size_t num_elements) {
     return AllocateGenericArray(sizeof(ElementType), num_elements);
   }
-
-  SharedMemoryParams AppendSharedMemory(DriverMemory memory);
-  DriverMemory TakeSharedMemory(Ref<Node> node,
-                                const SharedMemoryParams& params);
 
   void* GetArrayData(uint32_t offset) {
     ArrayHeader& header = *reinterpret_cast<ArrayHeader*>(&data_[offset]);
@@ -166,40 +144,64 @@ class IPCZ_ALIGN(8) MessageBase {
 
   template <typename ElementType>
   absl::Span<ElementType> GetArrayView(uint32_t offset) {
+    if (!offset) {
+      return {};
+    }
     return GetMessageDataArrayView<ElementType>(absl::MakeSpan(data_), offset);
   }
 
-  absl::Span<OSHandle> GetHandlesView(uint32_t offset) {
-    absl::Span<OSHandleData> handle_data = GetArrayView<OSHandleData>(offset);
-    if (handle_data.empty()) {
-      return {};
-    }
-
-    // Each handle array is encoded as a contiguous series of handles, so we
-    // only need the index of the first handle to index all of the handles.
-    return absl::MakeSpan(handles_).subspan(handle_data[0].index,
-                                            handle_data.size());
+  // Helper to retrieve a typed value from the message given an absolute byte
+  // offset from the start of the message.
+  template <typename T>
+  T& GetValueAt(uint32_t data_offset) {
+    return *reinterpret_cast<T*>(&data_[data_offset]);
   }
 
-  // Finalizes a message immediately before transit. The may serialize
-  // additional data within the message payload, but it does not change the size
-  // of the message data.
-  void Serialize(absl::Span<const ParamMetadata> params,
-                 const OSProcess& remote_process);
+  // Helper to retrieve a typed value from the message given a byte offset from
+  // the start of the message's parameter data.
+  template <typename T>
+  T& GetParamValueAt(uint32_t param_offset) {
+    return GetValueAt<T>(GetDataOffset(&params_data_view()[param_offset]));
+  }
+
+  // Attempts to finalize a message for transit over `transport`, potentially
+  // mutating the message data in-place. Returns IPCZ_RESULT_OK if sucessful.
+  //
+  // If the driver cannot convey the message over `transport` without losing
+  // information but the message could instead be relayed through a broker, this
+  // returns IPCZ_RESULT_PERMISSION_DENIED. The caller should instead try to
+  // finalize and transmit the message as an embedded payload via RelayMessage
+  // to a broker.
+  //
+  // If the message cannot be transmitted over any transport (e.g. because one
+  // or more attached objects are fundamentally not transmissible or
+  // serializable) this returns IPCZ_RESULT_INVALID_ARGUMENT.
+  IpczResult Serialize(absl::Span<const ParamMetadata> params,
+                       const DriverTransport& transport);
+
+  // Adopts an already-deserialized set of data and driver objects, as embedded
+  // within a relayed message. This is messy.
+  // TODO: clean this up along with other details of message relay.
+  void Adopt(absl::Span<uint8_t> data, absl::Span<DriverObject> objects);
 
  protected:
   size_t Align(size_t x) { return (x + 7) & ~7; }
 
-  bool DeserializeDataAndHandles(
-      size_t params_size,
-      uint32_t params_current_version,
-      absl::Span<const ParamMetadata> params_metadata,
-      absl::Span<const uint8_t> data,
-      absl::Span<OSHandle> handles,
-      const OSProcess& remote_process);
+  uint32_t GetDataOffset(const void* data) {
+    return static_cast<uint32_t>(static_cast<const uint8_t*>(data) -
+                                 data_.data());
+  }
+
+  bool DeserializeFromTransport(size_t params_size,
+                                uint32_t params_current_version,
+                                absl::Span<const ParamMetadata> params_metadata,
+                                absl::Span<const uint8_t> data,
+                                absl::Span<const IpczDriverHandle> handles,
+                                const DriverTransport& transport);
 
   absl::InlinedVector<uint8_t, 128> data_;
-  absl::InlinedVector<OSHandle, 2> handles_;
+  absl::InlinedVector<DriverObject, 2> driver_objects_;
+  absl::InlinedVector<IpczDriverHandle, 2> transmissible_driver_handles_;
 
   const uint8_t message_id_;
   const uint32_t params_size_;

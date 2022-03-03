@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "util/os_process.h"
+#include "reference_drivers/os_process.h"
 
 #include <algorithm>
 
@@ -13,7 +13,7 @@
 
 #include "build/build_config.h"
 
-namespace ipcz {
+namespace ipcz::reference_drivers {
 
 OSProcess::OSProcess() = default;
 
@@ -61,33 +61,6 @@ OSProcess& OSProcess::operator=(OSProcess&& other) {
 
 OSProcess::~OSProcess() {
   reset();
-}
-
-// static
-OSProcess OSProcess::FromIpczOSProcessHandle(
-    const IpczOSProcessHandle& handle) {
-#if BUILDFLAG(IS_WIN)
-  return OSProcess(
-      reinterpret_cast<HANDLE>(static_cast<uintptr_t>(handle.value)));
-#else
-  return OSProcess(static_cast<ProcessHandle>(handle.value));
-#endif
-}
-
-// static
-bool OSProcess::ToIpczOSProcessHandle(OSProcess process,
-                                      IpczOSProcessHandle& out) {
-  out.size = sizeof(out);
-#if BUILDFLAG(IS_WIN)
-  OSHandle handle = process.TakeAsHandle();
-  out.value = static_cast<uint64_t>(
-      reinterpret_cast<uintptr_t>(handle.ReleaseHandle()));
-#elif BUILDFLAG(IS_FUCHSIA)
-  out.value = reinterpret_cast<uint64_t>(process.process_);
-#else
-  out.value = static_cast<uint64_t>(process.handle_);
-#endif
-  return true;
 }
 
 // static
@@ -161,4 +134,4 @@ OSHandle OSProcess::TakeAsHandle() {
 #endif
 }
 
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

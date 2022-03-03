@@ -22,6 +22,7 @@ class Object : public RefCounted {
     kTransport,
     kMemory,
     kMapping,
+    kOSHandle,
 
     // Custom types used only by these reference drivers.
     kBlob,
@@ -36,8 +37,18 @@ class Object : public RefCounted {
     return ToPtr<Object>(handle);
   }
 
+  static IpczDriverHandle ReleaseAsHandle(Ref<Object> object) {
+    return static_cast<IpczDriverHandle>(
+        reinterpret_cast<uintptr_t>(object.release()));
+  }
+
   static Ref<Object> ReleaseFromHandle(IpczDriverHandle handle) {
     return Ref<Object>(RefCounted::kAdoptExistingRef, FromHandle(handle));
+  }
+
+  template <typename T>
+  static Ref<T> ReleaseFromHandleAs(IpczDriverHandle handle) {
+    return Ref<T>(static_cast<T*>(ReleaseFromHandle(handle).release()));
   }
 
   template <typename T>

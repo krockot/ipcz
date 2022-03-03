@@ -14,8 +14,6 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
-#include "util/os_handle.h"
-#include "util/os_process.h"
 
 namespace ipcz {
 namespace test {
@@ -31,7 +29,6 @@ class TestBase : public testing::Test {
     ~Parcel();
     std::string message;
     std::vector<IpczHandle> handles;
-    std::vector<OSHandle> os_handles;
   };
 
   TestBase();
@@ -58,20 +55,17 @@ class TestBase : public testing::Test {
 
   IpczHandle ConnectNode(IpczHandle node,
                          IpczDriverHandle driver_transport,
-                         const OSProcess& process,
                          IpczCreateNodeFlags flags);
   IpczHandle ConnectToBroker(IpczHandle node,
                              IpczDriverHandle driver_transport);
   IpczHandle ConnectToNonBroker(IpczHandle node,
-                                IpczDriverHandle driver_transport,
-                                const OSProcess& process);
+                                IpczDriverHandle driver_transport);
 
   void OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b);
 
   void Put(IpczHandle portal,
            const std::string& str,
-           absl::Span<IpczHandle> handles = {},
-           absl::Span<OSHandle> os_handles = {});
+           absl::Span<IpczHandle> handles = {});
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);

@@ -7,9 +7,10 @@
 #include "ipcz/ipcz.h"
 #include "reference_drivers/blob.h"
 #include "reference_drivers/memory.h"
+#include "reference_drivers/os_handle.h"
+#include "reference_drivers/wrapped_os_handle.h"
 #include "test/multinode_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace {
@@ -97,7 +98,7 @@ TEST_P(BoxTest, TransferBox) {
   reference_drivers::Memory memory(64);
   auto mapping = memory.Map();
   memcpy(mapping.base(), kMessage1, sizeof(kMessage1));
-  OSHandle memory_handle = memory.TakeHandle();
+  reference_drivers::OSHandle memory_handle = memory.TakeHandle();
 
   // Wrap up some data and the shared memory handle into a driver-defined blob
   // object.

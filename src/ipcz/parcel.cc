@@ -43,34 +43,21 @@ void Parcel::SetObjects(ObjectVector objects) {
   object_offset_ = 0;
 }
 
-void Parcel::SetOSHandles(std::vector<OSHandle> os_handles) {
-  os_handles_ = std::move(os_handles);
-  os_handle_offset_ = 0;
-}
-
 void Parcel::ResizeData(size_t size) {
   data_.resize(size);
 }
 
-void Parcel::Consume(size_t num_bytes,
-                     absl::Span<IpczHandle> out_handles,
-                     absl::Span<IpczOSHandle> out_os_handles) {
+void Parcel::Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles) {
   auto data = data_view();
   auto objects = objects_view();
-  auto os_handles = os_handles_view();
   ABSL_ASSERT(num_bytes <= data.size());
   ABSL_ASSERT(out_handles.size() <= objects.size());
-  ABSL_ASSERT(out_os_handles.size() <= os_handles.size());
   for (size_t i = 0; i < out_handles.size(); ++i) {
     out_handles[i] = ToHandle(objects[i].release());
-  }
-  for (size_t i = 0; i < out_os_handles.size(); ++i) {
-    OSHandle::ToIpczOSHandle(std::move(os_handles[i]), &out_os_handles[i]);
   }
 
   data_offset_ += num_bytes;
   object_offset_ += out_handles.size();
-  os_handle_offset_ += out_os_handles.size();
 }
 
 std::string Parcel::Describe() const {
@@ -93,9 +80,6 @@ std::string Parcel::Describe() const {
   }
   if (!objects_view().empty()) {
     ss << ", " << num_objects() << " handles";
-  }
-  if (!os_handles_view().empty()) {
-    ss << ", " << num_os_handles() << " OS handles";
   }
   ss << ")";
   return ss.str();

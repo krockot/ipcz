@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "util/os_handle.h"
+#include "reference_drivers/os_handle.h"
 
 #include <algorithm>
 
@@ -25,7 +25,7 @@
 #include <unistd.h>
 #endif
 
-namespace ipcz {
+namespace ipcz::reference_drivers {
 
 OSHandle::OSHandle() = default;
 
@@ -86,89 +86,6 @@ OSHandle& OSHandle::operator=(OSHandle&& other) {
 
 OSHandle::~OSHandle() {
   reset();
-}
-
-// static
-bool OSHandle::ToIpczOSHandle(OSHandle handle, IpczOSHandle* os_handle) {
-  ABSL_ASSERT(os_handle);
-
-  if (!handle.is_valid() || os_handle->size < sizeof(IpczOSHandle)) {
-    return false;
-  }
-
-#if BUILDFLAG(IS_WIN)
-  os_handle->type = IPCZ_OS_HANDLE_WINDOWS;
-  os_handle->value = static_cast<uint64_t>(
-      reinterpret_cast<uintptr_t>(handle.ReleaseHandle()));
-#elif BUILDFLAG(IS_FUCHSIA)
-  if (handle.is_handle()) {
-    os_handle->type = IPCZ_OS_HANDLE_FUCHSIA;
-    os_handle->value = static_cast<uint64_t>(handle.ReleaseHandle());
-  }
-#elif BUILDFLAG(IS_MAC)
-  if (handle.is_mach_send_right()) {
-    os_handle->type = IPCZ_OS_HANDLE_MACH_SEND_RIGHT;
-    os_handle->value = static_cast<uint64_t>(handle.ReleaseMachSendRight());
-  } else if (handle.is_mach_receive_right()) {
-    os_handle->type = IPCZ_OS_HANDLE_MACH_RECEIVE_RIGHT;
-    os_handle->value = static_cast<uint64_t>(handle.ReleaseMachReceiveRight());
-  }
-#endif
-
-#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
-  if (handle.is_fd()) {
-    os_handle->type = IPCZ_OS_HANDLE_FILE_DESCRIPTOR;
-    os_handle->value = static_cast<uint64_t>(handle.ReleaseFD());
-  }
-#endif
-  return true;
-}
-
-// static
-OSHandle OSHandle::FromIpczOSHandle(const IpczOSHandle& os_handle) {
-  switch (os_handle.type) {
-#if BUILDFLAG(IS_WIN)
-    case IPCZ_OS_HANDLE_WINDOWS: {
-      HANDLE handle =
-          reinterpret_cast<HANDLE>(static_cast<uintptr_t>(os_handle.value));
-      if (handle != INVALID_HANDLE_VALUE) {
-        return OSHandle(handle);
-      }
-      break;
-    }
-#elif BUILDFLAG(IS_FUCHSIA)
-    case IPCZ_OS_HANDLE_FUCHSIA: {
-      zx::handle handle(os_handle.value);
-      if (handle.is_valid()) {
-        return OSHandle(std::move(handle));
-      }
-      break;
-    }
-#elif BUILDFLAG(IS_MAC)
-    case IPCZ_OS_HANDLE_MACH_SEND_RIGHT: {
-      mach_port_t port = static_cast<mach_port_t>(os_handle.value);
-      if (port != MACH_PORT_NULL) {
-        return OSHandle(port, Type::kMachSendRight);
-      }
-      break;
-    }
-
-    case IPCZ_OS_HANDLE_MACH_RECEIVE_RIGHT: {
-      mach_port_t port = static_cast<mach_port_t>(os_handle.value);
-      if (port != MACH_PORT_NULL) {
-        return OSHandle(port, Type::kMachReceiveRight);
-      }
-      break;
-    }
-#endif
-
-#if BUILDFLAG(IS_POSIX) || BUILDFLAG(IS_FUCHSIA)
-    case IPCZ_OS_HANDLE_FILE_DESCRIPTOR:
-      return OSHandle(static_cast<int>(os_handle.value));
-#endif
-  }
-
-  return OSHandle();
 }
 
 void OSHandle::reset() {
@@ -285,4 +202,4 @@ OSHandle OSHandle::Clone() const {
   }
 }
 
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

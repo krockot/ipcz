@@ -10,8 +10,8 @@
 #include <vector>
 
 #include "reference_drivers/object.h"
+#include "reference_drivers/os_handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {

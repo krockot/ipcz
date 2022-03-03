@@ -66,7 +66,6 @@ void Node::ShutDown() {
 }
 
 IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
-                             OSProcess remote_process,
                              IpczConnectNodeFlags flags,
                              absl::Span<IpczHandle> initial_portals) {
   std::vector<Ref<Portal>> portals(initial_portals.size());
@@ -79,9 +78,8 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
 
   auto transport = MakeRefCounted<DriverTransport>(
       DriverObject(WrapRefCounted(this), driver_transport));
-  IpczResult result =
-      NodeConnector::ConnectNode(WrapRefCounted(this), transport,
-                                 std::move(remote_process), flags, portals);
+  IpczResult result = NodeConnector::ConnectNode(WrapRefCounted(this),
+                                                 transport, flags, portals);
   if (result != IPCZ_RESULT_OK) {
     transport->Release();
     for (Ref<Portal>& portal : portals) {
@@ -232,7 +230,6 @@ void Node::EstablishLink(const NodeName& name, EstablishLinkCallback callback) {
 bool Node::OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
                                              uint64_t request_id,
                                              Ref<DriverTransport> transport,
-                                             OSProcess process,
                                              uint32_t num_initial_portals) {
   if (type_ != Type::kBroker) {
     return false;
@@ -244,7 +241,7 @@ bool Node::OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
 
   IpczResult result = NodeConnector::ConnectNodeIndirect(
       WrapRefCounted(this), WrapRefCounted(&from_node_link),
-      std::move(transport), std::move(process), num_initial_portals,
+      std::move(transport), num_initial_portals,
       [node = WrapRefCounted(this),
        source_link = WrapRefCounted(&from_node_link), num_initial_portals,
        request_id](Ref<NodeLink> new_link, uint32_t num_remote_portals) {
@@ -315,31 +312,26 @@ bool Node::OnIntroduceNode(const NodeName& name,
                            bool known,
                            LinkSide link_side,
                            Ref<NodeLinkMemory> link_memory,
-                           absl::Span<const uint8_t> serialized_transport_data,
-                           absl::Span<OSHandle> serialized_transport_handles) {
-  Ref<DriverTransport> transport;
+                           Ref<DriverTransport> transport) {
   Ref<NodeLink> new_link;
   if (known) {
-    transport = DriverTransport::Deserialize(WrapRefCounted(this),
-                                             serialized_transport_data,
-                                             serialized_transport_handles);
-    if (transport) {
-      absl::MutexLock lock(&mutex_);
-      ABSL_ASSERT(assigned_name_.is_valid());
-      DVLOG(3) << "Node " << assigned_name_.ToString()
-               << " received introduction to " << name.ToString();
-      new_link = NodeLink::Create(
-          WrapRefCounted(this), link_side, assigned_name_, name, Type::kNormal,
-          0, transport, OSProcess(), std::move(link_memory));
-    }
+    ABSL_ASSERT(link_memory);
+    ABSL_ASSERT(transport);
+
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(assigned_name_.is_valid());
+    DVLOG(3) << "Node " << assigned_name_.ToString()
+             << " received introduction to " << name.ToString();
+    new_link =
+        NodeLink::Create(WrapRefCounted(this), link_side, assigned_name_, name,
+                         Type::kNormal, 0, transport, std::move(link_memory));
   }
 
   std::vector<EstablishLinkCallback> callbacks;
   {
     absl::MutexLock lock(&mutex_);
-    auto result = node_links_.try_emplace(name, new_link);
-    if (!result.second) {
-      // Already introduced. Nothing to do.
+    if (new_link && !node_links_.try_emplace(name, new_link).second) {
+      // Already introduced, so this new link is redundant. Nothing to do.
       return true;
     }
 
@@ -434,16 +426,16 @@ bool Node::RelayMessage(const NodeName& from_node, msg::RelayMessage& relay) {
   }
 
   absl::Span<uint8_t> data = relay.GetArrayView<uint8_t>(relay.params().data);
-  absl::Span<OSHandle> handles = relay.GetHandlesView(relay.params().handles);
 
-  // Simply copy the data and re-serialize the handles over to a new message
-  // targeting the requested destination.
+  // Simply copy the data and re-serialize the driver objects over to a new
+  // message targeting the requested destination.
   msg::AcceptRelayedMessage new_relay;
   new_relay.params().source = from_node;
   new_relay.params().data = new_relay.AllocateArray<uint8_t>(data.size());
-  new_relay.params().handles = new_relay.AppendHandles(handles);
   memcpy(new_relay.GetArrayData(new_relay.params().data), data.data(),
          data.size());
+  new_relay.params().driver_objects =
+      new_relay.AppendDriverObjects(relay.driver_objects());
   link->Transmit(new_relay);
   return true;
 }

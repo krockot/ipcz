@@ -7,12 +7,12 @@
 #include "reference_drivers/channel.h"
 #include "reference_drivers/event.h"
 #include "reference_drivers/memory.h"
+#include "reference_drivers/os_handle.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {

@@ -5,8 +5,8 @@
 #ifndef IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
 #define IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_
 
+#include "reference_drivers/os_handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/os_handle.h"
 
 namespace ipcz {
 namespace reference_drivers {
