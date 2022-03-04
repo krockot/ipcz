@@ -14,8 +14,7 @@
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 namespace {
 
 using MultiprocessTest = testing::Test;
@@ -131,5 +130,4 @@ TEST_CLIENT(SynchronizedMemoryClient, c) {
 #endif
 
 }  // namespace
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

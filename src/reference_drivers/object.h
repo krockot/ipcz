@@ -11,8 +11,7 @@
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // Base class for all driver-managed objects used by both reference drivers.
 class Object : public RefCounted {
@@ -70,7 +69,6 @@ class Object : public RefCounted {
   const Type type_;
 };
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_OBJECT_H_

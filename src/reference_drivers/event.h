@@ -7,8 +7,7 @@
 
 #include "reference_drivers/os_handle.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // An OS object which supports waiting and signaling across processes.
 class Event {
@@ -53,7 +52,6 @@ class Event {
   OSHandle handle_;
 };
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_EVENT_H_

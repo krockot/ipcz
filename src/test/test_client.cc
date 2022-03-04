@@ -24,8 +24,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 namespace {
 
@@ -212,5 +211,4 @@ int TestClient::Wait() {
 #endif
 }
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test

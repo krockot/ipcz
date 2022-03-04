@@ -9,8 +9,7 @@
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 Blob::RefCountedFlag::RefCountedFlag() = default;
 
@@ -55,5 +54,4 @@ Ref<Blob> Blob::ReleaseFromHandle(IpczDriverHandle handle) {
   return Ref<Blob>(FromHandle(handle));
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

@@ -10,8 +10,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 namespace {
 
 using ChannelTest = testing::Test;
@@ -73,5 +72,4 @@ TEST_F(ChannelTest, ReadWriteWithHandles) {
 #endif
 
 }  // namespace
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

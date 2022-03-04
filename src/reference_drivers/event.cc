@@ -16,8 +16,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 Event::Notifier::Notifier() = default;
 
@@ -125,5 +124,4 @@ void Event::Wait() {
 #endif
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

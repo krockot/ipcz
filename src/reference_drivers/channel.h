@@ -21,8 +21,7 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // Generic OS communication channel abstraction. This may wrap a UNIX domain
 // socket, a Windows I/O object (such as a named pipe), a Fuchsia channel, or
@@ -143,7 +142,6 @@ class Channel {
 #endif
 };
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_CHANNEL_H_

@@ -8,8 +8,7 @@
 #include "reference_drivers/os_handle.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // Generic shared memory object.
 class Memory {
@@ -71,7 +70,6 @@ class Memory {
   size_t size_ = 0;
 };
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_MEMORY_H_

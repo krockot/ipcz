@@ -13,8 +13,7 @@
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
-namespace ipcz {
-namespace internal {
+namespace ipcz::internal {
 
 namespace {
 
@@ -122,5 +121,4 @@ void* MpscQueueBase::PeekBytes() {
   return &cell + 1;
 }
 
-}  // namespace internal
-}  // namespace ipcz
+}  // namespace ipcz::internal

@@ -18,8 +18,7 @@
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 namespace {
 
@@ -368,5 +367,4 @@ IpczDriverHandle CreateUnserializableTestObject() {
   return ToDriverHandle(garbage.release());
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

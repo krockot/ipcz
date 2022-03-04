@@ -13,8 +13,7 @@
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // This is a fully synchronous driver for single-process use cases. Transmitting
 // on one transport directly calls into the activity handler of its peer, so all
@@ -25,7 +24,6 @@ extern const IpczDriver kSingleProcessReferenceDriver;
 // Creates an unserializable test object. This object cannot be boxed.
 IpczDriverHandle CreateUnserializableTestObject();
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_DRIVERS_SINGLE_PROCESS_REFERENCE_DRIVER_H_

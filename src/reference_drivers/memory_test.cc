@@ -8,8 +8,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 namespace {
 
 using MemoryTest = testing::Test;
@@ -68,5 +67,4 @@ TEST_F(MemoryTest, CreateCloneMapClose) {
 }
 
 }  // namespace
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

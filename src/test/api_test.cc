@@ -8,8 +8,7 @@
 #include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 APITest::APITest() {
   IpczResult result = ipcz.CreateNode(
@@ -36,5 +35,4 @@ void APITest::OpenPortals(IpczHandle* first, IpczHandle* second) {
   TestBase::OpenPortals(node, first, second);
 }
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test

@@ -8,8 +8,7 @@
 
 #include "ipcz/node_messages.h"
 
-namespace ipcz {
-namespace msg {
+namespace ipcz::msg {
 
 #pragma pack(push, 1)
 
@@ -25,5 +24,4 @@ namespace msg {
 
 #pragma pack(pop)
 
-}  // namespace msg
-}  // namespace ipcz
+}  // namespace ipcz::msg

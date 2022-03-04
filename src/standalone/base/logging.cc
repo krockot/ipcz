@@ -19,8 +19,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace standalone {
+namespace ipcz::standalone {
 
 namespace {
 
@@ -55,5 +54,4 @@ int GetVerbosityLevel() {
   return g_verbosity_level.load(std::memory_order_relaxed);
 }
 
-}  // namespace standalone
-}  // namespace ipcz
+}  // namespace ipcz::standalone

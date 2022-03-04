@@ -9,8 +9,7 @@
 #include "test/test_base.h"
 #include "test/test_client.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 // Base test fixture for true multiprocess tests. These tests can use one or
 // more TestClient instances to launch subprocesses and communicate with them
@@ -35,7 +34,6 @@ class MultiprocessTest : public TestBase {
   IpczHandle ConnectToBroker(reference_drivers::Channel& channel);
 };
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test
 
 #endif  // IPCZ_SRC_TEST_MULTIPROCESS_TEST_H_

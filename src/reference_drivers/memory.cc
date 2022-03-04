@@ -18,8 +18,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 Memory::Mapping::Mapping() = default;
 
@@ -116,5 +115,4 @@ Memory::Mapping Memory::Map() {
 #endif
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

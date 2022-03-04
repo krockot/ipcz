@@ -10,8 +10,7 @@
 #include "test/test_client.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 MultiprocessTest::MultiprocessTest() {
   IpczCreateNodeFlags flags = IPCZ_NO_FLAGS;
@@ -52,5 +51,4 @@ IpczHandle MultiprocessTest::ConnectToBroker(
   return portal;
 }
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test

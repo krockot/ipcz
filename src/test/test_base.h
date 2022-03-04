@@ -15,8 +15,7 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 class TestBase : public testing::Test {
  public:
@@ -88,7 +87,6 @@ class TestBase : public testing::Test {
   static void OnTrapEvent(const IpczTrapEvent* event);
 };
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test
 
 #endif  // IPCZ_SRC_TEST_TEST_BASE_H_

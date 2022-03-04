@@ -8,8 +8,7 @@
 #include "ipcz/ipcz.h"
 #include "test/test_base.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 // Base class for pure API tests which are generally designed to test the
 // behavior of a single API call under specific conditions. Such tests only use
@@ -32,7 +31,6 @@ class APITest : public TestBase {
   void OpenPortals(IpczHandle* first, IpczHandle* second);
 };
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test
 
 #endif  // IPCZ_SRC_TEST_API_TEST_H_

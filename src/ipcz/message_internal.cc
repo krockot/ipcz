@@ -16,8 +16,7 @@
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
-namespace ipcz {
-namespace internal {
+namespace ipcz::internal {
 
 namespace {
 
@@ -360,5 +359,4 @@ bool MessageBase::DeserializeFromTransport(
   return true;
 }
 
-}  // namespace internal
-}  // namespace ipcz
+}  // namespace ipcz::internal

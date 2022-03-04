@@ -24,8 +24,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 namespace {
 
@@ -546,5 +545,4 @@ IpczDriverHandle CreateTransportFromChannel(Channel channel,
   return ToDriverHandle(transport.release());
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

@@ -14,8 +14,7 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // A driver-managed object which packages an arbitrary collection of string data
 // and OS handles. Blobs are serializable by both reference drivers and are used
@@ -67,7 +66,6 @@ class Blob : public Object {
   const Ref<RefCountedFlag> destruction_flag_{MakeRefCounted<RefCountedFlag>()};
 };
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_BLOB_H_

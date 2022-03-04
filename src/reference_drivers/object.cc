@@ -6,8 +6,7 @@
 
 #include "ipcz/ipcz.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 Object::Object(Type type) : type_(type) {}
 
@@ -17,5 +16,4 @@ IpczResult Object::Close() {
   return IPCZ_RESULT_OK;
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

@@ -14,8 +14,7 @@
 #include "util/log.h"
 #include "util/stack_trace.h"
 
-namespace ipcz {
-namespace internal {
+namespace ipcz::internal {
 
 GenericFragmentRef::GenericFragmentRef() = default;
 
@@ -93,5 +92,4 @@ Fragment GenericFragmentRef::release() {
   return fragment;
 }
 
-}  // namespace internal
-}  // namespace ipcz
+}  // namespace ipcz::internal

@@ -8,8 +8,7 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 namespace {
 
 using EventTest = testing::Test;
@@ -66,5 +65,4 @@ TEST_F(EventTest, SequentialWaits) {
 }
 
 }  // namespace
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

@@ -9,8 +9,7 @@
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 // Base test fixture to support tests which exercise behavior across multiple
 // ipcz nodes. These may be single-process on a synchronous driver,
@@ -90,8 +89,7 @@ class MultinodeTestWithDriver
   }
 };
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test
 
 #define INSTANTIATE_MULTINODE_TEST_SUITE_P(suite)        \
   INSTANTIATE_TEST_SUITE_P(                              \

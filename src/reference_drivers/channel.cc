@@ -31,8 +31,7 @@
 #include <windows.h>
 #endif
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 namespace {
 
@@ -586,5 +585,4 @@ Channel::Message Channel::DeferredMessage::AsMessage() {
   return Message(Data(absl::MakeSpan(data)), absl::MakeSpan(handles));
 }
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

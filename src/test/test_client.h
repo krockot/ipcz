@@ -13,8 +13,7 @@
 #include "reference_drivers/os_process.h"
 #include "util/function.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 // Launches and maintains a channel connected to a child process which runs a
 // named entry point. Usage is as follows:
@@ -112,7 +111,6 @@ class ClientEntryPointRegistration {
 
 }  // namespace internal
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test
 
 #endif  // IPCZ_SRC_TEST_TEST_CLIENT_H_

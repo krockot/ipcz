@@ -17,8 +17,7 @@
 
 #include "util/log.h"
 
-namespace ipcz {
-namespace test {
+namespace ipcz::test {
 
 TestBase::Parcel::Parcel() = default;
 
@@ -195,5 +194,4 @@ void TestBase::OnTrapEvent(const IpczTrapEvent* event) {
   (*handler)(*event);
 }
 
-}  // namespace test
-}  // namespace ipcz
+}  // namespace ipcz::test

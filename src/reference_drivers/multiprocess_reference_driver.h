@@ -9,8 +9,7 @@
 #include "reference_drivers/channel.h"
 #include "reference_drivers/os_process.h"
 
-namespace ipcz {
-namespace reference_drivers {
+namespace ipcz::reference_drivers {
 
 // A basic reference driver which supports multiprocess operation. This is also
 // suitable for single-process usage, but unlike kSingleProcessReferenceDriver
@@ -22,7 +21,6 @@ extern const IpczDriver kMultiprocessReferenceDriver;
 IpczDriverHandle CreateTransportFromChannel(Channel channel,
                                             OSProcess remote_process);
 
-}  // namespace reference_drivers
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers
 
 #endif  // IPCZ_SRC_REFERENCE_DRIVERS_MULTIPROCESS_REFERENCE_DRIVER_H_

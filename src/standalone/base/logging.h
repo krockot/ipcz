@@ -35,8 +35,7 @@
 #define kLevel_0 kLevel_ERROR
 #endif
 
-namespace ipcz {
-namespace standalone {
+namespace ipcz::standalone {
 
 class LogMessage {
  public:
@@ -67,7 +66,6 @@ class LogMessageVoidify {
 void SetVerbosityLevel(int level);
 int GetVerbosityLevel();
 
-}  // namespace standalone
-}  // namespace ipcz
+}  // namespace ipcz::standalone
 
 #endif  // IPCZ_SRC_STANDALONE_BASE_LOGGING_H_
