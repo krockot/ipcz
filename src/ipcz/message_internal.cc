@@ -26,7 +26,6 @@ IpczResult SerializeDriverObject(
     const DriverTransport& transport,
     MessageBase& message,
     absl::InlinedVector<IpczDriverHandle, 2>& transmissible_handles) {
-  // TODO: pass driver transport handle to driver's Serialize()
   DriverObjectData* data =
       reinterpret_cast<DriverObjectData*>(&message.data_view()[data_offset]);
   DriverObject object =
@@ -42,7 +41,7 @@ IpczResult SerializeDriverObject(
 
   uint32_t driver_data_array = 0;
   DriverObject::SerializedDimensions dimensions =
-      object.GetSerializedDimensions();
+      object.GetSerializedDimensions(transport);
   if (dimensions.num_bytes > 0) {
     driver_data_array = message.AllocateArray<uint8_t>(dimensions.num_bytes);
   }
@@ -58,17 +57,18 @@ IpczResult SerializeDriverObject(
 
   transmissible_handles.resize(transmissible_handles.size() +
                                dimensions.num_driver_handles);
-  return object.Serialize(
-      driver_data, absl::MakeSpan(transmissible_handles)
-                       .subspan(first_handle, dimensions.num_driver_handles));
+
+  auto handles_view = absl::MakeSpan(transmissible_handles);
+  object.Serialize(
+      transport, driver_data,
+      handles_view.subspan(first_handle, dimensions.num_driver_handles));
+  return IPCZ_RESULT_OK;
 }
 
 bool DeserializeDriverObject(MessageBase& message,
                              DriverObjectData& object_data,
                              absl::Span<const IpczDriverHandle> handles,
                              const DriverTransport& transport) {
-  // TODO: pass driver transport handle to driver's Deserialize()
-
   // TODO: validate the array driver data array location, size, etc.
 
   auto driver_data =
@@ -83,7 +83,7 @@ bool DeserializeDriverObject(MessageBase& message,
   }
 
   DriverObject object = DriverObject::Deserialize(
-      transport.driver_object().node(), driver_data,
+      transport, driver_data,
       handles.subspan(object_data.first_driver_handle,
                       object_data.num_driver_handles));
   if (!object.is_valid()) {
@@ -167,8 +167,17 @@ DriverObject MessageBase::TakeDriverObject(const DriverObjectData& data) {
   return std::move(driver_objects_[data.first_driver_handle]);
 }
 
-IpczResult MessageBase::Serialize(absl::Span<const ParamMetadata> params,
-                                  const DriverTransport& transport) {
+bool MessageBase::CanTransmitOn(const DriverTransport& transport) {
+  for (DriverObject& object : driver_objects_) {
+    if (!object.CanTransmitOn(transport)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool MessageBase::Serialize(absl::Span<const ParamMetadata> params,
+                            const DriverTransport& transport) {
   absl::InlinedVector<IpczDriverHandle, 2> transmissible_handles;
   for (const auto& param : params) {
     switch (param.type) {
@@ -177,7 +186,7 @@ IpczResult MessageBase::Serialize(absl::Span<const ParamMetadata> params,
             GetDataOffset(&GetParamValueAt<DriverObjectData>(param.offset)),
             transport, *this, transmissible_handles);
         if (result != IPCZ_RESULT_OK) {
-          return result;
+          return false;
         }
         break;
       }
@@ -195,7 +204,7 @@ IpczResult MessageBase::Serialize(absl::Span<const ParamMetadata> params,
           IpczResult result = SerializeDriverObject(
               GetDataOffset(&data[i]), transport, *this, transmissible_handles);
           if (result != IPCZ_RESULT_OK) {
-            return result;
+            return false;
           }
         }
         break;
@@ -215,7 +224,7 @@ IpczResult MessageBase::Serialize(absl::Span<const ParamMetadata> params,
   // Replace the set of consumed serializable objects with a new set of readily
   // transmissible objects provided by the driver.
   transmissible_driver_handles_ = std::move(transmissible_handles);
-  return IPCZ_RESULT_OK;
+  return true;
 }
 
 void MessageBase::Adopt(absl::Span<uint8_t> data,

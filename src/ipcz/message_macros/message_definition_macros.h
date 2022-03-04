@@ -13,7 +13,6 @@
   name::name() = default;                                                    \
   name::~name() = default;                                                   \
   bool name::Deserialize(const DriverTransport::Message& message,            \
-                         const Ref<Node>& node,                              \
                          const DriverTransport& transport) {                 \
     return DeserializeFromTransport(sizeof(ParamsType), kVersion,            \
                                     absl::MakeSpan(kMetadata), message.data, \

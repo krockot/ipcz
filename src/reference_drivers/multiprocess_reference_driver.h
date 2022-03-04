@@ -7,6 +7,7 @@
 
 #include "ipcz/ipcz.h"
 #include "reference_drivers/channel.h"
+#include "reference_drivers/os_process.h"
 
 namespace ipcz {
 namespace reference_drivers {
@@ -16,9 +17,10 @@ namespace reference_drivers {
 // all transmissions through this driver are asynchronous.
 extern const IpczDriver kMultiprocessReferenceDriver;
 
-// Creates a new driver transport from a Channel endpoint and returns an
-// IpczDriverHandle to it.
-IpczDriverHandle CreateTransportFromChannel(Channel channel);
+// Creates a new driver transport from a Channel endpoint connected to the
+// `remote_process` (if known) and returns an IpczDriverHandle to it.
+IpczDriverHandle CreateTransportFromChannel(Channel channel,
+                                            OSProcess remote_process);
 
 }  // namespace reference_drivers
 }  // namespace ipcz

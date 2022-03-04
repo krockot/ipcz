@@ -266,10 +266,9 @@ bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {
-  IpczResult result = message.Serialize(metadata, *transport_);
-  if (result == IPCZ_RESULT_PERMISSION_DENIED) {
+  if (!message.CanTransmitOn(*transport_)) {
     // The driver has indicated that it can't transmit this message through our
-    // transport and that the message must instead be relayed through a broker.
+    // transport, so the message must instead be relayed through a broker.
     auto broker = node_->GetBrokerLink();
     if (!broker) {
       DLOG(ERROR) << "Cannot relay message without a broker link.";
@@ -277,6 +276,11 @@ void NodeLink::TransmitMessage(
     }
 
     broker->RelayMessage(remote_node_name_, message);
+    return;
+  }
+
+  if (!message.Serialize(metadata, *transport_)) {
+    DLOG(ERROR) << "Failed to serialize message";
     return;
   }
 

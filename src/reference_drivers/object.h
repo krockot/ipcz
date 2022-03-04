@@ -52,6 +52,11 @@ class Object : public RefCounted {
   }
 
   template <typename T>
+  T& As() {
+    return static_cast<T&>(*this);
+  }
+
+  template <typename T>
   Ref<T> ReleaseAs() {
     return Ref<T>(RefCounted::kAdoptExistingRef, static_cast<T*>(this));
   }

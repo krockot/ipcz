@@ -67,7 +67,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectFromNonBrokerToBroker connect;
-    if (!connect.Deserialize(message, node_, *transport_)) {
+    if (!connect.Deserialize(message, *transport_)) {
       return false;
     }
 
@@ -121,7 +121,7 @@ class NodeConnectorForNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToNonBroker connect;
-    if (!connect.Deserialize(message, node_, *transport_)) {
+    if (!connect.Deserialize(message, *transport_)) {
       return false;
     }
 
@@ -184,7 +184,7 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerIndirect connect;
-    if (!connect.Deserialize(message, node_, *transport_)) {
+    if (!connect.Deserialize(message, *transport_)) {
       return false;
     }
 
@@ -275,7 +275,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
     }
 
     msg::ConnectToBrokerIndirect connect;
-    if (!connect.Deserialize(message, node_, *transport_)) {
+    if (!connect.Deserialize(message, *transport_)) {
       return false;
     }
 
@@ -348,7 +348,7 @@ class NodeConnectorForBrokerToBroker : public NodeConnector {
     }
 
     msg::ConnectFromBrokerToBroker connect;
-    if (!connect.Deserialize(message, node_, *transport_)) {
+    if (!connect.Deserialize(message, *transport_)) {
       return false;
     }
 

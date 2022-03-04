@@ -10,6 +10,9 @@
 
 namespace ipcz::reference_drivers {
 
+// Wraps an OSHandle as a driver object. The multiprocess reference driver uses
+// this to facilitate serialization of more complex objects into transmissible
+// handles on some platforms.
 class WrappedOSHandle : public Object {
  public:
   explicit WrappedOSHandle(OSHandle handle);

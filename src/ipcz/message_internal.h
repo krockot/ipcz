@@ -164,20 +164,15 @@ class IPCZ_ALIGN(8) MessageBase {
     return GetValueAt<T>(GetDataOffset(&params_data_view()[param_offset]));
   }
 
+  // Checks and indicates whether this message can be transmitted over
+  // `transport`, which depends on whether the driver is able to transmit all of
+  // the attached driver objects over that transport.
+  bool CanTransmitOn(const DriverTransport& transport);
+
   // Attempts to finalize a message for transit over `transport`, potentially
-  // mutating the message data in-place. Returns IPCZ_RESULT_OK if sucessful.
-  //
-  // If the driver cannot convey the message over `transport` without losing
-  // information but the message could instead be relayed through a broker, this
-  // returns IPCZ_RESULT_PERMISSION_DENIED. The caller should instead try to
-  // finalize and transmit the message as an embedded payload via RelayMessage
-  // to a broker.
-  //
-  // If the message cannot be transmitted over any transport (e.g. because one
-  // or more attached objects are fundamentally not transmissible or
-  // serializable) this returns IPCZ_RESULT_INVALID_ARGUMENT.
-  IpczResult Serialize(absl::Span<const ParamMetadata> params,
-                       const DriverTransport& transport);
+  // mutating the message data in-place. Returns true iff sucessful.
+  bool Serialize(absl::Span<const ParamMetadata> params,
+                 const DriverTransport& transport);
 
   // Adopts an already-deserialized set of data and driver objects, as embedded
   // within a relayed message. This is messy.

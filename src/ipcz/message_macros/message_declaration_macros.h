@@ -18,7 +18,6 @@
     name();                                              \
     ~name();                                             \
     bool Deserialize(const DriverTransport::Message&,    \
-                     const Ref<Node>& node,              \
                      const DriverTransport& transport);  \
                                                          \
     static constexpr internal::ParamMetadata kMetadata[] = {

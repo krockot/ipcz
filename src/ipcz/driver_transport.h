@@ -112,11 +112,9 @@ class DriverTransport : public RefCounted {
   // Transmits a Node message over this transport.
   template <typename T>
   IpczResult Transmit(T& message) {
-    IpczResult result = message.Serialize(T::kMetadata, *this);
-    if (result != IPCZ_RESULT_OK) {
-      return result;
+    if (!message.Serialize(T::kMetadata, *this)) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
     }
-
     return TransmitMessage(Message(Data(message.data_view()),
                                    message.transmissible_driver_handles()));
   }

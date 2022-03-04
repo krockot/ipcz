@@ -214,6 +214,7 @@ IpczResult IPCZ_API Close(IpczDriverHandle handle,
 }
 
 IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
+                              IpczDriverHandle transport,
                               uint32_t flags,
                               const void* options,
                               uint8_t* data,
@@ -226,15 +227,19 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
   }
 
   if (object->type() == Object::kUnserializableGarbage) {
-    return IPCZ_RESULT_FAILED_PRECONDITION;
+    return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
   // Since this is all in-process, "serialization" can just copy the handle.
+  const uint32_t data_capacity = num_bytes ? *num_bytes : 0;
   constexpr size_t kRequiredNumBytes = sizeof(IpczDriverHandle);
-  const bool need_more_space = *num_bytes < kRequiredNumBytes;
-  *num_bytes = kRequiredNumBytes;
-  *num_handles = 0;
-  if (need_more_space) {
+  if (num_bytes) {
+    *num_bytes = kRequiredNumBytes;
+  }
+  if (num_handles) {
+    *num_handles = 0;
+  }
+  if (data_capacity < kRequiredNumBytes) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
@@ -242,11 +247,11 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult IPCZ_API Deserialize(IpczDriverHandle driver_node,
-                                const uint8_t* data,
+IpczResult IPCZ_API Deserialize(const uint8_t* data,
                                 uint32_t num_bytes,
                                 const IpczDriverHandle* handles,
                                 uint32_t num_handles,
+                                IpczDriverHandle transport,
                                 uint32_t flags,
                                 const void* options,
                                 IpczDriverHandle* driver_handle) {

@@ -20,6 +20,11 @@ namespace reference_drivers {
 // A driver-managed object which packages an arbitrary collection of string data
 // and OS handles. Blobs are serializable by both reference drivers and are used
 // to exercise custom driver object boxing in tests.
+//
+// Note that unlike the transport and memory objects these reference drivers
+// define, a blob is not a type of object known to ipcz. Instead it is used to
+// demonstrate how drivers can define arbitrary new types of transferrable to
+// extend ipcz.
 class Blob : public Object {
  public:
   class RefCountedFlag : public RefCounted {

@@ -31,11 +31,11 @@ MultiprocessTest::~MultiprocessTest() {
 
 IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
   IpczHandle portal;
-  IpczResult result =
-      ipcz.ConnectNode(node,
-                       reference_drivers::CreateTransportFromChannel(
-                           std::move(client.channel())),
-                       1, IPCZ_NO_FLAGS, nullptr, &portal);
+  IpczResult result = ipcz.ConnectNode(
+      node,
+      reference_drivers::CreateTransportFromChannel(std::move(client.channel()),
+                                                    client.process().Clone()),
+      1, IPCZ_NO_FLAGS, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }
@@ -43,9 +43,11 @@ IpczHandle MultiprocessTest::ConnectToClient(TestClient& client) {
 IpczHandle MultiprocessTest::ConnectToBroker(
     reference_drivers::Channel& channel) {
   IpczHandle portal;
-  IpczResult result = ipcz.ConnectNode(
-      node, reference_drivers::CreateTransportFromChannel(std::move(channel)),
-      1, IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
+  IpczResult result =
+      ipcz.ConnectNode(node,
+                       reference_drivers::CreateTransportFromChannel(
+                           std::move(channel), reference_drivers::OSProcess()),
+                       1, IPCZ_CONNECT_NODE_TO_BROKER, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   return portal;
 }

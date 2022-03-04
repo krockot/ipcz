@@ -132,69 +132,78 @@ struct IPCZ_ALIGN(8) IpczDriver {
   uint32_t size;
 
   // Called by ipcz to request that the driver release the object identified by
-  // `handle`. This may be a transport, shared memory region, or any other type
-  // of object the driver defines and which can be inferred by the driver given
-  // the value of `handle`.
+  // `handle`.
   IpczResult(IPCZ_API* Close)(IpczDriverHandle handle,
                               uint32_t flags,
                               const void* options);
 
-  // Serializes a driver object -- which may not itself be transmissible by the
-  // driver -- into a collection of bytes and other (transmissible) driver
-  // objects which can be used to relocate it to another node -- possibly in
-  // another process -- where it can then be deserialized by the same driver's
-  // Deserialize().
+  // Serializes a driver object identified by `handle` into a collection of
+  // bytes and readily transmissible driver objects, for eventual transmission
+  // over `transport`. At a minimum this must support serialization of transport
+  // and memory objects allocated by ipcz through the driver. Any other driver
+  // objects intended for applications to box and transmit through portals must
+  // also be serializable here.
   //
-  // Apart from being useful to ipcz for creating and passing transports and
-  // shared memory regions, this also provides a stable interface for
-  // applications to extend ipcz with new types of transferrable IpczHandles.
-  // Driver objects which can be serialized by Serialize() and deserialized by
-  // Deserialize() can be wrapped and unwrapped to and from IpczHandles using
-  // the ipcz calls Box() and Unbox(). Such handles are transferrable through
-  // portals via Put() and Get() and related APIs.
+  // If the specified object is invalid or unserializable, the driver must
+  // ignore all other arguments (including `transport`) and return
+  // IPCZ_RESULT_INVALID_ARGUMENT.
   //
-  // On input, `*num_bytes` and `*num_driver_handles` specify the amount of
-  // storage available in `data` and `driver_handles` respectively. If
-  // insufficient to stor the full serialized output, this returns
-  // IPCZ_RESULT_RESOURCE_EXHAUSTED.
+  // If the object can be serialized but success may depend on the value of
+  // `transport`, and `transport` is invalid, the driver must return
+  // IPCZ_RESULT_ABORTED. ipcz may invoke Serialize() in this way to query
+  // whether a specific object can be serialized at all.
   //
-  // In both success and failure cases, `*num_bytes` and `*num_driver_handles`
-  // are updated with the exact amount of storage required for each before
-  // returning.
+  // If the object can be serialized or transmitted as-is and `transport` is
+  // valid, but the serialized outputs would not be transmissible over
+  // `transport` specifically, the driver must ignore all other arguments and
+  // return IPCZ_RESULT_PERMISSION_DENIED. This implies that neither end of
+  // `transport` is sufficiently privileged to transfer the object directly, and
+  // in this case ipcz may instead attempt to relay the object through a more
+  // capable broker node.
   //
-  // If the caller's provided storage is sufficient, `data` and `driver_handles`
-  // will be populated with the serialized transport and this returns
-  // IPCZ_RESULT_OK. In this case `handle` is also invalidated.
+  // For all other outcomes, the object identified by `handle` is considered to
+  // be serializable and ultimately transmissible.
   //
-  // If the object identified by `handle` is not in an appropriate state for
-  // serialization (for example if it's a transport object which is currently
-  // active) or it is of a type for which the driver does not implement
-  // serialization, the driver may return IPCZ_RESULT_FAILED_PRECONDITION.
+  // `num_bytes` and `num_handles` on input point to the capacities of the
+  // respective output buffers provided by ipcz. If either capacity pointer is
+  // null, a capacity of zero is implied; and if either input capacity is zero,
+  // the corresponding input buffer may be null.
   //
-  // Finally, if `handle` is already transmissible by the driver as-is without
-  // further serialization, the driver must return IPCZ_RESULT_ALREADY_EXISTS.
+  // Except in the failure modes described above, the driver must update any
+  // non-null capacity input to reflect the exact capacity required to serialize
+  // the object. For example if `num_bytes` is non-null and the object
+  // serializes to 8 bytes of data, `*num_bytes` must be set to 8 upon return.
+  //
+  // If the required data or handle capacity is larger than the respective input
+  // capacity, the driver must return IPCZ_RESULT_RESUORCE_EXHAUSTED without
+  // modifying the contents of either `data` or `handles` buffers.
+  //
+  // Finally, if the input capacities were both sufficient, the driver must fill
+  // `data` and `handles` with a serialized representation of the object and
+  // return IPCZ_RESULT_OK. In this case ipcz relinquishes `handle` and will no
+  // longer refer to it unless the driver outputs it back in `handles`, implying
+  // that it was already transmissible as-is.
   IpczResult(IPCZ_API* Serialize)(IpczDriverHandle handle,
+                                  IpczDriverHandle transport,
                                   uint32_t flags,
                                   const void* options,
                                   uint8_t* data,
                                   uint32_t* num_bytes,
-                                  IpczDriverHandle* driver_handles,
-                                  uint32_t* num_driver_handles);
+                                  IpczDriverHandle* handles,
+                                  uint32_t* num_handles);
 
-  // Deserializes a driver object from a collection of bytes and handles which
-  // which was originally produced by Serialize().
-  //
-  // `driver_node` is the application-provided driver-side handle assigned to
-  // the node when created with CreateNode().
+  // Deserializes a driver object from a collection of bytes and transmissible
+  // driver objects which which was originally produced by Serialize() and
+  // received on the calling node via `transport`.
   //
   // Any return value other than IPCZ_RESULT_OK indicates an error and implies
-  // that `handle` is unmodified. Otherwise `handle` contains a driver handle
-  // to the deserialized object.
-  IpczResult(IPCZ_API* Deserialize)(IpczDriverHandle driver_node,
-                                    const uint8_t* data,
+  // that `handle` is unmodified. Otherwise `handle` must contain a valid driver
+  // handle to the deserialized object.
+  IpczResult(IPCZ_API* Deserialize)(const uint8_t* data,
                                     uint32_t num_bytes,
                                     const IpczDriverHandle* driver_handles,
                                     uint32_t num_driver_handles,
+                                    IpczDriverHandle transport,
                                     uint32_t flags,
                                     const void* options,
                                     IpczDriverHandle* handle);
@@ -896,10 +905,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
   //
-  //    IPCZ_RESULT_DATA_LOSS if the caller attempted to place handles into the
-  //        portal which could not be transferred to the other side due some
-  //        constraint of the driver (e.g., if a boxed driver object was not in
-  //        a transmissible state.)
+  //    IPCZ_RESULT_FAILED_PRECONDITION if the caller attempted to place handles
+  //        into the portal which could not be transferred to the other side due
+  //        some constraint of the driver (e.g., if a boxed driver object was
+  //        not in a serializable state.)
   IpczResult(IPCZ_API* Put)(IpczHandle portal,
                             const void* data,
                             uint32_t num_bytes,
@@ -1002,10 +1011,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
   //
-  //    IPCZ_RESULT_DATA_LOSS if the caller attempted to place handles into the
-  //        portal which could not be transferred to the other side due some
-  //        constraint of the driver (e.g., if a boxed driver object was not in
-  //        a transmissible state.)
+  //    IPCZ_RESULT_FAILED_PRECONDITION if the caller attempted to place handles
+  //        into the portal which could not be transferred to the other side due
+  //        some constraint of the driver (e.g., if a boxed driver object was
+  //        not in a serializable state.)
   IpczResult(IPCZ_API* EndPut)(IpczHandle portal,
                                uint32_t num_bytes_produced,
                                const IpczHandle* handles,

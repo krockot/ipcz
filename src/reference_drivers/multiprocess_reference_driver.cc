@@ -9,6 +9,7 @@
 #include <tuple>
 #include <utility>
 
+#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "reference_drivers/blob.h"
 #include "reference_drivers/channel.h"
@@ -19,18 +20,52 @@
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
 
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+#endif
+
 namespace ipcz {
 namespace reference_drivers {
 
 namespace {
 
+#if BUILDFLAG(IS_WIN)
+HANDLE TransferHandle(HANDLE handle,
+                      const OSProcess& from_process,
+                      const OSProcess& to_process) {
+  if (!from_process.is_valid() || !to_process.is_valid()) {
+    // Assume that if we don't known one of the process's, the handle must
+    // already be ours.
+    return handle;
+  }
+
+  HANDLE new_handle;
+  BOOL result = ::DuplicateHandle(
+      from_process.handle(), handle, to_process.handle(), &new_handle, 0, FALSE,
+      DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE);
+  ABSL_ASSERT(result);
+  return new_handle;
+}
+#endif
+
 class MultiprocessTransport : public Object {
  public:
-  MultiprocessTransport(Channel channel)
+  MultiprocessTransport(Channel channel, OSProcess remote_process)
       : Object(kTransport),
+        remote_process_(std::move(remote_process)),
         channel_(std::make_unique<Channel>(std::move(channel))) {}
   MultiprocessTransport(const MultiprocessTransport&) = delete;
   MultiprocessTransport& operator=(const MultiprocessTransport&) = delete;
+
+  const OSProcess& remote_process() const { return remote_process_; }
+
+  bool is_serializable() const {
+    return !was_activated_ && channel_ && channel_->is_valid();
+  }
+
+  static MultiprocessTransport& FromHandle(IpczDriverHandle handle) {
+    return Object::FromHandle(handle)->As<MultiprocessTransport>();
+  }
 
   Channel TakeChannel() {
     if (was_activated_) {
@@ -112,6 +147,7 @@ class MultiprocessTransport : public Object {
   // Because activation and de-activation are also one-time operations, a well
   // behaved application and ipcz implementation cannot elicit race conditions.
 
+  const OSProcess remote_process_;
   IpczHandle transport_ = IPCZ_INVALID_HANDLE;
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
@@ -178,6 +214,7 @@ IpczResult IPCZ_API Close(IpczDriverHandle handle,
 }
 
 IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
+                              IpczDriverHandle transport,
                               uint32_t flags,
                               const void* options,
                               uint8_t* data,
@@ -192,9 +229,13 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
   size_t required_num_bytes = sizeof(SerializedObject);
   size_t required_num_handles = 0;
   switch (object->type()) {
-    case Object::kTransport:
+    case Object::kTransport: {
+      if (!object->As<MultiprocessTransport>().is_serializable()) {
+        return IPCZ_RESULT_INVALID_ARGUMENT;
+      }
       required_num_handles = 1;
       break;
+    }
 
     case Object::kMemory:
       required_num_handles = 1;
@@ -206,13 +247,25 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
       break;
 
     default:
-      return IPCZ_RESULT_FAILED_PRECONDITION;
+      return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  const bool need_more_space =
-      *num_bytes < required_num_bytes || *num_handles < required_num_handles;
-  *num_bytes = required_num_bytes;
-  *num_handles = required_num_handles;
+#if BUILDFLAG(IS_WIN)
+  // On Windows, handles are serialized as additional inline data.
+  required_num_bytes += sizeof(HANDLE) * required_num_handles;
+  required_num_handles = 0;
+#endif
+
+  const uint32_t data_capacity = num_bytes ? *num_bytes : 0;
+  const uint32_t handle_capacity = num_handles ? *num_handles : 0;
+  if (num_bytes) {
+    *num_bytes = required_num_bytes;
+  }
+  if (num_handles) {
+    *num_handles = required_num_handles;
+  }
+  const bool need_more_space = data_capacity < required_num_bytes ||
+                               handle_capacity < required_num_handles;
   if (need_more_space) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
@@ -221,47 +274,68 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
   header.type = object->type();
   header.size = 0;
 
-  if (object->type() == Object::kTransport) {
-    auto transport = object->ReleaseAs<MultiprocessTransport>();
-    Channel channel = transport->TakeChannel();
-    if (!channel.is_valid()) {
-      std::ignore = transport.release();
-      return IPCZ_RESULT_FAILED_PRECONDITION;
-    }
+#if BUILDFLAG(IS_WIN)
+  if (transport == IPCZ_INVALID_DRIVER_HANDLE) {
+    return IPCZ_RESULT_ABORTED;
+  }
 
+  HANDLE* handle_data = reinterpret_cast<HANDLE*>(&header + 1);
+  const OSProcess current_process = OSProcess::GetCurrent();
+  const OSProcess& remote_process =
+      MultiprocessTransport::FromHandle(transport).remote_process();
+#endif
+
+  if (object->type() == Object::kTransport) {
+    auto released_transport = object->ReleaseAs<MultiprocessTransport>();
+    Channel channel = released_transport->TakeChannel();
+    ABSL_ASSERT(channel.is_valid());
+#if BUILDFLAG(IS_WIN)
+    handle_data[0] = TransferHandle(channel.TakeHandle().ReleaseHandle(),
+                                    current_process, remote_process);
+#else
     handles[0] = Object::ReleaseAsHandle(
         MakeRefCounted<WrappedOSHandle>(channel.TakeHandle()));
+#endif
     return IPCZ_RESULT_OK;
   }
 
   if (object->type() == Object::kMemory) {
     auto memory = object->ReleaseAs<MultiprocessMemory>();
     header.size = static_cast<uint32_t>(memory->size());
+#if BUILDFLAG(IS_WIN)
+    handle_data[0] = TransferHandle(memory->TakeHandle().ReleaseHandle(),
+                                    current_process, remote_process);
+#else
     handles[0] = Object::ReleaseAsHandle(
         MakeRefCounted<WrappedOSHandle>(memory->TakeHandle()));
+#endif
     return IPCZ_RESULT_OK;
   }
 
-  if (object->type() == Object::kBlob) {
-    auto blob = object->ReleaseAs<Blob>();
-    uint8_t* blob_data = reinterpret_cast<uint8_t*>(&header + 1);
-    memcpy(blob_data, blob->message().data(), blob->message().size());
-    header.size = static_cast<uint32_t>(blob->message().size());
-    for (size_t i = 0; i < blob->handles().size(); ++i) {
-      handles[i] = Object::ReleaseAsHandle(
-          MakeRefCounted<WrappedOSHandle>(std::move(blob->handles()[i])));
-    }
-    return IPCZ_RESULT_OK;
+  ABSL_ASSERT(object->type() == Object::kBlob);
+  auto blob = object->ReleaseAs<Blob>();
+  auto blob_handles = absl::MakeSpan(blob->handles());
+  uint8_t* blob_data =
+      reinterpret_cast<uint8_t*>(handle_data + blob_handles.size());
+  memcpy(blob_data, blob->message().data(), blob->message().size());
+  header.size = static_cast<uint32_t>(blob->message().size());
+  for (size_t i = 0; i < blob_handles.size(); ++i) {
+#if BUILDFLAG(IS_WIN)
+    handle_data[i] = TransferHandle(blob_handles[i].ReleaseHandle(),
+                                    current_process, remote_process);
+#else
+    handles[i] = Object::ReleaseAsHandle(
+        MakeRefCounted<WrappedOSHandle>(std::move(blob_handles[i])));
+#endif
   }
-
-  return IPCZ_RESULT_INVALID_ARGUMENT;
+  return IPCZ_RESULT_OK;
 }
 
-IpczResult IPCZ_API Deserialize(IpczDriverHandle driver_node,
-                                const uint8_t* data,
+IpczResult IPCZ_API Deserialize(const uint8_t* data,
                                 uint32_t num_bytes,
                                 const IpczDriverHandle* handles,
                                 uint32_t num_handles,
+                                IpczDriverHandle transport,
                                 uint32_t flags,
                                 const void* options,
                                 IpczDriverHandle* driver_handle) {
@@ -271,30 +345,61 @@ IpczResult IPCZ_API Deserialize(IpczDriverHandle driver_node,
 
   const SerializedObject& header =
       *reinterpret_cast<const SerializedObject*>(data);
-  if (header.type == Object::kBlob) {
-    std::vector<OSHandle> os_handles(num_handles);
-    for (size_t i = 0; i < num_handles; ++i) {
-      os_handles[i] = Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[i])
-                          ->TakeHandle();
-    }
 
-    if (sizeof(SerializedObject) + header.size > num_bytes) {
+#if BUILDFLAG(IS_WIN)
+  // Handles on Windows are always transported as data by this driver.
+  ABSL_ASSERT(num_handles == 0);
+  const OSProcess current_process = OSProcess::GetCurrent();
+  const OSProcess& remote_process =
+      MultiprocessTransport::FromHandle(transport).remote_process();
+#endif
+
+  if (header.type == Object::kBlob) {
+    if (sizeof(header) + header.size > num_bytes) {
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    const char* string_data = reinterpret_cast<const char*>(&header + 1);
+#if BUILDFLAG(IS_WIN)
+    const HANDLE* handle_data = reinterpret_cast<const HANDLE*>(
+        reinterpret_cast<const uint8_t*>(&header + 1));
+    num_handles = (num_bytes - sizeof(header) - header.size) / sizeof(HANDLE);
+#endif
+
+    std::vector<OSHandle> os_handles(num_handles);
+    for (size_t i = 0; i < num_handles; ++i) {
+#if BUILDFLAG(IS_WIN)
+      os_handles[i] = OSHandle(
+          TransferHandle(handle_data[i], remote_process, current_process));
+#else
+      os_handles[i] = Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[i])
+                          ->TakeHandle();
+#endif
+    }
+
+    const char* string_data =
+        reinterpret_cast<const char*>(handle_data + num_handles);
     Ref<Blob> blob = MakeRefCounted<Blob>(
         std::string_view(string_data, header.size), absl::MakeSpan(os_handles));
     *driver_handle = ToDriverHandle(blob.release());
     return IPCZ_RESULT_OK;
   }
 
-  if (num_bytes != sizeof(SerializedObject) || num_handles != 1) {
+#if BUILDFLAG(IS_WIN)
+  if (num_bytes != sizeof(SerializedObject) + sizeof(HANDLE)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
+  const HANDLE* handle_data = reinterpret_cast<const HANDLE*>(&header + 1);
+  OSHandle handle =
+      OSHandle(TransferHandle(handle_data[0], remote_process, current_process));
+#else
+  if (num_bytes != sizeof(SerializedObject) || num_handles != 1) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
   OSHandle handle =
       Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[0])->TakeHandle();
+#endif
+
   if (!handle.is_valid()) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -305,8 +410,9 @@ IpczResult IPCZ_API Deserialize(IpczDriverHandle driver_node,
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    auto transport = MakeRefCounted<MultiprocessTransport>(std::move(channel));
-    *driver_handle = ToDriverHandle(transport.release());
+    auto new_transport =
+        MakeRefCounted<MultiprocessTransport>(std::move(channel), OSProcess());
+    *driver_handle = ToDriverHandle(new_transport.release());
     return IPCZ_RESULT_OK;
   }
 
@@ -326,9 +432,10 @@ IpczResult IPCZ_API CreateTransports(IpczDriverHandle driver_node,
                                      IpczDriverHandle* first_transport,
                                      IpczDriverHandle* second_transport) {
   auto [first_channel, second_channel] = Channel::CreateChannelPair();
-  auto first = MakeRefCounted<MultiprocessTransport>(std::move(first_channel));
-  auto second =
-      MakeRefCounted<MultiprocessTransport>(std::move(second_channel));
+  auto first = MakeRefCounted<MultiprocessTransport>(std::move(first_channel),
+                                                     OSProcess());
+  auto second = MakeRefCounted<MultiprocessTransport>(std::move(second_channel),
+                                                      OSProcess());
   *first_transport = ToDriverHandle(first.release());
   *second_transport = ToDriverHandle(second.release());
   return IPCZ_RESULT_OK;
@@ -424,8 +531,10 @@ const IpczDriver kMultiprocessReferenceDriver = {
     MapSharedMemory,
 };
 
-IpczDriverHandle CreateTransportFromChannel(Channel channel) {
-  auto transport = MakeRefCounted<MultiprocessTransport>(std::move(channel));
+IpczDriverHandle CreateTransportFromChannel(Channel channel,
+                                            OSProcess remote_process) {
+  auto transport = MakeRefCounted<MultiprocessTransport>(
+      std::move(channel), std::move(remote_process));
   return ToDriverHandle(transport.release());
 }
 

@@ -13,6 +13,7 @@
 
 namespace ipcz {
 
+class DriverTransport;
 class Node;
 
 // Owns an IpczDriverHandle and exposes a generic interface for serialization
@@ -33,38 +34,40 @@ class DriverObject {
 
   bool is_valid() const { return handle_ != IPCZ_INVALID_DRIVER_HANDLE; }
 
-  // Indicates whether this DriverObject is transmissible as-is, meaning ipcz
-  // can pass its handle directly to Transmit() on a driver transport.
-  bool IsTransmissible() const;
-
   // Indicates whether this DriverObject can be serialized into a collection of
-  // data and transmissible subobjects for transmission over a driver transport.
+  // data and/or transmissible subobjects for transmission over a driver
+  // transport.
   bool IsSerializable() const;
 
+  // Indicates whether this DriverObject is (either as-is, or after some
+  // serialization) transmissible over the identified transport.
+  bool CanTransmitOn(const DriverTransport& transport) const;
+
+  // Returns the data and transmissible handle capacity required to serialize
+  // this object for transmission over the identified transport. Must only be
+  // called if the object can be transmissible over that transport.
   struct SerializedDimensions {
     uint32_t num_bytes;
     uint32_t num_driver_handles;
   };
-  SerializedDimensions GetSerializedDimensions() const;
+  SerializedDimensions GetSerializedDimensions(
+      const DriverTransport& transport) const;
 
-  // Serializes this object into `data` and `handles`, which must both be at
-  // least large enough to support the object's serialized dimensions. If short,
-  // returns IPCZ_RESULT_RESOURCE_EXHAUSTED.
-  //
-  // Handles placed into `handles` must be transmissible by the driver without
-  // further serialization.
-  //
-  // May also return IPCZ_RESULT_FAILED_PRECONDITION if the object is not
-  // currently in a serializable state, or IPCZ_RESULT_DATA_LOSS if the driver
-  // cannot serialize this type of object.
-  IpczResult Serialize(absl::Span<uint8_t> data,
-                       absl::Span<IpczDriverHandle> handles);
+  // Serializes this object into `data` and `handles` for imminent transmission
+  // over `transport`. Both input spans must be at least large enough to support
+  // the object's serialized dimensions. Handles placed into `handles` will be
+  // transmissible by the driver without further serialization. Must only be
+  // called on valid objects which are known to be serializable and
+  // transmissible over `transport`.
+  void Serialize(const DriverTransport& transport,
+                 absl::Span<uint8_t> data,
+                 absl::Span<IpczDriverHandle> handles);
 
-  // Asks the node to deserialize a driver object from a series of bytes and
-  // transmissible driver objects produced by a prior call to Serialize().
-  // Returns an opaque IpczDriverHandle on success or IPCZ_INVALID_DRIVER_HANDLE
-  // on failure.
-  static DriverObject Deserialize(Ref<Node> node,
+  // Attempts to deserialize a driver object from a series of bytes and
+  // transmissible driver objects produced by a prior call to Serialize() and
+  // received via `transport`. Returns a valid DriverObject on success, or an
+  // invalid DriverObject on failure.
+  static DriverObject Deserialize(const DriverTransport& transport,
                                   absl::Span<const uint8_t> data,
                                   absl::Span<const IpczDriverHandle> handles);
 
