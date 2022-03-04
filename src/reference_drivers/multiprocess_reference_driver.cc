@@ -315,8 +315,12 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
   ABSL_ASSERT(object->type() == Object::kBlob);
   auto blob = object->ReleaseAs<Blob>();
   auto blob_handles = absl::MakeSpan(blob->handles());
+#if BUILDFLAG(IS_WIN)
   uint8_t* blob_data =
       reinterpret_cast<uint8_t*>(handle_data + blob_handles.size());
+#else
+  uint8_t* blob_data = reinterpret_cast<uint8_t*>(&header + 1);
+#endif
   memcpy(blob_data, blob->message().data(), blob->message().size());
   header.size = static_cast<uint32_t>(blob->message().size());
   for (size_t i = 0; i < blob_handles.size(); ++i) {
@@ -376,8 +380,12 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
 #endif
     }
 
+#if BUILDFLAG(IS_WIN)
     const char* string_data =
         reinterpret_cast<const char*>(handle_data + num_handles);
+#else
+    const char* string_data = reinterpret_cast<const char*>(&header + 1);
+#endif
     Ref<Blob> blob = MakeRefCounted<Blob>(
         std::string_view(string_data, header.size), absl::MakeSpan(os_handles));
     *driver_handle = ToDriverHandle(blob.release());
