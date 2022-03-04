@@ -28,13 +28,23 @@ class MultinodeTest : public TestBase {
     kAsyncDelegatedAlloc,
   };
 
+  enum class TestNodeType {
+    kNonBroker,
+    kBroker,
+  };
+
   MultinodeTest();
   ~MultinodeTest() override;
 
   IpczHandle CreateBrokerNode(DriverMode mode);
   IpczHandle CreateNonBrokerNode(DriverMode mode);
 
-  void CreateTransports(DriverMode mode,
+  // Creates a new pair of transports. `node0_type` is the type of node that
+  // will use `transport0`. `node1_type` is the type of node that will use
+  // `transport1`.
+  void CreateTransports(TestNodeType node0_type,
+                        TestNodeType node_type,
+                        DriverMode mode,
                         IpczDriverHandle* transport0,
                         IpczDriverHandle* transport1);
 
@@ -69,9 +79,12 @@ class MultinodeTestWithDriver
     return MultinodeTest::CreateNonBrokerNode(GetParam());
   }
 
-  void CreateTransports(IpczDriverHandle* transport0,
+  void CreateTransports(TestNodeType node0_type,
+                        TestNodeType node1_type,
+                        IpczDriverHandle* transport0,
                         IpczDriverHandle* transport1) {
-    MultinodeTest::CreateTransports(GetParam(), transport0, transport1);
+    MultinodeTest::CreateTransports(node0_type, node1_type, GetParam(),
+                                    transport0, transport1);
   }
 
   IpczHandle ConnectToBroker(IpczHandle non_broker_node,

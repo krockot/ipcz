@@ -74,7 +74,11 @@ class DriverTransport : public RefCounted {
 
   explicit DriverTransport(DriverObject transport);
 
-  static DriverTransport::Pair CreatePair(Ref<Node> node);
+  // Creates a new pair of connected DriverTransports, one to send over
+  // `transport0`, and one to send over `transport1`, in order to establish a
+  // direct link between their respective remote nodes.
+  static DriverTransport::Pair CreatePair(const DriverTransport& transport0,
+                                          const DriverTransport& transport1);
 
   // Set the object handling any incoming message or error notifications. This
   // is only safe to set before Activate() is called, or from within one of the

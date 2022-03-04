@@ -17,8 +17,8 @@ TEST_F(ConnectNodeAPITest, InvalidArgs) {
   IpczDriverHandle transports[2];
   EXPECT_EQ(IPCZ_RESULT_OK,
             reference_drivers::kSingleProcessReferenceDriver.CreateTransports(
-                IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS, nullptr, &transports[0],
-                &transports[1]));
+                IPCZ_INVALID_HANDLE, IPCZ_INVALID_HANDLE, IPCZ_NO_FLAGS,
+                nullptr, &transports[0], &transports[1]));
 
   // Invalid node.
   EXPECT_EQ(IPCZ_RESULT_INVALID_ARGUMENT,

@@ -5,7 +5,10 @@
 #include "test/multinode_test.h"
 
 #include "ipcz/ipcz.h"
+#include "reference_drivers/channel.h"
 #include "reference_drivers/multiprocess_reference_driver.h"
+#include "reference_drivers/object.h"
+#include "reference_drivers/os_process.h"
 #include "reference_drivers/single_process_reference_driver.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
@@ -53,13 +56,37 @@ IpczHandle MultinodeTest::CreateNonBrokerNode(DriverMode mode) {
   return node;
 }
 
-void MultinodeTest::CreateTransports(DriverMode mode,
+void MultinodeTest::CreateTransports(TestNodeType node0_type,
+                                     TestNodeType node1_type,
+                                     DriverMode mode,
                                      IpczDriverHandle* transport0,
                                      IpczDriverHandle* transport1) {
-  IpczResult result = GetDriver(mode)->CreateTransports(
-      IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr, transport0,
-      transport1);
-  ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  if (mode == DriverMode::kSync) {
+    // The sync driver doesn't care about context, so use it directly.
+    IpczResult result = GetDriver(mode)->CreateTransports(
+        IPCZ_INVALID_DRIVER_HANDLE, IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS,
+        nullptr, transport0, transport1);
+    ABSL_ASSERT(result == IPCZ_RESULT_OK);
+    return;
+  }
+
+  auto [one, two] = reference_drivers::Channel::CreateChannelPair();
+
+  // The multiprocess reference driver uses the presence of a valid remote
+  // OSProcess handle as a signal that the local node is a broker. We preserve
+  // this condition despite these transports always being used in-process, as it
+  // allows for better coverage of driver object relaying.
+  using reference_drivers::OSProcess;
+  auto remote_process_for_transport = [](TestNodeType type) {
+    return
+        type == TestNodeType::kBroker ? OSProcess::GetCurrent() : OSProcess();
+  };
+  OSProcess remote_process0 = remote_process_for_transport(node0_type);
+  OSProcess remote_process1 = remote_process_for_transport(node1_type);
+  *transport0 = reference_drivers::CreateTransportFromChannel(
+      std::move(one), remote_process_for_transport(node0_type));
+  *transport1 = reference_drivers::CreateTransportFromChannel(
+      std::move(two), remote_process_for_transport(node1_type));
 }
 
 IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
@@ -90,7 +117,8 @@ void MultinodeTest::Connect(IpczHandle broker_node,
                             IpczHandle* non_broker_portal) {
   IpczDriverHandle transport0;
   IpczDriverHandle transport1;
-  CreateTransports(mode, &transport0, &transport1);
+  CreateTransports(TestNodeType::kBroker, TestNodeType::kNonBroker, mode,
+                   &transport0, &transport1);
 
   *broker_portal = ConnectToNonBroker(broker_node, transport0);
   *non_broker_portal = ConnectToBroker(mode, non_broker_node, transport1);

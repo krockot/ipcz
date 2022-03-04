@@ -258,7 +258,8 @@ bool Node::OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
         DriverMemory primary_buffer_memory;
         NodeLinkMemory::Allocate(node, num_portals, primary_buffer_memory);
         std::pair<Ref<DriverTransport>, Ref<DriverTransport>> transports =
-            DriverTransport::CreatePair(node);
+            DriverTransport::CreatePair(*new_link->transport(),
+                                        *source_link->transport());
         new_link->IntroduceNode(source_link->remote_node_name(), LinkSide::kA,
                                 std::move(transports.first),
                                 primary_buffer_memory.Clone());
@@ -298,7 +299,8 @@ bool Node::OnRequestIntroduction(NodeLink& from_node_link,
   NodeLinkMemory::Allocate(WrapRefCounted(this), /*num_initial_portals=*/0,
                            primary_buffer_memory);
   std::pair<Ref<DriverTransport>, Ref<DriverTransport>> transports =
-      DriverTransport::CreatePair(WrapRefCounted(this));
+      DriverTransport::CreatePair(*other_node_link->transport(),
+                                  *from_node_link.transport());
   other_node_link->IntroduceNode(from_node_link.remote_node_name(),
                                  LinkSide::kA, std::move(transports.first),
                                  primary_buffer_memory.Clone());

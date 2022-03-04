@@ -260,17 +260,18 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
   return IPCZ_RESULT_OK;
 }
 
-IpczResult IPCZ_API CreateTransports(IpczDriverHandle driver_node,
+IpczResult IPCZ_API CreateTransports(IpczDriverHandle transport0,
+                                     IpczDriverHandle transport1,
                                      uint32_t flags,
                                      const void* options,
-                                     IpczDriverHandle* first_transport,
-                                     IpczDriverHandle* second_transport) {
+                                     IpczDriverHandle* new_transport0,
+                                     IpczDriverHandle* new_transport1) {
   auto first = MakeRefCounted<InProcessTransport>();
   auto second = MakeRefCounted<InProcessTransport>();
   first->SetPeer(second);
   second->SetPeer(first);
-  *first_transport = ToDriverHandle(first.release());
-  *second_transport = ToDriverHandle(second.release());
+  *new_transport0 = ToDriverHandle(first.release());
+  *new_transport1 = ToDriverHandle(second.release());
   return IPCZ_RESULT_OK;
 }
 

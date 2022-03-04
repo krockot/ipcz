@@ -26,8 +26,14 @@ class ConnectTest : public test::MultinodeTestWithDriver {
                     IpczConnectNodeFlags flags1,
                     IpczHandle* portal0,
                     IpczHandle* portal1) {
+    const TestNodeType node0_type = (flags0 & IPCZ_CONNECT_NODE_TO_BROKER)
+                                        ? TestNodeType::kNonBroker
+                                        : TestNodeType::kBroker;
+    const TestNodeType node1_type = (flags1 & IPCZ_CONNECT_NODE_TO_BROKER)
+                                        ? TestNodeType::kNonBroker
+                                        : TestNodeType::kBroker;
     IpczDriverHandle transports[2];
-    CreateTransports(&transports[0], &transports[1]);
+    CreateTransports(node0_type, node1_type, &transports[0], &transports[1]);
     *portal0 = ConnectNode(node0, transports[0], flags0);
     *portal1 = ConnectNode(node1, transports[1], flags1);
   }
@@ -86,7 +92,8 @@ TEST_P(ConnectTest, NonBrokerToNonBrokerWithoutBroker) {
   IpczHandle node_b = CreateNonBrokerNode();
 
   IpczDriverHandle transports[2];
-  CreateTransports(&transports[0], &transports[1]);
+  CreateTransports(TestNodeType::kNonBroker, TestNodeType::kNonBroker,
+                   &transports[0], &transports[1]);
 
   IpczHandle portal;
   EXPECT_EQ(IPCZ_RESULT_FAILED_PRECONDITION,
@@ -103,7 +110,8 @@ TEST_P(ConnectTest, InheritBrokerConflict) {
   IpczHandle node_b = CreateNonBrokerNode();
 
   IpczDriverHandle transports[2];
-  CreateTransports(&transports[0], &transports[1]);
+  CreateTransports(TestNodeType::kBroker, TestNodeType::kBroker, &transports[0],
+                   &transports[1]);
 
   IpczHandle a_to_b;
   IpczHandle b_to_a;

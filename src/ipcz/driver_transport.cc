@@ -85,15 +85,21 @@ DriverTransport::DriverTransport(DriverObject transport)
 DriverTransport::~DriverTransport() = default;
 
 // static
-DriverTransport::Pair DriverTransport::CreatePair(Ref<Node> node) {
-  IpczDriverHandle transport0;
-  IpczDriverHandle transport1;
+DriverTransport::Pair DriverTransport::CreatePair(
+    const DriverTransport& transport0,
+    const DriverTransport& transport1) {
+  IpczDriverHandle new_transport0;
+  IpczDriverHandle new_transport1;
+  const Ref<Node>& node = transport0.driver_object().node();
+  ABSL_ASSERT(transport1.driver_object().node() == node);
   IpczResult result = node->driver().CreateTransports(
-      node->driver_node(), IPCZ_NO_FLAGS, nullptr, &transport0, &transport1);
+      transport0.driver_object().handle(), transport1.driver_object().handle(),
+      IPCZ_NO_FLAGS, nullptr, &new_transport0, &new_transport1);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  auto first = MakeRefCounted<DriverTransport>(DriverObject(node, transport0));
+  auto first =
+      MakeRefCounted<DriverTransport>(DriverObject(node, new_transport0));
   auto second = MakeRefCounted<DriverTransport>(
-      DriverObject(std::move(node), transport1));
+      DriverObject(std::move(node), new_transport1));
   return {std::move(first), std::move(second)};
 }
 

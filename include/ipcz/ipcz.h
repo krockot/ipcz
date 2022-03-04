@@ -209,37 +209,23 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                     IpczDriverHandle* handle);
 
   // Creates a new pair of entangled bidirectional transports, returning them in
-  // `first_transport` and `second_transport`. Implementation of the transport
-  // is up to the driver, but:
+  // `new_transport0` and `new_transport1`.
   //
-  //  - interconnecting nodes must use compatible driver implementations
+  // The input `transport0` and `transport1` are provided for context which may
+  // be important to the driver: the output transport in `new_transport0` will
+  // be sent over `transport0`, while the output transport in `new_transport1`
+  // will be sent over `transport1`. That is, the new transport is being created
+  // to establish a direct link between the remote node on `transport0` and the
+  // remote node on `transport1`.
   //
-  //  - in a multiprocess environment, transports must be capable of
-  //    transmitting data and (transmissible) driver handles across a process
-  //    boundary
-  //
-  //  - the handles and data comprising each transport should be fully
-  //    sufficient to operate the transport from another node if those handles
-  //    and data are moved there
-  //
-  //  - a transport is only activated once, and once it's activated it will
-  //    never be moved to another node
-  //
-  //  - once a transport is released, it is never re-activated by ipcz
-  //
-  // Transports created by this call are not necessarily used by the calling
-  // node, so the driver must not assume ownership or responsibility for them.
-  //
-  // `driver_node` is the application-provided driver-side handle assigned to
-  // the node when created with CreateNode().
-  //
-  // Returns IPCZ_RESULT_OK on success. Any other return value indicates
-  // failure.
-  IpczResult(IPCZ_API* CreateTransports)(IpczDriverHandle driver_node,
+  // Any return value other than IPCZ_RESULT_OK indicates an error and implies
+  // that `new_transport0` and `new_transport1` are unmodified.
+  IpczResult(IPCZ_API* CreateTransports)(IpczDriverHandle transport0,
+                                         IpczDriverHandle transport1,
                                          uint32_t flags,
                                          const void* options,
-                                         IpczDriverHandle* first_transport,
-                                         IpczDriverHandle* second_transport);
+                                         IpczDriverHandle* new_transport0,
+                                         IpczDriverHandle* new_transport1);
 
   // Called by ipcz to activate a transport. `driver_transport` is the
   // driver-side handle assigned to the transport by the driver, either as given

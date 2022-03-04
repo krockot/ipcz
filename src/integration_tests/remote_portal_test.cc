@@ -175,7 +175,8 @@ TEST_P(RemotePortalTest, SendAndCloseFromBufferingNonBroker) {
   IpczHandle other_node = CreateNonBrokerNode();
 
   IpczDriverHandle transport0, transport1;
-  CreateTransports(&transport0, &transport1);
+  CreateTransports(TestNodeType::kBroker, TestNodeType::kNonBroker, &transport0,
+                   &transport1);
 
   IpczHandle b = ConnectToBroker(other_node, transport1);
 

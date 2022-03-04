@@ -433,18 +433,19 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
   return IPCZ_RESULT_INVALID_ARGUMENT;
 }
 
-IpczResult IPCZ_API CreateTransports(IpczDriverHandle driver_node,
+IpczResult IPCZ_API CreateTransports(IpczDriverHandle transport0,
+                                     IpczDriverHandle transport1,
                                      uint32_t flags,
                                      const void* options,
-                                     IpczDriverHandle* first_transport,
-                                     IpczDriverHandle* second_transport) {
+                                     IpczDriverHandle* new_transport0,
+                                     IpczDriverHandle* new_transport1) {
   auto [first_channel, second_channel] = Channel::CreateChannelPair();
   auto first = MakeRefCounted<MultiprocessTransport>(std::move(first_channel),
                                                      OSProcess());
   auto second = MakeRefCounted<MultiprocessTransport>(std::move(second_channel),
                                                       OSProcess());
-  *first_transport = ToDriverHandle(first.release());
-  *second_transport = ToDriverHandle(second.release());
+  *new_transport0 = ToDriverHandle(first.release());
+  *new_transport1 = ToDriverHandle(second.release());
   return IPCZ_RESULT_OK;
 }
 
