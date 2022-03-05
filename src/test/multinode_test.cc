@@ -22,18 +22,20 @@ const IpczDriver* GetDriver(MultinodeTest::DriverMode mode) {
       return &reference_drivers::kSingleProcessReferenceDriver;
 
     case MultinodeTest::DriverMode::kAsync:
+    case MultinodeTest::DriverMode::kAsyncDelegatedAlloc:
       return &reference_drivers::kMultiprocessReferenceDriver;
 
-    case ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc:
-      return &reference_drivers::kMultiprocessReferenceDriver;
+    case MultinodeTest::DriverMode::kAsyncObjectBrokering:
+    case MultinodeTest::DriverMode::kAsyncObjectBrokeringAndDelegatedAlloc:
+      return &reference_drivers::
+          kMultiprocessReferenceDriverWithForcedObjectBrokering;
   }
 }
 
-IpczConnectNodeFlags GetExtraNonBrokerFlags(MultinodeTest::DriverMode mode) {
-  if (mode == MultinodeTest::DriverMode::kAsyncDelegatedAlloc) {
-    return IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE;
-  }
-  return IPCZ_NO_FLAGS;
+bool UseDelegatedAlloc(MultinodeTest::DriverMode mode) {
+  return mode == MultinodeTest::DriverMode::kAsyncDelegatedAlloc ||
+         mode ==
+             MultinodeTest::DriverMode::kAsyncObjectBrokeringAndDelegatedAlloc;
 }
 
 }  // namespace
@@ -78,15 +80,28 @@ void MultinodeTest::CreateTransports(TestNodeType node0_type,
   // allows for better coverage of driver object relaying.
   using reference_drivers::OSProcess;
   auto remote_process_for_transport = [](TestNodeType type) {
-    return
-        type == TestNodeType::kBroker ? OSProcess::GetCurrent() : OSProcess();
+    return type == TestNodeType::kBroker ? OSProcess::GetCurrent()
+                                         : OSProcess();
   };
-  OSProcess remote_process0 = remote_process_for_transport(node0_type);
-  OSProcess remote_process1 = remote_process_for_transport(node1_type);
+
+  using Source = reference_drivers::MultiprocessTransportSource;
+  auto source_for_node = [](TestNodeType type) {
+    return type == TestNodeType::kBroker ? Source::kFromBroker
+                                         : Source::kFromNonBroker;
+  };
+
+  using Target = reference_drivers::MultiprocessTransportTarget;
+  auto target_for_remote_node = [](TestNodeType type) {
+    return type == TestNodeType::kBroker ? Target::kToBroker
+                                         : Target::kToNonBroker;
+  };
+
   *transport0 = reference_drivers::CreateTransportFromChannel(
-      std::move(one), remote_process_for_transport(node0_type));
+      std::move(one), remote_process_for_transport(node0_type),
+      source_for_node(node0_type), target_for_remote_node(node1_type));
   *transport1 = reference_drivers::CreateTransportFromChannel(
-      std::move(two), remote_process_for_transport(node1_type));
+      std::move(two), remote_process_for_transport(node1_type),
+      source_for_node(node1_type), target_for_remote_node(node0_type));
 }
 
 IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
@@ -94,7 +109,9 @@ IpczHandle MultinodeTest::ConnectToBroker(DriverMode mode,
                                           IpczDriverHandle transport) {
   IpczHandle portal;
   IpczConnectNodeFlags flags = IPCZ_CONNECT_NODE_TO_BROKER;
-  flags |= GetExtraNonBrokerFlags(mode);
+  if (UseDelegatedAlloc(mode)) {
+    flags |= IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE;
+  }
   IpczResult result =
       ipcz.ConnectNode(non_broker_node, transport, 1, flags, nullptr, &portal);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);

@@ -26,6 +26,8 @@ class MultinodeTest : public TestBase {
     kSync,
     kAsync,
     kAsyncDelegatedAlloc,
+    kAsyncObjectBrokering,
+    kAsyncObjectBrokeringAndDelegatedAlloc,
   };
 
   enum class TestNodeType {
@@ -104,12 +106,15 @@ class MultinodeTestWithDriver
 
 }  // namespace ipcz::test
 
-#define INSTANTIATE_MULTINODE_TEST_SUITE_P(suite)        \
-  INSTANTIATE_TEST_SUITE_P(                              \
-      , suite,                                           \
-      ::testing::Values(                                 \
-          ipcz::test::MultinodeTest::DriverMode::kSync,  \
-          ipcz::test::MultinodeTest::DriverMode::kAsync, \
-          ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc))
+#define INSTANTIATE_MULTINODE_TEST_SUITE_P(suite)                       \
+  INSTANTIATE_TEST_SUITE_P(                                             \
+      , suite,                                                          \
+      ::testing::Values(                                                \
+          ipcz::test::MultinodeTest::DriverMode::kSync,                 \
+          ipcz::test::MultinodeTest::DriverMode::kAsync,                \
+          ipcz::test::MultinodeTest::DriverMode::kAsyncDelegatedAlloc,  \
+          ipcz::test::MultinodeTest::DriverMode::kAsyncObjectBrokering, \
+          ipcz::test::MultinodeTest::DriverMode::                       \
+              kAsyncObjectBrokeringAndDelegatedAlloc))
 
 #endif  // IPCZ_SRC_TEST_MULTINODE_TEST_H_

@@ -49,13 +49,20 @@ HANDLE TransferHandle(HANDLE handle,
 
 class MultiprocessTransport : public Object {
  public:
-  MultiprocessTransport(Channel channel, OSProcess remote_process)
+  MultiprocessTransport(Channel channel,
+                        OSProcess remote_process,
+                        MultiprocessTransportSource source,
+                        MultiprocessTransportTarget target)
       : Object(kTransport),
         remote_process_(std::move(remote_process)),
+        source_(source),
+        target_(target),
         channel_(std::make_unique<Channel>(std::move(channel))) {}
   MultiprocessTransport(const MultiprocessTransport&) = delete;
   MultiprocessTransport& operator=(const MultiprocessTransport&) = delete;
 
+  MultiprocessTransportSource source() const { return source_; }
+  MultiprocessTransportTarget target() const { return target_; }
   const OSProcess& remote_process() const { return remote_process_; }
 
   bool is_serializable() const {
@@ -147,6 +154,8 @@ class MultiprocessTransport : public Object {
   // behaved application and ipcz implementation cannot elicit race conditions.
 
   const OSProcess remote_process_;
+  const MultiprocessTransportSource source_;
+  const MultiprocessTransportTarget target_;
   IpczHandle transport_ = IPCZ_INVALID_HANDLE;
   IpczTransportActivityHandler activity_handler_;
   bool was_activated_ = false;
@@ -195,9 +204,19 @@ class MultiprocessMemory : public Object {
 struct IPCZ_ALIGN(8) SerializedObject {
   Object::Type type;
 
-  // Size of the memory region iff `type` is kMemory; size of the message data
-  // iff `type` is kBlob; zero otherwise.
-  uint32_t size;
+  union {
+    uint32_t extra_data;
+
+    // Set iff `type` is kTransport.
+    struct {
+      MultiprocessTransportSource source;
+      MultiprocessTransportTarget target;
+    };
+
+    // Size of the memory region iff `type` is kMemory; size of the message data
+    // iff `type` is kBlob.
+    uint32_t size;
+  };
 };
 
 IpczResult IPCZ_API Close(IpczDriverHandle handle,
@@ -271,7 +290,7 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
 
   auto& header = *reinterpret_cast<SerializedObject*>(data);
   header.type = object->type();
-  header.size = 0;
+  header.extra_data = 0;
 
 #if BUILDFLAG(IS_WIN)
   if (transport == IPCZ_INVALID_DRIVER_HANDLE) {
@@ -286,6 +305,8 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
 
   if (object->type() == Object::kTransport) {
     auto released_transport = object->ReleaseAs<MultiprocessTransport>();
+    header.source = released_transport->source();
+    header.target = released_transport->target();
     Channel channel = released_transport->TakeChannel();
     ABSL_ASSERT(channel.is_valid());
 #if BUILDFLAG(IS_WIN)
@@ -332,6 +353,41 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
 #endif
   }
   return IPCZ_RESULT_OK;
+}
+
+IpczResult IPCZ_API
+SerializeWithForcedObjectBrokering(IpczDriverHandle handle,
+                                   IpczDriverHandle transport,
+                                   uint32_t flags,
+                                   const void* options,
+                                   uint8_t* data,
+                                   uint32_t* num_bytes,
+                                   IpczDriverHandle* handles,
+                                   uint32_t* num_handles) {
+  Object* object = Object::FromHandle(handle);
+  if (!object) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (object->type() != Object::kTransport &&
+      object->type() != Object::kMemory && object->type() != Object::kBlob) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  if (transport == IPCZ_INVALID_DRIVER_HANDLE) {
+    return IPCZ_RESULT_ABORTED;
+  }
+
+  MultiprocessTransport& t = MultiprocessTransport::FromHandle(transport);
+  if (t.source() != MultiprocessTransportSource::kFromBroker &&
+      t.target() != MultiprocessTransportTarget::kToBroker) {
+    // For this driver, direct object transmission is supported only when going
+    // to or from a broker node.
+    return IPCZ_RESULT_PERMISSION_DENIED;
+  }
+
+  return Serialize(handle, transport, flags, options, data, num_bytes, handles,
+                   num_handles);
 }
 
 IpczResult IPCZ_API Deserialize(const uint8_t* data,
@@ -417,8 +473,8 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    auto new_transport =
-        MakeRefCounted<MultiprocessTransport>(std::move(channel), OSProcess());
+    auto new_transport = MakeRefCounted<MultiprocessTransport>(
+        std::move(channel), OSProcess(), header.source, header.target);
     *driver_handle = ToDriverHandle(new_transport.release());
     return IPCZ_RESULT_OK;
   }
@@ -439,11 +495,19 @@ IpczResult IPCZ_API CreateTransports(IpczDriverHandle transport0,
                                      const void* options,
                                      IpczDriverHandle* new_transport0,
                                      IpczDriverHandle* new_transport1) {
+  using Source = MultiprocessTransportSource;
+  using Target = MultiprocessTransportTarget;
+  const Target target0 = MultiprocessTransport::FromHandle(transport0).target();
+  const Target target1 = MultiprocessTransport::FromHandle(transport1).target();
+  const Source source0 = target1 == Target::kToBroker ? Source::kFromBroker
+                                                      : Source::kFromNonBroker;
+  const Source source1 = target0 == Target::kToBroker ? Source::kFromBroker
+                                                      : Source::kFromNonBroker;
   auto [first_channel, second_channel] = Channel::CreateChannelPair();
-  auto first = MakeRefCounted<MultiprocessTransport>(std::move(first_channel),
-                                                     OSProcess());
-  auto second = MakeRefCounted<MultiprocessTransport>(std::move(second_channel),
-                                                      OSProcess());
+  auto first = MakeRefCounted<MultiprocessTransport>(
+      std::move(first_channel), OSProcess(), source0, target0);
+  auto second = MakeRefCounted<MultiprocessTransport>(
+      std::move(second_channel), OSProcess(), source1, target1);
   *new_transport0 = ToDriverHandle(first.release());
   *new_transport1 = ToDriverHandle(second.release());
   return IPCZ_RESULT_OK;
@@ -539,10 +603,28 @@ const IpczDriver kMultiprocessReferenceDriver = {
     MapSharedMemory,
 };
 
-IpczDriverHandle CreateTransportFromChannel(Channel channel,
-                                            OSProcess remote_process) {
+const IpczDriver kMultiprocessReferenceDriverWithForcedObjectBrokering = {
+    sizeof(kMultiprocessReferenceDriver),
+    Close,
+    SerializeWithForcedObjectBrokering,
+    Deserialize,
+    CreateTransports,
+    ActivateTransport,
+    DeactivateTransport,
+    Transmit,
+    AllocateSharedMemory,
+    GetSharedMemoryInfo,
+    DuplicateSharedMemory,
+    MapSharedMemory,
+};
+
+IpczDriverHandle CreateTransportFromChannel(
+    Channel channel,
+    OSProcess remote_process,
+    MultiprocessTransportSource source,
+    MultiprocessTransportTarget target) {
   auto transport = MakeRefCounted<MultiprocessTransport>(
-      std::move(channel), std::move(remote_process));
+      std::move(channel), std::move(remote_process), source, target);
   return ToDriverHandle(transport.release());
 }
 
