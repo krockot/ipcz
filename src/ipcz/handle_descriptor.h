@@ -19,6 +19,10 @@ struct IPCZ_ALIGN(8) HandleDescriptor {
     // A box handle consumes the next available deserialized DriverObject in the
     // parcel.
     kBox = 1,
+
+    // A box handle consumes the next available parcel in a corresponding
+    // message to relay associated driver objects.
+    kBoxRelayed = 2,
   };
 
   Type type;

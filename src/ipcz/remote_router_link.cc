@@ -196,6 +196,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
   size_t num_portals = 0;
   absl::InlinedVector<DriverObject, 2> driver_objects;
+  bool driver_objects_will_relay = false;
   for (Ref<APIObject>& object : objects) {
     switch (object->object_type()) {
       case APIObject::kPortal:
@@ -204,6 +205,9 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
       case APIObject::kBox: {
         Box& box = object->As<Box>();
+        if (!box.object().CanTransmitOn(*node_link()->transport())) {
+          driver_objects_will_relay = true;
+        }
         driver_objects.push_back(std::move(box.object()));
         break;
       }
@@ -212,6 +216,35 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
         LOG(FATAL) << "Attempted to transmit an invalid object.";
     }
   }
+
+  // If driver objects will require relaying through the broker, we must split
+  // this into two messages: one (AcceptParcel) to send directly with just the
+  // data and router descriptors, and another (AcceptParcelDriverObjects) to
+  // send only the driver objects. These are used by the receiver to reconstruct
+  // and accept the full parcel only once both have arrived. This ensures that
+  // two important constraints are met:
+  //
+  //   - a parcel with driver objects, targeting a router recently transmitted
+  //     to the receiver, must not be accepted by the receiver until the
+  //     receiving router has itself been accepted. Requiring part of the parcel
+  //     to go over the direct NodeLink ensures that the complete parcel can't
+  //     be received until its destination router has been received.
+  //
+  //   - a parcel with routers must arrive before any parcel targeting it.
+  //     Transmitting the driver objects in a separate message ensures that the
+  //     router descriptor transmission itself is not relayed and is thus
+  //     ordered with other transmissions on the same link.
+  //
+  // All of this is in light of the fact that we cannot guarantee any kind of
+  // ordering between messages sent directly on this NodeLink vs messages
+  // relayed through the broker. The latter may arrive before or after the
+  // former, regardless of when either was sent.
+  //
+  // TODO: It's unfortunate that *every* parcel with driver objects must be
+  // split in this way. We could relay a whole parcel as-is IF we knew it had no
+  // routers attached (which we can know trivially) AND we knew the receiving
+  // router was already bound to the targeted sublink (which we don't.)
+  const bool must_split_parcel = driver_objects_will_relay;
 
   // Allocate all the arrays in the message. Note that each allocation may
   // relocate the parcel data in memory, so views into these arrays should not
@@ -250,7 +283,8 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
       }
 
       case APIObject::kBox:
-        descriptor.type = HandleDescriptor::kBox;
+        descriptor.type = must_split_parcel ? HandleDescriptor::kBoxRelayed
+                                            : HandleDescriptor::kBox;
         break;
 
       default:
@@ -259,8 +293,20 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
     }
   }
 
-  accept.params().driver_objects =
-      accept.AppendDriverObjects(absl::MakeSpan(driver_objects));
+  if (must_split_parcel) {
+    msg::AcceptParcelDriverObjects accept_objects;
+    accept_objects.params().sublink = sublink_;
+    accept_objects.params().sequence_number = parcel.sequence_number();
+    accept_objects.params().driver_objects =
+        accept_objects.AppendDriverObjects(absl::MakeSpan(driver_objects));
+
+    DVLOG(4) << "Transmitting objects for " << parcel.Describe() << " over "
+             << Describe();
+    node_link()->Transmit(accept_objects);
+  } else {
+    accept.params().driver_objects =
+        accept.AppendDriverObjects(absl::MakeSpan(driver_objects));
+  }
 
   DVLOG(4) << "Transmitting " << parcel.Describe() << " over " << Describe();
 
@@ -275,9 +321,6 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
 
   // Now that the parcel has been transmitted, it's safe to start proxying from
   // any routers who sent a new successor.
-  //
-  // TODO: not safe if the above message had to be relayed through a broker due
-  // to driver constraints; we'll need to wait for an ack in that case.
   ABSL_ASSERT(routers.size() == new_routers.size());
   for (size_t i = 0; i < routers.size(); ++i) {
     routers[i]->BeginProxyingToNewRouter(*node_link(), new_routers[i]);

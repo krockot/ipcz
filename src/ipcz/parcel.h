@@ -19,6 +19,8 @@
 
 namespace ipcz {
 
+class DriverTransport;
+
 // Represents a parcel queued within a portal, either for inbound retrieval or
 // outgoing transfer.
 class Parcel {
@@ -64,6 +66,11 @@ class Parcel {
   // Produces a log-friendly description of the Parcel, useful for various
   // debugging log messages.
   std::string Describe() const;
+
+  // Checks and indicates whether this parcel can be transmitted entirely over
+  // `transport`, which depends on whether the driver is able to transmit all of
+  // the attached driver objects over that transport.
+  bool CanTransmitOn(const DriverTransport& transport);
 
  private:
   SequenceNumber sequence_number_ = 0;

@@ -10,6 +10,8 @@
 #include <string>
 #include <utility>
 
+#include "ipcz/box.h"
+#include "ipcz/driver_object.h"
 #include "ipcz/portal.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
@@ -83,6 +85,17 @@ std::string Parcel::Describe() const {
   }
   ss << ")";
   return ss.str();
+}
+
+bool Parcel::CanTransmitOn(const DriverTransport& transport) {
+  for (auto object : objects_) {
+    if (auto* box = object->GetAs<Box>()) {
+      if (!box->object().CanTransmitOn(transport)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace ipcz

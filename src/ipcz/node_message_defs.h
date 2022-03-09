@@ -230,11 +230,20 @@ IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)
 IPCZ_MSG_END()
 
+// Conveys partial parcel contents, namely just its attached driver objects. May
+// be sent separately when a parcel contains routers and at least one attached
+// driver object must be relayed through a broker.
+IPCZ_MSG_BEGIN(AcceptParcelDriverObjects, IPCZ_MSG_ID(21), IPCZ_MSG_VERSION(0))
+  IPCZ_MSG_PARAM(SublinkId, sublink)
+  IPCZ_MSG_PARAM(SequenceNumber, sequence_number)
+  IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)
+IPCZ_MSG_END()
+
 // Notifies a node that the route has been closed on one side. This message
 // always pertains to the side of the route opposite of the router receiving it,
 // guaranteed by the fact that the closed side of the route only transmits this
 // message outward once its terminal router is adjacent to the central link.
-IPCZ_MSG_BEGIN(RouteClosed, IPCZ_MSG_ID(21), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_BEGIN(RouteClosed, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
   // In the context of the receiving NodeLink, this identifies the specific
   // Router to receive this message.
   IPCZ_MSG_PARAM(SublinkId, sublink)
@@ -248,14 +257,14 @@ IPCZ_MSG_END()
 // in the shared NodeLinkMemory buffer identified by `buffer_id`. The receiving
 // node may not yet have a handle to the identified buffer, but if not, it can
 // expect to receive one imminently via an AddFragmentAllocatorBuffer message.
-IPCZ_MSG_BEGIN(SetRouterLinkStateFragment, IPCZ_MSG_ID(22), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_BEGIN(SetRouterLinkStateFragment, IPCZ_MSG_ID(23), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(FragmentDescriptor, descriptor)
 IPCZ_MSG_END()
 
 // Notifies a node that one of its routes has been broken by spontaneous
 // disconnection, e.g. if a node crashed.
-IPCZ_MSG_BEGIN(RouteDisconnected, IPCZ_MSG_ID(23), IPCZ_MSG_VERSION(0))
+IPCZ_MSG_BEGIN(RouteDisconnected, IPCZ_MSG_ID(24), IPCZ_MSG_VERSION(0))
   // A sublink identifying the affected route to the receiving node.
   IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()

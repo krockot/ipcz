@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <tuple>
 #include <type_traits>
 
 #include "ipcz/buffer_id.h"
@@ -212,6 +213,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool OnAcceptIndirectBrokerConnection(
       const msg::AcceptIndirectBrokerConnection& accept);
   bool OnAcceptParcel(msg::AcceptParcel& message);
+  bool OnAcceptParcelDriverObjects(msg::AcceptParcelDriverObjects& accept);
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateFragment(const msg::SetRouterLinkStateFragment& set);
   bool OnRouteDisconnected(const msg::RouteDisconnected& disconnect);
@@ -234,6 +236,14 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   IpczResult FlushSharedMemoryMessages(uint64_t max_sequence_number);
   IpczResult DispatchMessage(const DriverTransport::Message& message);
+
+  bool AcceptPartialParcel(SublinkId for_sublink, Parcel& p);
+  bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink, Parcel& p);
+  bool AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& p);
+  bool AcceptSplitParcel(SublinkId for_sublink,
+                         Parcel& parcel_with_driver_objects,
+                         Parcel& parcel_with_everything_else);
+  bool AcceptCompleteParcel(SublinkId for_sublink, Parcel& p);
 
   const Ref<Node> node_;
   const LinkSide link_side_;
@@ -269,9 +279,15 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   IndirectBrokerConnectionMap pending_indirect_broker_connections_
       ABSL_GUARDED_BY(mutex_);
 
-  using MemortRequestMap =
+  using MemoryRequestMap =
       absl::flat_hash_map<uint32_t, std::list<RequestMemoryCallback>>;
-  MemortRequestMap pending_memory_requests_ ABSL_GUARDED_BY(mutex_);
+  MemoryRequestMap pending_memory_requests_ ABSL_GUARDED_BY(mutex_);
+
+  // Tracks partially received parcel contents so a complete parcel can be
+  // reconstructed if it had to be split by the sender.
+  using PartialParcelKey = std::tuple<SublinkId, SequenceNumber>;
+  using PartialParcelMap = absl::flat_hash_map<PartialParcelKey, Parcel>;
+  PartialParcelMap partial_parcels_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace ipcz

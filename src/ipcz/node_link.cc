@@ -250,6 +250,12 @@ bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
       return OnAcceptParcel(accept);
     }
 
+    case msg::AcceptParcelDriverObjects::kId: {
+      msg::AcceptParcelDriverObjects accept;
+      accept.Adopt(data, relay.driver_objects());
+      return OnAcceptParcelDriverObjects(accept);
+    }
+
     case msg::AddFragmentAllocatorBuffer::kId: {
       msg::AddFragmentAllocatorBuffer add;
       add.Adopt(data, relay.driver_objects());
@@ -459,6 +465,7 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
   auto driver_objects = accept.driver_objects();
 
+  bool is_split_parcel = false;
   Parcel::ObjectVector objects(handle_descriptors.size());
   for (size_t i = 0; i < handle_descriptors.size(); ++i) {
     const HandleDescriptor& descriptor = handle_descriptors[i];
@@ -488,6 +495,11 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
         break;
       }
 
+      case HandleDescriptor::kBoxRelayed: {
+        is_split_parcel = true;
+        break;
+      }
+
       default:
         return false;
     }
@@ -496,27 +508,22 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
   Parcel parcel(accept.params().sequence_number);
   parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   parcel.SetObjects(std::move(objects));
-  absl::optional<Sublink> sublink = GetSublink(accept.params().sublink);
-  if (!sublink) {
-    DVLOG(4) << "Dropping " << parcel.Describe() << " at "
-             << local_node_name_.ToString() << ", arriving from "
-             << remote_node_name_.ToString() << " via unknown sublink "
-             << accept.params().sublink;
-    return true;
+  if (is_split_parcel) {
+    return AcceptParcelWithoutDriverObjects(accept.params().sublink, parcel);
   }
+  return AcceptCompleteParcel(accept.params().sublink, parcel);
+}
 
-  const LinkType link_type = sublink->router_link->GetType();
-  if (link_type == LinkType::kCentral ||
-      link_type == LinkType::kPeripheralOutward) {
-    DVLOG(4) << "Accepting inbound " << parcel.Describe() << " at "
-             << sublink->router_link->Describe();
-    return sublink->receiver->AcceptInboundParcel(parcel);
-  } else {
-    ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
-    DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
-             << sublink->router_link->Describe();
-    return sublink->receiver->AcceptOutboundParcel(parcel);
+bool NodeLink::OnAcceptParcelDriverObjects(
+    msg::AcceptParcelDriverObjects& accept) {
+  Parcel parcel(accept.params().sequence_number);
+  Parcel::ObjectVector objects;
+  objects.reserve(accept.driver_objects().size());
+  for (auto& object : accept.driver_objects()) {
+    objects.push_back(MakeRefCounted<Box>(std::move(object)));
   }
+  parcel.SetObjects(std::move(objects));
+  return AcceptParcelDriverObjects(accept.params().sublink, parcel);
 }
 
 bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
@@ -795,6 +802,97 @@ IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
   }
 
   return IPCZ_RESULT_OK;
+}
+
+bool NodeLink::AcceptParcelWithoutDriverObjects(SublinkId for_sublink,
+                                                Parcel& p) {
+  const auto key = std::make_tuple(for_sublink, p.sequence_number());
+  Parcel parcel_with_driver_objects;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto [it, ok] = partial_parcels_.try_emplace(key, std::move(p));
+    if (ok) {
+      return true;
+    }
+    parcel_with_driver_objects = std::move(it->second);
+    partial_parcels_.erase(it);
+  }
+
+  return AcceptSplitParcel(for_sublink, parcel_with_driver_objects, p);
+}
+
+bool NodeLink::AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& p) {
+  const auto key = std::make_tuple(for_sublink, p.sequence_number());
+  Parcel parcel_with_data_and_portals;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto [it, ok] = partial_parcels_.try_emplace(key, std::move(p));
+    if (ok) {
+      return true;
+    }
+    parcel_with_data_and_portals = std::move(it->second);
+    partial_parcels_.erase(it);
+  }
+
+  return AcceptSplitParcel(for_sublink, p, parcel_with_data_and_portals);
+}
+
+bool NodeLink::AcceptSplitParcel(SublinkId for_sublink,
+                                 Parcel& parcel_with_driver_objects,
+                                 Parcel& parcel_with_everything_else) {
+  // The parcel with no driver objects should still have an object attachemnt
+  // slot reserved for every relayed driver object.
+  if (parcel_with_everything_else.num_objects() <
+      parcel_with_driver_objects.num_objects()) {
+    return false;
+  }
+
+  // Fill in all the object gaps in the data-only parcel with the boxed objects
+  // from the driver objects parcel.
+  auto remaining_driver_objects = parcel_with_driver_objects.objects_view();
+  for (auto& object : parcel_with_everything_else.objects_view()) {
+    if (object) {
+      continue;
+    }
+
+    if (remaining_driver_objects.empty()) {
+      return false;
+    }
+
+    object = std::move(remaining_driver_objects[0]);
+    remaining_driver_objects.remove_prefix(1);
+  }
+
+  // At least one driver object was unclaimed by the data half of the parcel.
+  // That's not right.
+  if (!remaining_driver_objects.empty()) {
+    return false;
+  }
+
+  return AcceptCompleteParcel(for_sublink, parcel_with_everything_else);
+}
+
+bool NodeLink::AcceptCompleteParcel(SublinkId for_sublink, Parcel& parcel) {
+  absl::optional<Sublink> sublink = GetSublink(for_sublink);
+  if (!sublink) {
+    DVLOG(4) << "Dropping " << parcel.Describe() << " at "
+             << local_node_name_.ToString() << ", arriving from "
+             << remote_node_name_.ToString() << " via unknown sublink "
+             << for_sublink;
+    return true;
+  }
+  const LinkType link_type = sublink->router_link->GetType();
+  if (link_type == LinkType::kCentral ||
+      link_type == LinkType::kPeripheralOutward) {
+    DVLOG(4) << "Accepting inbound " << parcel.Describe() << " at "
+             << sublink->router_link->Describe();
+    return sublink->receiver->AcceptInboundParcel(parcel);
+  } else {
+    ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
+    DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
+             << sublink->router_link->Describe();
+    return sublink->receiver->AcceptOutboundParcel(parcel);
+  }
 }
 
 NodeLink::Sublink::Sublink(Ref<RemoteRouterLink> router_link,

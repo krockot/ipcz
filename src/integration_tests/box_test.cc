@@ -41,9 +41,8 @@ bool BlobContentsMatch(IpczDriverHandle blob_handle,
 
   ABSL_ASSERT(blob->handles().size() == 1);
   ABSL_ASSERT(blob->handles()[0].is_valid());
-  reference_drivers::Memory memory =
-      reference_drivers::Memory(std::move(blob->handles()[0]),
-      expected_shm_message.size());
+  reference_drivers::Memory memory = reference_drivers::Memory(
+      std::move(blob->handles()[0]), expected_shm_message.size());
 
   auto new_mapping = memory.Map();
   if (expected_shm_message != std::string_view(new_mapping.As<char>())) {

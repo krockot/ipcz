@@ -41,6 +41,14 @@ class APIObject : public RefCounted {
   }
 
   template <typename T>
+  T* GetAs() {
+    if (type_ == T::object_type()) {
+      return static_cast<T*>(this);
+    }
+    return nullptr;
+  }
+
+  template <typename T>
   T& As() {
     ABSL_ASSERT(type_ == T::object_type());
     return static_cast<T&>(*this);
