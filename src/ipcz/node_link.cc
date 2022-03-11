@@ -291,10 +291,14 @@ void NodeLink::TransmitMessage(
   }
 
   size_t small_size_class = 0;
-  if (message.data_view().size() <= 64) {
-    small_size_class = 64;
-  } else if (message.data_view().size() <= 256) {
+  if (message.data_view().size() <= 256) {
     small_size_class = 256;
+  } else if (message.data_view().size() <= 512) {
+    small_size_class = 512;
+  } else if (message.data_view().size() <= 1024) {
+    small_size_class = 1024;
+  } else if (message.data_view().size() <= 4096) {
+    small_size_class = 4096;
   }
 
   if (small_size_class && message.transmissible_driver_handles().empty()) {
@@ -322,6 +326,7 @@ void NodeLink::TransmitMessage(
     }
   }
 
+  memory().TestAndSetNotificationPending();
   message.header().transport_sequence_number =
       transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
   transport_->TransmitMessage(
