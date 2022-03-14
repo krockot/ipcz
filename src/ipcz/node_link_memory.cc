@@ -59,12 +59,12 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
   PrimaryBufferHeader header;
   uint8_t reserved_header_padding[kPrimaryBufferHeaderPaddingSize];
   InitialRouterLinkStateArray initial_link_states;
-  std::array<uint8_t, 2048> mem_for_a_to_b_message_queue;
-  std::array<uint8_t, 2048> mem_for_b_to_a_message_queue;
+  std::array<uint8_t, 512> mem_for_a_to_b_message_queue;
+  std::array<uint8_t, 512> mem_for_b_to_a_message_queue;
   std::array<uint8_t, 16384> mem_for_256_byte_fragments;
   std::array<uint8_t, 16384> mem_for_512_byte_fragments;
   std::array<uint8_t, 11264> mem_for_1024_byte_fragments;
-  std::array<uint8_t, 16384> mem_for_4096_byte_fragments;
+  std::array<uint8_t, 16384> mem_for_2048_byte_fragments;
 
   MpscQueue<FragmentDescriptor> a_to_b_message_queue() {
     return MpscQueue<FragmentDescriptor>(
@@ -88,8 +88,8 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
     return BlockAllocator(absl::MakeSpan(mem_for_1024_byte_fragments), 1024);
   }
 
-  BlockAllocator block_allocator_4096() {
-    return BlockAllocator(absl::MakeSpan(mem_for_4096_byte_fragments), 4096);
+  BlockAllocator block_allocator_2048() {
+    return BlockAllocator(absl::MakeSpan(mem_for_2048_byte_fragments), 2048);
   }
 };
 
@@ -116,11 +116,11 @@ NodeLinkMemory::NodeLinkMemory(Ref<Node> node,
                                    primary_buffer().block_allocator_1024());
   fragment_allocators_[1024] = std::move(allocator_1024);
 
-  auto allocator_4096 = std::make_unique<FragmentAllocator>(4096);
-  allocator_4096->AddBlockAllocator(kPrimaryBufferId,
-                                   primary_buffer_mapping().bytes(),
-                                   primary_buffer().block_allocator_4096());
-  fragment_allocators_[4096] = std::move(allocator_4096);
+  auto allocator_2048 = std::make_unique<FragmentAllocator>(2048);
+  allocator_2048->AddBlockAllocator(kPrimaryBufferId,
+                                    primary_buffer_mapping().bytes(),
+                                    primary_buffer().block_allocator_2048());
+  fragment_allocators_[2048] = std::move(allocator_2048);
 }
 
 NodeLinkMemory::~NodeLinkMemory() = default;
@@ -148,7 +148,7 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   primary_buffer.block_allocator_256().InitializeRegion();
   primary_buffer.block_allocator_512().InitializeRegion();
   primary_buffer.block_allocator_1024().InitializeRegion();
-  primary_buffer.block_allocator_4096().InitializeRegion();
+  primary_buffer.block_allocator_2048().InitializeRegion();
   return memory;
 }
 

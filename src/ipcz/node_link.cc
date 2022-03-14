@@ -297,33 +297,42 @@ void NodeLink::TransmitMessage(
     small_size_class = 512;
   } else if (message.data_view().size() <= 1024) {
     small_size_class = 1024;
-  } else if (message.data_view().size() <= 4096) {
-    small_size_class = 4096;
+  } else if (message.data_view().size() <= 2048) {
+    small_size_class = 2048;
   }
 
-  if (small_size_class && message.transmissible_driver_handles().empty()) {
-    // For messages which are small with no handles, prefer transmission through
-    // shared memory.
+  // For messages which are small with no driver handles, prefer transmission
+  // through shared memory.
+  while (small_size_class > 0 && small_size_class <= 2048 &&
+         message.transmissible_driver_handles().empty()) {
     Fragment fragment = memory().AllocateFragment(small_size_class);
-    if (!fragment.is_null()) {
-      message.header().transport_sequence_number =
-          transport_sequence_number_.load(std::memory_order_relaxed);
-      memcpy(fragment.address(), message.data_view().data(),
-             message.data_view().size());
-      if (memory().outgoing_message_fragments().Push(fragment.descriptor())) {
-        if (!memory().TestAndSetNotificationPending()) {
-          msg::FlushLink flush;
-          flush.header().transport_sequence_number =
-              transport_sequence_number_.fetch_add(1,
-                                                   std::memory_order_relaxed);
-          transport_->TransmitMessage(DriverTransport::Message(
-              DriverTransport::Data(flush.data_view())));
-        }
-        return;
-      } else {
-        memory().FreeFragment(fragment);
-      }
+    if (fragment.is_null()) {
+      small_size_class *= 2;
+      continue;
     }
+
+    message.header().transport_sequence_number =
+        transport_sequence_number_.load(std::memory_order_relaxed);
+    memcpy(fragment.address(), message.data_view().data(),
+           message.data_view().size());
+    if (!memory().outgoing_message_fragments().Push(fragment.descriptor())) {
+      // No queue capacity at the moment...
+      memory().FreeFragment(fragment);
+      break;
+    }
+
+    if (memory().TestAndSetNotificationPending()) {
+      // No flush necessary as the remote node already has some pending I/O to
+      // wake it up.
+      return;
+    }
+
+    msg::FlushLink flush;
+    flush.header().transport_sequence_number =
+        transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    transport_->TransmitMessage(
+        DriverTransport::Message(DriverTransport::Data(flush.data_view())));
+    return;
   }
 
   memory().TestAndSetNotificationPending();
