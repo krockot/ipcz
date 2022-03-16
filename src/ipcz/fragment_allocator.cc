@@ -4,99 +4,45 @@
 
 #include "ipcz/fragment_allocator.h"
 
-#include <atomic>
+#include <memory>
 
-#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
-#include "util/log.h"
+#include "ipcz/block_allocator_pool.h"
 
 namespace ipcz {
 
-FragmentAllocator::Entry::Entry(BufferId buffer_id,
-                                absl::Span<uint8_t> buffer_memory,
-                                const BlockAllocator& allocator)
-    : buffer_id(buffer_id),
-      buffer_memory(buffer_memory),
-      block_allocator(allocator) {}
-
-FragmentAllocator::Entry::~Entry() = default;
-
-FragmentAllocator::FragmentAllocator(uint32_t fragment_size)
-    : fragment_size_(fragment_size) {}
+FragmentAllocator::FragmentAllocator() = default;
 
 FragmentAllocator::~FragmentAllocator() = default;
 
-void FragmentAllocator::AddBlockAllocator(BufferId buffer_id,
-                                          absl::Span<uint8_t> buffer_memory,
+void FragmentAllocator::AddBlockAllocator(uint32_t block_size,
+                                          BufferId buffer_id,
+                                          absl::Span<uint8_t> memory,
                                           const BlockAllocator& allocator) {
-  absl::MutexLock lock(&mutex_);
-  Entry* previous_tail = nullptr;
-  Entry* new_entry;
-  if (!entries_.empty()) {
-    previous_tail = &entries_.back();
+  auto [it, ok] = block_allocator_pools_.try_emplace(block_size, nullptr);
+  auto& pool = it->second;
+  if (ok) {
+    pool = std::make_unique<BlockAllocatorPool>(block_size);
   }
 
-  entries_.emplace_back(buffer_id, buffer_memory, allocator);
-  new_entry = &entries_.back();
-  entry_map_[buffer_id] = new_entry;
-
-  if (previous_tail) {
-    previous_tail->next = new_entry;
-  } else {
-    active_entry_ = new_entry;
-  }
+  pool->AddBlockAllocator(buffer_id, memory, allocator);
 }
 
-Fragment FragmentAllocator::Allocate() {
-  Entry* entry = active_entry_.load(std::memory_order_relaxed);
-  if (!entry) {
-    return {};
+Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
+  auto it = block_allocator_pools_.find(num_bytes);
+  if (it == block_allocator_pools_.end()) {
+    return Fragment();
   }
 
-  Entry* starting_entry = entry;
-  do {
-    void* block = entry->block_allocator.Alloc();
-    if (block) {
-      const uint32_t buffer_offset =
-          (static_cast<uint8_t*>(block) - entry->buffer_memory.data());
-      if (entry->buffer_memory.size() - fragment_size_ < buffer_offset) {
-        // Allocator did something bad.
-        DLOG(ERROR) << "Invalid address from BlockAllocator.";
-        return {};
-      }
-
-      if (entry != starting_entry) {
-        // Attempt to update the active entry to reflect our success. Since this
-        // is only meant as a helpful hint, we don't really care if it succeeds.
-        active_entry_.compare_exchange_weak(starting_entry, entry,
-                                            std::memory_order_relaxed);
-      }
-
-      FragmentDescriptor descriptor(entry->buffer_id, buffer_offset,
-                                    fragment_size_);
-      return Fragment(descriptor, block);
-    }
-
-    // Allocation from this buffer failed. Try a different buffer.
-    absl::MutexLock lock(&mutex_);
-    entry = entry->next;
-  } while (entry && entry != starting_entry);
-
-  return {};
+  return it->second->Allocate();
 }
 
 void FragmentAllocator::Free(const Fragment& fragment) {
-  Entry* entry;
-  {
-    absl::MutexLock lock(&mutex_);
-    auto it = entry_map_.find(fragment.buffer_id());
-    if (it == entry_map_.end()) {
-      DLOG(ERROR) << "Invalid Free() call on FragmentAllocator";
-      return;
-    }
-    entry = it->second;
+  auto it = block_allocator_pools_.find(fragment.size());
+  if (it == block_allocator_pools_.end()) {
+    return;
   }
 
-  entry->block_allocator.Free(fragment.address());
+  it->second->Free(fragment);
 }
 
 }  // namespace ipcz

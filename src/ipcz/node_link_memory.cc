@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "ipcz/block_allocator_pool.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/node.h"
 #include "ipcz/node_link.h"
@@ -98,29 +99,15 @@ NodeLinkMemory::NodeLinkMemory(Ref<Node> node,
     : node_(std::move(node)) {
   buffers_.push_back(std::move(primary_buffer_memory));
 
-  auto allocator_256 = std::make_unique<FragmentAllocator>(256);
-  allocator_256->AddBlockAllocator(kPrimaryBufferId,
-                                   primary_buffer_mapping().bytes(),
-                                   primary_buffer().block_allocator_256());
-  fragment_allocators_[256] = std::move(allocator_256);
-
-  auto allocator_512 = std::make_unique<FragmentAllocator>(512);
-  allocator_512->AddBlockAllocator(kPrimaryBufferId,
-                                   primary_buffer_mapping().bytes(),
-                                   primary_buffer().block_allocator_512());
-  fragment_allocators_[512] = std::move(allocator_512);
-
-  auto allocator_1024 = std::make_unique<FragmentAllocator>(1024);
-  allocator_1024->AddBlockAllocator(kPrimaryBufferId,
-                                   primary_buffer_mapping().bytes(),
-                                   primary_buffer().block_allocator_1024());
-  fragment_allocators_[1024] = std::move(allocator_1024);
-
-  auto allocator_2048 = std::make_unique<FragmentAllocator>(2048);
-  allocator_2048->AddBlockAllocator(kPrimaryBufferId,
-                                    primary_buffer_mapping().bytes(),
-                                    primary_buffer().block_allocator_2048());
-  fragment_allocators_[2048] = std::move(allocator_2048);
+  auto bytes = primary_buffer_mapping().bytes();
+  fragment_allocator_.AddBlockAllocator(256, kPrimaryBufferId, bytes,
+                                        primary_buffer().block_allocator_256());
+  fragment_allocator_.AddBlockAllocator(512, kPrimaryBufferId, bytes,
+                                        primary_buffer().block_allocator_512());
+  fragment_allocator_.AddBlockAllocator(
+      1024, kPrimaryBufferId, bytes, primary_buffer().block_allocator_1024());
+  fragment_allocator_.AddBlockAllocator(
+      2048, kPrimaryBufferId, bytes, primary_buffer().block_allocator_2048());
 }
 
 NodeLinkMemory::~NodeLinkMemory() = default;
@@ -245,23 +232,13 @@ FragmentRef<RouterLinkState> NodeLinkMemory::AllocateRouterLinkState() {
 }
 
 Fragment NodeLinkMemory::AllocateFragment(size_t num_bytes) {
-  FragmentAllocator* allocator = GetFragmentAllocatorForSize(num_bytes);
-  if (!allocator) {
-    return {};
-  }
-
-  return allocator->Allocate();
+  absl::MutexLock lock(&mutex_);
+  return fragment_allocator_.Allocate(num_bytes);
 }
 
 void NodeLinkMemory::FreeFragment(const Fragment& fragment) {
-  if (fragment.is_null()) {
-    return;
-  }
-
-  FragmentAllocator* allocator = GetFragmentAllocatorForSize(fragment.size());
-  if (allocator) {
-    allocator->Free(fragment);
-  }
+  absl::MutexLock lock(&mutex_);
+  fragment_allocator_.Free(fragment);
 }
 
 void NodeLinkMemory::RequestFragmentCapacity(
@@ -299,14 +276,8 @@ void NodeLinkMemory::RequestFragmentCapacity(
 
           BlockAllocator block_allocator(mapping->bytes(), fragment_size);
           block_allocator.InitializeRegion();
-
-          std::unique_ptr<FragmentAllocator>& allocator =
-              self->fragment_allocators_[fragment_size];
-          if (!allocator) {
-            allocator = std::make_unique<FragmentAllocator>(fragment_size);
-          }
-          allocator->AddBlockAllocator(new_buffer_id, mapping->bytes(),
-                                       block_allocator);
+          self->fragment_allocator_.AddBlockAllocator(
+              fragment_size, new_buffer_id, mapping->bytes(), block_allocator);
         }
 
         if (link) {
@@ -337,12 +308,8 @@ bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
     result.first->second = &mapping;
 
     BlockAllocator block_allocator(mapping.bytes(), fragment_size);
-    std::unique_ptr<FragmentAllocator>& allocator =
-        fragment_allocators_[fragment_size];
-    if (!allocator) {
-      allocator = std::make_unique<FragmentAllocator>(fragment_size);
-    }
-    allocator->AddBlockAllocator(id, mapping.bytes(), block_allocator);
+    fragment_allocator_.AddBlockAllocator(fragment_size, id, mapping.bytes(),
+                                          block_allocator);
 
     auto it = buffer_callbacks_.find(id);
     if (it != buffer_callbacks_.end()) {
@@ -390,16 +357,6 @@ void NodeLinkMemory::OnBufferAvailable(BufferId id, Function<void()> callback) {
 BufferId NodeLinkMemory::AllocateBufferId() {
   return primary_buffer().header.next_buffer_id.fetch_add(
       1, std::memory_order_relaxed);
-}
-
-FragmentAllocator* NodeLinkMemory::GetFragmentAllocatorForSize(
-    size_t num_bytes) {
-  absl::MutexLock lock(&mutex_);
-  auto it = fragment_allocators_.find(absl::bit_ceil(num_bytes));
-  if (it == fragment_allocators_.end()) {
-    return nullptr;
-  }
-  return it->second.get();
 }
 
 }  // namespace ipcz

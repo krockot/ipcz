@@ -152,6 +152,8 @@ portable_source_set("impl") {
   sources = [
     "ipcz/api_object.cc",
     "ipcz/api_object.h",
+    "ipcz/block_allocator_pool.cc",
+    "ipcz/block_allocator_pool.h",
     "ipcz/box.cc",
     "ipcz/box.h",
     "ipcz/buffer_id.h",

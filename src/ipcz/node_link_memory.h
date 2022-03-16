@@ -155,8 +155,6 @@ class NodeLinkMemory : public RefCounted {
 
   BufferId AllocateBufferId();
 
-  FragmentAllocator* GetFragmentAllocatorForSize(size_t num_bytes);
-
   const Ref<Node> node_;
 
   absl::Mutex mutex_;
@@ -172,12 +170,9 @@ class NodeLinkMemory : public RefCounted {
   // guarded.
   std::list<DriverMemoryMapping> buffers_;
 
-  // FragmentAllocators grouped by fragment size. Note that each allocator is
-  // stored indirectly on the heap, and elements must never be removed from this
-  // map. These constraints ensure a stable memory location for each allocator
-  // throughout the lifetime of the NodeLinkMemory.
-  absl::flat_hash_map<uint32_t, std::unique_ptr<FragmentAllocator>>
-      fragment_allocators_ ABSL_GUARDED_BY(mutex_);
+  // Handles dynamic allocation of most shared memory chunks used by this
+  // NodeLinkMemory.
+  FragmentAllocator fragment_allocator_ ABSL_GUARDED_BY(mutex_);
 
   // Message queues mapped from this NodeLinkMemory's primary buffer. These are
   // used as a lightweight medium to convey small data-only messages.
