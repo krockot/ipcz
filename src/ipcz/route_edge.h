@@ -110,6 +110,10 @@ class RouteEdge {
   // NodeLink and SubLinkId.
   bool IsRoutedThrough(const NodeLink& link, SublinkId sublink) const;
 
+  // Returns an appropriate RouterLink to convey a parcel with the specified
+  // SequenceNumber along this edge.
+  Ref<RouterLink> GetLinkToTransmitParcel(SequenceNumber sequence_number);
+
   // Flushes any transmittable parcels from the given `parcels` queue, based on
   // the current state of this edge. If this edge has a decaying link and
   // one or more parcels at the head of `parcels` fall within the range of

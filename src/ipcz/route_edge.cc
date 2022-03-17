@@ -58,6 +58,14 @@ bool RouteEdge::IsRoutedThrough(const NodeLink& link, SublinkId sublink) const {
   return false;
 }
 
+Ref<RouterLink> RouteEdge::GetLinkToTransmitParcel(
+    SequenceNumber sequence_number) {
+  if (ShouldSendOnDecayingLink(sequence_number)) {
+    return decaying_link_;
+  }
+  return primary_link_;
+}
+
 void RouteEdge::FlushParcelsFromQueue(
     ParcelQueue& parcels,
     FlushedParcelQueue& parcels_to_decaying_link,

@@ -126,19 +126,38 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
   parcel.SetData(std::vector<uint8_t>(data.begin(), data.end()));
   parcel.SetObjects(std::move(objects));
 
+  Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    parcel.set_sequence_number(outbound_parcels_.GetCurrentSequenceLength());
+    ABSL_ASSERT(!inward_edge_);
+    const SequenceNumber sequence_number =
+        outbound_parcels_.GetCurrentSequenceLength();
+    parcel.set_sequence_number(sequence_number);
 
-    // TODO: pushing and then immediately popping a parcel is a waste of time.
-    // optimize this out when we know we're a terminal router.
-    DVLOG(4) << "Queuing outbound " << parcel.Describe();
+    if (outbound_parcels_.IsEmpty()) {
+      // If there are no outbound parcels queued, we may be able to take a fast
+      // path. Note that `link` may still be null here, in which case we will
+      // fall back on the slower (queue + flush) path.
+      link = outward_edge_.GetLinkToTransmitParcel(sequence_number);
+    }
 
-    const bool push_ok = outbound_parcels_.Push(std::move(parcel));
-    ABSL_ASSERT(push_ok);
+    if (link) {
+      // On the fast path we just fix up the queue to start at the next outbound
+      // sequence number.
+      outbound_parcels_.ResetInitialSequenceNumber(sequence_number + 1);
+    } else {
+      DVLOG(4) << "Queuing outbound " << parcel.Describe();
+      const bool push_ok = outbound_parcels_.Push(std::move(parcel));
+      ABSL_ASSERT(push_ok);
+    }
   }
 
-  Flush();
+  if (link) {
+    link->AcceptParcel(parcel);
+  } else {
+    Flush();
+  }
+
   return IPCZ_RESULT_OK;
 }
 
