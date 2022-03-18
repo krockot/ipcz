@@ -148,7 +148,7 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
     if (link) {
       // On the fast path we just fix up the queue to start at the next outbound
       // sequence number.
-      outbound_parcels_.ResetInitialSequenceNumber(sequence_number + 1);
+      outbound_parcels_.SkipNextSequenceNumber();
     } else {
       DVLOG(4) << "Queuing outbound " << parcel.Describe();
       const bool push_ok =

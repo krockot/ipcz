@@ -9,14 +9,14 @@
 
 namespace ipcz {
 
-// Used to order parcels relative to other parcels in the same conceptual queue,
-// i.e. originating from the same portal and arriving at the same portal.
+// Used to number arbitrary objects in a sequence.
+//
+// More specifically this is used by ipcz to maintain relative ordering of
+// parcels against other parcels from the same source portal, and NodeLink
+// messages against other NodeLink messages from the NodeLink endpoint.
 //
 // TODO: strong alias?
 using SequenceNumber = uint64_t;
-
-constexpr SequenceNumber kInvalidSequenceNumber =
-    ~static_cast<SequenceNumber>(0);
 
 }  // namespace ipcz
 

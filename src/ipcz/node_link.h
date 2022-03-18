@@ -25,6 +25,7 @@
 #include "ipcz/remote_router_link.h"
 #include "ipcz/router_link_state.h"
 #include "ipcz/sequence_number.h"
+#include "ipcz/sequenced_queue.h"
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -178,6 +179,17 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool DispatchRelayedMessage(msg::AcceptRelayedMessage& relay);
 
  private:
+  struct IncomingMessage {
+    IncomingMessage();
+    IncomingMessage(IncomingMessage&&);
+    IncomingMessage& operator=(IncomingMessage&&);
+    ~IncomingMessage();
+
+    Fragment fragment;
+    std::vector<uint8_t> data;
+    std::vector<IpczDriverHandle> handles;
+  };
+
   NodeLink(Ref<Node> node,
            LinkSide link_side,
            const NodeName& local_node_name,
@@ -197,6 +209,11 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   IpczResult OnTransportMessage(
       const DriverTransport::Message& message) override;
   void OnTransportError() override;
+
+  IpczResult DispatchOrQueueTransportMessage(
+      const DriverTransport::Message& message);
+  IpczResult DispatchOrQueueFragmentMessage(const Fragment& fragment);
+  IpczResult FlushIncomingMessages(const DriverTransport::Message* message);
 
   // All of these methods correspond directly to remote calls from another node,
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
@@ -234,7 +251,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool OnAcceptRelayedMessage(msg::AcceptRelayedMessage& relay);
   bool OnFlushLink(const msg::FlushLink& flush);
 
-  IpczResult FlushSharedMemoryMessages(uint64_t max_sequence_number);
   IpczResult DispatchMessage(const DriverTransport::Message& message);
 
   bool AcceptPartialParcel(SublinkId for_sublink, Parcel& p);
@@ -259,16 +275,14 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool broken_ ABSL_GUARDED_BY(mutex_) = false;
 
   // Messages transmitted from this NodeLink may traverse either the driver
-  // transport OR some shared memory queue. Each message is assigned a sequence
-  // number to ensure that the receiving node can process them in the intended
-  // order. This atomic generates those sequence numbers.
-  //
-  // Note that this is only incremented for new messages going over the driver
-  // transport. Shared memory messages use the sequence number of the most
-  // recently transmitted transport message; this is because we're only
-  // concerned with preserving ordering where ordering might matter: between
-  // a transport and shared memory message sent from the same thread.
-  std::atomic<uint64_t> transport_sequence_number_{0};
+  // transport OR a shared memory queue. Messages transmitted from the same
+  // thread need to be processed in the same order by the receiving node. This
+  // is used to generate a sequence number for every message so they can be
+  // reordered on the receiving end.
+  std::atomic<SequenceNumber> next_outgoing_sequence_number_{0};
+
+  // Queue of incoming messages, for reordering when necessary.
+  SequencedQueue<IncomingMessage> incoming_messages_ ABSL_GUARDED_BY(mutex_);
 
   using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
   SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);

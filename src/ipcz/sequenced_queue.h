@@ -189,6 +189,16 @@ class SequencedQueue {
     base_sequence_number_ = n;
   }
 
+  // Skips the next SequenceNumber by advancing `base_sequence_number_` by one.
+  // Must be called only when no elements are currently available in the queue.
+  void SkipNextSequenceNumber() {
+    ABSL_ASSERT(!HasNextElement());
+    ++base_sequence_number_;
+    if (!IsEmpty()) {
+      entries_.remove_prefix(1);
+    }
+  }
+
   // Pushes an element into the queue with the given SequenceNumber. This may
   // fail if `n` falls below the minimum or maximum (when applicable) expected
   // sequence number for elements in this queue.

@@ -301,6 +301,9 @@ void NodeLink::TransmitMessage(
     small_size_class = 2048;
   }
 
+  const SequenceNumber sequence_number =
+      next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+
   // For messages which are small with no driver handles, prefer transmission
   // through shared memory.
   while (small_size_class > 0 && small_size_class <= 2048 &&
@@ -311,8 +314,7 @@ void NodeLink::TransmitMessage(
       continue;
     }
 
-    message.header().transport_sequence_number =
-        transport_sequence_number_.load(std::memory_order_relaxed);
+    message.header().sequence_number = sequence_number;
     memcpy(fragment.address(), message.data_view().data(),
            message.data_view().size());
     if (!memory().outgoing_message_fragments().Push(fragment.descriptor())) {
@@ -328,16 +330,15 @@ void NodeLink::TransmitMessage(
     }
 
     msg::FlushLink flush;
-    flush.header().transport_sequence_number =
-        transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    flush.header().sequence_number =
+        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
     transport_->TransmitMessage(
         DriverTransport::Message(DriverTransport::Data(flush.data_view())));
     return;
   }
 
   memory().TestAndSetNotificationPending();
-  message.header().transport_sequence_number =
-      transport_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+  message.header().sequence_number = sequence_number;
   transport_->TransmitMessage(
       DriverTransport::Message(DriverTransport::Data(message.data_view()),
                                message.transmissible_driver_handles()));
@@ -359,22 +360,18 @@ void NodeLink::RelayMessage(const NodeName& to_node,
 
 IpczResult NodeLink::OnTransportMessage(
     const DriverTransport::Message& message) {
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-  const uint64_t sequence_number = header.transport_sequence_number;
-
-  IpczResult result = FlushSharedMemoryMessages(sequence_number);
+  const IpczResult result = FlushIncomingMessages(&message);
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
 
-  result = DispatchMessage(message);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
+  // Note that we don't clear this flag until *after* the above flush. This
+  // allows slightly more time for the remote node to transmit additional
+  // messages in shared memory without signaling us, but it also means we need
+  // to do another flush before returning.
   memory().ClearPendingNotification();
-  return FlushSharedMemoryMessages(sequence_number + 1);
+
+  return FlushIncomingMessages(nullptr);
 }
 
 void NodeLink::OnTransportError() {
@@ -388,6 +385,145 @@ void NodeLink::OnTransportError() {
   for (auto& [id, sublink] : sublinks) {
     sublink.receiver->NotifyLinkDisconnected(*this, id);
   }
+}
+
+IpczResult NodeLink::DispatchOrQueueTransportMessage(
+    const DriverTransport::Message& message) {
+  const auto& header =
+      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
+  const SequenceNumber sequence_number = header.sequence_number;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (sequence_number < incoming_messages_.current_sequence_number()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (sequence_number > incoming_messages_.current_sequence_number()) {
+      IncomingMessage incoming_message;
+      incoming_message.data =
+          std::vector<uint8_t>(message.data.begin(), message.data.end());
+      incoming_message.handles = std::vector<IpczDriverHandle>(
+          message.handles.begin(), message.handles.end());
+      bool ok =
+          incoming_messages_.Push(sequence_number, std::move(incoming_message));
+      ABSL_ASSERT(ok);
+      return IPCZ_RESULT_OK;
+    }
+
+    // Otherwise this message is the next to dispatch, so fall through.
+  }
+
+  IpczResult result = DispatchMessage(message);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  absl::MutexLock lock(&mutex_);
+  incoming_messages_.SkipNextSequenceNumber();
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult NodeLink::DispatchOrQueueFragmentMessage(const Fragment& fragment) {
+  auto& header = *static_cast<internal::MessageHeader*>(fragment.address());
+  const SequenceNumber sequence_number = header.sequence_number;
+  {
+    absl::MutexLock lock(&mutex_);
+    if (sequence_number < incoming_messages_.current_sequence_number()) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (sequence_number > incoming_messages_.current_sequence_number()) {
+      IncomingMessage incoming_message;
+      incoming_message.fragment = fragment;
+      bool ok =
+          incoming_messages_.Push(sequence_number, std::move(incoming_message));
+      ABSL_ASSERT(ok);
+      return IPCZ_RESULT_OK;
+    }
+
+    // Otherwise this message is the next to dispatch, so fall through.
+  }
+
+  IpczResult result =
+      DispatchMessage(DriverTransport::Message(fragment.bytes()));
+  memory().FreeFragment(fragment);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  absl::MutexLock lock(&mutex_);
+  incoming_messages_.SkipNextSequenceNumber();
+  return IPCZ_RESULT_OK;
+}
+
+IpczResult NodeLink::FlushIncomingMessages(
+    const DriverTransport::Message* message) {
+  MpscQueue<FragmentDescriptor>& fragments =
+      memory().incoming_message_fragments();
+  for (;;) {
+    FragmentDescriptor* descriptor = fragments.Peek();
+    if (!descriptor) {
+      break;
+    }
+
+    Fragment fragment = memory().GetFragment(*descriptor);
+    if (fragment.is_pending()) {
+      // The message queue is non-empty, but the head of the queue is a fragment
+      // whose buffer is not yet mapped by this node. In such cases there must
+      // already be a transport message in flight to register the buffer with
+      // this node, so the queue can be unblocked once that arrives.
+      break;
+    }
+
+    if (fragment.size() < sizeof(internal::MessageHeader)) {
+      return IPCZ_RESULT_INVALID_ARGUMENT;
+    }
+
+    IpczResult result = DispatchOrQueueFragmentMessage(fragment);
+    if (result != IPCZ_RESULT_OK) {
+      return result;
+    }
+
+    fragments.Pop();
+  }
+
+  for (;;) {
+    IncomingMessage next_message;
+    {
+      absl::MutexLock lock(&mutex_);
+      if (!incoming_messages_.Pop(next_message)) {
+        break;
+      }
+    }
+
+    IpczResult result;
+    if (!next_message.fragment.is_null()) {
+      if (!next_message.fragment.is_resolved()) {
+        return IPCZ_RESULT_INVALID_ARGUMENT;
+      }
+
+      result = DispatchMessage(DriverTransport::Message(
+          DriverTransport::Data(next_message.fragment.bytes())));
+      memory().FreeFragment(next_message.fragment);
+    } else {
+      result = DispatchMessage(DriverTransport::Message(
+          DriverTransport::Data(absl::MakeSpan(next_message.data)),
+          absl::MakeSpan(next_message.handles)));
+    }
+    if (result != IPCZ_RESULT_OK) {
+      return result;
+    }
+  }
+
+  if (!message) {
+    return IPCZ_RESULT_OK;
+  }
+
+  // Because transport messages must be copied when queued, we defer this until
+  // after we've processed any messages in shared memory. This should
+  // significantly reduce the likelihood that we'll have to queue the transport
+  // message.
+  return DispatchOrQueueTransportMessage(*message);
 }
 
 bool NodeLink::OnConnectFromBrokerToNonBroker(
@@ -758,46 +894,6 @@ bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
   return true;
 }
 
-IpczResult NodeLink::FlushSharedMemoryMessages(uint64_t max_sequence_number) {
-  MpscQueue<FragmentDescriptor>& fragments =
-      memory().incoming_message_fragments();
-  for (;;) {
-    FragmentDescriptor* descriptor = fragments.Peek();
-    if (!descriptor) {
-      // No messages in shared memory.
-      return IPCZ_RESULT_OK;
-    }
-
-    Fragment fragment = memory().GetFragment(*descriptor);
-    if (fragment.is_pending()) {
-      // The message queue is non-empty, but the head of the queue is a fragment
-      // whose buffer is not yet mapped by this node. In such cases there must
-      // already be a transport message in flight to register the buffer with
-      // this node, so the queue can be unblocked once that arrives.
-      return IPCZ_RESULT_OK;
-    }
-
-    if (fragment.size() < sizeof(internal::MessageHeader)) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    auto& header = *static_cast<internal::MessageHeader*>(fragment.address());
-    if (header.transport_sequence_number > max_sequence_number) {
-      // This is fine, but we're not ready to dispatch this message yet.
-      return IPCZ_RESULT_OK;
-    }
-
-    IpczResult result =
-        DispatchMessage(DriverTransport::Message(fragment.bytes()));
-    if (result != IPCZ_RESULT_OK) {
-      return result;
-    }
-
-    fragments.Pop();
-    memory().FreeFragment(fragment);
-  }
-}
-
 IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
   const auto& header =
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
@@ -922,5 +1018,14 @@ NodeLink::Sublink& NodeLink::Sublink::operator=(Sublink&&) = default;
 NodeLink::Sublink& NodeLink::Sublink::operator=(const Sublink&) = default;
 
 NodeLink::Sublink::~Sublink() = default;
+
+NodeLink::IncomingMessage::IncomingMessage() = default;
+
+NodeLink::IncomingMessage::IncomingMessage(IncomingMessage&&) = default;
+
+NodeLink::IncomingMessage& NodeLink::IncomingMessage::operator=(
+    IncomingMessage&&) = default;
+
+NodeLink::IncomingMessage::~IncomingMessage() = default;
 
 }  // namespace ipcz
