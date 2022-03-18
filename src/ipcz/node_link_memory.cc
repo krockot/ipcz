@@ -96,10 +96,9 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
 
 NodeLinkMemory::NodeLinkMemory(Ref<Node> node,
                                DriverMemoryMapping primary_buffer_memory)
-    : node_(std::move(node)) {
-  buffers_.push_back(std::move(primary_buffer_memory));
-
-  auto bytes = primary_buffer_mapping().bytes();
+    : node_(std::move(node)),
+      primary_buffer_(std::move(primary_buffer_memory)) {
+  auto bytes = primary_buffer_.bytes();
   fragment_allocator_.AddBlockAllocator(256, kPrimaryBufferId, bytes,
                                         primary_buffer().block_allocator_256());
   fragment_allocator_.AddBlockAllocator(512, kPrimaryBufferId, bytes,
@@ -177,13 +176,12 @@ Fragment NodeLinkMemory::GetFragment(const FragmentDescriptor& descriptor) {
 
   if (descriptor.buffer_id() == kPrimaryBufferId) {
     // Fast path for primary buffer access.
-    ABSL_ASSERT(!buffers_.empty());
-    if (descriptor.end() > buffers_.front().bytes().size()) {
+    if (descriptor.end() > primary_buffer_.bytes().size()) {
       return {};
     }
 
     return Fragment(descriptor,
-                    buffers_.front().address_at(descriptor.offset()));
+                    primary_buffer_.address_at(descriptor.offset()));
   }
 
   absl::MutexLock lock(&mutex_);
@@ -211,9 +209,9 @@ FragmentRef<RouterLinkState> NodeLinkMemory::GetInitialRouterLinkState(
   ABSL_ASSERT(i < states.size());
   RouterLinkState* state = &states[i];
 
-  FragmentDescriptor descriptor(
-      kPrimaryBufferId, ToOffset(state, primary_buffer_mapping().address()),
-      sizeof(RouterLinkState));
+  FragmentDescriptor descriptor(kPrimaryBufferId,
+                                ToOffset(state, primary_buffer_.address()),
+                                sizeof(RouterLinkState));
   return FragmentRef<RouterLinkState>(RefCountedFragment::kUnmanagedRef,
                                       Fragment(descriptor, state));
 }

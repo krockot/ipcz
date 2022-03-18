@@ -145,10 +145,8 @@ class NodeLinkMemory : public RefCounted {
 
   ~NodeLinkMemory() override;
 
-  DriverMemoryMapping& primary_buffer_mapping() { return buffers_.front(); }
-
   PrimaryBuffer& primary_buffer() {
-    return *static_cast<PrimaryBuffer*>(primary_buffer_mapping().address());
+    return *static_cast<PrimaryBuffer*>(primary_buffer_.address());
   }
 
   NodeLinkMemory(Ref<Node> node, DriverMemoryMapping primary_buffer);
@@ -163,12 +161,12 @@ class NodeLinkMemory : public RefCounted {
   // the link has been deactivated and is set for destruction.
   Ref<NodeLink> node_link_ ABSL_GUARDED_BY(mutex_);
 
-  // List of all allocated buffers for this object. Once elements are appended
-  // to this list, they remain indefinitely. The head of the list is initialized
-  // at construction time and is therefore always stable, so its read access is
-  // not guarded by `mutex_` (hence no annotation). All other accesses must be
-  // guarded.
-  std::list<DriverMemoryMapping> buffers_;
+  // Mapping for this link's fixed primary buffer.
+  const DriverMemoryMapping primary_buffer_;
+
+  // List of all allocated buffers for this object, except the primary buffer.
+  // Once elements are appended to this list, they remain indefinitely.
+  std::list<DriverMemoryMapping> buffers_ ABSL_GUARDED_BY(mutex_);
 
   // Handles dynamic allocation of most shared memory chunks used by this
   // NodeLinkMemory.
