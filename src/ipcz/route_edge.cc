@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "ipcz/parcel_queue.h"
 #include "ipcz/router.h"
 #include "ipcz/router_link.h"
 #include "util/log.h"
@@ -71,7 +70,7 @@ void RouteEdge::FlushParcelsFromQueue(
     FlushedParcelQueue& parcels_to_decaying_link,
     FlushedParcelQueue& parcels_to_primary_link) {
   Parcel parcel;
-  while (parcels.HasNextParcel() && decaying_link_ &&
+  while (parcels.HasNextElement() && decaying_link_ &&
          ShouldSendOnDecayingLink(parcels.current_sequence_number())) {
     bool ok = parcels.Pop(parcel);
     ABSL_ASSERT(ok);

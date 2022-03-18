@@ -85,15 +85,17 @@ bool Router::WouldOutboundParcelExceedLimits(size_t data_size,
   Ref<RouterLink> link;
   {
     absl::MutexLock lock(&mutex_);
-    if (outbound_parcels_.GetNumAvailableParcels() >=
+    if (outbound_parcels_.GetNumAvailableElements() >=
         limits.max_queued_parcels) {
       return true;
     }
-    if (outbound_parcels_.GetNumAvailableBytes() > limits.max_queued_bytes) {
+    if (outbound_parcels_.GetTotalAvailableElementSize() >
+        limits.max_queued_bytes) {
       return true;
     }
     const size_t available_capacity =
-        limits.max_queued_bytes - outbound_parcels_.GetNumAvailableBytes();
+        limits.max_queued_bytes -
+        outbound_parcels_.GetTotalAvailableElementSize();
     if (data_size > available_capacity) {
       return true;
     }
@@ -110,14 +112,16 @@ bool Router::WouldOutboundParcelExceedLimits(size_t data_size,
 bool Router::WouldInboundParcelExceedLimits(size_t data_size,
                                             const IpczPutLimits& limits) {
   absl::MutexLock lock(&mutex_);
-  if (inbound_parcels_.GetNumAvailableBytes() > limits.max_queued_bytes) {
+  if (inbound_parcels_.GetTotalAvailableElementSize() >
+      limits.max_queued_bytes) {
     return true;
   }
 
   const size_t available_capacity =
-      limits.max_queued_bytes - inbound_parcels_.GetNumAvailableBytes();
+      limits.max_queued_bytes - inbound_parcels_.GetTotalAvailableElementSize();
   return data_size > available_capacity ||
-         inbound_parcels_.GetNumAvailableParcels() >= limits.max_queued_parcels;
+         inbound_parcels_.GetNumAvailableElements() >=
+             limits.max_queued_parcels;
 }
 
 IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
@@ -147,7 +151,8 @@ IpczResult Router::SendOutboundParcel(absl::Span<const uint8_t> data,
       outbound_parcels_.ResetInitialSequenceNumber(sequence_number + 1);
     } else {
       DVLOG(4) << "Queuing outbound " << parcel.Describe();
-      const bool push_ok = outbound_parcels_.Push(std::move(parcel));
+      const bool push_ok =
+          outbound_parcels_.Push(sequence_number, std::move(parcel));
       ABSL_ASSERT(push_ok);
     }
   }
@@ -273,13 +278,14 @@ bool Router::AcceptInboundParcel(Parcel& parcel) {
   TrapEventDispatcher dispatcher;
   {
     absl::MutexLock lock(&mutex_);
-    if (!inbound_parcels_.Push(std::move(parcel))) {
+    const SequenceNumber sequence_number = parcel.sequence_number();
+    if (!inbound_parcels_.Push(sequence_number, std::move(parcel))) {
       return true;
     }
 
     if (!inward_edge_) {
-      status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
-      status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
+      status_.num_local_parcels = inbound_parcels_.GetNumAvailableElements();
+      status_.num_local_bytes = inbound_parcels_.GetTotalAvailableElementSize();
       traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kNewLocalParcel,
                                 dispatcher);
     }
@@ -302,7 +308,8 @@ bool Router::AcceptOutboundParcel(Parcel& parcel) {
     // it unnecessarily forces in-order forwarding. We could use an unordered
     // queue for forwarding, but we'd still need some lighter-weight abstraction
     // that tracks complete sequences from potentially fragmented contributions.
-    if (!outbound_parcels_.Push(std::move(parcel))) {
+    const SequenceNumber sequence_number = parcel.sequence_number();
+    if (!outbound_parcels_.Push(sequence_number, std::move(parcel))) {
       return false;
     }
   }
@@ -391,14 +398,14 @@ IpczResult Router::GetNextIncomingParcel(IpczGetFlags flags,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  if (!inbound_parcels_.HasNextParcel()) {
+  if (!inbound_parcels_.HasNextElement()) {
     if (inbound_parcels_.IsDead()) {
       return IPCZ_RESULT_NOT_FOUND;
     }
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& p = inbound_parcels_.NextParcel();
+  Parcel& p = inbound_parcels_.NextElement();
   const bool allow_partial = (flags & IPCZ_GET_PARTIAL) != 0;
   const size_t data_capacity = num_bytes ? *num_bytes : 0;
   const size_t handles_capacity = num_handles ? *num_handles : 0;
@@ -407,7 +414,6 @@ IpczResult Router::GetNextIncomingParcel(IpczGetFlags flags,
   const size_t handles_size = allow_partial
                                   ? std::min(p.num_objects(), handles_capacity)
                                   : p.num_objects();
-
   if (num_bytes) {
     *num_bytes = static_cast<uint32_t>(data_size);
   }
@@ -426,8 +432,8 @@ IpczResult Router::GetNextIncomingParcel(IpczGetFlags flags,
       data_size, absl::MakeSpan(handles, handles_size));
   ABSL_ASSERT(ok);
 
-  status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
-  status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
+  status_.num_local_parcels = inbound_parcels_.GetNumAvailableElements();
+  status_.num_local_bytes = inbound_parcels_.GetTotalAvailableElementSize();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     traps_.UpdatePortalStatus(
@@ -445,11 +451,11 @@ IpczResult Router::BeginGetNextIncomingParcel(const void** data,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  if (!inbound_parcels_.HasNextParcel()) {
+  if (!inbound_parcels_.HasNextElement()) {
     return IPCZ_RESULT_UNAVAILABLE;
   }
 
-  Parcel& p = inbound_parcels_.NextParcel();
+  Parcel& p = inbound_parcels_.NextElement();
   const uint32_t data_size = static_cast<uint32_t>(p.data_size());
   const uint32_t handles_size = static_cast<uint32_t>(p.num_objects());
   if (data) {
@@ -476,12 +482,12 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   if (inward_edge_) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
-  if (!inbound_parcels_.HasNextParcel()) {
+  if (!inbound_parcels_.HasNextElement()) {
     // If ipcz is used correctly this is impossible.
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  Parcel& p = inbound_parcels_.NextParcel();
+  Parcel& p = inbound_parcels_.NextElement();
   if (num_data_bytes_consumed > p.data_size() ||
       handles.size() > p.num_objects()) {
     return IPCZ_RESULT_OUT_OF_RANGE;
@@ -490,8 +496,8 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
   const bool ok = inbound_parcels_.Consume(num_data_bytes_consumed, handles);
   ABSL_ASSERT(ok);
 
-  status_.num_local_parcels = inbound_parcels_.GetNumAvailableParcels();
-  status_.num_local_bytes = inbound_parcels_.GetNumAvailableBytes();
+  status_.num_local_parcels = inbound_parcels_.GetNumAvailableElements();
+  status_.num_local_bytes = inbound_parcels_.GetTotalAvailableElementSize();
   if (inbound_parcels_.IsDead()) {
     status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
     traps_.UpdatePortalStatus(
@@ -1156,7 +1162,7 @@ void Router::Flush(bool force_bypass_attempt) {
       // the route and the central link can be locked.
       dead_outward_link = outward_edge_.ReleasePrimaryLink();
       final_outward_sequence_length = outbound_parcels_.final_sequence_length();
-    } else if (!inbound_parcels_.IsExpectingMoreParcels()) {
+    } else if (!inbound_parcels_.ExpectsMoreElements()) {
       // If we expect no more inbound parcels, the other side of the route is
       // gone and we've already received everything it sent. We can also drop
       // the outward link in this case.

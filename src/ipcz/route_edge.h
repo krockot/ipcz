@@ -8,6 +8,7 @@
 #include "ipcz/ipcz.h"
 #include "ipcz/node_name.h"
 #include "ipcz/parcel.h"
+#include "ipcz/parcel_queue.h"
 #include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -18,7 +19,6 @@
 namespace ipcz {
 
 class NodeLink;
-class ParcelQueue;
 class Router;
 class RouterLink;
 
