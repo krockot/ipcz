@@ -19,11 +19,22 @@
 #include <windows.h>
 #endif
 
+#if defined(THREAD_SANITIZER)
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#endif
+
 namespace ipcz::standalone {
 
 namespace {
 
 std::atomic_int g_verbosity_level{0};
+
+#if defined(THREAD_SANITIZER)
+absl::Mutex* GetCerrMutex() {
+  static absl::Mutex* mutex = new absl::Mutex();
+  return mutex;
+}
+#endif
 
 }  // namespace
 
@@ -43,6 +54,11 @@ LogMessage::LogMessage(const char* file, int line, Level level) {
 }
 
 LogMessage::~LogMessage() {
+#if defined(THREAD_SANITIZER)
+  // Paper over potential data race within std::cerr access under TSAN.
+  absl::MutexLock lock(GetCerrMutex());
+#endif
+
   std::cerr << stream_.str() << std::endl;
 }
 

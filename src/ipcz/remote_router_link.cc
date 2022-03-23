@@ -93,7 +93,7 @@ void RemoteRouterLink::SetLinkState(FragmentRef<RouterLinkState> state) {
 
   LinkStatePhase expected_phase = LinkStatePhase::kNotPresent;
   if (!link_state_phase_.compare_exchange_strong(
-          expected_phase, LinkStatePhase::kBusy, std::memory_order_relaxed)) {
+          expected_phase, LinkStatePhase::kBusy, std::memory_order_acquire)) {
     return;
   }
 
@@ -101,17 +101,16 @@ void RemoteRouterLink::SetLinkState(FragmentRef<RouterLinkState> state) {
   RouterLinkState* expected_state = nullptr;
   if (!link_state_.compare_exchange_strong(expected_state,
                                            link_state_fragment_.get(),
-                                           std::memory_order_relaxed)) {
+                                           std::memory_order_release)) {
     return;
   }
 
   expected_phase = LinkStatePhase::kBusy;
-  std::atomic_thread_fence(std::memory_order_release);
   bool ok = link_state_phase_.compare_exchange_strong(
-      expected_phase, LinkStatePhase::kPresent, std::memory_order_relaxed);
+      expected_phase, LinkStatePhase::kPresent, std::memory_order_release);
   ABSL_ASSERT(ok);
 
-  if (side_is_stable_.load(std::memory_order_acquire)) {
+  if (side_is_stable_.load(std::memory_order_relaxed)) {
     MarkSideStable();
   }
 

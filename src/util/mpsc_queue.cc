@@ -13,6 +13,10 @@
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
+#if defined(THREAD_SANITIZER)
+#include <sanitizer/tsan_interface.h>
+#endif
+
 namespace ipcz::internal {
 
 namespace {
@@ -117,6 +121,13 @@ void* MpscQueueBase::PeekBytes() {
   if ((cell.load(std::memory_order_relaxed) & kFullBit) == 0) {
     return nullptr;
   }
+
+  // Note that we only synchronize the above load if we have a cell to return.
+  // TSAN doesn't do well with fences, hence the explicit annotation below.
+  std::atomic_thread_fence(std::memory_order_acquire);
+#if defined(THREAD_SANITIZER)
+  __tsan_acquire(&cell);
+#endif
 
   return &cell + 1;
 }

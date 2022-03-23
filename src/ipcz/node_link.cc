@@ -29,6 +29,10 @@
 #include "util/log.h"
 #include "util/ref_counted.h"
 
+#if defined(THREAD_SANITIZER)
+#include <sanitizer/tsan_interface.h>
+#endif
+
 namespace ipcz {
 
 // static
@@ -317,6 +321,20 @@ void NodeLink::TransmitMessage(
     message.header().sequence_number = sequence_number;
     memcpy(fragment.address(), message.data_view().data(),
            message.data_view().size());
+
+#if defined(THREAD_SANITIZER)
+    // The above memcpy() trivially happens-before the Push() below, and on
+    // success the Push() does a store-release operation which
+    // synchronizes-with a corresponding acquire fence in Peek() within
+    // DispatchOrQueueFragmentMessage(). Since that Peek() itself happens-before
+    // any read of the fragment's contents, it's valid to infer that there is no
+    // actual data race between a read of the fragment's contents, and the above
+    // memcpy(). TSAN is unable to deduce this however, so it's explicitly
+    // annotated here. See the corresponding acquire annotation in
+    // DispatchOrQueueFragmentMessage().
+    __tsan_release(fragment.address());
+#endif
+
     if (!memory().outgoing_message_fragments().Push(fragment.descriptor())) {
       // No queue capacity at the moment...
       memory().FreeFragment(fragment);
@@ -424,6 +442,13 @@ IpczResult NodeLink::DispatchOrQueueTransportMessage(
 }
 
 IpczResult NodeLink::DispatchOrQueueFragmentMessage(const Fragment& fragment) {
+#if defined(THREAD_SANITIZER)
+  // Annotate for TSAN that subsequent access to the fragment's contents is
+  // properly synchronized, since it can't deduce this on its own. See the
+  // corresponding release annotation in TransmitMessage().
+  __tsan_acquire(fragment.address());
+#endif
+
   auto& header = *static_cast<internal::MessageHeader*>(fragment.address());
   const SequenceNumber sequence_number = header.sequence_number;
   {

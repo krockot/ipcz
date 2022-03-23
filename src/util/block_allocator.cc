@@ -14,6 +14,10 @@
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
+#if defined(THREAD_SANITIZER)
+#include <sanitizer/tsan_interface.h>
+#endif
+
 namespace ipcz {
 
 namespace {
@@ -76,6 +80,17 @@ void* BlockAllocator::Alloc() {
     }
 
     Block& candidate = block_at(front_header.next);
+
+#if defined(THREAD_SANITIZER)
+    // Subtle: Annotation here to silence TSAN. We don't really need an acquire
+    // on the candidate header load below, because its result will only be used
+    // if the subsequent exchange succeeds. That can only happen in practice if
+    // we *didn't* race with some other thread to allocate a block, and that
+    // implies that the loaded header data is still the same data that was
+    // written when the block was initialized or last freed.
+    __tsan_acquire(&candidate.header);
+#endif
+
     BlockHeader candidate_header =
         candidate.header.load(std::memory_order_relaxed);
     if (!front.header.compare_exchange_weak(
