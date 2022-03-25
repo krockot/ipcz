@@ -82,7 +82,7 @@ void GenericFragmentRef::reset() {
     return;
   }
 
-  memory->FreeFragment(fragment);
+  memory->fragment_allocator().Free(fragment);
 }
 
 Fragment GenericFragmentRef::release() {

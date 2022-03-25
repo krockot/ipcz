@@ -312,32 +312,25 @@ void NodeLink::TransmitMessage(
   // through shared memory.
   while (small_size_class > 0 && small_size_class <= 2048 &&
          message.transmissible_driver_handles().empty()) {
-    Fragment fragment = memory().AllocateFragment(small_size_class);
+    Fragment fragment =
+        memory().fragment_allocator().Allocate(small_size_class);
     if (fragment.is_null()) {
       small_size_class *= 2;
       continue;
     }
 
     message.header().sequence_number = sequence_number;
-    memcpy(fragment.address(), message.data_view().data(),
-           message.data_view().size());
-
-#if defined(THREAD_SANITIZER)
-    // The above memcpy() trivially happens-before the Push() below, and on
-    // success the Push() does a store-release operation which
-    // synchronizes-with a corresponding acquire fence in Peek() within
-    // DispatchOrQueueFragmentMessage(). Since that Peek() itself happens-before
-    // any read of the fragment's contents, it's valid to infer that there is no
-    // actual data race between a read of the fragment's contents, and the above
-    // memcpy(). TSAN is unable to deduce this however, so it's explicitly
-    // annotated here. See the corresponding acquire annotation in
-    // DispatchOrQueueFragmentMessage().
-    __tsan_release(fragment.address());
-#endif
+    memcpy(&fragment.mutable_bytes()[sizeof(uint32_t)],
+           &message.data_view().data()[sizeof(uint32_t)],
+           message.data_view().size() - sizeof(uint32_t));
+    std::atomic_store_explicit(
+        static_cast<std::atomic<uint32_t>*>(fragment.address()),
+        *reinterpret_cast<uint32_t*>(message.data_view().data()),
+        std::memory_order_release);
 
     if (!memory().outgoing_message_fragments().Push(fragment.descriptor())) {
       // No queue capacity at the moment...
-      memory().FreeFragment(fragment);
+      memory().fragment_allocator().Free(fragment);
       break;
     }
 
@@ -471,7 +464,7 @@ IpczResult NodeLink::DispatchOrQueueFragmentMessage(const Fragment& fragment) {
 
   IpczResult result =
       DispatchMessage(DriverTransport::Message(fragment.bytes()));
-  memory().FreeFragment(fragment);
+  memory().fragment_allocator().Free(fragment);
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
@@ -529,7 +522,7 @@ IpczResult NodeLink::FlushIncomingMessages(
 
       result = DispatchMessage(DriverTransport::Message(
           DriverTransport::Data(next_message.fragment.bytes())));
-      memory().FreeFragment(next_message.fragment);
+      memory().fragment_allocator().Free(next_message.fragment);
     } else {
       result = DispatchMessage(DriverTransport::Message(
           DriverTransport::Data(absl::MakeSpan(next_message.data)),

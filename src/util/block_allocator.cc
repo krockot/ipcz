@@ -115,10 +115,10 @@ bool BlockAllocator::Free(void* ptr) {
   Block& front = block_at(0);
   do {
     front_header = front.header.load(std::memory_order_acquire);
-    free_block.header.store(front_header, std::memory_order_relaxed);
+    free_block.header.store(front_header, std::memory_order_release);
   } while (!front.header.compare_exchange_weak(
       front_header, MakeHeader(front_header.version + 1, free_index),
-      std::memory_order_release, std::memory_order_relaxed));
+      std::memory_order_relaxed, std::memory_order_relaxed));
   return true;
 }
 

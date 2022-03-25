@@ -15,8 +15,11 @@ RouterLinkState::~RouterLinkState() = default;
 
 // static
 RouterLinkState& RouterLinkState::Initialize(void* where) {
-  memset(where, 0, sizeof(RouterLinkState));
-  return *(new (where) RouterLinkState());
+  auto& state = *static_cast<RouterLinkState*>(where);
+  memset(&state.allowed_bypass_request_source, 0,
+         sizeof(state.allowed_bypass_request_source));
+  state.status.store(kUnstable, std::memory_order_release);
+  return state;
 }
 
 void RouterLinkState::SetSideStable(LinkSide side) {

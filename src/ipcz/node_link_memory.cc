@@ -152,6 +152,7 @@ void NodeLinkMemory::SetNodeLink(Ref<NodeLink> node_link) {
     return;
   }
 
+  fragment_allocator_.SetNodeLink(node_link_);
   if (node_link_->link_side().is_side_a()) {
     incoming_message_fragments_ = primary_buffer().b_to_a_message_queue();
     outgoing_message_fragments_ = primary_buffer().a_to_b_message_queue();
@@ -220,7 +221,7 @@ FragmentRef<RouterLinkState> NodeLinkMemory::AllocateRouterLinkState() {
   // Ensure RouterLinkStates can be allocated as 64-byte fragments.
   static_assert(sizeof(RouterLinkState) == 64, "Invalid RouterLinkState size");
 
-  Fragment fragment = AllocateFragment(sizeof(RouterLinkState));
+  Fragment fragment = fragment_allocator_.Allocate(sizeof(RouterLinkState));
   if (!fragment.is_null()) {
     RouterLinkState::Initialize(fragment.address());
     return FragmentRef<RouterLinkState>(WrapRefCounted(this), fragment);
@@ -229,63 +230,20 @@ FragmentRef<RouterLinkState> NodeLinkMemory::AllocateRouterLinkState() {
   return {};
 }
 
-Fragment NodeLinkMemory::AllocateFragment(size_t num_bytes) {
-  absl::MutexLock lock(&mutex_);
-  return fragment_allocator_.Allocate(num_bytes);
-}
-
-void NodeLinkMemory::FreeFragment(const Fragment& fragment) {
-  absl::MutexLock lock(&mutex_);
-  fragment_allocator_.Free(fragment);
-}
-
-void NodeLinkMemory::RequestFragmentCapacity(
-    uint32_t buffer_size,
-    uint32_t fragment_size,
-    RequestFragmentCapacityCallback callback) {
-  fragment_size = absl::bit_ceil(fragment_size);
-  {
-    absl::MutexLock lock(&mutex_);
-    auto [it, need_new_request] =
-        capacity_callbacks_.emplace(fragment_size, CapacityCallbackList());
-    it->second.push_back(std::move(callback));
-    if (!need_new_request) {
-      return;
-    }
-  }
-
-  node_->AllocateSharedMemory(
-      buffer_size,
-      [self = WrapRefCounted(this), fragment_size](DriverMemory memory) {
-        Ref<NodeLink> link;
-        const BufferId new_buffer_id = self->AllocateBufferId();
-        CapacityCallbackList callbacks;
-        {
-          absl::MutexLock lock(&self->mutex_);
-          self->buffers_.push_back(memory.Map());
-          DriverMemoryMapping* mapping = &self->buffers_.back();
-          self->buffer_map_[new_buffer_id] = mapping;
-          auto it = self->capacity_callbacks_.find(fragment_size);
-          if (it != self->capacity_callbacks_.end()) {
-            callbacks = std::move(it->second);
-            self->capacity_callbacks_.erase(it);
-          }
-          link = self->node_link_;
-
-          BlockAllocator block_allocator(mapping->bytes(), fragment_size);
-          block_allocator.InitializeRegion();
-          self->fragment_allocator_.AddBlockAllocator(
-              fragment_size, new_buffer_id, mapping->bytes(), block_allocator);
+void NodeLinkMemory::AllocateRouterLinkStateAsync(
+    RouterLinkStateCallback callback) {
+  fragment_allocator_.AllocateAsync(
+      sizeof(RouterLinkState),
+      [self = WrapRefCounted(this),
+       callback = std::move(callback)](Fragment fragment) {
+        if (fragment.is_null()) {
+          callback({});
+          return;
         }
 
-        if (link) {
-          link->AddFragmentAllocatorBuffer(new_buffer_id, fragment_size,
-                                           std::move(memory));
-        }
-
-        for (auto& callback : callbacks) {
-          callback();
-        }
+        RouterLinkState::Initialize(fragment.address());
+        callback(FragmentRef<RouterLinkState>(std::move(self), fragment));
+        return;
       });
 }
 
@@ -337,6 +295,29 @@ void NodeLinkMemory::ClearPendingNotification() {
   }
 
   incoming_notification_flag_->clear();
+}
+
+void NodeLinkMemory::AllocateBuffer(size_t num_bytes,
+                                    AllocateBufferCallback callback) {
+  node_->AllocateSharedMemory(
+      num_bytes, [self = WrapRefCounted(this),
+                  callback = std::move(callback)](DriverMemory memory) {
+        if (!memory.is_valid()) {
+          DriverMemoryMapping invalid_mapping;
+          callback(0, DriverMemory(), invalid_mapping);
+          return;
+        }
+
+        const BufferId new_buffer_id = self->AllocateBufferId();
+        DriverMemoryMapping* mapping;
+        {
+          absl::MutexLock lock(&self->mutex_);
+          self->buffers_.push_back(memory.Map());
+          mapping = &self->buffers_.back();
+          self->buffer_map_[new_buffer_id] = mapping;
+        }
+        callback(new_buffer_id, std::move(memory), *mapping);
+      });
 }
 
 void NodeLinkMemory::OnBufferAvailable(BufferId id, Function<void()> callback) {

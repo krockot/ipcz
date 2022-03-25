@@ -48,6 +48,8 @@ class NodeLinkMemory : public RefCounted {
     return outgoing_message_fragments_;
   }
 
+  FragmentAllocator& fragment_allocator() { return fragment_allocator_; }
+
   static Ref<NodeLinkMemory> Allocate(Ref<Node> node,
                                       size_t num_initial_portals,
                                       DriverMemory& primary_buffer_memory);
@@ -94,25 +96,9 @@ class NodeLinkMemory : public RefCounted {
   // RouterLinkState instances.
   FragmentRef<RouterLinkState> AllocateRouterLinkState();
 
-  // Allocates a fragment of shared memory of the given size or of the smallest
-  // sufficient size available to this object. If no memory is available to
-  // allocate the fragment, this returns a null fragment.
-  Fragment AllocateFragment(size_t num_bytes);
-
-  // Frees a fragment allocated by AllocateFragment() or other allocation
-  // helpers on this object.
-  void FreeFragment(const Fragment& fragment);
-
-  // Requests allocation of additional fragment allocation capacity for this
-  // NodeLinkMemory, in the form of a single new buffer of `size` bytes in which
-  // fragments of `fragment_size` bytes will be allocated.
-  //
-  // `callback` is invoked once new capacity is available, which may require
-  // some asynchronous work to accomplish.
-  using RequestFragmentCapacityCallback = Function<void()>;
-  void RequestFragmentCapacity(uint32_t buffer_size,
-                               uint32_t fragment_size,
-                               RequestFragmentCapacityCallback callback);
+  // Same as above, but may complete asynchronously.
+  using RouterLinkStateCallback = Function<void(FragmentRef<RouterLinkState>)>;
+  void AllocateRouterLinkStateAsync(RouterLinkStateCallback callback);
 
   // Introduces a new buffer associated with BufferId, for use as a fragment
   // allocator with fragments of size `fragment_size`. `id` must have been
@@ -135,6 +121,16 @@ class NodeLinkMemory : public RefCounted {
   // message sent by the other side will elicit at least one additional flush
   // message to this side via the driver transport.
   void ClearPendingNotification();
+
+  // Requests allocation of a new buffer of the given size. When completed,
+  // `callback` is invoked with the memory object, a mapping (owned by this
+  // NodeLinkMemory), and the ID of the new buffer. The buffer is NOT
+  // automatically shared across the link. Instead, the caller should do that
+  // along with whatever context is necessary for the other side to use the
+  // buffer as expected.
+  using AllocateBufferCallback =
+      Function<void(BufferId, DriverMemory, DriverMemoryMapping&)>;
+  void AllocateBuffer(size_t num_bytes, AllocateBufferCallback callback);
 
   // Registers a callback to be invoked as soon as the identified buffer becomes
   // available to this NodeLinkMemory.
@@ -170,7 +166,7 @@ class NodeLinkMemory : public RefCounted {
 
   // Handles dynamic allocation of most shared memory chunks used by this
   // NodeLinkMemory.
-  FragmentAllocator fragment_allocator_ ABSL_GUARDED_BY(mutex_);
+  FragmentAllocator fragment_allocator_;
 
   // Message queues mapped from this NodeLinkMemory's primary buffer. These are
   // used as a lightweight medium to convey small data-only messages.
@@ -178,12 +174,6 @@ class NodeLinkMemory : public RefCounted {
   MpscQueue<FragmentDescriptor> outgoing_message_fragments_;
   std::atomic_flag* incoming_notification_flag_;
   std::atomic_flag* outgoing_notification_flag_;
-
-  // Callbacks to invoke when a pending capacity request is fulfilled for a
-  // specific fragment size.
-  using CapacityCallbackList = std::vector<RequestFragmentCapacityCallback>;
-  absl::flat_hash_map<uint32_t, CapacityCallbackList> capacity_callbacks_
-      ABSL_GUARDED_BY(mutex_);
 
   // Mapping from BufferId to some buffer in `buffers_` above.
   absl::flat_hash_map<BufferId, DriverMemoryMapping*> buffer_map_

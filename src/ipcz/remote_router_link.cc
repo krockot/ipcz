@@ -31,12 +31,6 @@
 
 namespace ipcz {
 
-namespace {
-
-constexpr size_t kAuxLinkStateBufferSize = 16384;
-
-}  // namespace
-
 RemoteRouterLink::RemoteRouterLink(
     Ref<NodeLink> node_link,
     SublinkId sublink,
@@ -432,15 +426,10 @@ void RemoteRouterLink::LogRouteTrace() {
 }
 
 void RemoteRouterLink::AllocateLinkState() {
-  node_link()->memory().RequestFragmentCapacity(
-      kAuxLinkStateBufferSize, sizeof(RouterLinkState),
-      [self = WrapRefCounted(this)]() {
-        FragmentRef<RouterLinkState> state =
-            self->node_link()->memory().AllocateRouterLinkState();
+  node_link()->memory().AllocateRouterLinkStateAsync(
+      [self = WrapRefCounted(this)](FragmentRef<RouterLinkState> state) {
         if (state.is_null()) {
-          // We got some new allocator capacity but it's already used up. Try
-          // again.
-          self->AllocateLinkState();
+          DLOG(ERROR) << "Unable to allocate RouterLinkState.";
           return;
         }
 
