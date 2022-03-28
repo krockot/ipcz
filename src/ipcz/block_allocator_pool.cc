@@ -25,6 +25,11 @@ BlockAllocatorPool::BlockAllocatorPool(uint32_t fragment_size)
 
 BlockAllocatorPool::~BlockAllocatorPool() = default;
 
+size_t BlockAllocatorPool::GetCapacity() {
+  absl::MutexLock lock(&mutex_);
+  return capacity_;
+}
+
 void BlockAllocatorPool::AddBlockAllocator(BufferId buffer_id,
                                            absl::Span<uint8_t> buffer_memory,
                                            const BlockAllocator& allocator) {
@@ -35,6 +40,7 @@ void BlockAllocatorPool::AddBlockAllocator(BufferId buffer_id,
     previous_tail = &entries_.back();
   }
 
+  capacity_ += allocator.capacity() * fragment_size_;
   entries_.emplace_back(buffer_id, buffer_memory, allocator);
   new_entry = &entries_.back();
   entry_map_[buffer_id] = new_entry;

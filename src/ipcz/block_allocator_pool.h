@@ -27,6 +27,8 @@ class BlockAllocatorPool {
   explicit BlockAllocatorPool(uint32_t fragment_size);
   ~BlockAllocatorPool();
 
+  size_t GetCapacity();
+
   // Permanently registers a new BlockAllocator with this object, utilizing
   // `memory` for its storage. `buffer_id` is the BufferId associated with the
   // allocator's memory and `buffer_memory` is the full span of bytes mapped by
@@ -59,6 +61,7 @@ class BlockAllocatorPool {
   const uint32_t fragment_size_;
 
   absl::Mutex mutex_;
+  size_t capacity_ ABSL_GUARDED_BY(mutex_) = 0;
   std::list<Entry> entries_ ABSL_GUARDED_BY(mutex_);
   absl::flat_hash_map<BufferId, Entry*> entry_map_ ABSL_GUARDED_BY(mutex_);
 

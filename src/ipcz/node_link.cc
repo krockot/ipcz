@@ -294,28 +294,35 @@ void NodeLink::TransmitMessage(
     return;
   }
 
-  size_t small_size_class = 0;
-  if (message.data_view().size() <= 256) {
-    small_size_class = 256;
-  } else if (message.data_view().size() <= 512) {
-    small_size_class = 512;
-  } else if (message.data_view().size() <= 1024) {
-    small_size_class = 1024;
-  } else if (message.data_view().size() <= 2048) {
-    small_size_class = 2048;
-  }
-
   const SequenceNumber sequence_number =
       next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
 
-  // For messages which are small with no driver handles, prefer transmission
-  // through shared memory.
-  while (small_size_class > 0 && small_size_class <= 2048 &&
-         message.transmissible_driver_handles().empty()) {
-    Fragment fragment =
-        memory().fragment_allocator().Allocate(small_size_class);
+  // For small messages we prefer transmission through shared memory blocks, and
+  // we prefer to allocate them as one of the few size classes with a fixed
+  // allocator in the primary buffer. This means the primary buffer ends up
+  // being the most common message allocation source.
+  size_t fragment_size = 0;
+  if (message.data_view().size() <= 256) {
+    fragment_size = 256;
+  } else if (message.data_view().size() <= 512) {
+    fragment_size = 512;
+  } else if (message.data_view().size() <= 1024) {
+    fragment_size = 1024;
+  } else if (message.data_view().size() <= 2048) {
+    fragment_size = 2048;
+  } else {
+    fragment_size = message.data_view().size();
+  }
+  constexpr size_t kMaxSizeFallbackScale = 6;
+  while (message.transmissible_driver_handles().empty()) {
+    Fragment fragment = memory().fragment_allocator().Allocate(fragment_size);
     if (fragment.is_null()) {
-      small_size_class *= 2;
+      if (fragment_size > 2048 ||
+          fragment_size > message.data_view().size() * kMaxSizeFallbackScale) {
+        break;
+      }
+
+      fragment_size *= 2;
       continue;
     }
 
@@ -328,7 +335,9 @@ void NodeLink::TransmitMessage(
         *reinterpret_cast<uint32_t*>(message.data_view().data()),
         std::memory_order_release);
 
-    if (!memory().outgoing_message_fragments().Push(fragment.descriptor())) {
+    NodeLinkMemory::MessageFragment message_fragment(sequence_number,
+                                                     fragment.descriptor());
+    if (!memory().outgoing_message_fragments().Push(message_fragment)) {
       // No queue capacity at the moment...
       memory().fragment_allocator().Free(fragment);
       break;
@@ -371,7 +380,12 @@ void NodeLink::RelayMessage(const NodeName& to_node,
 
 IpczResult NodeLink::OnTransportMessage(
     const DriverTransport::Message& message) {
-  const IpczResult result = FlushIncomingMessages(&message);
+  IpczResult result = FlushIncomingMessages();
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  result = DispatchOrQueueTransportMessage(message);
   if (result != IPCZ_RESULT_OK) {
     return result;
   }
@@ -382,7 +396,7 @@ IpczResult NodeLink::OnTransportMessage(
   // to do another flush before returning.
   memory().ClearPendingNotification();
 
-  return FlushIncomingMessages(nullptr);
+  return FlushIncomingMessages();
 }
 
 void NodeLink::OnTransportError() {
@@ -409,7 +423,8 @@ IpczResult NodeLink::DispatchOrQueueTransportMessage(
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    if (sequence_number > incoming_messages_.current_sequence_number()) {
+    if (sequence_number > incoming_messages_.current_sequence_number() ||
+        is_processing_incoming_messages_) {
       IncomingMessage incoming_message;
       incoming_message.data =
           std::vector<uint8_t>(message.data.begin(), message.data.end());
@@ -422,6 +437,8 @@ IpczResult NodeLink::DispatchOrQueueTransportMessage(
     }
 
     // Otherwise this message is the next to dispatch, so fall through.
+    is_processing_incoming_messages_ = true;
+    incoming_messages_.SkipNextSequenceNumber();
   }
 
   IpczResult result = DispatchMessage(message);
@@ -429,28 +446,25 @@ IpczResult NodeLink::DispatchOrQueueTransportMessage(
     return result;
   }
 
-  absl::MutexLock lock(&mutex_);
-  incoming_messages_.SkipNextSequenceNumber();
-  return IPCZ_RESULT_OK;
+  {
+    absl::MutexLock lock(&mutex_);
+    is_processing_incoming_messages_ = false;
+  }
+  return FlushIncomingMessages();
 }
 
-IpczResult NodeLink::DispatchOrQueueFragmentMessage(const Fragment& fragment) {
-#if defined(THREAD_SANITIZER)
-  // Annotate for TSAN that subsequent access to the fragment's contents is
-  // properly synchronized, since it can't deduce this on its own. See the
-  // corresponding release annotation in TransmitMessage().
-  __tsan_acquire(fragment.address());
-#endif
-
-  auto& header = *static_cast<internal::MessageHeader*>(fragment.address());
-  const SequenceNumber sequence_number = header.sequence_number;
+IpczResult NodeLink::DispatchOrQueueFragmentMessage(
+    SequenceNumber sequence_number,
+    const FragmentDescriptor& descriptor) {
+  const Fragment fragment = memory().GetFragment(descriptor);
   {
     absl::MutexLock lock(&mutex_);
     if (sequence_number < incoming_messages_.current_sequence_number()) {
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    if (sequence_number > incoming_messages_.current_sequence_number()) {
+    if (sequence_number > incoming_messages_.current_sequence_number() ||
+        !fragment.is_resolved()) {
       IncomingMessage incoming_message;
       incoming_message.fragment = fragment;
       bool ok =
@@ -460,65 +474,102 @@ IpczResult NodeLink::DispatchOrQueueFragmentMessage(const Fragment& fragment) {
     }
 
     // Otherwise this message is the next to dispatch, so fall through.
+    incoming_messages_.SkipNextSequenceNumber();
   }
+
+#if defined(THREAD_SANITIZER)
+  // Annotate for TSAN that subsequent access to the fragment's contents is
+  // properly synchronized, since it can't deduce this on its own.
+  // Synchronization occurs by virtue of push and pop operations on the
+  // MessageFragment queue which transported this fragment descriptor.
+  __tsan_acquire(fragment.address());
+#endif
 
   IpczResult result =
       DispatchMessage(DriverTransport::Message(fragment.bytes()));
   memory().fragment_allocator().Free(fragment);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  absl::MutexLock lock(&mutex_);
-  incoming_messages_.SkipNextSequenceNumber();
-  return IPCZ_RESULT_OK;
+  return result;
 }
 
-IpczResult NodeLink::FlushIncomingMessages(
-    const DriverTransport::Message* message) {
-  MpscQueue<FragmentDescriptor>& fragments =
-      memory().incoming_message_fragments();
-  for (;;) {
-    FragmentDescriptor* descriptor = fragments.Peek();
-    if (!descriptor) {
-      break;
+IpczResult NodeLink::FlushIncomingMessages() {
+  {
+    absl::MutexLock lock(&mutex_);
+    if (is_processing_incoming_messages_ || is_next_incoming_message_blocked_) {
+      return IPCZ_RESULT_OK;
     }
 
-    Fragment fragment = memory().GetFragment(*descriptor);
-    if (fragment.is_pending()) {
-      // The message queue is non-empty, but the head of the queue is a fragment
-      // whose buffer is not yet mapped by this node. In such cases there must
-      // already be a transport message in flight to register the buffer with
-      // this node, so the queue can be unblocked once that arrives.
-      break;
-    }
-
-    if (fragment.size() < sizeof(internal::MessageHeader)) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    IpczResult result = DispatchOrQueueFragmentMessage(fragment);
-    if (result != IPCZ_RESULT_OK) {
-      return result;
-    }
-
-    fragments.Pop();
+    // NOTE: We don't bother to unset this in any failure return paths here,
+    // since failure implies we don't want to read from the link anymore anyway.
+    is_processing_incoming_messages_ = true;
   }
 
+  MpscQueue<NodeLinkMemory::MessageFragment>& fragments =
+      memory().incoming_message_fragments();
   for (;;) {
+    while (const auto* const message_fragment = fragments.Peek()) {
+      const SequenceNumber sequence_number = message_fragment->sequence_number;
+      const FragmentDescriptor descriptor = message_fragment->descriptor;
+      fragments.Pop();
+      IpczResult result =
+          DispatchOrQueueFragmentMessage(sequence_number, descriptor);
+      if (result != IPCZ_RESULT_OK) {
+        return result;
+      }
+    }
+
+    absl::optional<BufferId> wait_for_buffer;
     IncomingMessage next_message;
     {
       absl::MutexLock lock(&mutex_);
-      if (!incoming_messages_.Pop(next_message)) {
-        break;
+      if (!incoming_messages_.HasNextElement()) {
+        if (fragments.Peek()) {
+          // No more messages in this queue, but the shared memory queue has
+          // more messages now.
+          continue;
+        }
+
+        is_processing_incoming_messages_ = false;
+        return IPCZ_RESULT_OK;
       }
+
+      IncomingMessage& front = incoming_messages_.NextElement();
+      if (front.fragment.is_pending()) {
+        front.fragment = memory().GetFragment(front.fragment.descriptor());
+      }
+
+      if (front.fragment.is_pending()) {
+        wait_for_buffer = front.fragment.buffer_id();
+        is_next_incoming_message_blocked_ = true;
+        is_processing_incoming_messages_ = false;
+      } else {
+        incoming_messages_.Pop(next_message);
+      }
+    }
+
+    if (wait_for_buffer) {
+      // This may invoke the callback synchronously if the buffer is already
+      // available since we last tried resolving the fragment, so we don't want
+      // to hold `mutex_` while calling this.
+      memory().OnBufferAvailable(
+          *wait_for_buffer, [self = WrapRefCounted(this)] {
+            {
+              absl::MutexLock lock(&self->mutex_);
+              self->is_next_incoming_message_blocked_ = false;
+            }
+            self->FlushIncomingMessages();
+          });
+      return IPCZ_RESULT_OK;
     }
 
     IpczResult result;
     if (!next_message.fragment.is_null()) {
-      if (!next_message.fragment.is_resolved()) {
-        return IPCZ_RESULT_INVALID_ARGUMENT;
-      }
+#if defined(THREAD_SANITIZER)
+      // Annotate for TSAN that subsequent access to the fragment's contents is
+      // properly synchronized, since it can't deduce this on its own.
+      // Synchronization occurs by virtue of push and pop operations on the
+      // MessageFragment queue which transported this fragment descriptor.
+      __tsan_acquire(next_message.fragment.address());
+#endif
 
       result = DispatchMessage(DriverTransport::Message(
           DriverTransport::Data(next_message.fragment.bytes())));
@@ -532,16 +583,6 @@ IpczResult NodeLink::FlushIncomingMessages(
       return result;
     }
   }
-
-  if (!message) {
-    return IPCZ_RESULT_OK;
-  }
-
-  // Because transport messages must be copied when queued, we defer this until
-  // after we've processed any messages in shared memory. This should
-  // significantly reduce the likelihood that we'll have to queue the transport
-  // message.
-  return DispatchOrQueueTransportMessage(*message);
 }
 
 bool NodeLink::OnConnectFromBrokerToNonBroker(
@@ -763,9 +804,13 @@ bool NodeLink::OnAddFragmentAllocatorBuffer(
     return false;
   }
 
-  return memory().AddFragmentAllocatorBuffer(add.params().buffer_id,
-                                             add.params().fragment_size,
-                                             std::move(buffer_memory));
+  if (!memory().AddFragmentAllocatorBuffer(add.params().buffer_id,
+                                           add.params().fragment_size,
+                                           std::move(buffer_memory))) {
+    return false;
+  }
+
+  return true;
 }
 
 bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
@@ -915,8 +960,10 @@ bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
 IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
   const auto& header =
       *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-
-  switch (header.message_id) {
+  const uint8_t message_id = std::atomic_load_explicit(
+      reinterpret_cast<const std::atomic<uint8_t>*>(&header.message_id),
+      std::memory_order_acquire);
+  switch (message_id) {
 // clang-format off
 #include "ipcz/message_macros/message_dispatch_macros.h"
 #include "ipcz/node_message_defs.h"

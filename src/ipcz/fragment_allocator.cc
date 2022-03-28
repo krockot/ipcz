@@ -30,6 +30,21 @@ constexpr size_t kPageGranularity = 65536;
 // kMinimumBlockAllocatorCapacity blocks.
 constexpr size_t kMinimumBlockAllocatorCapacity = 8;
 
+// The maximum fragment size to support via FragmentAllocator. Beyond this size
+// (e.g. to convey several MB of data at once) shared memory allocation should
+// be done ad hoc for each use. Note that this is not a strict maximum, but
+// FragmentAllocator will not automatically attempt to acquire more capacity for
+// fragments of this size if an allocation fails.
+constexpr size_t kMaximumFragmentSize = 256 * 1024;
+
+// The maximum total capacity FragmentAllocator will attempt to automatically
+// acquire for any one fragment size. FragmentAllocator never frees allocated
+// regions, so this in combination with kMaximumFragmentSize effectively limits
+// the total memory a FragmentAllocator can allocate. This is not a strict
+// limit, but if an allocation fails for a supported fragment size, capacity for
+// that size will only be expanded automatically if it's below this threshold.
+constexpr size_t kMaximumFragmentCapacity = 2 * 1024 * 1024;
+
 }  // namespace
 
 FragmentAllocator::FragmentAllocator() = default;
@@ -70,7 +85,22 @@ Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
     pool = it->second.get();
   }
 
-  return pool->Allocate();
+  Fragment fragment = pool->Allocate();
+  if (!fragment.is_null()) {
+    return fragment;
+  }
+
+  if (block_size > kMaximumFragmentSize) {
+    return {};
+  }
+
+  if (pool->GetCapacity() >= kMaximumFragmentCapacity) {
+    return {};
+  }
+
+  // Expand available capacity for this block size to reduce future failures.
+  ExpandCapacity(block_size, /*callback=*/nullptr);
+  return {};
 }
 
 void FragmentAllocator::AllocateAsync(uint32_t num_bytes,
@@ -82,32 +112,21 @@ void FragmentAllocator::AllocateAsync(uint32_t num_bytes,
   }
 
   const uint32_t block_size = absl::bit_ceil(num_bytes);
-  size_t buffer_size = block_size * kMinimumBlockAllocatorCapacity;
-  if (buffer_size < kPageGranularity) {
-    buffer_size = kPageGranularity;
-  } else {
-    buffer_size = ((buffer_size + kPageGranularity - 1) / kPageGranularity) *
-                  kPageGranularity;
-  }
-
   Ref<NodeLink> link;
   {
     absl::MutexLock lock(&mutex_);
     link = node_link_;
   }
+  ExpandCapacity(block_size, [link = std::move(link), num_bytes,
+                              callback = std::move(callback)](bool ok) mutable {
+    if (!ok) {
+      callback(Fragment());
+      return;
+    }
 
-  RequestCapacity(buffer_size, block_size,
-                  [link = std::move(link), num_bytes,
-                   callback = std::move(callback)](bool ok) mutable {
-                    if (!ok) {
-                      callback(Fragment());
-                      return;
-                    }
-
-                    FragmentAllocator& self =
-                        link->memory().fragment_allocator();
-                    self.AllocateAsync(num_bytes, std::move(callback));
-                  });
+    FragmentAllocator& self = link->memory().fragment_allocator();
+    self.AllocateAsync(num_bytes, std::move(callback));
+  });
 }
 
 void FragmentAllocator::Free(const Fragment& fragment) {
@@ -124,6 +143,19 @@ void FragmentAllocator::Free(const Fragment& fragment) {
   pool->Free(fragment);
 }
 
+void FragmentAllocator::ExpandCapacity(uint32_t block_size,
+                                       ExpandCapacityCallback callback) {
+  size_t buffer_size = block_size * kMinimumBlockAllocatorCapacity;
+  if (buffer_size < kPageGranularity) {
+    buffer_size = kPageGranularity;
+  } else {
+    buffer_size = ((buffer_size + kPageGranularity - 1) / kPageGranularity) *
+                  kPageGranularity;
+  }
+
+  RequestCapacity(buffer_size, block_size, std::move(callback));
+}
+
 void FragmentAllocator::RequestCapacity(uint32_t buffer_size,
                                         uint32_t block_size,
                                         RequestCapacityCallback callback) {
@@ -132,7 +164,9 @@ void FragmentAllocator::RequestCapacity(uint32_t buffer_size,
     absl::MutexLock lock(&mutex_);
     auto [it, need_new_request] =
         capacity_callbacks_.emplace(block_size, CapacityCallbackList());
-    it->second.push_back(std::move(callback));
+    if (callback) {
+      it->second.push_back(std::move(callback));
+    }
     if (!need_new_request) {
       return;
     }
@@ -159,11 +193,16 @@ void FragmentAllocator::RequestCapacity(uint32_t buffer_size,
         if (succeeded) {
           BlockAllocator block_allocator(mapping.bytes(), block_size);
           block_allocator.InitializeRegion();
-          self.AddBlockAllocator(block_size, buffer_id, mapping.bytes(),
-                                 block_allocator);
 
+          // NOTE: Since other threads may race to allocate blocks from this new
+          // buffer, and we don't want any transmissions to the remote node to
+          // reference this buffer before the buffer itself is shared with them,
+          // it's important to share the buffer *before* adding it to this
+          // FragmentAllocator.
           link->AddFragmentAllocatorBuffer(buffer_id, block_size,
                                            std::move(memory));
+          self.AddBlockAllocator(block_size, buffer_id, mapping.bytes(),
+                                 block_allocator);
         }
 
         for (auto& capacity_callback : callbacks) {

@@ -59,21 +59,26 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
   PrimaryBufferHeader header;
   uint8_t reserved_header_padding[kPrimaryBufferHeaderPaddingSize];
   InitialRouterLinkStateArray initial_link_states;
-  std::array<uint8_t, 512> mem_for_a_to_b_message_queue;
-  std::array<uint8_t, 512> mem_for_b_to_a_message_queue;
-  std::array<uint8_t, 16384> mem_for_256_byte_fragments;
-  std::array<uint8_t, 16384> mem_for_512_byte_fragments;
+  std::array<uint8_t, 1024> mem_for_a_to_b_message_queue;
+  std::array<uint8_t, 1024> mem_for_b_to_a_message_queue;
+  std::array<uint8_t, 4096> mem_for_64_byte_fragments;
+  std::array<uint8_t, 12288> mem_for_256_byte_fragments;
+  std::array<uint8_t, 15360> mem_for_512_byte_fragments;
   std::array<uint8_t, 11264> mem_for_1024_byte_fragments;
   std::array<uint8_t, 16384> mem_for_2048_byte_fragments;
 
-  MpscQueue<FragmentDescriptor> a_to_b_message_queue() {
-    return MpscQueue<FragmentDescriptor>(
+  MpscQueue<MessageFragment> a_to_b_message_queue() {
+    return MpscQueue<MessageFragment>(
         absl::MakeSpan(mem_for_a_to_b_message_queue));
   }
 
-  MpscQueue<FragmentDescriptor> b_to_a_message_queue() {
-    return MpscQueue<FragmentDescriptor>(
+  MpscQueue<MessageFragment> b_to_a_message_queue() {
+    return MpscQueue<MessageFragment>(
         absl::MakeSpan(mem_for_b_to_a_message_queue));
+  }
+
+  BlockAllocator block_allocator_64() {
+    return BlockAllocator(absl::MakeSpan(mem_for_64_byte_fragments), 64);
   }
 
   BlockAllocator block_allocator_256() {
@@ -93,11 +98,22 @@ struct IPCZ_ALIGN(8) NodeLinkMemory::PrimaryBuffer {
   }
 };
 
+NodeLinkMemory::MessageFragment::MessageFragment() = default;
+
+NodeLinkMemory::MessageFragment::MessageFragment(
+    SequenceNumber sequence_number,
+    const FragmentDescriptor& descriptor)
+    : sequence_number(sequence_number), descriptor(descriptor) {}
+
+NodeLinkMemory::MessageFragment::~MessageFragment() = default;
+
 NodeLinkMemory::NodeLinkMemory(Ref<Node> node,
                                DriverMemoryMapping primary_buffer_memory)
     : node_(std::move(node)),
       primary_buffer_(std::move(primary_buffer_memory)) {
   auto bytes = primary_buffer_.bytes();
+  fragment_allocator_.AddBlockAllocator(64, kPrimaryBufferId, bytes,
+                                        primary_buffer().block_allocator_64());
   fragment_allocator_.AddBlockAllocator(256, kPrimaryBufferId, bytes,
                                         primary_buffer().block_allocator_256());
   fragment_allocator_.AddBlockAllocator(512, kPrimaryBufferId, bytes,
@@ -129,6 +145,7 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
 
   primary_buffer.a_to_b_message_queue().InitializeRegion();
   primary_buffer.b_to_a_message_queue().InitializeRegion();
+  primary_buffer.block_allocator_64().InitializeRegion();
   primary_buffer.block_allocator_256().InitializeRegion();
   primary_buffer.block_allocator_512().InitializeRegion();
   primary_buffer.block_allocator_1024().InitializeRegion();

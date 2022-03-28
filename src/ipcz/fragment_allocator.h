@@ -60,6 +60,9 @@ class FragmentAllocator {
   void Free(const Fragment& fragment);
 
  private:
+  using ExpandCapacityCallback = Function<void(bool)>;
+  void ExpandCapacity(uint32_t block_size, ExpandCapacityCallback callback);
+
   using RequestCapacityCallback = Function<void(bool)>;
   void RequestCapacity(uint32_t buffer_size,
                        uint32_t block_size,

@@ -212,8 +212,10 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   IpczResult DispatchOrQueueTransportMessage(
       const DriverTransport::Message& message);
-  IpczResult DispatchOrQueueFragmentMessage(const Fragment& fragment);
-  IpczResult FlushIncomingMessages(const DriverTransport::Message* message);
+  IpczResult DispatchOrQueueFragmentMessage(
+      SequenceNumber sequence_number,
+      const FragmentDescriptor& descriptor);
+  IpczResult FlushIncomingMessages();
 
   // All of these methods correspond directly to remote calls from another node,
   // either through NodeLink (for OnIntroduceNode) or via RemoteRouterLink (for
@@ -283,6 +285,16 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   // Queue of incoming messages, for reordering when necessary.
   SequencedQueue<IncomingMessage> incoming_messages_ ABSL_GUARDED_BY(mutex_);
+
+  // Used to prevent more than one thread from flushing messages out of
+  // `incoming_messages_` (or the shared memory queue in NodeLinkMemory)
+  // concurrently.
+  bool is_processing_incoming_messages_ ABSL_GUARDED_BY(mutex_) = false;
+
+  // Indicates whether processing the head of `incoming_messages_` is blocked on
+  // receipt of a new buffer in NodeLinkMemory, because the next message in
+  // sequence-order lives in a fragment not yet mapped by this node.
+  bool is_next_incoming_message_blocked_ ABSL_GUARDED_BY(mutex_) = false;
 
   using SublinkMap = absl::flat_hash_map<SublinkId, Sublink>;
   SublinkMap sublinks_ ABSL_GUARDED_BY(mutex_);

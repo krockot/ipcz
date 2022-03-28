@@ -18,7 +18,9 @@
 #include "ipcz/fragment_allocator.h"
 #include "ipcz/fragment_descriptor.h"
 #include "ipcz/fragment_ref.h"
+#include "ipcz/ipcz.h"
 #include "ipcz/router_link_state.h"
+#include "ipcz/sequence_number.h"
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -38,13 +40,22 @@ class NodeLink;
 // between the two endpoint nodes.
 class NodeLinkMemory : public RefCounted {
  public:
+  struct MessageFragment {
+    MessageFragment();
+    MessageFragment(SequenceNumber sequence_number,
+                    const FragmentDescriptor& descriptor);
+    ~MessageFragment();
+    SequenceNumber sequence_number;
+    FragmentDescriptor descriptor;
+  };
+
   NodeLinkMemory(NodeLinkMemory&&);
 
-  MpscQueue<FragmentDescriptor>& incoming_message_fragments() {
+  MpscQueue<MessageFragment>& incoming_message_fragments() {
     return incoming_message_fragments_;
   }
 
-  MpscQueue<FragmentDescriptor> outgoing_message_fragments() {
+  MpscQueue<MessageFragment> outgoing_message_fragments() {
     return outgoing_message_fragments_;
   }
 
@@ -170,8 +181,8 @@ class NodeLinkMemory : public RefCounted {
 
   // Message queues mapped from this NodeLinkMemory's primary buffer. These are
   // used as a lightweight medium to convey small data-only messages.
-  MpscQueue<FragmentDescriptor> incoming_message_fragments_;
-  MpscQueue<FragmentDescriptor> outgoing_message_fragments_;
+  MpscQueue<MessageFragment> incoming_message_fragments_;
+  MpscQueue<MessageFragment> outgoing_message_fragments_;
   std::atomic_flag* incoming_notification_flag_;
   std::atomic_flag* outgoing_notification_flag_;
 
