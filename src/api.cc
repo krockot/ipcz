@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -61,6 +62,16 @@ IpczResult CreateNode(const IpczDriver* driver,
       !driver->AllocateSharedMemory || !driver->GetSharedMemoryInfo ||
       !driver->DuplicateSharedMemory || !driver->MapSharedMemory) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  // ipcz relies on lock-free implementations of both 32-bit and 64-bit atomics
+  // if any alignment requirements are met. This should be a reasonable
+  // assumption for modern std::atomic implementations on all supported
+  // architectures, but we verify here just in case.
+  std::atomic<uint32_t> atomic32;
+  std::atomic<uint64_t> atomic64;
+  if (!atomic32.is_lock_free() || !atomic64.is_lock_free()) {
+    return IPCZ_RESULT_UNIMPLEMENTED;
   }
 
   auto node_ptr = ipcz::MakeRefCounted<ipcz::Node>(

@@ -697,6 +697,12 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is null, or `driver` is null or
   //        invalid.
+  //
+  //    IPCZ_RESULT_UNIMPLEMENTED if some condition of the runtime environment
+  //        or architecture-specific details of the ipcz build would prevent it
+  //        from operating correctly. For example, the is returned if ipcz was
+  //        built against a std::atomic implementation which does not provide
+  //        lock-free 32-bit and 64-bit atomics.
   IpczResult(IPCZ_API* CreateNode)(const struct IpczDriver* driver,
                                    IpczDriverHandle driver_node,
                                    IpczCreateNodeFlags flags,

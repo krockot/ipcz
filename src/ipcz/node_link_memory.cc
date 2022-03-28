@@ -41,7 +41,6 @@ static_assert(sizeof(InitialRouterLinkStateArray) == 768,
 struct IPCZ_ALIGN(8) PrimaryBufferHeader {
   std::atomic<uint64_t> next_sublink{0};
   std::atomic<uint64_t> next_buffer_id{1};
-  std::atomic<uint64_t> next_router_link_state_index{0};
   std::atomic_flag is_side_a_notification_pending;
   std::atomic_flag is_side_b_notification_pending;
 };
@@ -125,7 +124,6 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   PrimaryBuffer& primary_buffer = memory->primary_buffer();
   primary_buffer.header.next_sublink = num_initial_portals;
   primary_buffer.header.next_buffer_id = 1;
-  primary_buffer.header.next_router_link_state_index = num_initial_portals;
   primary_buffer.header.is_side_a_notification_pending.clear();
   primary_buffer.header.is_side_b_notification_pending.clear();
 
