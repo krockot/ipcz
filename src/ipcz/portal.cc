@@ -93,7 +93,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
   }
 
   if (limits &&
-      router_->WouldOutboundParcelExceedLimits(data.size(), *limits)) {
+      router_->WouldOutboundParcelExceedLimits(data.size(), *limits, nullptr)) {
     return IPCZ_RESULT_RESOURCE_EXHAUSTED;
   }
 
@@ -117,9 +117,15 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
                             const IpczPutLimits* limits,
                             uint32_t& num_data_bytes,
                             void** data) {
-  if (limits &&
-      router_->WouldOutboundParcelExceedLimits(num_data_bytes, *limits)) {
-    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  const bool allow_partial = (flags & IPCZ_BEGIN_PUT_ALLOW_PARTIAL) != 0;
+  size_t max_data_size = 0;
+  if (limits && router_->WouldOutboundParcelExceedLimits(
+                    num_data_bytes, *limits, &max_data_size)) {
+    if (!allow_partial || max_data_size == 0) {
+      return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+    }
+
+    num_data_bytes = max_data_size;
   }
 
   if (router_->IsPeerClosed()) {

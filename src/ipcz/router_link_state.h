@@ -15,6 +15,8 @@
 
 namespace ipcz {
 
+class ParcelQueue;
+
 // Structure which lives in shared memory and is used by both ends of a
 // RouterLink to synchronously query and reflect router state. Note that each
 // instance of this structure is only shared between at most two routers on two
@@ -76,9 +78,24 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   // that request against the name stored here.
   NodeName allowed_bypass_request_source;
 
-  // Reserved slots. Will be used later to help each side track remote state,
-  // and to leave room for potential in-place expansion in the future.
-  uint32_t reserved1[10];
+  // Approximates the number of parcels and data bytes received and queued for
+  // retrieval on each side of this link. These values are saturated if the
+  // actual values would exceed 2**32-1.
+  std::atomic<uint32_t> num_parcels_queued_for_a;
+  std::atomic<uint32_t> num_bytes_queued_for_a;
+  std::atomic<uint32_t> num_parcels_queued_for_b;
+  std::atomic<uint32_t> num_bytes_queued_for_b;
+
+  // Flags for each side to indicate to the other that it wants to be signaled
+  // when parcel data is consumed on the other side. These are set when the
+  // corresponding router has at least one trap installed to watch for a drop in
+  // the quantity of remotely queued parcels or bytes.
+  std::atomic<bool> should_signal_a_when_reading_b;
+  std::atomic<bool> should_signal_b_when_reading_a;
+
+  // Reserved slots.
+  uint8_t reserved0[2];
+  uint32_t reserved1[5];
 
   bool is_locked_by(LinkSide side) const {
     Status s = status.load(std::memory_order_relaxed);
@@ -107,6 +124,25 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   // that to happen, this resets that wating bit and returns true. Otherwise
   // this returns false and the link's status is unchanged.
   bool ResetWaitingBit(LinkSide side);
+
+  // Returns a structure describing a best-effort snapshot of the inbound parcel
+  // queue state on the given side of this link.
+  struct QueueState {
+    uint32_t num_inbound_bytes_queued;
+    uint32_t num_inbound_parcels_queued;
+  };
+  QueueState GetQueueState(LinkSide side) const;
+
+  // Updates the queue state for the given side. Values which exceed 2**32-1 are
+  // clamped to that value. Returns true iff the opposite side of the link wants
+  // to be notified about this update.
+  bool UpdateQueueState(LinkSide side, size_t num_bytes, size_t num_parcels);
+
+  // Sets an appropriate bit to indicate whether the router on the given `side`
+  // of this link should notify the opposite side after consuming inbound parcel
+  // data. Returns the previous value of the modified bit, which may be the same
+  // as the new value.
+  bool SetSignalOnDataConsumedBy(LinkSide side, bool signal);
 };
 
 }  // namespace ipcz

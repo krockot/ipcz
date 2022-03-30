@@ -80,6 +80,7 @@ class TestBase : public testing::Test {
            const std::string& str,
            absl::Span<IpczHandle> handles = {});
   IpczResult MaybeGet(IpczHandle portal, Parcel& parcel);
+  IpczResult WaitForIncomingParcel(IpczHandle portal);
   IpczResult WaitToGet(IpczHandle portal, Parcel& parcel);
   Parcel Get(IpczHandle portal);
   bool DiscardNextParcel(IpczHandle portal);

@@ -5,9 +5,31 @@
 #include "ipcz/router_link_state.h"
 
 #include <cstring>
+#include <limits>
 #include <new>
 
 namespace ipcz {
+
+namespace {
+
+template <typename T, typename U>
+void StoreSaturated(std::atomic<T>& dest, U value) {
+  if (value < std::numeric_limits<T>::max()) {
+    dest.store(value, std::memory_order_relaxed);
+  } else {
+    dest.store(std::numeric_limits<T>::max(), std::memory_order_relaxed);
+  }
+}
+
+template <typename T>
+T& SelectBySide(LinkSide side, T& for_a, T& for_b) {
+  if (side.is_side_a()) {
+    return for_a;
+  }
+  return for_b;
+}
+
+}  // namespace
 
 RouterLinkState::RouterLinkState() = default;
 
@@ -18,6 +40,12 @@ RouterLinkState& RouterLinkState::Initialize(void* where) {
   auto& state = *static_cast<RouterLinkState*>(where);
   memset(&state.allowed_bypass_request_source, 0,
          sizeof(state.allowed_bypass_request_source));
+  state.num_parcels_queued_for_a.store(0, std::memory_order_relaxed);
+  state.num_bytes_queued_for_a.store(0, std::memory_order_relaxed);
+  state.num_parcels_queued_for_b.store(0, std::memory_order_relaxed);
+  state.num_bytes_queued_for_b.store(0, std::memory_order_relaxed);
+  state.should_signal_a_when_reading_b.store(false, std::memory_order_relaxed);
+  state.should_signal_b_when_reading_a.store(false, std::memory_order_relaxed);
   state.status.store(kUnstable, std::memory_order_release);
   return state;
 }
@@ -102,6 +130,46 @@ bool RouterLinkState::ResetWaitingBit(LinkSide side) {
   }
 
   return true;
+}
+
+RouterLinkState::QueueState RouterLinkState::GetQueueState(
+    LinkSide side) const {
+  uint32_t num_bytes;
+  uint32_t num_parcels;
+  if (side.is_side_a()) {
+    num_bytes = num_bytes_queued_for_a.load(std::memory_order_relaxed);
+    num_parcels = num_parcels_queued_for_a.load(std::memory_order_relaxed);
+  } else {
+    num_bytes = num_bytes_queued_for_b.load(std::memory_order_relaxed);
+    num_parcels = num_parcels_queued_for_b.load(std::memory_order_relaxed);
+  }
+  return {.num_inbound_bytes_queued = num_bytes,
+          .num_inbound_parcels_queued = num_parcels};
+}
+
+bool RouterLinkState::UpdateQueueState(LinkSide side,
+                                       size_t num_bytes,
+                                       size_t num_parcels) {
+  std::atomic<bool>& should_signal = SelectBySide(
+      side, should_signal_b_when_reading_a, should_signal_a_when_reading_b);
+  std::atomic<uint32_t>& num_bytes_queued =
+      SelectBySide(side, num_bytes_queued_for_a, num_bytes_queued_for_b);
+  std::atomic<uint32_t>& num_parcels_queued =
+      SelectBySide(side, num_parcels_queued_for_a, num_parcels_queued_for_b);
+
+  StoreSaturated(num_bytes_queued, num_bytes);
+  StoreSaturated(num_parcels_queued, num_parcels);
+  return should_signal.load(std::memory_order_relaxed);
+}
+
+bool RouterLinkState::SetSignalOnDataConsumedBy(LinkSide side, bool signal) {
+  std::atomic<bool>& should_signal = SelectBySide(
+      side, should_signal_b_when_reading_a, should_signal_a_when_reading_b);
+  bool previous_value = !signal;
+  should_signal.compare_exchange_strong(previous_value, signal,
+                                        std::memory_order_relaxed,
+                                        std::memory_order_relaxed);
+  return previous_value;
 }
 
 }  // namespace ipcz

@@ -269,6 +269,14 @@ IPCZ_MSG_BEGIN(RouteDisconnected, IPCZ_MSG_ID(24), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
 IPCZ_MSG_END()
 
+// Notifies a router that its remote peer on this link has consumed at least one
+// data byte or parcel from its incoming queue. Only sent if the recipient has
+// expressed an interest via a bit in RouterLinkState.
+IPCZ_MSG_BEGIN(NotifyDataConsumed, IPCZ_MSG_ID(25), IPCZ_MSG_VERSION(0))
+  // A sublink identifying the router to receive this notification.
+  IPCZ_MSG_PARAM(SublinkId, sublink)
+IPCZ_MSG_END()
+
 // Informs the recipient that its outward peer is a proxy which has locked its
 // own outward (and implicitly central) link for impending bypass. This means
 // it's safe for the recipient of this message to send a BypassProxy message

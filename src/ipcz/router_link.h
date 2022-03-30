@@ -44,6 +44,15 @@ class RouterLink : public RefCounted {
   virtual bool IsRemoteLinkTo(const NodeLink& node_link,
                               SublinkId sublink) const = 0;
 
+  // Returns a best-effort snapshot of the state of the peer router's inbound
+  // parcel queue. Only meaningful on central links.
+  virtual RouterLinkState::QueueState GetPeerQueueState() = 0;
+
+  // Updates the QueueState for this side of the link. Returns true iff the
+  // other side wants to be notified about this update.
+  virtual bool UpdateInboundQueueState(size_t num_bytes,
+                                       size_t num_parcels) = 0;
+
   // Signals that this side of the link is in a stable state suitable for one
   // side or the other to lock the link, either for bypass or closure
   // propagation. Only once both sides are marked stable can either side lock
@@ -85,9 +94,13 @@ class RouterLink : public RefCounted {
 
   // Indicates an imperfect estimation of whether or not putting a parcel with
   // `data_size` bytes of data onto this link may ultimately cause the eventual
-  // destination router to any exceed queue limits specified in `limits`.
+  // destination router to any exceed queue limits specified in `limits`. If
+  // `max_data_size` is non-null and this returns true, it will be updated with
+  // the maximum data size that could be transferred without exceeding the given
+  // limits.
   virtual bool WouldParcelExceedLimits(size_t data_size,
-                                       const IpczPutLimits& limits) = 0;
+                                       const IpczPutLimits& limits,
+                                       size_t* max_data_size) = 0;
 
   // Passes a parcel to the Router on the other side of this link for further
   // routing.
@@ -102,6 +115,16 @@ class RouterLink : public RefCounted {
   // indicate that its route has been broken by a disconnection somewhere on
   // the caller's side of the link.
   virtual void AcceptRouteDisconnection() = 0;
+
+  // Notifies the other side that this side has consumed some data. Should only
+  // be called on central links wherethe other side has expressed in interest in
+  // such notifications by calling SignalOnNextDataConsumed().
+  virtual void NotifyDataConsumed() = 0;
+
+  // Controls whether the caller's side of this link is interested in knowing
+  // about any time the opposite side consumes data from its inbound queue.
+  // Returns the previous value of this bit.
+  virtual bool SetSignalOnDataConsumed(bool signal) = 0;
 
   // Requests that the Router on the other side of this link initiate a bypass
   // of the Router on this side of the link. The provided parameters are enough

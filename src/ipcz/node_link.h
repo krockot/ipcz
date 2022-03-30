@@ -239,6 +239,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   bool OnRouteClosed(const msg::RouteClosed& route_closed);
   bool OnSetRouterLinkStateFragment(const msg::SetRouterLinkStateFragment& set);
   bool OnRouteDisconnected(const msg::RouteDisconnected& disconnect);
+  bool OnNotifyDataConsumed(const msg::NotifyDataConsumed& notify);
   bool OnRequestIntroduction(const msg::RequestIntroduction& request);
   bool OnIntroduceNode(msg::IntroduceNode& intro);
   bool OnAddFragmentAllocatorBuffer(msg::AddFragmentAllocatorBuffer& add);

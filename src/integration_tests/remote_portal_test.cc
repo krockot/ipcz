@@ -9,6 +9,8 @@
 #include "test/multiprocess_test.h"
 #include "test/test_client.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/synchronization/notification.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
@@ -463,6 +465,103 @@ TEST_P(RemotePortalTest, SendPortalPair) {
 
   ClosePortals({c, d});
   DestroyNodes({node, other_node});
+}
+
+TEST_P(RemotePortalTest, MonitorRemoteQueue) {
+  // Exercises traps which monitor the inbound queue state of a portal's remote
+  // peer.
+
+  IpczHandle node = CreateBrokerNode();
+  IpczHandle other_node = CreateNonBrokerNode();
+  IpczHandle yet_another_node = CreateNonBrokerNode();
+
+  IpczHandle a, b;
+  Connect(node, other_node, &a, &b);
+
+  IpczHandle c, d;
+  Connect(node, yet_another_node, &c, &d);
+
+  // Establish a portal pair `e` and `f` between the two non-brokers.
+  Parcel p;
+  IpczHandle e, f;
+  OpenPortals(other_node, &e, &f);
+  Put(b, "", {&f, 1});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
+  ASSERT_EQ(1u, p.handles.size());
+  f = p.handles[0];
+  Put(c, "", {&f, 1});
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(d, p));
+  ASSERT_EQ(1u, p.handles.size());
+  f = p.handles[0];
+
+  const char kMessage[] = "hi";
+  Put(a, kMessage);
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitForIncomingParcel(b));
+
+  // This trap can only be set while the remote portal appears to be non-empty.
+  IpczTrapConditions conditions = {
+      .size = sizeof(conditions),
+      .flags = IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES,
+      .max_remote_bytes = 1,
+  };
+  absl::optional<absl::Notification> notification(absl::in_place);
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            Trap(a, conditions, [&notification](const IpczTrapEvent& e) {
+              notification->Notify();
+            }));
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  notification->WaitForNotification();
+  EXPECT_EQ(kMessage, p.message);
+
+  // Now do it all again, but move `b` to another node before reading from it.
+  // This exercises behavior when a remote portal being monitored is not yet
+  // directly linked to the portal doing the monitoring. The trap should still
+  // eventually fire.
+  Put(a, kMessage);
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitForIncomingParcel(b));
+  notification.emplace();
+  EXPECT_EQ(IPCZ_RESULT_OK,
+            Trap(a, conditions, [&notification](const IpczTrapEvent& e) {
+              notification->Notify();
+            }));
+
+  Put(e, "", {&b, 1});
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(f, p));
+  ASSERT_EQ(1u, p.handles.size());
+  b = p.handles[0];
+
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
+  EXPECT_EQ(kMessage, p.message);
+  notification->WaitForNotification();
+
+  ClosePortals({c, d, e, f});
+  while (GetNumRouters() > 2) {
+    VerifyEndToEnd(a, b);
+  }
+
+  // Finally, verify that Put limits can be applied across nodes. Note that
+  // cross-node limits are best-effort enforcement rather than strict, so we
+  // don't validate the precise number of parcels successfully put; only that
+  // the put operations eventually start to fail.
+  const IpczPutLimits limits = {
+      .size = sizeof(limits),
+      .max_queued_parcels = 10,
+      .max_queued_bytes = 0xffffffff,
+  };
+  const IpczPutOptions options = {
+      .size = sizeof(options),
+      .limits = &limits,
+  };
+  IpczResult result;
+  do {
+    result = ipcz.Put(a, "meh", 3, nullptr, 0, IPCZ_NO_FLAGS, &options);
+  } while (result == IPCZ_RESULT_OK);
+  EXPECT_EQ(IPCZ_RESULT_RESOURCE_EXHAUSTED, result);
+
+  ClosePortals({a, b});
+  DestroyNodes({node, other_node, yet_another_node});
 }
 
 using MultiprocessRemotePortalTest = test::MultiprocessTest;

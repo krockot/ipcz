@@ -12,11 +12,9 @@
 #include "ipcz/portal.h"
 #include "ipcz/router.h"
 #include "ipcz/router_tracker.h"
-#include "reference_drivers/event.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "util/ref_counted.h"
-
-#include "util/log.h"
 
 namespace ipcz::test {
 
@@ -114,20 +112,28 @@ IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
   return result;
 }
 
-IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
-  reference_drivers::Event event;
-  reference_drivers::Event::Notifier notifier = event.MakeNotifier();
+IpczResult TestBase::WaitForIncomingParcel(IpczHandle portal) {
+  absl::Notification notification;
   IpczTrapConditions conditions = {
       .size = sizeof(conditions),
       .flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD,
       .min_local_parcels = 0,
   };
-  IpczResult result =
-      Trap(portal, conditions,
-           [&notifier](const IpczTrapEvent& event) { notifier.Notify(); });
+  IpczResult result = Trap(
+      portal, conditions,
+      [&notification](const IpczTrapEvent& event) { notification.Notify(); });
   if (result == IPCZ_RESULT_OK) {
-    event.Wait();
-  } else if (result != IPCZ_RESULT_FAILED_PRECONDITION) {
+    notification.WaitForNotification();
+  }
+  if (result == IPCZ_RESULT_FAILED_PRECONDITION) {
+    return IPCZ_RESULT_OK;
+  }
+  return result;
+}
+
+IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
+  IpczResult result = WaitForIncomingParcel(portal);
+  if (result != IPCZ_RESULT_OK) {
     return result;
   }
 

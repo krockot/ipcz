@@ -127,6 +127,23 @@ bool RemoteRouterLink::IsRemoteLinkTo(const NodeLink& node_link,
   return node_link_.get() == &node_link && sublink_ == sublink;
 }
 
+RouterLinkState::QueueState RemoteRouterLink::GetPeerQueueState() {
+  if (RouterLinkState* state = GetLinkState()) {
+    return state->GetQueueState(side_.opposite());
+  }
+
+  return {.num_inbound_bytes_queued = 0, .num_inbound_parcels_queued = 0};
+}
+
+bool RemoteRouterLink::UpdateInboundQueueState(size_t num_bytes,
+                                               size_t num_parcels) {
+  if (RouterLinkState* state = GetLinkState()) {
+    return state->UpdateQueueState(side_, num_bytes, num_parcels);
+  }
+
+  return false;
+}
+
 void RemoteRouterLink::MarkSideStable() {
   side_is_stable_.store(true, std::memory_order_release);
   if (RouterLinkState* state = GetLinkState()) {
@@ -175,9 +192,27 @@ bool RemoteRouterLink::CanNodeRequestBypass(
 }
 
 bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
-                                               const IpczPutLimits& limits) {
-  // TODO
-  return false;
+                                               const IpczPutLimits& limits,
+                                               size_t* max_data_size) {
+  RouterLinkState* state = GetLinkState();
+  if (!state) {
+    // This is only a best-effort query. If there's no RouterLinkState yet, err
+    // on the side of less caution and more data flow.
+    return false;
+  }
+
+  const RouterLinkState::QueueState peer_queue =
+      state->GetQueueState(side_.opposite());
+  if (peer_queue.num_inbound_bytes_queued >= limits.max_queued_bytes ||
+      peer_queue.num_inbound_parcels_queued >= limits.max_queued_parcels) {
+    return true;
+  }
+
+  const uint32_t byte_capacity =
+      limits.max_queued_bytes - peer_queue.num_inbound_bytes_queued;
+  const uint32_t parcel_capacity =
+      limits.max_queued_parcels - peer_queue.num_inbound_parcels_queued;
+  return data_size > byte_capacity || parcel_capacity == 0;
 }
 
 void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
@@ -331,6 +366,20 @@ void RemoteRouterLink::AcceptRouteDisconnection() {
   msg::RouteDisconnected disconnect;
   disconnect.params().sublink = sublink_;
   node_link()->Transmit(disconnect);
+}
+
+void RemoteRouterLink::NotifyDataConsumed() {
+  msg::NotifyDataConsumed notify;
+  notify.params().sublink = sublink_;
+  node_link()->Transmit(notify);
+}
+
+bool RemoteRouterLink::SetSignalOnDataConsumed(bool signal) {
+  if (RouterLinkState* state = GetLinkState()) {
+    return state->SetSignalOnDataConsumedBy(side_.opposite(), signal);
+  }
+
+  return false;
 }
 
 void RemoteRouterLink::StopProxying(

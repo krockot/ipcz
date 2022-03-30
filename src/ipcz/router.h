@@ -86,14 +86,19 @@ class Router : public RefCounted {
   bool HasLocalPeer(const Ref<Router>& other);
 
   // Returns true iff sending a parcel of `data_size` towards the other side of
-  // the route may exceed the specified `limits` on the receiving end.
+  // the route may exceed the specified `limits` on the receiving end. If
+  // 'max_data_size' is non-null and this returns true, it will be updated to
+  // reflect the maximum data size of a parcel that would *not* exceed the given
+  // limits.
   bool WouldOutboundParcelExceedLimits(size_t data_size,
-                                       const IpczPutLimits& limits);
+                                       const IpczPutLimits& limits,
+                                       size_t* max_data_size);
 
   // Returns true iff accepting an inbound parcel of `data_size` would cause
   // this router's inbound parcel queue to exceed limits specified by `limits`.
   bool WouldInboundParcelExceedLimits(size_t data_size,
-                                      const IpczPutLimits& limits);
+                                      const IpczPutLimits& limits,
+                                      size_t* max_data_size);
 
   // Attempts to send an outbound parcel originating from this Router. Called
   // only as a direct result of a Put() call on the router's owning portal.
@@ -221,8 +226,14 @@ class Router : public RefCounted {
   void Flush(bool force_bypass_attempt = false);
 
   // Notifies this router that the given NodeLink `link` was been disconnected
-  // while its sublink `sublink` was bound to this router.
-  void NotifyLinkDisconnected(const NodeLink& link, SublinkId sublink);
+  // while its sublink `sublink_id` was bound to this router.
+  void NotifyLinkDisconnected(const NodeLink& link, SublinkId sublink_id);
+
+  // Notifies this router that its outward peer has consumed at least one byte
+  // of parcel data from its inbound queue. Generally only called if this Router
+  // has expressed an interest in receiving such notifications via
+  // RouterLinkState.
+  void NotifyOutwardPeerConsumedData();
 
  private:
   friend class LocalRouterLink;

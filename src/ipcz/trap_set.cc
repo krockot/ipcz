@@ -80,6 +80,10 @@ IpczResult TrapSet::Add(const IpczTrapConditions& conditions,
   }
 
   traps_.emplace_back(conditions, handler, context);
+  if ((conditions.flags & (IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS |
+                           IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES)) != 0) {
+    ++num_traps_monitoring_remote_state_;
+  }
   return IPCZ_RESULT_OK;
 }
 
@@ -96,6 +100,10 @@ void TrapSet::UpdatePortalStatus(const IpczPortalStatus& status,
       continue;
     }
 
+    if ((trap.conditions.flags & (IPCZ_TRAP_BELOW_MAX_REMOTE_PARCELS |
+                                  IPCZ_TRAP_BELOW_MAX_REMOTE_BYTES)) != 0) {
+      --num_traps_monitoring_remote_state_;
+    }
     dispatcher.DeferEvent(trap.handler, trap.context, flags, status);
     it = traps_.erase(it);
   }
@@ -107,6 +115,7 @@ void TrapSet::RemoveAll(TrapEventDispatcher& dispatcher) {
                           last_known_status_);
   }
   traps_.clear();
+  num_traps_monitoring_remote_state_ = 0;
 }
 
 TrapSet::Trap::Trap(IpczTrapConditions conditions,

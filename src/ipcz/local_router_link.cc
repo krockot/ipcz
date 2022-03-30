@@ -82,6 +82,15 @@ bool LocalRouterLink::IsRemoteLinkTo(const NodeLink& node_link,
   return false;
 }
 
+RouterLinkState::QueueState LocalRouterLink::GetPeerQueueState() {
+  return state_->state().GetQueueState(side_.opposite());
+}
+
+bool LocalRouterLink::UpdateInboundQueueState(size_t num_bytes,
+                                              size_t num_parcels) {
+  return state_->state().UpdateQueueState(side_, num_bytes, num_parcels);
+}
+
 void LocalRouterLink::MarkSideStable() {
   state_->state().SetSideStable(side_);
 }
@@ -118,9 +127,10 @@ bool LocalRouterLink::CanNodeRequestBypass(
 }
 
 bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
-                                              const IpczPutLimits& limits) {
+                                              const IpczPutLimits& limits,
+                                              size_t* max_data_size) {
   return state_->side(side_.opposite())
-      ->WouldInboundParcelExceedLimits(data_size, limits);
+      ->WouldInboundParcelExceedLimits(data_size, limits, max_data_size);
 }
 
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
@@ -140,6 +150,14 @@ void LocalRouterLink::AcceptRouteClosure(SequenceNumber sequence_length) {
 
 void LocalRouterLink::AcceptRouteDisconnection() {
   state_->side(side_.opposite())->AcceptRouteDisconnectionFrom(state_->type());
+}
+
+void LocalRouterLink::NotifyDataConsumed() {
+  state_->side(side_.opposite())->NotifyOutwardPeerConsumedData();
+}
+
+bool LocalRouterLink::SetSignalOnDataConsumed(bool signal) {
+  return state_->state().SetSignalOnDataConsumedBy(side_.opposite(), signal);
 }
 
 void LocalRouterLink::RequestProxyBypassInitiation(

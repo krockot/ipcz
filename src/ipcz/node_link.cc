@@ -557,6 +557,8 @@ IpczResult NodeLink::FlushIncomingMessages() {
       }
 
       if (front.fragment.is_pending()) {
+        // Still pending, so we have to wait for its buffer before we can kee
+        // processing incoming messages.
         wait_for_buffer = front.fragment.buffer_id();
         is_next_incoming_message_blocked_ = true;
         is_processing_incoming_messages_ = false;
@@ -784,6 +786,16 @@ bool NodeLink::OnRouteDisconnected(const msg::RouteDisconnected& disconnect) {
   }
 
   router->NotifyLinkDisconnected(*this, sublink);
+  return true;
+}
+
+bool NodeLink::OnNotifyDataConsumed(const msg::NotifyDataConsumed& notify) {
+  Ref<Router> router = GetRouter(notify.params().sublink);
+  if (!router) {
+    return true;
+  }
+
+  router->NotifyOutwardPeerConsumedData();
   return true;
 }
 

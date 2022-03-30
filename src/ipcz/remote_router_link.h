@@ -54,6 +54,8 @@ class RemoteRouterLink : public RouterLink {
   Ref<Router> GetLocalTarget() override;
   bool IsRemoteLinkTo(const NodeLink& node_link,
                       SublinkId sublink) const override;
+  RouterLinkState::QueueState GetPeerQueueState() override;
+  bool UpdateInboundQueueState(size_t num_bytes, size_t num_parcels) override;
   void MarkSideStable() override;
   bool TryLockForBypass(const NodeName& bypass_request_source) override;
   bool TryLockForClosure() override;
@@ -61,10 +63,13 @@ class RemoteRouterLink : public RouterLink {
   void FlushOtherSideIfWaiting() override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
   bool WouldParcelExceedLimits(size_t data_size,
-                               const IpczPutLimits& limits) override;
+                               const IpczPutLimits& limits,
+                               size_t* max_data_size) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void AcceptRouteDisconnection() override;
+  void NotifyDataConsumed() override;
+  bool SetSignalOnDataConsumed(bool signal) override;
   void RequestProxyBypassInitiation(const NodeName& to_new_peer,
                                     SublinkId proxy_peer_sublink) override;
   void StopProxying(SequenceNumber proxy_inbound_sequence_length,
