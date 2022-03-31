@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ipcz/ipcz.h"
+#include "ipcz/node.h"
 #include "ipcz/portal.h"
 #include "ipcz/router.h"
 #include "ipcz/router_tracker.h"
@@ -26,6 +27,19 @@ TestBase::Parcel::Parcel(Parcel&&) = default;
 TestBase::Parcel& TestBase::Parcel::operator=(Parcel&&) = default;
 
 TestBase::Parcel::~Parcel() = default;
+
+TestBase::HangTimeout::HangTimeout(absl::Duration timeout,
+                                   Function<void()> handler)
+    : thread_([this, timeout, handler = std::move(handler)] {
+        if (!notification_.WaitForNotificationWithTimeout(timeout)) {
+          handler();
+        }
+      }) {}
+
+TestBase::HangTimeout::~HangTimeout() {
+  notification_.Notify();
+  thread_.join();
+}
 
 TestBase::TestBase() {
   ipcz.size = sizeof(ipcz);
@@ -185,6 +199,12 @@ size_t TestBase::GetNumRouters() {
 // static
 void TestBase::DumpAllRouters() {
   return RouterTracker::DumpRouters();
+}
+
+// static
+void TestBase::DiagnoseNode(IpczHandle node) {
+  reinterpret_cast<ipcz::Node*>(static_cast<uintptr_t>(node))
+      ->DiagnoseForTesting();
 }
 
 // static

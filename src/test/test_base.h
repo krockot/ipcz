@@ -8,10 +8,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "ipcz/ipcz.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/abseil-cpp/absl/synchronization/notification.h"
+#include "third_party/abseil-cpp/absl/time/time.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/function.h"
 
@@ -28,6 +31,17 @@ class TestBase : public testing::Test {
     ~Parcel();
     std::string message;
     std::vector<IpczHandle> handles;
+  };
+
+  // Helper to set a timeout and run some diagnostics in case of test hangs.
+  class HangTimeout {
+   public:
+    HangTimeout(absl::Duration timeout, Function<void()> handler);
+    ~HangTimeout();
+
+   private:
+    absl::Notification notification_;
+    std::thread thread_;
   };
 
   TestBase();
@@ -82,6 +96,7 @@ class TestBase : public testing::Test {
   void LogPortalRoute(IpczHandle a);
   static size_t GetNumRouters();
   static void DumpAllRouters();
+  static void DiagnoseNode(IpczHandle node);
 
  private:
   static void OnTrapEvent(const IpczTrapEvent* event);

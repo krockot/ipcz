@@ -178,6 +178,9 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   // on behalf of this NodeLink's remote node.
   bool DispatchRelayedMessage(msg::AcceptRelayedMessage& relay);
 
+  // Convenient entry point to inspect node state in tests when things go wrong.
+  void DiagnoseForTesting();
+
  private:
   struct IncomingMessage {
     IncomingMessage();

@@ -273,6 +273,13 @@ bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
   }
 }
 
+void NodeLink::DiagnoseForTesting() {
+  LOG(ERROR) << "Link from " << local_node_name_.ToString() << " to "
+             << remote_node_name_.ToString();
+
+  // Add other diagnostic logging here as needed.
+}
+
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {

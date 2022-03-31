@@ -170,6 +170,9 @@ class Node : public APIObject {
   // dispatching the embedded message.
   bool AcceptRelayedMessage(msg::AcceptRelayedMessage& relay);
 
+  // Convenient entry point to inspect node state in tests when things go wrong.
+  void DiagnoseForTesting();
+
  private:
   ~Node() override;
 

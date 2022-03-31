@@ -451,4 +451,13 @@ bool Node::AcceptRelayedMessage(msg::AcceptRelayedMessage& relay) {
   return link->DispatchRelayedMessage(relay);
 }
 
+void Node::DiagnoseForTesting() {
+  absl::MutexLock lock(&mutex_);
+  for (auto& [name, link] : node_links_) {
+    link->DiagnoseForTesting();
+  }
+
+  // Add other diagnostic logging here as needed.
+}
+
 }  // namespace ipcz
