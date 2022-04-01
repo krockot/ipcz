@@ -72,12 +72,19 @@ void FragmentAllocator::AddBlockAllocator(uint32_t block_size,
 
 Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
   const uint32_t block_size = absl::bit_ceil(num_bytes);
+
+  if (block_size > kMaximumFragmentSize) {
+    return Fragment();
+  }
+
   BlockAllocatorPool* pool;
   {
     absl::MutexLock lock(&mutex_);
-    auto it = block_allocator_pools_.find(block_size);
-    if (it == block_allocator_pools_.end()) {
-      return Fragment();
+    auto [it, ok] = block_allocator_pools_.try_emplace(block_size, nullptr);
+    if (ok) {
+      // We don't have a pool for this block size yet. Allocation will fail, but
+      // we'll add capacity in anticipation of future allocations.
+      it->second = std::make_unique<BlockAllocatorPool>(block_size);
     }
 
     // Note that pools in `block_allocator_pools_` live as long as `this`, so
@@ -88,10 +95,6 @@ Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
   Fragment fragment = pool->Allocate();
   if (!fragment.is_null()) {
     return fragment;
-  }
-
-  if (block_size > kMaximumFragmentSize) {
-    return {};
   }
 
   if (pool->GetCapacity() >= kMaximumFragmentCapacity) {
