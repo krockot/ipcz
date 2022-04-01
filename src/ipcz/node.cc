@@ -58,6 +58,7 @@ void Node::ShutDown() {
     absl::MutexLock lock(&mutex_);
     std::swap(node_links_, node_links);
     broker_link_.reset();
+    allocation_delegate_link_.reset();
   }
 
   for (const auto& entry : node_links) {

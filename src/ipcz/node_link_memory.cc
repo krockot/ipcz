@@ -163,11 +163,11 @@ Ref<NodeLinkMemory> NodeLinkMemory::Adopt(Ref<Node> node,
 void NodeLinkMemory::SetNodeLink(Ref<NodeLink> node_link) {
   absl::MutexLock lock(&mutex_);
   node_link_ = std::move(node_link);
+  fragment_allocator_.SetNodeLink(node_link_);
   if (!node_link_) {
     return;
   }
 
-  fragment_allocator_.SetNodeLink(node_link_);
   if (node_link_->link_side().is_side_a()) {
     incoming_message_fragments_ = primary_buffer().b_to_a_message_queue();
     outgoing_message_fragments_ = primary_buffer().a_to_b_message_queue();
