@@ -26,7 +26,6 @@
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/log.h"
-#include "util/random.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {

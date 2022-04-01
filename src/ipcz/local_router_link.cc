@@ -13,7 +13,6 @@
 #include "ipcz/router.h"
 #include "ipcz/router_link_state.h"
 #include "util/mutex_locks.h"
-#include "util/random.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {

@@ -12,7 +12,6 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/random.h"
 
 namespace ipcz {
 namespace {
