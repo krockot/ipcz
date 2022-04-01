@@ -312,14 +312,16 @@ void NodeLinkMemory::ClearPendingNotification() {
   incoming_notification_flag_->clear();
 }
 
-void NodeLinkMemory::AllocateBuffer(size_t num_bytes,
-                                    AllocateBufferCallback callback) {
+void NodeLinkMemory::AllocateBuffer(
+    size_t num_bytes,
+    AllocateBufferShareCallback share_callback,
+    AllocateBufferFinishedCallback finished_callback) {
   node_->AllocateSharedMemory(
-      num_bytes, [self = WrapRefCounted(this),
-                  callback = std::move(callback)](DriverMemory memory) {
+      num_bytes,
+      [self = WrapRefCounted(this), share_callback = std::move(share_callback),
+       finished_callback = std::move(finished_callback)](DriverMemory memory) {
         if (!memory.is_valid()) {
-          DriverMemoryMapping invalid_mapping;
-          callback(0, DriverMemory(), invalid_mapping);
+          finished_callback(false);
           return;
         }
 
@@ -329,9 +331,16 @@ void NodeLinkMemory::AllocateBuffer(size_t num_bytes,
           absl::MutexLock lock(&self->mutex_);
           self->buffers_.push_back(memory.Map());
           mapping = &self->buffers_.back();
+        }
+
+        share_callback(new_buffer_id, std::move(memory), *mapping);
+
+        {
+          absl::MutexLock lock(&self->mutex_);
           self->buffer_map_[new_buffer_id] = mapping;
         }
-        callback(new_buffer_id, std::move(memory), *mapping);
+
+        finished_callback(true);
       });
 }
 

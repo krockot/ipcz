@@ -175,9 +175,25 @@ void FragmentAllocator::RequestCapacity(uint32_t buffer_size,
   }
 
   link->memory().AllocateBuffer(
-      buffer_size, [link, block_size, callback = std::move(callback)](
-                       BufferId buffer_id, DriverMemory memory,
-                       DriverMemoryMapping& mapping) {
+      buffer_size,
+      [link, block_size](BufferId buffer_id, DriverMemory memory,
+                         DriverMemoryMapping& mapping) {
+        BlockAllocator block_allocator(mapping.bytes(), block_size);
+        block_allocator.InitializeRegion();
+
+        // NOTE: Since other threads may race to allocate blocks from this new
+        // buffer, and we don't want any transmissions to the remote node to
+        // reference this buffer before the buffer itself is shared with them,
+        // it's important to share the buffer *before* adding it to this
+        // FragmentAllocator.
+        link->AddFragmentAllocatorBuffer(buffer_id, block_size,
+                                         std::move(memory));
+
+        FragmentAllocator& self = link->memory().fragment_allocator();
+        self.AddBlockAllocator(block_size, buffer_id, mapping.bytes(),
+                               block_allocator);
+      },
+      [link, block_size](bool success) {
         FragmentAllocator& self = link->memory().fragment_allocator();
         CapacityCallbackList callbacks;
         {
@@ -189,24 +205,8 @@ void FragmentAllocator::RequestCapacity(uint32_t buffer_size,
           }
         }
 
-        const bool succeeded = memory.is_valid();
-        if (succeeded) {
-          BlockAllocator block_allocator(mapping.bytes(), block_size);
-          block_allocator.InitializeRegion();
-
-          // NOTE: Since other threads may race to allocate blocks from this new
-          // buffer, and we don't want any transmissions to the remote node to
-          // reference this buffer before the buffer itself is shared with them,
-          // it's important to share the buffer *before* adding it to this
-          // FragmentAllocator.
-          link->AddFragmentAllocatorBuffer(buffer_id, block_size,
-                                           std::move(memory));
-          self.AddBlockAllocator(block_size, buffer_id, mapping.bytes(),
-                                 block_allocator);
-        }
-
         for (auto& capacity_callback : callbacks) {
-          capacity_callback(succeeded);
+          capacity_callback(success);
         }
       });
 }

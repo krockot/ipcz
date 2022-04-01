@@ -301,8 +301,13 @@ void NodeLink::TransmitMessage(
     return;
   }
 
-  const SequenceNumber sequence_number =
-      next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+  // Note that we don't allocate a SequenceNumber until after succeeding or
+  // failing at fragment allocation below, because a successfully allocated
+  // fragment may reside in a buffer which is just about to be shared with the
+  // remote node. If the SequenceNumber of that fragment's message gets
+  // sequenced before that of the message which shares the buffer, the
+  // recipient's message queue will be permanently stuck.
+  absl::optional<SequenceNumber> sequence_number;
 
   // For small messages we prefer transmission through shared memory blocks, and
   // we prefer to allocate them as one of the few size classes with a fixed
@@ -333,7 +338,9 @@ void NodeLink::TransmitMessage(
       continue;
     }
 
-    message.header().sequence_number = sequence_number;
+    sequence_number =
+        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    message.header().sequence_number = *sequence_number;
     memcpy(&fragment.mutable_bytes()[sizeof(uint32_t)],
            &message.data_view().data()[sizeof(uint32_t)],
            message.data_view().size() - sizeof(uint32_t));
@@ -342,7 +349,7 @@ void NodeLink::TransmitMessage(
         *reinterpret_cast<uint32_t*>(message.data_view().data()),
         std::memory_order_release);
 
-    NodeLinkMemory::MessageFragment message_fragment(sequence_number,
+    NodeLinkMemory::MessageFragment message_fragment(*sequence_number,
                                                      fragment.descriptor());
     if (!memory().outgoing_message_fragments().Push(message_fragment)) {
       // No queue capacity at the moment...
@@ -364,8 +371,13 @@ void NodeLink::TransmitMessage(
     return;
   }
 
+  if (!sequence_number) {
+    sequence_number =
+        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   memory().TestAndSetNotificationPending();
-  message.header().sequence_number = sequence_number;
+  message.header().sequence_number = *sequence_number;
   transport_->TransmitMessage(
       DriverTransport::Message(DriverTransport::Data(message.data_view()),
                                message.transmissible_driver_handles()));

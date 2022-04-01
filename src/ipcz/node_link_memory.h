@@ -134,14 +134,29 @@ class NodeLinkMemory : public RefCounted {
   void ClearPendingNotification();
 
   // Requests allocation of a new buffer of the given size. When completed,
-  // `callback` is invoked with the memory object, a mapping (owned by this
-  // NodeLinkMemory), and the ID of the new buffer. The buffer is NOT
+  // `allocate_callback` is invoked with the memory object, a mapping (owned by
+  // this NodeLinkMemory), and the ID of the new buffer. The buffer is NOT
   // automatically shared across the link. Instead, the caller should do that
   // along with whatever context is necessary for the other side to use the
   // buffer as expected.
-  using AllocateBufferCallback =
+  //
+  // On success only, `share_callback` is run BEFORE the buffer is registered
+  // with this node so that the caller may initialize and share the buffer with
+  // the remote node as needed before it can be used for any work by the local
+  // node. The buffer is registered locally to the given BufferId as soon as
+  // `share_callback` returns.
+  //
+  // Once the buffer is registered -- or if allocation failed --
+  // `finished_callback` is run to indicate success or failure. At this point
+  // (assuming success) it's safe to perform operations which rely on the
+  // buffer's registration being complete, such as sending other messages which
+  // reference the buffer's contents.
+  using AllocateBufferShareCallback =
       Function<void(BufferId, DriverMemory, DriverMemoryMapping&)>;
-  void AllocateBuffer(size_t num_bytes, AllocateBufferCallback callback);
+  using AllocateBufferFinishedCallback = Function<void(bool)>;
+  void AllocateBuffer(size_t num_bytes,
+                      AllocateBufferShareCallback share_callback,
+                      AllocateBufferFinishedCallback finished_callback);
 
   // Registers a callback to be invoked as soon as the identified buffer becomes
   // available to this NodeLinkMemory.
