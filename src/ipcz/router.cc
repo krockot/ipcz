@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <utility>
@@ -33,8 +34,8 @@
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "util/log.h"
 #include "util/mutex_locks.h"
-#include "util/random.h"
 #include "util/ref_counted.h"
+#include "util/safe_math.h"
 
 namespace ipcz {
 
@@ -577,12 +578,18 @@ IpczResult Router::Trap(const IpczTrapConditions& conditions,
   {
     absl::MutexLock lock(&mutex_);
     if (need_peer_state) {
+      status_.num_remote_parcels = outbound_parcels_.GetNumAvailableElements();
+      status_.num_remote_bytes =
+          outbound_parcels_.GetTotalAvailableElementSize();
+
       peer_link = outward_edge_.primary_link();
       if (peer_link && peer_link->GetType().is_central()) {
-        const RouterLinkState::QueueState state =
+        const RouterLinkState::QueueState peer_state =
             peer_link->GetPeerQueueState();
-        status_.num_remote_parcels = state.num_inbound_parcels_queued;
-        status_.num_remote_bytes = state.num_inbound_bytes_queued;
+        status_.num_remote_parcels = SaturatedAdd(
+            status_.num_remote_parcels, peer_state.num_inbound_parcels_queued);
+        status_.num_remote_bytes = SaturatedAdd(
+            status_.num_remote_bytes, peer_state.num_inbound_bytes_queued);
       }
     }
 

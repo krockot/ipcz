@@ -126,6 +126,7 @@ portable_source_set("util") {
     "util/mutex_locks.h",
     "util/random.h",
     "util/ref_counted.h",
+    "util/safe_math.h",
     "util/stack_trace.h",
   ]
 
