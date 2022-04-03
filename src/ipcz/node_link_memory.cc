@@ -335,12 +335,22 @@ void NodeLinkMemory::AllocateBuffer(
 
         share_callback(new_buffer_id, std::move(memory), *mapping);
 
+        std::vector<Function<void()>> buffer_callbacks;
         {
           absl::MutexLock lock(&self->mutex_);
           self->buffer_map_[new_buffer_id] = mapping;
+
+          auto it = self->buffer_callbacks_.find(new_buffer_id);
+          if (it != self->buffer_callbacks_.end()) {
+            buffer_callbacks = std::move(it->second);
+            self->buffer_callbacks_.erase(it);
+          }
         }
 
         finished_callback(true);
+        for (auto& callback : buffer_callbacks) {
+          callback();
+        }
       });
 }
 
