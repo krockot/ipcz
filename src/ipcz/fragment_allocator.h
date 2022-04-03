@@ -44,6 +44,10 @@ class FragmentAllocator {
   // fragment.
   Fragment Allocate(uint32_t num_bytes);
 
+  // Allocates a new fragment, potentially choosing a size smaller than
+  // `ideal_num_bytes` if sufficient capacity would otherwise be unavailable.
+  Fragment AllocatePartial(uint32_t ideal_num_bytes);
+
   // Allocates a new fragment. If allocation would fail because there is no
   // capacity in any of this object's internal allocators, this requests
   // additional capacity to be added to the NodeLinkMemory before attempting

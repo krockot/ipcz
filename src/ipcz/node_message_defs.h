@@ -224,7 +224,14 @@ IPCZ_MSG_END()
 IPCZ_MSG_BEGIN(AcceptParcel, IPCZ_MSG_ID(20), IPCZ_MSG_VERSION(0))
   IPCZ_MSG_PARAM(SublinkId, sublink)
   IPCZ_MSG_PARAM(SequenceNumber, sequence_number)
+
+  // Only one of `parcel_fragment` or `parcel_data` will be set. If and only if
+  // `parcel_fragment` is set, `parcel_size` is the actual size of the parcel
+  // data; which must be no larger than the fragment size itself.
+  IPCZ_MSG_PARAM(FragmentDescriptor, parcel_fragment)
+  IPCZ_MSG_PARAM(uint32_t, parcel_size)
   IPCZ_MSG_PARAM_ARRAY(uint8_t, parcel_data)
+
   IPCZ_MSG_PARAM_ARRAY(HandleDescriptor, handle_descriptors)
   IPCZ_MSG_PARAM_ARRAY(RouterDescriptor, new_routers)
   IPCZ_MSG_PARAM_DRIVER_OBJECT_ARRAY(driver_objects)

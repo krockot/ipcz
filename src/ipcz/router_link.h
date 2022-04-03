@@ -102,6 +102,16 @@ class RouterLink : public RefCounted {
                                        const IpczPutLimits& limits,
                                        size_t* max_data_size) = 0;
 
+  // Allocates data capacity for a Parcel to be sent over this link. The given
+  // `parcel` will have any existing data storage replaced with new storage
+  // appropriate for use with this link.
+  //
+  // If `allow_partial` is true, this may succeed with the parcel being given a
+  // smaller data size than requested.
+  virtual void AllocateParcelData(size_t num_bytes,
+                                  bool allow_partial,
+                                  Parcel& parcel) = 0;
+
   // Passes a parcel to the Router on the other side of this link for further
   // routing.
   virtual void AcceptParcel(Parcel& parcel) = 0;

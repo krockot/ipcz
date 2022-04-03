@@ -12,20 +12,68 @@
 
 #include "ipcz/box.h"
 #include "ipcz/driver_object.h"
+#include "ipcz/fragment_allocator.h"
+#include "ipcz/node_link_memory.h"
 #include "ipcz/portal.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
 
 namespace ipcz {
+
+namespace {
+
+void MoveObjects(Parcel::ObjectVector& source,
+                 absl::Span<Ref<APIObject>>& source_view,
+                 Parcel::ObjectVector& dest,
+                 absl::Span<Ref<APIObject>>& dest_view) {
+  if (source_view.empty()) {
+    dest = std::move(source);
+    dest_view = {};
+    return;
+  }
+
+  const size_t offset = source_view.data() - source.data();
+  const size_t size = source_view.size();
+  ABSL_ASSERT(offset < source.size());
+  ABSL_ASSERT(size <= source.size());
+  ABSL_ASSERT(source.size() - size >= offset);
+  source_view = {};
+  dest = std::move(source);
+  dest_view = absl::MakeSpan(dest).subspan(offset, size);
+}
+
+}  // namespace
 
 Parcel::Parcel() = default;
 
 Parcel::Parcel(SequenceNumber sequence_number)
     : sequence_number_(sequence_number) {}
 
-Parcel::Parcel(Parcel&& other) = default;
+Parcel::Parcel(Parcel&& other)
+    : sequence_number_(other.sequence_number_),
+      data_fragment_(other.data_fragment_),
+      inlined_data_(std::move(other.inlined_data_)),
+      data_fragment_memory_(std::move(other.data_fragment_memory_)),
+      data_view_(other.data_view_) {
+  MoveObjects(other.objects_, other.objects_view_, objects_, objects_view_);
+  other.data_fragment_ = {};
+  other.data_view_ = {};
+  other.objects_view_ = {};
+}
 
-Parcel& Parcel::operator=(Parcel&& other) = default;
+Parcel& Parcel::operator=(Parcel&& other) {
+  sequence_number_ = other.sequence_number_;
+  data_fragment_ = other.data_fragment_;
+  inlined_data_ = std::move(other.inlined_data_);
+  data_fragment_memory_ = std::move(other.data_fragment_memory_);
+  data_view_ = other.data_view_;
+  MoveObjects(other.objects_, other.objects_view_, objects_, objects_view_);
+  other.data_fragment_ = {};
+  other.data_view_ = {};
+  other.objects_view_ = {};
+  return *this;
+}
 
 Parcel::~Parcel() {
   for (Ref<APIObject>& object : objects_) {
@@ -33,20 +81,55 @@ Parcel::~Parcel() {
       object->Close();
     }
   }
+
+  if (!data_fragment_.is_null()) {
+    ABSL_ASSERT(data_fragment_memory_);
+    data_fragment_memory_->fragment_allocator().Free(data_fragment_);
+  }
 }
 
-void Parcel::SetData(std::vector<uint8_t> data) {
-  data_ = std::move(data);
-  data_offset_ = 0;
+void Parcel::SetDataFragment(Ref<NodeLinkMemory> memory,
+                             const Fragment& fragment) {
+  data_fragment_ = fragment;
+  data_fragment_memory_ = std::move(memory);
+  if (fragment.is_resolved()) {
+    data_view_ = fragment.mutable_bytes();
+  } else {
+    data_view_ = {};
+  }
+}
+
+void Parcel::SetInlinedData(std::vector<uint8_t> data) {
+  inlined_data_ = std::move(data);
+  data_view_ = absl::MakeSpan(inlined_data_);
 }
 
 void Parcel::SetObjects(ObjectVector objects) {
   objects_ = std::move(objects);
-  object_offset_ = 0;
+  objects_view_ = absl::MakeSpan(objects_);
 }
 
-void Parcel::ResizeData(size_t size) {
-  data_.resize(size);
+void Parcel::ReleaseDataFragment() {
+  ABSL_ASSERT(!data_fragment_.is_null());
+  data_fragment_ = {};
+  data_fragment_memory_.reset();
+  data_view_ = {};
+}
+
+bool Parcel::ResolveDataFragment() {
+  ABSL_ASSERT(!data_fragment_.is_null());
+  if (!data_fragment_.is_pending()) {
+    return true;
+  }
+
+  data_fragment_ =
+      data_fragment_memory_->GetFragment(data_fragment_.descriptor());
+  if (!data_fragment_.is_resolved()) {
+    return false;
+  }
+
+  data_view_ = data_fragment_.mutable_bytes();
+  return true;
 }
 
 void Parcel::Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles) {
@@ -58,8 +141,8 @@ void Parcel::Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles) {
     out_handles[i] = ToHandle(objects[i].release());
   }
 
-  data_offset_ += num_bytes;
-  object_offset_ += out_handles.size();
+  data_view_.remove_prefix(num_bytes);
+  objects_view_.remove_prefix(out_handles.size());
 }
 
 std::string Parcel::Describe() const {
@@ -77,6 +160,8 @@ std::string Parcel::Describe() const {
         ss << '"';
       }
     }
+  } else if (data_fragment_.is_pending()) {
+    ss << "data pending";
   } else {
     ss << "no data";
   }

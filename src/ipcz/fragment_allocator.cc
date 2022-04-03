@@ -30,12 +30,16 @@ constexpr size_t kPageGranularity = 65536;
 // kMinimumBlockAllocatorCapacity blocks.
 constexpr size_t kMinimumBlockAllocatorCapacity = 8;
 
+// The minimum fragment size to support via FragmentAllocator. Allocations
+// smaller than this size are rounded up to this size.
+constexpr uint32_t kMinimumFragmentSize = 64;
+
 // The maximum fragment size to support via FragmentAllocator. Beyond this size
 // (e.g. to convey several MB of data at once) shared memory allocation should
 // be done ad hoc for each use. Note that this is not a strict maximum, but
 // FragmentAllocator will not automatically attempt to acquire more capacity for
 // fragments of this size if an allocation fails.
-constexpr size_t kMaximumFragmentSize = 256 * 1024;
+constexpr uint32_t kMaximumFragmentSize = 256 * 1024;
 
 // The maximum total capacity FragmentAllocator will attempt to automatically
 // acquire for any one fragment size. FragmentAllocator never frees allocated
@@ -43,7 +47,7 @@ constexpr size_t kMaximumFragmentSize = 256 * 1024;
 // the total memory a FragmentAllocator can allocate. This is not a strict
 // limit, but if an allocation fails for a supported fragment size, capacity for
 // that size will only be expanded automatically if it's below this threshold.
-constexpr size_t kMaximumFragmentCapacity = 2 * 1024 * 1024;
+constexpr uint32_t kMaximumFragmentCapacity = 2 * 1024 * 1024;
 
 }  // namespace
 
@@ -71,7 +75,8 @@ void FragmentAllocator::AddBlockAllocator(uint32_t block_size,
 }
 
 Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
-  const uint32_t block_size = absl::bit_ceil(num_bytes);
+  const uint32_t block_size =
+      std::max(kMinimumFragmentSize, absl::bit_ceil(num_bytes));
 
   if (block_size > kMaximumFragmentSize) {
     return Fragment();
@@ -103,6 +108,20 @@ Fragment FragmentAllocator::Allocate(uint32_t num_bytes) {
 
   // Expand available capacity for this block size to reduce future failures.
   ExpandCapacity(block_size, /*callback=*/nullptr);
+  return {};
+}
+
+Fragment FragmentAllocator::AllocatePartial(uint32_t ideal_num_bytes) {
+  const uint32_t ideal_block_size =
+      std::max(kMinimumFragmentSize, absl::bit_ceil(ideal_num_bytes));
+  for (uint32_t block_size = std::min(ideal_block_size, kMaximumFragmentSize);
+       block_size >= 4096; block_size /= 2) {
+    const Fragment fragment = Allocate(block_size);
+    if (!fragment.is_null()) {
+      return fragment;
+    }
+  }
+
   return {};
 }
 

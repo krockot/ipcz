@@ -48,6 +48,9 @@ class LocalRouterLink : public RouterLink {
   bool WouldParcelExceedLimits(size_t data_size,
                                const IpczPutLimits& limits,
                                size_t* max_data_size) override;
+  void AllocateParcelData(size_t num_bytes,
+                          bool allow_partial,
+                          Parcel& parcel) override;
   void AcceptParcel(Parcel& parcel) override;
   void AcceptRouteClosure(SequenceNumber sequence_length) override;
   void AcceptRouteDisconnection() override;

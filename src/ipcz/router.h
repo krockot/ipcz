@@ -100,10 +100,18 @@ class Router : public RefCounted {
                                       const IpczPutLimits& limits,
                                       size_t* max_data_size);
 
+  // Allocates an outbound parcel with the intention of eventually sending it
+  // from this Router via SendOutboundParcel(). This will always try to allocate
+  // exactly `num_bytes` capacity unless `allow_partial` is true; in which case
+  // the allocated size may be less than requested.
+  IpczResult AllocateOutboundParcel(size_t num_bytes,
+                                    bool allow_partial,
+                                    Parcel& parcel);
+
   // Attempts to send an outbound parcel originating from this Router. Called
-  // only as a direct result of a Put() call on the router's owning portal.
-  IpczResult SendOutboundParcel(absl::Span<const uint8_t> data,
-                                Parcel::ObjectVector& objects);
+  // only as a direct result of a Put() or EndPut() call on the router's owning
+  // portal.
+  IpczResult SendOutboundParcel(Parcel& parcel);
 
   // Closes this side of the Router's own route. Only called on a Router to
   // which a Portal is currently attached, and only by that Portal.

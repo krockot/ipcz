@@ -39,7 +39,7 @@ struct Fragment {
 
   void* address() const { return address_; }
 
-  absl::Span<uint8_t> mutable_bytes() {
+  absl::Span<uint8_t> mutable_bytes() const {
     return {static_cast<uint8_t*>(address_), descriptor_.size()};
   }
 

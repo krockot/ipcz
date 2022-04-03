@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "ipcz/api_object.h"
+#include "ipcz/fragment.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/sequence_number.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
@@ -20,6 +21,7 @@
 namespace ipcz {
 
 class DriverTransport;
+class NodeLinkMemory;
 
 // Represents a parcel queued within a portal, either for inbound retrieval or
 // outgoing transfer.
@@ -36,30 +38,40 @@ class Parcel {
   void set_sequence_number(SequenceNumber n) { sequence_number_ = n; }
   SequenceNumber sequence_number() const { return sequence_number_; }
 
-  bool empty() const {
-    return data_offset_ == data_.size() && object_offset_ == objects_.size();
-  }
+  bool empty() const { return data_view_.empty() && objects_view_.empty(); }
 
-  void SetData(std::vector<uint8_t> data);
+  void SetDataFragment(Ref<NodeLinkMemory> memory, const Fragment& fragment);
+  void SetInlinedData(std::vector<uint8_t> data);
   void SetObjects(ObjectVector objects);
 
-  void ResizeData(size_t size);
+  absl::Span<uint8_t> data_view() { return data_view_; }
+  absl::Span<const uint8_t> data_view() const { return data_view_; }
 
-  absl::Span<uint8_t> data_view() {
-    return absl::MakeSpan(data_).subspan(data_offset_);
-  }
-  absl::Span<const uint8_t> data_view() const {
-    return absl::MakeSpan(data_).subspan(data_offset_);
-  }
   size_t data_size() const { return data_view().size(); }
 
-  absl::Span<Ref<APIObject>> objects_view() {
-    return absl::MakeSpan(objects_).subspan(object_offset_);
+  const Fragment& data_fragment() const { return data_fragment_; }
+  const Ref<NodeLinkMemory>& data_fragment_memory() const {
+    return data_fragment_memory_;
   }
+
+  absl::Span<Ref<APIObject>> objects_view() { return objects_view_; }
   absl::Span<const Ref<APIObject>> objects_view() const {
-    return absl::MakeSpan(objects_).subspan(object_offset_);
+    return objects_view_;
   }
   size_t num_objects() const { return objects_view().size(); }
+
+  // Sets the actual size of this parcel's data. Must be no larger than the
+  // existing size of `data_view()`.
+  void SetDataSize(size_t num_bytes) {
+    data_view_ = data_view_.subspan(0, num_bytes);
+  }
+
+  // Relinquishes ownership of this Parcel's data fragment, if applicable. This
+  // prevents the fragment from being freed upon Parcel destruction.
+  void ReleaseDataFragment();
+
+  // Attempts to resolve the Parcel's data fragment if it was pending.
+  bool ResolveDataFragment();
 
   void Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles);
 
@@ -74,13 +86,21 @@ class Parcel {
 
  private:
   SequenceNumber sequence_number_ = 0;
-  std::vector<uint8_t> data_;
+
+  // Only one or the other of these data fields is valid.
+  Fragment data_fragment_;
+  std::vector<uint8_t> inlined_data_;
+
+  // Iff `data_fragment_` is set, this is the NodeLinkMemory that responsible
+  // for its containing buffer.
+  Ref<NodeLinkMemory> data_fragment_memory_;
+
   ObjectVector objects_;
 
-  // Base indices into the above storage vectors, tracking the first unconsumed
-  // element in each.
-  size_t data_offset_ = 0;
-  size_t object_offset_ = 0;
+  // Views of unconsumed elements of the parcel's data (either in `inline_data_`
+  // or `data_fragment_`) and objects.
+  absl::Span<uint8_t> data_view_;
+  absl::Span<Ref<APIObject>> objects_view_;
 };
 
 }  // namespace ipcz

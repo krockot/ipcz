@@ -214,6 +214,26 @@ bool RemoteRouterLink::WouldParcelExceedLimits(size_t data_size,
   return data_size > byte_capacity || parcel_capacity == 0;
 }
 
+void RemoteRouterLink::AllocateParcelData(size_t num_bytes,
+                                          bool allow_partial,
+                                          Parcel& parcel) {
+  FragmentAllocator& allocator = node_link()->memory().fragment_allocator();
+  Fragment fragment;
+  if (allow_partial) {
+    fragment = allocator.AllocatePartial(num_bytes);
+  } else {
+    fragment = allocator.Allocate(num_bytes);
+  }
+
+  if (fragment.is_null()) {
+    // Fall back on simple heap allocation. This incurs additional copies.
+    parcel.SetInlinedData(std::vector<uint8_t>(num_bytes));
+    return;
+  }
+
+  parcel.SetDataFragment(&node_link()->memory(), fragment);
+}
+
 void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const absl::Span<Ref<APIObject>> objects = parcel.objects_view();
 
@@ -276,8 +296,16 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   // Allocate all the arrays in the message. Note that each allocation may
   // relocate the parcel data in memory, so views into these arrays should not
   // be acquired until all allocations are complete.
-  accept.params().parcel_data =
-      accept.AllocateArray<uint8_t>(parcel.data_view().size());
+  if (parcel.data_fragment().is_null() ||
+      parcel.data_fragment_memory() != &node_link()->memory()) {
+    accept.params().parcel_data =
+        accept.AllocateArray<uint8_t>(parcel.data_view().size());
+  } else {
+    accept.params().parcel_fragment = parcel.data_fragment().descriptor();
+    accept.params().parcel_size =
+        static_cast<uint32_t>(parcel.data_view().size());
+    parcel.ReleaseDataFragment();
+  }
   accept.params().handle_descriptors =
       accept.AllocateArray<HandleDescriptor>(objects.size());
   accept.params().new_routers =
@@ -290,7 +318,10 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
   const absl::Span<RouterDescriptor> new_routers =
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
 
-  memcpy(parcel_data.data(), parcel.data_view().data(), parcel.data_size());
+  if (!parcel_data.empty()) {
+    // Copy the data iff it's not already in an appropriate fragment.
+    memcpy(parcel_data.data(), parcel.data_view().data(), parcel.data_size());
+  }
 
   absl::InlinedVector<Ref<Router>, 4> routers;
   absl::Span<RouterDescriptor> remaining_routers = new_routers;

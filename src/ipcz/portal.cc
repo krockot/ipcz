@@ -101,7 +101,17 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     return IPCZ_RESULT_NOT_FOUND;
   }
 
-  IpczResult result = router_->SendOutboundParcel(data, objects);
+  Parcel parcel;
+  IpczResult result = router_->AllocateOutboundParcel(
+      data.size(), /*allow_partial=*/false, parcel);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  memcpy(parcel.data_view().data(), data.data(), data.size());
+  parcel.SetDataSize(data.size());
+  parcel.SetObjects(std::move(objects));
+  result = router_->SendOutboundParcel(parcel);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.
@@ -139,7 +149,14 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 
   in_two_phase_put_ = true;
   pending_parcel_.emplace();
-  pending_parcel_->ResizeData(num_data_bytes);
+
+  const IpczResult result = router_->AllocateOutboundParcel(
+      num_data_bytes, allow_partial, *pending_parcel_);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  num_data_bytes = static_cast<uint32_t>(pending_parcel_->data_view().size());
   if (data) {
     *data = pending_parcel_->data_view().data();
   }
@@ -168,8 +185,9 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     pending_parcel_.reset();
   }
 
-  IpczResult result = router_->SendOutboundParcel(
-      parcel.data_view().subspan(0, num_data_bytes_produced), objects);
+  parcel.SetDataSize(num_data_bytes_produced);
+  parcel.SetObjects(std::move(objects));
+  IpczResult result = router_->SendOutboundParcel(parcel);
   if (result == IPCZ_RESULT_OK) {
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.

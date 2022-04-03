@@ -259,7 +259,6 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   IpczResult DispatchMessage(const DriverTransport::Message& message);
 
-  bool AcceptPartialParcel(SublinkId for_sublink, Parcel& p);
   bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink, Parcel& p);
   bool AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& p);
   bool AcceptSplitParcel(SublinkId for_sublink,

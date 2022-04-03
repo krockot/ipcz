@@ -735,13 +735,43 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
     }
   }
 
+  const SublinkId for_sublink = accept.params().sublink;
   Parcel parcel(accept.params().sequence_number);
-  parcel.SetData(std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   parcel.SetObjects(std::move(objects));
-  if (is_split_parcel) {
-    return AcceptParcelWithoutDriverObjects(accept.params().sublink, parcel);
+  if (!accept.params().parcel_fragment.is_null()) {
+    if (accept.params().parcel_size > accept.params().parcel_fragment.size()) {
+      return false;
+    }
+
+    const FragmentDescriptor descriptor = accept.params().parcel_fragment;
+    const Fragment fragment = memory_->GetFragment(descriptor);
+    parcel.SetDataFragment(memory_, fragment);
+    if (fragment.is_pending()) {
+      memory_->OnBufferAvailable(
+          descriptor.buffer_id(),
+          [self = WrapRefCounted(this), for_sublink, parcel = std::move(parcel),
+           is_split_parcel, size = accept.params().parcel_size]() mutable {
+            if (parcel.ResolveDataFragment()) {
+              parcel.SetDataSize(size);
+              if (is_split_parcel) {
+                self->AcceptParcelWithoutDriverObjects(for_sublink, parcel);
+              }
+              self->AcceptCompleteParcel(for_sublink, parcel);
+            }
+          });
+      return true;
+    } else {
+      parcel.SetDataSize(accept.params().parcel_size);
+    }
+  } else {
+    parcel.SetInlinedData(
+        std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   }
-  return AcceptCompleteParcel(accept.params().sublink, parcel);
+
+  if (is_split_parcel) {
+    return AcceptParcelWithoutDriverObjects(for_sublink, parcel);
+  }
+  return AcceptCompleteParcel(for_sublink, parcel);
 }
 
 bool NodeLink::OnAcceptParcelDriverObjects(

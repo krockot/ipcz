@@ -132,6 +132,12 @@ bool LocalRouterLink::WouldParcelExceedLimits(size_t data_size,
       ->WouldInboundParcelExceedLimits(data_size, limits, max_data_size);
 }
 
+void LocalRouterLink::AllocateParcelData(size_t num_bytes,
+                                         bool allow_partial,
+                                         Parcel& parcel) {
+  parcel.SetInlinedData(std::vector<uint8_t>(num_bytes));
+}
+
 void LocalRouterLink::AcceptParcel(Parcel& parcel) {
   Router& receiver = *state_->side(side_.opposite());
   if (state_->type() == LinkType::kCentral) {
