@@ -38,7 +38,7 @@ Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
       driver_node_(driver_node) {
   if (type_ == Type::kBroker) {
     // Only brokers assign their own names.
-    assigned_name_ = NodeName{NodeName::kRandom};
+    assigned_name_ = GenerateRandomName();
     DVLOG(4) << "Created new broker node " << assigned_name_.ToString();
   } else {
     DVLOG(4) << "Created new non-broker node " << this;
@@ -450,6 +450,14 @@ bool Node::AcceptRelayedMessage(msg::AcceptRelayedMessage& relay) {
   }
 
   return link->DispatchRelayedMessage(relay);
+}
+
+NodeName Node::GenerateRandomName() const {
+  NodeName name;
+  IpczResult result =
+      driver_.GenerateRandomBytes(sizeof(name), IPCZ_NO_FLAGS, nullptr, &name);
+  ABSL_ASSERT(result == IPCZ_RESULT_OK);
+  return name;
 }
 
 void Node::DiagnoseForTesting() {

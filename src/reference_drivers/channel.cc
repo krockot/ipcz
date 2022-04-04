@@ -14,11 +14,11 @@
 #include <vector>
 
 #include "build/build_config.h"
+#include "reference_drivers/random.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "util/function.h"
 #include "util/hex_dump.h"
 #include "util/log.h"
-#include "util/random.h"
 
 #if BUILDFLAG(IS_POSIX)
 #include <fcntl.h>

@@ -16,6 +16,7 @@
 #include "reference_drivers/memory.h"
 #include "reference_drivers/object.h"
 #include "reference_drivers/os_handle.h"
+#include "reference_drivers/random.h"
 #include "reference_drivers/wrapped_os_handle.h"
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
@@ -586,6 +587,14 @@ IpczResult IPCZ_API MapSharedMemory(IpczDriverHandle driver_memory,
   return IPCZ_RESULT_OK;
 }
 
+IpczResult IPCZ_API GenerateRandomBytes(uint32_t num_bytes,
+                                        uint32_t flags,
+                                        const void* options,
+                                        void* buffer) {
+  RandomBytes(absl::MakeSpan(static_cast<uint8_t*>(buffer), num_bytes));
+  return IPCZ_RESULT_OK;
+}
+
 }  // namespace
 
 const IpczDriver kMultiprocessReferenceDriver = {
@@ -601,6 +610,7 @@ const IpczDriver kMultiprocessReferenceDriver = {
     GetSharedMemoryInfo,
     DuplicateSharedMemory,
     MapSharedMemory,
+    GenerateRandomBytes,
 };
 
 const IpczDriver kMultiprocessReferenceDriverWithForcedObjectBrokering = {
@@ -616,6 +626,7 @@ const IpczDriver kMultiprocessReferenceDriverWithForcedObjectBrokering = {
     GetSharedMemoryInfo,
     DuplicateSharedMemory,
     MapSharedMemory,
+    GenerateRandomBytes,
 };
 
 IpczDriverHandle CreateTransportFromChannel(

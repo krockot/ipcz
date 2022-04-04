@@ -10,12 +10,8 @@
 #include <string>
 
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "util/random.h"
 
 namespace ipcz {
-
-NodeName::NodeName(decltype(kRandom))
-    : high_(RandomUint64()), low_(RandomUint64()) {}
 
 NodeName::~NodeName() = default;
 

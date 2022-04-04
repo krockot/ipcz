@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "util/random.h"
+#include "reference_drivers/random.h"
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 #include "build/build_config.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -32,45 +32,36 @@
 #undef SystemFunction036
 #endif
 
-namespace ipcz {
+namespace ipcz::reference_drivers {
 
-uint64_t RandomUint64() {
-  uint64_t value;
+void RandomBytes(absl::Span<uint8_t> destination) {
 #if BUILDFLAG(IS_WIN)
-  const bool ok = RtlGenRandom(&value, sizeof(value));
+  const bool ok = RtlGenRandom(destination.data(), destination.size());
   ABSL_ASSERT(ok);
 #elif BUILDFLAG(IS_FUCHSIA)
-  zx_cprng_draw(&value, sizeof(value));
+  zx_cprng_draw(destination.data(), destination.size());
 #elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
-  ssize_t bytes = 0;
-  size_t num_bytes = sizeof(value);
-  while (num_bytes > 0) {
-    ssize_t result =
-        getrandom(reinterpret_cast<uint8_t*>(&value) + bytes, num_bytes, 0);
+  while (!destination.empty()) {
+    ssize_t result = getrandom(destination.data(), destination.size(), 0);
     if (result == -1) {
       ABSL_ASSERT(errno == EINTR);
       continue;
     }
 
-    bytes += result;
-    num_bytes -= result;
+    destination.remove_prefix(result);
   }
 #elif BUILDFLAG(IS_MAC)
-  const bool ok = getentropy(&value, sizeof(value)) == 0;
+  const bool ok = getentropy(destination.data(), destination.size()) == 0;
   ABSL_ASSERT(ok);
 #elif BUILDFLAG(IS_NACL)
-  size_t bytes_needed = sizeof(value);
-  uint8_t* storage = reinterpret_cast<uint8_t*>(&value);
-  while (bytes_needed > 0) {
+  while (!destination.empty()) {
     size_t nread;
-    nacl_secure_random(storage, bytes_needed, &nread);
-    storage += nread;
-    bytes_needed -= nread;
+    nacl_secure_random(destination.data(), destination.size(), &nread);
+    destination.remove_prefix(nread);
   }
 #else
 #error "Unsupported platform"
 #endif
-  return value;
 }
 
-}  // namespace ipcz
+}  // namespace ipcz::reference_drivers

@@ -85,7 +85,7 @@ class NodeConnectorForBrokerToNonBroker : public NodeConnector {
 
  private:
   const NodeName broker_name_{node_->GetAssignedName()};
-  const NodeName new_remote_node_name_{NodeName::kRandom};
+  const NodeName new_remote_node_name_{node_->GenerateRandomName()};
   DriverMemory link_memory_to_share_;
   Ref<NodeLinkMemory> link_memory_;
 };
@@ -297,7 +297,7 @@ class NodeConnectorForIndirectBrokerToNonBroker : public NodeConnector {
 
  private:
   const NodeName broker_name_{node_->GetAssignedName()};
-  const NodeName new_remote_node_name_{NodeName::kRandom};
+  const NodeName new_remote_node_name_{node_->GenerateRandomName()};
   const ConnectIndirectCallback indirect_callback_;
   const uint32_t num_initial_portals_;
   const Ref<NodeLink> referrer_;

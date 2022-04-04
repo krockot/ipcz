@@ -320,6 +320,12 @@ struct IPCZ_ALIGN(8) IpczDriver {
                                         const void* options,
                                         void** address,
                                         IpczDriverHandle* driver_mapping);
+
+  // Generates `num_bytes` bytes of random data to fill `buffer`.
+  IpczResult(IPCZ_API* GenerateRandomBytes)(uint32_t num_bytes,
+                                            uint32_t flags,
+                                            const void* options,
+                                            void* buffer);
 };
 
 #if defined(__cplusplus)

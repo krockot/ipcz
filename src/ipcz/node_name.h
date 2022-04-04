@@ -26,10 +26,7 @@ namespace ipcz {
 // otherwise interfere with any existing routes running through the named node.
 class IPCZ_ALIGN(8) NodeName {
  public:
-  enum { kRandom };
-
   constexpr NodeName() : high_(0), low_(0) {}
-  explicit NodeName(decltype(kRandom));
   constexpr NodeName(uint64_t high, uint64_t low) : high_(high), low_(low) {}
   ~NodeName();
 
