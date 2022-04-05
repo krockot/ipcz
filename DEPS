@@ -4,6 +4,10 @@ gclient_gn_args = [
   'generate_location_tags',
 ]
 
+skip_child_includes = [
+  'src',
+]
+
 vars = {
   'build_with_chromium': False,
   'generate_location_tags': False,

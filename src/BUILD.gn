@@ -8,11 +8,12 @@ import("//testing/test.gni")
 source_set("ipcz") {
   sources = [ "api.cc" ]
   if (build_ipcz_standalone) {
-    public_deps = [ ":ipcz_sources" ]
+    deps = [ ":ipcz_sources" ]
   } else {
-    public_deps = [ ":ipcz_sources_chromium" ]
+    deps = [ ":ipcz_sources_chromium" ]
   }
-  deps = [ "//third_party/abseil-cpp:absl" ]
+  deps += [ "//third_party/abseil-cpp:absl" ]
+  public_deps = [ ":ipcz_header" ]
   public_configs = [ ":ipcz_include_dir" ]
   configs += [ ":ipcz_include_src_dir" ]
 }
@@ -20,8 +21,11 @@ source_set("ipcz") {
 shared_library("ipcz_shared") {
   output_name = "ipcz"
   sources = [ "api.cc" ]
-  public_deps = [ ":ipcz_sources" ]
-  deps = [ "//third_party/abseil-cpp:absl" ]
+  deps = [
+    ":ipcz_sources",
+    "//third_party/abseil-cpp:absl",
+  ]
+  public_deps = [ ":ipcz_header" ]
   defines = [ "IPCZ_SHARED_LIBRARY" ]
   public_configs = [ ":ipcz_include_dir" ]
   configs += [ ":ipcz_include_src_dir" ]
@@ -29,12 +33,12 @@ shared_library("ipcz_shared") {
 
 source_set("ipcz_header") {
   visibility = [ ":*" ]
-  public = [ "include/ipcz/ipcz.h" ]
+  public = [ "../include/ipcz/ipcz.h" ]
   public_configs = [ ":ipcz_include_dir" ]
 }
 
 source_set("ipcz_header_types") {
-  public = [ "include/ipcz/ipcz.h" ]
+  public = [ "../include/ipcz/ipcz.h" ]
 }
 
 # This template defines two source_set targets: one for use in standalone ipcz
@@ -239,7 +243,7 @@ portable_source_set("impl") {
 }
 
 portable_source_set("ipcz_sources") {
-  portable_deps = [
+  portable_public_deps = [
     ":impl",
     ":util",
   ]

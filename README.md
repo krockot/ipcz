@@ -172,6 +172,27 @@ environment-specific tasks such as establishing a basic I/O transport,
 generating random numbers, and allocating shared memory regions.
 See [reference drivers](src/reference_drivers) for examples.
 
+## In Chromium
+This directory in the Chromium tree *is* the source of truth for ipcz. It is not
+a mirror of an external repository, so there is no separate maintenance of local
+modifications or other versioning considerations.
+
+The decision to place ipcz sources in `//third_party/ipcz` was made in light of
+some unique characteristics:
+
+- No dependencies on //base or other Chromium directories are allowed, with the
+  exception of a very small number of carefully chosen APIs allowed when
+  integrating with Chromium builds.
+
+- The library is structured and maintained to be useful as a standalone
+  dependency, without needing any other contents of the Chromium tree or its
+  large set of dependencies.
+
+- Certain style and dependency violations are made in service of the above two
+  points; for example, ipcz depends on parts of Abseil disallowed in the rest of
+  upstream Chromium, and ipcz internally uses relative include paths rather than
+  paths rooted in Chromium's top-level directory.
+
 ## Design
 Some extensive coverage of ipcz design details can be found
 [here](https://docs.google.com/document/d/1i49DF2af4JDspE1fTXuPrUvChQcqDChdHH6nx4xiyoY/edit?resourcekey=0-t_viq9NAbGb5kr_ni9scTA#heading=h.rlzi4jxw96rk).
