@@ -280,6 +280,12 @@ void NodeLink::DiagnoseForTesting() {
   // Add other diagnostic logging here as needed.
 }
 
+SequenceNumber NodeLink::GenerateOutgoingSequenceNumber() {
+  auto& generator =
+      reinterpret_cast<std::atomic<uint64_t>&>(next_outgoing_sequence_number_);
+  return SequenceNumber(generator.fetch_add(1, std::memory_order_relaxed));
+}
+
 void NodeLink::TransmitMessage(
     internal::MessageBase& message,
     absl::Span<const internal::ParamMetadata> metadata) {
@@ -338,8 +344,7 @@ void NodeLink::TransmitMessage(
       continue;
     }
 
-    sequence_number =
-        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    sequence_number = GenerateOutgoingSequenceNumber();
     message.header().sequence_number = *sequence_number;
     memcpy(&fragment.mutable_bytes()[sizeof(uint32_t)],
            &message.data_view().data()[sizeof(uint32_t)],
@@ -364,16 +369,14 @@ void NodeLink::TransmitMessage(
     }
 
     msg::FlushLink flush;
-    flush.header().sequence_number =
-        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    flush.header().sequence_number = GenerateOutgoingSequenceNumber();
     transport_->TransmitMessage(
         DriverTransport::Message(DriverTransport::Data(flush.data_view())));
     return;
   }
 
   if (!sequence_number) {
-    sequence_number =
-        next_outgoing_sequence_number_.fetch_add(1, std::memory_order_relaxed);
+    sequence_number = GenerateOutgoingSequenceNumber();
   }
 
   memory().TestAndSetNotificationPending();

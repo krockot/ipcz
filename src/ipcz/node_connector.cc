@@ -213,7 +213,8 @@ class NodeConnectorForIndirectNonBrokerToBroker : public NodeConnector {
     node_->SetPortalsWaitingForLink(connect.params().connected_node_name,
                                     portals.subspan(0, num_portals));
     for (const Ref<Portal>& portal : portals.subspan(num_portals)) {
-      portal->router()->AcceptRouteClosureFrom(LinkType::kCentral, 0);
+      portal->router()->AcceptRouteClosureFrom(LinkType::kCentral,
+                                               SequenceNumber(0));
     }
 
     node_->SetAssignedName(connect.params().receiver_name);
@@ -463,7 +464,8 @@ IpczResult NodeConnector::ConnectNode(
             if (!connected_node_name.is_valid()) {
               DVLOG(4) << "Indirect broker connection failed.";
               for (const Ref<Portal>& portal : initial_portals) {
-                portal->router()->AcceptRouteClosureFrom(LinkType::kCentral, 0);
+                portal->router()->AcceptRouteClosureFrom(LinkType::kCentral,
+                                                         SequenceNumber(0));
               }
               return;
             }
@@ -481,7 +483,7 @@ IpczResult NodeConnector::ConnectNode(
             for (const Ref<Portal>& dead_portal :
                  portals.subspan(num_portals)) {
               dead_portal->router()->AcceptRouteClosureFrom(LinkType::kCentral,
-                                                            0);
+                                                            SequenceNumber(0));
             }
           });
     });
@@ -568,7 +570,7 @@ void NodeConnector::EstablishWaitingPortals(Ref<NodeLink> to_link,
   }
   for (size_t i = num_valid_portals; i < waiting_portals_.size(); ++i) {
     waiting_portals_[i]->router()->AcceptRouteClosureFrom(LinkType::kCentral,
-                                                          0);
+                                                          SequenceNumber(0));
   }
 }
 

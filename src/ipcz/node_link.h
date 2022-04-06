@@ -203,6 +203,8 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
            Ref<NodeLinkMemory> memory);
   ~NodeLink() override;
 
+  SequenceNumber GenerateOutgoingSequenceNumber();
+
   void TransmitMessage(internal::MessageBase& message,
                        absl::Span<const internal::ParamMetadata> metadata);
 
@@ -284,7 +286,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   // thread need to be processed in the same order by the receiving node. This
   // is used to generate a sequence number for every message so they can be
   // reordered on the receiving end.
-  std::atomic<SequenceNumber> next_outgoing_sequence_number_{0};
+  std::atomic<SequenceNumber> next_outgoing_sequence_number_{SequenceNumber{0}};
 
   // Queue of incoming messages, for reordering when necessary.
   SequencedQueue<IncomingMessage> incoming_messages_ ABSL_GUARDED_BY(mutex_);

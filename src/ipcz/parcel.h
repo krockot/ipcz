@@ -85,7 +85,7 @@ class Parcel {
   bool CanTransmitOn(const DriverTransport& transport);
 
  private:
-  SequenceNumber sequence_number_ = 0;
+  SequenceNumber sequence_number_{0};
 
   // Only one or the other of these data fields is valid.
   Fragment data_fragment_;

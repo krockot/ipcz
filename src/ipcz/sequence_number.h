@@ -7,16 +7,16 @@
 
 #include <cstdint>
 
+#include "util/strong_alias.h"
+
 namespace ipcz {
 
 // Used to number arbitrary objects in a sequence.
 //
 // More specifically this is used by ipcz to maintain relative ordering of
-// parcels against other parcels from the same source portal, and NodeLink
+// parcels against other parcels from the same source portal, or NodeLink
 // messages against other NodeLink messages from the NodeLink endpoint.
-//
-// TODO: strong alias?
-using SequenceNumber = uint64_t;
+using SequenceNumber = StrongAlias<class SequenceNumberTag, uint64_t>;
 
 }  // namespace ipcz
 

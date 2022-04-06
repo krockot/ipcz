@@ -69,7 +69,9 @@ class SequencedQueue {
 
   ~SequencedQueue() = default;
 
-  static constexpr SequenceNumber GetMaxSequenceGap() { return 1000000; }
+  // As a basic smoke test, SequencedQueue won't tolerate sequence gaps larger
+  // than this value.
+  static constexpr uint64_t GetMaxSequenceGap() { return 1000000; }
 
   // The SequenceNumber of the next element that is or will be available from
   // the queue. This starts at the constructor's `initial_sequence_number` and
@@ -117,7 +119,8 @@ class SequencedQueue {
   // for retrieval and the total length of the sequence so far is 8; so this
   // method would return 8.
   SequenceNumber GetCurrentSequenceLength() const {
-    return current_sequence_number() + GetNumAvailableElements();
+    return SequenceNumber(current_sequence_number().value() +
+                          GetNumAvailableElements());
   }
 
   // Sets the known final length of the incoming sequence. This is the sequence
@@ -132,11 +135,13 @@ class SequencedQueue {
       return false;
     }
 
-    if (length < base_sequence_number_ + entries_.size()) {
+    const SequenceNumber lower_bound(base_sequence_number_.value() +
+                                     entries_.size());
+    if (length < lower_bound) {
       return false;
     }
 
-    if (length - base_sequence_number_ > GetMaxSequenceGap()) {
+    if (length.value() - base_sequence_number_.value() > GetMaxSequenceGap()) {
       return false;
     }
 
@@ -160,7 +165,7 @@ class SequencedQueue {
     }
 
     const size_t num_entries_remaining =
-        *final_sequence_length_ - base_sequence_number_;
+        final_sequence_length_->value() - base_sequence_number_.value();
     return num_entries_ < num_entries_remaining;
   }
 
@@ -193,7 +198,7 @@ class SequencedQueue {
   // Must be called only when no elements are currently available in the queue.
   void SkipNextSequenceNumber() {
     ABSL_ASSERT(!HasNextElement());
-    ++base_sequence_number_;
+    base_sequence_number_ = SequenceNumber(base_sequence_number_.value() + 1);
     if (!IsEmpty()) {
       entries_.remove_prefix(1);
     }
@@ -204,11 +209,11 @@ class SequencedQueue {
   // sequence number for elements in this queue.
   bool Push(SequenceNumber n, T element) {
     if (n < base_sequence_number_ ||
-        (n - base_sequence_number_ > GetMaxSequenceGap())) {
+        (n.value() - base_sequence_number_.value() > GetMaxSequenceGap())) {
       return false;
     }
 
-    size_t index = n - base_sequence_number_;
+    size_t index = n.value() - base_sequence_number_.value();
     if (final_sequence_length_) {
       if (index >= entries_.size() || entries_[index].has_value()) {
         return false;
@@ -225,8 +230,8 @@ class SequencedQueue {
       return true;
     }
 
-    SequenceNumber new_limit = n + 1;
-    if (new_limit == 0) {
+    SequenceNumber new_limit = SequenceNumber(n.value() + 1);
+    if (new_limit == SequenceNumber(0)) {
       // TODO: Gracefully handle overflow / wraparound?
       return false;
     }
@@ -252,7 +257,8 @@ class SequencedQueue {
 
     ABSL_ASSERT(num_entries_ > 0);
     --num_entries_;
-    const SequenceNumber sequence_number = base_sequence_number_++;
+    const SequenceNumber sequence_number = base_sequence_number_;
+    base_sequence_number_ = SequenceNumber(base_sequence_number_.value() + 1);
 
     // Make sure the next queued entry has up-to-date accounting, if present.
     if (entries_.size() > 1 && entries_[1]) {
@@ -263,7 +269,7 @@ class SequencedQueue {
       next.total_span_size =
           head.total_span_size - ElementTraits::GetElementSize(element);
 
-      size_t tail_index = next.span_end - sequence_number;
+      size_t tail_index = next.span_end.value() - sequence_number.value();
       if (tail_index > 1) {
         Entry& tail = *entries_[tail_index];
         tail.num_entries_in_span = next.num_entries_in_span;
@@ -304,7 +310,8 @@ class SequencedQueue {
       return false;
     }
 
-    size_t new_entries_size = sequence_length - base_sequence_number_;
+    uint64_t new_entries_size =
+        sequence_length.value() - base_sequence_number_.value();
     if (new_entries_size > GetMaxSequenceGap()) {
       return false;
     }
@@ -363,11 +370,14 @@ class SequencedQueue {
     if (entry.span_start <= base_sequence_number_) {
       start = &entries_[0].value();
     } else {
-      start = &entries_[entry.span_start - base_sequence_number_].value();
+      const size_t start_index =
+          entry.span_start.value() - base_sequence_number_.value();
+      start = &entries_[start_index].value();
     }
 
     ABSL_ASSERT(entry.span_end >= base_sequence_number_);
-    size_t end_index = entry.span_end - base_sequence_number_;
+    const size_t end_index =
+        entry.span_end.value() - base_sequence_number_.value();
     ABSL_ASSERT(end_index < entries_.size());
     Entry* end = &entries_[end_index].value();
 
@@ -471,8 +481,8 @@ class SequencedQueue {
     // update both the new head-of-queue as well as its span's tail.
     size_t num_entries_in_span = 0;
     size_t total_span_size = 0;
-    SequenceNumber span_start = 0;
-    SequenceNumber span_end = 0;
+    SequenceNumber span_start{0};
+    SequenceNumber span_end{0};
   };
 
   using EntryStorage = absl::InlinedVector<absl::optional<Entry>, 4>;
@@ -493,7 +503,7 @@ class SequencedQueue {
 
   // The sequence number which corresponds to `entries_` index 0 when `entries_`
   // is non-empty.
-  SequenceNumber base_sequence_number_ = 0;
+  SequenceNumber base_sequence_number_{0};
 
   // The number of slots in `entries_` which are actually occupied.
   size_t num_entries_ = 0;

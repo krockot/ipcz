@@ -228,10 +228,11 @@ IpczResult Router::Merge(Ref<Router> other) {
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
-    if (inbound_parcels_.current_sequence_number() > 0 ||
-        outbound_parcels_.GetCurrentSequenceLength() > 0 ||
-        other->inbound_parcels_.current_sequence_number() > 0 ||
-        other->outbound_parcels_.GetCurrentSequenceLength() > 0) {
+    if (inbound_parcels_.current_sequence_number() > SequenceNumber(0) ||
+        outbound_parcels_.GetCurrentSequenceLength() > SequenceNumber(0) ||
+        other->inbound_parcels_.current_sequence_number() > SequenceNumber(0) ||
+        other->outbound_parcels_.GetCurrentSequenceLength() >
+            SequenceNumber(0)) {
       return IPCZ_RESULT_FAILED_PRECONDITION;
     }
 
@@ -725,7 +726,7 @@ Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
 
       router->outward_edge_.StartDecaying(
           router->outbound_parcels_.current_sequence_number(),
-          descriptor.decaying_incoming_sequence_length > 0
+          descriptor.decaying_incoming_sequence_length > SequenceNumber(0)
               ? descriptor.decaying_incoming_sequence_length
               : descriptor.next_incoming_sequence_number);
 

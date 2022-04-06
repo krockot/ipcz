@@ -131,6 +131,7 @@ portable_source_set("util") {
     "util/ref_counted.h",
     "util/safe_math.h",
     "util/stack_trace.h",
+    "util/strong_alias.h",
   ]
 
   sources = [

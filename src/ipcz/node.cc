@@ -109,7 +109,8 @@ void Node::SetPortalsWaitingForLink(const NodeName& node_name,
                                                   Ref<NodeLink> link) {
     if (!link) {
       for (const Ref<Portal>& portal : waiting_portals) {
-        portal->router()->AcceptRouteClosureFrom(LinkType::kCentral, 0);
+        portal->router()->AcceptRouteClosureFrom(LinkType::kCentral,
+                                                 SequenceNumber(0));
       }
       return;
     }

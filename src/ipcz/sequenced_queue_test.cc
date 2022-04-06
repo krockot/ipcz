@@ -34,7 +34,7 @@ TEST(SequencedQueueTest, Empty) {
 
 TEST(SequencedQueueTest, SetFinalSequenceLength) {
   TestQueue q;
-  q.SetFinalSequenceLength(3);
+  q.SetFinalSequenceLength(SequenceNumber(3));
   EXPECT_TRUE(q.ExpectsMoreElements());
   EXPECT_FALSE(q.HasNextElement());
 
@@ -42,12 +42,12 @@ TEST(SequencedQueueTest, SetFinalSequenceLength) {
   EXPECT_FALSE(q.Pop(s));
 
   const std::string kEntries[] = {"zero", "one", "two"};
-  EXPECT_TRUE(q.Push(2, kEntries[2]));
+  EXPECT_TRUE(q.Push(SequenceNumber(2), kEntries[2]));
   EXPECT_FALSE(q.HasNextElement());
   EXPECT_FALSE(q.Pop(s));
   EXPECT_TRUE(q.ExpectsMoreElements());
 
-  EXPECT_TRUE(q.Push(0, kEntries[0]));
+  EXPECT_TRUE(q.Push(SequenceNumber(0), kEntries[0]));
   EXPECT_TRUE(q.HasNextElement());
   EXPECT_TRUE(q.ExpectsMoreElements());
   EXPECT_TRUE(q.Pop(s));
@@ -57,7 +57,7 @@ TEST(SequencedQueueTest, SetFinalSequenceLength) {
   EXPECT_FALSE(q.Pop(s));
   EXPECT_TRUE(q.ExpectsMoreElements());
 
-  EXPECT_TRUE(q.Push(1, kEntries[1]));
+  EXPECT_TRUE(q.Push(SequenceNumber(1), kEntries[1]));
   EXPECT_FALSE(q.ExpectsMoreElements());
   EXPECT_TRUE(q.HasNextElement());
   EXPECT_TRUE(q.Pop(s));
@@ -76,16 +76,16 @@ TEST(SequencedQueueTest, SequenceTooLow) {
   const std::string kEntries[] = {"a", "b", "c"};
 
   std::string s;
-  EXPECT_TRUE(q.Push(0, kEntries[0]));
+  EXPECT_TRUE(q.Push(SequenceNumber(0), kEntries[0]));
   EXPECT_TRUE(q.Pop(s));
   EXPECT_EQ(kEntries[0], s);
 
   // We can't push another element for sequence number 0.
-  EXPECT_FALSE(q.Push(0, kEntries[0]));
+  EXPECT_FALSE(q.Push(SequenceNumber(0), kEntries[0]));
 
   // Out-of-order is of course fine.
-  EXPECT_TRUE(q.Push(2, kEntries[2]));
-  EXPECT_TRUE(q.Push(1, kEntries[1]));
+  EXPECT_TRUE(q.Push(SequenceNumber(2), kEntries[2]));
+  EXPECT_TRUE(q.Push(SequenceNumber(1), kEntries[1]));
 
   EXPECT_TRUE(q.Pop(s));
   EXPECT_EQ(kEntries[1], s);
@@ -93,15 +93,15 @@ TEST(SequencedQueueTest, SequenceTooLow) {
   EXPECT_EQ(kEntries[2], s);
 
   // But we can't revisit sequence number 1 or 2 either.
-  EXPECT_FALSE(q.Push(2, kEntries[2]));
-  EXPECT_FALSE(q.Push(1, kEntries[1]));
+  EXPECT_FALSE(q.Push(SequenceNumber(2), kEntries[2]));
+  EXPECT_FALSE(q.Push(SequenceNumber(1), kEntries[1]));
 }
 
 TEST(SequencedQueueTest, SequenceTooHigh) {
   TestQueue q;
-  q.SetFinalSequenceLength(5);
+  q.SetFinalSequenceLength(SequenceNumber(5));
 
-  EXPECT_FALSE(q.Push(5, "doesn't matter"));
+  EXPECT_FALSE(q.Push(SequenceNumber(5), "doesn't matter"));
 }
 
 TEST(SequencedQueueTest, SparseSequence) {
@@ -112,10 +112,15 @@ TEST(SequencedQueueTest, SparseSequence) {
   const std::string kEntries[] = {"0", "1", "2", "3", "4", "5", "6", "7",
                                   "8", "9", "a", "b", "c", "d", "e", "f"};
   const std::string* next_expected_pop = &kEntries[0];
-  SequenceNumber kMessageSequence[] = {5, 2, 1,  0,  4,  3,  9,  6,
-                                       8, 7, 10, 11, 12, 15, 13, 14};
+  SequenceNumber kMessageSequence[] = {
+      SequenceNumber(5),  SequenceNumber(2),  SequenceNumber(1),
+      SequenceNumber(0),  SequenceNumber(4),  SequenceNumber(3),
+      SequenceNumber(9),  SequenceNumber(6),  SequenceNumber(8),
+      SequenceNumber(7),  SequenceNumber(10), SequenceNumber(11),
+      SequenceNumber(12), SequenceNumber(15), SequenceNumber(13),
+      SequenceNumber(14)};
   for (SequenceNumber n : kMessageSequence) {
-    EXPECT_TRUE(q.Push(n, kEntries[n]));
+    EXPECT_TRUE(q.Push(SequenceNumber(n), kEntries[n.value()]));
     std::string s;
     while (q.Pop(s)) {
       EXPECT_EQ(*next_expected_pop, s);
@@ -132,19 +137,19 @@ TEST(SequencedQueueTest, Accounting) {
   const std::string kEntries[] = {"hello", "world", "one", "two", "three"};
 
   // Elements not at the head of the queue are not considered to be available.
-  EXPECT_TRUE(q.Push(3, kEntries[3]));
+  EXPECT_TRUE(q.Push(SequenceNumber(3), kEntries[3]));
   EXPECT_EQ(0u, q.GetNumAvailableElements());
   EXPECT_EQ(0u, q.GetTotalAvailableElementSize());
   EXPECT_FALSE(q.HasNextElement());
 
-  EXPECT_TRUE(q.Push(1, kEntries[1]));
+  EXPECT_TRUE(q.Push(SequenceNumber(1), kEntries[1]));
   EXPECT_EQ(0u, q.GetNumAvailableElements());
   EXPECT_EQ(0u, q.GetTotalAvailableElementSize());
   EXPECT_FALSE(q.HasNextElement());
 
   // Now we'll insert at the head of the queue and we should be accounting for
   // entries 0 and 1, but still not parcel 3 yet.
-  EXPECT_TRUE(q.Push(0, kEntries[0]));
+  EXPECT_TRUE(q.Push(SequenceNumber(0), kEntries[0]));
   EXPECT_EQ(2u, q.GetNumAvailableElements());
   EXPECT_EQ(kEntries[0].size() + kEntries[1].size(),
             q.GetTotalAvailableElementSize());
@@ -152,7 +157,7 @@ TEST(SequencedQueueTest, Accounting) {
 
   // Finally insert element 2, after which we should be accounting for all 4
   // elements in the queue.
-  EXPECT_TRUE(q.Push(2, kEntries[2]));
+  EXPECT_TRUE(q.Push(SequenceNumber(2), kEntries[2]));
   EXPECT_EQ(4u, q.GetNumAvailableElements());
   EXPECT_EQ(kEntries[0].size() + kEntries[1].size() + kEntries[2].size() +
                 kEntries[3].size(),
@@ -174,7 +179,7 @@ TEST(SequencedQueueTest, Accounting) {
 
   // Insert another at the end after popping a few to verify below that pops
   // also update the tail of the leading span.
-  EXPECT_TRUE(q.Push(4, kEntries[4]));
+  EXPECT_TRUE(q.Push(SequenceNumber(4), kEntries[4]));
 
   EXPECT_TRUE(q.Pop(s));
   EXPECT_EQ(kEntries[2], s);
