@@ -86,9 +86,11 @@ typedef uint32_t IpczTransportActivityFlags;
 // ipcz should discard it.
 #define IPCZ_TRANSPORT_ACTIVITY_ERROR IPCZ_FLAG_BIT(0)
 
-// If set, the driver is done using the ipcz transport and will no longer invoke
-// its activity handler. Driver transports must call this at some point to allow
-// ipcz to free associated resources.
+// When ipcz wants to deactivate a transport, it invokes the driver's
+// DeactivateTransport function. Once the driver has finished any clean up and
+// can ensure that the transport's activity handler will no longer be invoked,
+// it must then invoke the activity handler one final time with this flag set.
+// This finalizes deactivation and allows ipcz to free any associated resources.
 #define IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED IPCZ_FLAG_BIT(1)
 
 #if defined(__cplusplus)
@@ -149,9 +151,10 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // IPCZ_RESULT_INVALID_ARGUMENT.
   //
   // If the object can be serialized but success may depend on the value of
-  // `transport`, and `transport` is invalid, the driver must return
-  // IPCZ_RESULT_ABORTED. ipcz may invoke Serialize() in this way to query
-  // whether a specific object can be serialized at all.
+  // `transport`, and `transport` is IPCZ_INVALID_DRIVER_HANDLE, the driver must
+  // return IPCZ_RESULT_ABORTED. ipcz may invoke Serialize() in this way to
+  // query whether a specific object can be serialized at all, even when it
+  // doesn't have a specific transport in mind.
   //
   // If the object can be serialized or transmitted as-is and `transport` is
   // valid, but the serialized outputs would not be transmissible over
@@ -381,8 +384,8 @@ typedef uint32_t IpczConnectNodeFlags;
 // not possible. In such cases a node must delegate this responsibility to some
 // other trusted node in the system, typically the broker node.
 //
-// Specifying this flag ensures that all shared memory allocation elicited the
-// connecting node will be delegated to the connectee.
+// Specifying this flag ensures that all shared memory allocation elicited by
+// the connecting node will be delegated to the connectee.
 #define IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE IPCZ_FLAG_BIT(3)
 
 // Optional limits provided by IpczPutOptions for Put() or IpczBeginPutOptions
@@ -484,7 +487,7 @@ typedef uint32_t IpczPortalStatusFlags;
 #define IPCZ_PORTAL_STATUS_DEAD IPCZ_FLAG_BIT(1)
 
 // Information returned by QueryPortalStatus() or provided to
-// IpczTrapEventHandlers when a trap's conditions on their portal.
+// IpczTrapEventHandlers when a trap's conditions are met on a portal.
 struct IPCZ_ALIGN(8) IpczPortalStatus {
   // The exact size of this structure in bytes. Must be set accurately before
   // passing the structure to any functions.
@@ -647,12 +650,17 @@ struct IPCZ_ALIGN(8) IpczAPI {
   uint32_t size;
 
   // Releases the object identified by `handle`. If it's a portal, the portal is
-  // closed. If it's a trap or a node, the trap or node is destroyed. If it's a
-  // wrapped driver object, the object is released via the driver API's Close().
+  // closed. If it's a node, the node is destroyed. If it's a wrapped driver
+  // object, the object is released via the driver API's Close().
   //
   // This function is NOT thread-safe. It is the application's responsibility to
   // ensure that no other threads are performing other operations on `handle`
   // concurrently with this call or any time thereafter.
+  //
+  // Note that while closure is itself a (non-blocking) synchronous operation,
+  // closure of various objects may have asynchronous side effects. For example,
+  // closing a portal might asynchronously trigger a trap event on the portal's
+  // remote peer.
   //
   // `flags` is ignored and must be 0.
   //
@@ -724,39 +732,51 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // transport to whatever other node will use it with its own corresponding
   // ConnectNode() call.
   //
+  // The calling node opens a number of initial portals (given by
+  // `num_initial_portals`) linked to corresponding initial portals on the other
+  // node as soon as a two-way connection is fully established.
+  //
+  // Establishment of this connection is typically asynchronous, but this
+  // depends on the driver implementation. In any case, the initial portals are
+  // created and returned synchronously and can be used immediately by the
+  // application. If the other node issues a corresponding ConnectNode() call
+  // with a smaller `num_initial_portals`, the excess portals created by this
+  // node will behave as if their peer has been closed.
+  //
   // If IPCZ_CONNECT_NODE_TO_BROKER is given in `flags`, the remote node must
   // be a broker node, and the calling node will treat it as such. If the
   // calling node is also a broker, the brokers' respective networks will be
   // effectively merged as long as both brokers remain alive: nodes in one
   // network will be able to discover and communicate directly with nodes in the
-  // other network.
+  // other network. Note that when two networks are merged, each broker remains
+  // as the only broker within its own network; but brokers share enough
+  // information to allow for discovery and interconnection of nodes between
+  // networks.
   //
   // Conversely if IPCZ_CONNECT_NODE_TO_BROKER is *not* given and neither the
-  // local nor remote nodes is a broker, one of the two nodes MUST already have
-  // an established link to a broker, and the other MUST specify
-  // IPCZ_CONNECT_NODE_INHERIT_BROKER on its respective ConnectNode() call.
+  // local nor remote nodes is a broker, one of the two nodes MUST NOT have a
+  // broker yet and must specify IPCZ_CONNECT_NODE_INHERIT_BROKER in its
+  // ConnectNode() call. The other  MUST have a broker already and it must
+  // specify IPCZ_CONNECT_NODE_SHARE_BROKER in its own corresponding
+  // ConnectNode() call.
   //
-  // If IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE is given in `flags`, this node
-  // will delegate all ipcz internal shared memory allocation operations to
-  // the remote node. This flag should only be used when the calling node is
-  // operating in a restricted environment where direct shared memory allocation
-  // is not possible.
-  //
-  // The caller may establish any number of initial portals to be linked
-  // between the nodes as soon as the two-way connection is complete. On
-  // success, all returned portal handles are usable immediately by the
-  // application.
+  // If IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE is given in `flags`, the
+  // calling node delegates all ipcz internal shared memory allocation
+  // operations to the remote node. This flag should only be used when the
+  // calling node is operating in a restricted environment where direct shared
+  // memory allocation is not possible.
   //
   // Returns:
   //
   //    IPCZ_RESULT_OK if all arguments were valid and connection was initiated.
-  //        `num_portals` portal handles are populated in `portals` and can be
-  //        used immediately by the application.
+  //        `num_initial_portals` portal handles are populated in
+  //        `initial_portals`. These may be used immediately by the application.
   //
-  //        Note that because connection is generally an asynchronous operation
-  //        it may still fail after this returns. If connection fails in this
-  //        case, any returned initial portals will eventually appear to have a
-  //        closed peer.
+  //        Note that because the underlying connection may be established
+  //        asynchronously (depending on the driver implementation), this
+  //        operation may still fail after returning this value. If this
+  //        happens, all of the returned initial portals will behave as if their
+  //        peer has been closed.
   //
   //    IPCZ_RESULT_INVALID_ARGUMENT if `node` is invalid, `num_initial_portals`
   //        is zero, `initial_portals` is null, or `flags` specifies one or more
@@ -864,7 +884,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
 
   // Puts any combination of data and handles into the portal identified by
   // `portal`. Everything put into a portal can be retrieved in the same order
-  // by a corresponding get operation on the opposite portal.
+  // by a corresponding get operation on the opposite portal. Depending on the
+  // driver and the state of the relevant portals, the data and handles may
+  // be delivered and retreivable immediately by the remote portal, or they may
+  // be delivered asynchronously.
   //
   // `flags` is unused and must be IPCZ_NO_FLAGS.
   //
@@ -879,10 +902,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // there.
   //
   // Callers may wish to request a view directly into portal memory for direct
-  // writing (for example, in cases where copying first from some other source
-  // into a separate application buffer just for Put() would be redundant.) In
-  // such cases, a two-phase put operation can instead be used by calling
-  // BeginPut() and EndPut() as defined below.
+  // writing. In such cases, a two-phase put operation can be used instead, by
+  // calling BeginPut() and EndPut() as defined below.
   //
   // Returns:
   //
