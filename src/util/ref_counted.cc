@@ -17,7 +17,7 @@ void RefCounted::AcquireRef() {
 }
 
 void RefCounted::ReleaseRef() {
-  uint64_t last_count = ref_count_.fetch_sub(1, std::memory_order_acq_rel);
+  int last_count = ref_count_.fetch_sub(1, std::memory_order_acq_rel);
   ABSL_ASSERT(last_count > 0);
   if (last_count == 1) {
     delete this;
@@ -33,15 +33,12 @@ GenericRef::GenericRef(RefCounted* ptr) : ptr_(ptr) {
   }
 }
 
-GenericRef::GenericRef(GenericRef&& other) {
-  ptr_ = other.ptr_;
-  other.ptr_ = nullptr;
-}
+GenericRef::GenericRef(GenericRef&& other)
+    : ptr_(std::exchange(other.ptr_, nullptr)) {}
 
 GenericRef& GenericRef::operator=(GenericRef&& other) {
   reset();
-  ptr_ = other.ptr_;
-  other.ptr_ = nullptr;
+  ptr_ = std::exchange(other.ptr_, nullptr);
   return *this;
 }
 
@@ -66,16 +63,12 @@ GenericRef::~GenericRef() {
 
 void GenericRef::reset() {
   if (ptr_) {
-    RefCounted* ptr = nullptr;
-    std::swap(ptr, ptr_);
-    ptr->ReleaseRef();
+    std::exchange(ptr_, nullptr)->ReleaseRef();
   }
 }
 
 void* GenericRef::ReleaseImpl() {
-  void* ptr = ptr_;
-  ptr_ = nullptr;
-  return ptr;
+  return std::exchange(ptr_, nullptr);
 }
 
 }  // namespace ipcz

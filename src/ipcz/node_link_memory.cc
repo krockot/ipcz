@@ -135,7 +135,7 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
   DriverMemoryMapping mapping(primary_buffer_memory.Map());
 
   auto memory =
-      WrapRefCounted(new NodeLinkMemory(std::move(node), std::move(mapping)));
+      AdoptRef(new NodeLinkMemory(std::move(node), std::move(mapping)));
 
   PrimaryBuffer& primary_buffer = memory->primary_buffer();
   primary_buffer.header.next_sublink = num_initial_portals;
@@ -156,7 +156,7 @@ Ref<NodeLinkMemory> NodeLinkMemory::Allocate(
 // static
 Ref<NodeLinkMemory> NodeLinkMemory::Adopt(Ref<Node> node,
                                           DriverMemory primary_buffer_memory) {
-  return WrapRefCounted(
+  return AdoptRef(
       new NodeLinkMemory(std::move(node), primary_buffer_memory.Map()));
 }
 

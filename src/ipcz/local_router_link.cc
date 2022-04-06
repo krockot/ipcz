@@ -59,8 +59,8 @@ RouterLink::Pair LocalRouterLink::CreatePair(LinkType type,
                                              const Router::Pair& routers) {
   auto state = MakeRefCounted<SharedState>(type, initial_state, routers.first,
                                            routers.second);
-  return {WrapRefCounted(new LocalRouterLink(LinkSide::kA, state)),
-          WrapRefCounted(new LocalRouterLink(LinkSide::kB, state))};
+  return {AdoptRef(new LocalRouterLink(LinkSide::kA, state)),
+          AdoptRef(new LocalRouterLink(LinkSide::kB, state))};
 }
 
 LocalRouterLink::LocalRouterLink(LinkSide side, Ref<SharedState> state)

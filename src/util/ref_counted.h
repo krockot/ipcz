@@ -7,12 +7,13 @@
 
 #include <atomic>
 #include <cstddef>
-#include <cstdint>
 #include <type_traits>
 #include <utility>
 
 namespace ipcz {
 
+// Base class for any kind of ref-counted thing whose ownership will be shared
+// by one or more Ref<T> objects.
 class RefCounted {
  public:
   enum { kAdoptExistingRef };
@@ -24,9 +25,11 @@ class RefCounted {
   void ReleaseRef();
 
  private:
-  std::atomic<uint64_t> ref_count_{0};
+  std::atomic_int ref_count_{1};
 };
 
+// Base class for every Ref<T>, providing a common implementation for ref count
+// management, assignment, etc.
 class GenericRef {
  public:
   constexpr GenericRef() = default;
@@ -34,7 +37,10 @@ class GenericRef {
   // Does not increase the ref count, effectively assuming ownership of a
   // previously acquired ref.
   GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr);
+
+  // Constructs a new reference to `ptr`, increasing its ref count by 1.
   GenericRef(RefCounted* ptr);
+
   GenericRef(GenericRef&& other);
   GenericRef& operator=(GenericRef&& other);
   GenericRef(const GenericRef& other);
@@ -51,6 +57,14 @@ class GenericRef {
   RefCounted* ptr_ = nullptr;
 };
 
+// A smart pointer which can be used to share ownership of an instance of T,
+// where T is any type derived from RefCounted above.
+//
+// This is used instead of std::shared_ptr so that ipcz can release and
+// re-acquire ownership of individual references, as some object references may
+// be conceptually owned by the embedding application via an IpczHandle across
+// ipcz ABI boundary. std::shared_ptr design does not allow for such manual ref
+// manipulation without additional indirection.
 template <typename T>
 class Ref : public GenericRef {
  public:
@@ -86,14 +100,22 @@ class Ref : public GenericRef {
   }
 };
 
-template <typename T, typename... Args>
-Ref<T> MakeRefCounted(Args&&... args) {
-  return Ref<T>(new T(std::forward<Args>(args)...));
-}
-
+// Wraps `ptr` as a Ref<T>, increasing the refcount by 1.
 template <typename T>
 Ref<T> WrapRefCounted(T* ptr) {
   return Ref<T>(ptr);
+}
+
+// Wraps `ptr` as a Ref<T>, assuming ownership of an existing reference. Does
+// not change the object's refcount.
+template <typename T>
+Ref<T> AdoptRef(T* ptr) {
+  return Ref<T>(RefCounted::kAdoptExistingRef, ptr);
+}
+
+template <typename T, typename... Args>
+Ref<T> MakeRefCounted(Args&&... args) {
+  return AdoptRef(new T(std::forward<Args>(args)...));
 }
 
 }  // namespace ipcz

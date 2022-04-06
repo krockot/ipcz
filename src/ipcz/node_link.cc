@@ -44,10 +44,10 @@ Ref<NodeLink> NodeLink::Create(Ref<Node> node,
                                uint32_t remote_protocol_version,
                                Ref<DriverTransport> transport,
                                Ref<NodeLinkMemory> memory) {
-  auto link = WrapRefCounted(
-      new NodeLink(std::move(node), link_side, local_node_name,
-                   remote_node_name, remote_node_type, remote_protocol_version,
-                   std::move(transport), std::move(memory)));
+  auto link = AdoptRef(new NodeLink(std::move(node), link_side, local_node_name,
+                                    remote_node_name, remote_node_type,
+                                    remote_protocol_version,
+                                    std::move(transport), std::move(memory)));
   link->memory().SetNodeLink(link);
   return link;
 }

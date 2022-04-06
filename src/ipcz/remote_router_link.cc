@@ -55,8 +55,8 @@ Ref<RemoteRouterLink> RemoteRouterLink::Create(
     FragmentRef<RouterLinkState> link_state_fragment,
     LinkType type,
     LinkSide side) {
-  auto link = WrapRefCounted(new RemoteRouterLink(
-      std::move(node_link), sublink, link_state_fragment, type, side));
+  auto link = AdoptRef(new RemoteRouterLink(std::move(node_link), sublink,
+                                            link_state_fragment, type, side));
   if (link_state_fragment.is_pending() && type.is_central() &&
       side.is_side_b()) {
     link->SetLinkState(std::move(link_state_fragment));
