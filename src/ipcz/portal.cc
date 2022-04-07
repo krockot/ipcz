@@ -40,7 +40,7 @@ bool ValidateAndAcquireObjectsForTransitFrom(
     if (!object || !object->CanSendFrom(sender)) {
       return false;
     }
-    objects[i] = object;
+    objects[i] = WrapRefCounted(object);
   }
   return true;
 }

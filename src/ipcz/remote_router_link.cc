@@ -231,7 +231,7 @@ void RemoteRouterLink::AllocateParcelData(size_t num_bytes,
     return;
   }
 
-  parcel.SetDataFragment(&node_link()->memory(), fragment);
+  parcel.SetDataFragment(WrapRefCounted(&node_link()->memory()), fragment);
 }
 
 void RemoteRouterLink::AcceptParcel(Parcel& parcel) {

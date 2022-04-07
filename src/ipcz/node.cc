@@ -106,7 +106,7 @@ void Node::SetPortalsWaitingForLink(const NodeName& node_name,
 
   std::vector<Ref<Portal>> waiting_portals(portals.begin(), portals.end());
   pending_introductions_[node_name].push_back([waiting_portals](
-                                                  Ref<NodeLink> link) {
+                                                  NodeLink* link) {
     if (!link) {
       for (const Ref<Portal>& portal : waiting_portals) {
         portal->router()->AcceptRouteClosureFrom(LinkType::kCentral,

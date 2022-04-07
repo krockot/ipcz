@@ -39,7 +39,7 @@ class GenericRef {
   GenericRef(decltype(RefCounted::kAdoptExistingRef), RefCounted* ptr);
 
   // Constructs a new reference to `ptr`, increasing its ref count by 1.
-  GenericRef(RefCounted* ptr);
+  explicit GenericRef(RefCounted* ptr);
 
   GenericRef(GenericRef&& other);
   GenericRef& operator=(GenericRef&& other);
@@ -70,7 +70,7 @@ class Ref : public GenericRef {
  public:
   constexpr Ref() = default;
   constexpr Ref(std::nullptr_t) {}
-  Ref(T* ptr) : GenericRef(ptr) {}
+  explicit Ref(T* ptr) : GenericRef(ptr) {}
   Ref(decltype(RefCounted::kAdoptExistingRef), T* ptr)
       : GenericRef(RefCounted::kAdoptExistingRef, ptr) {}
 
@@ -89,6 +89,8 @@ class Ref : public GenericRef {
   T* operator->() const { return get(); }
   T& operator*() const { return *get(); }
 
+  bool operator==(const T* ptr) const { return ptr_ == ptr; }
+  bool operator!=(const T* ptr) const { return ptr_ == ptr; }
   bool operator==(const Ref<T>& other) const { return ptr_ == other.ptr_; }
   bool operator!=(const Ref<T>& other) const { return ptr_ != other.ptr_; }
 
