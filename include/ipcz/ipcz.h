@@ -5,8 +5,105 @@
 #ifndef IPCZ_INCLUDE_IPCZ_IPCZ_H_
 #define IPCZ_INCLUDE_IPCZ_IPCZ_H_
 
-// This header is intended to be compilable as C99 as well as c++11 or newer,
-// so there's some weak/pseudo-typing going on here.
+// ipcz is a fully cross-platform C library for interprocess communication (IPC)
+// which supports efficient routing and data transfer over a very large number
+// of dynamically relocatable messaging routes.
+//
+// ipcz operates in terms of a small handful of abstractions encapsulated in
+// this header: nodes, portals, parcels, drivers, boxes, and traps.
+//
+// *Nodes* are ipcz' primary abstraction for system security boundaries such as
+// OS processes. Applications will typically create a single node per process.
+//
+// *Portals* are messaging endpoints which belong to a specific node. Portals
+// are always created in entangled pairs. These pairs can be created local to a
+// single node, or they can be created to span two nodes. Portals can also be
+// transferred through other portals.
+//
+// *Parcels* are the unit of communication between portals. Parcels can contain
+// arbitrary application data as well as a collection of ipcz handles to
+// transfer portals and other driver-specific objects.
+//
+// *Drivers* are provided by applications to define a concrete implementation of
+// platform-specific details (see the IpczDriver definition below), and they can
+// also be used to support arbitrary new types of objects to be transmitted in
+// parcels via boxes.
+//
+// *Boxes* are opaque objects used to wrap driver-specific objects so they can
+// be transmitted seamlessly over portals. Drivers define how to serialize and
+// deserialize such objects, and applications use the Box() and Unbox() APIs to
+// go between concrete driver objects and transferrable handles for use with
+// portal APIs.
+//
+// *Traps* provide a flexible mechanism to install one-shot hooks observing
+// interesting state changes on specific portals.
+//
+// Applications are responsible for partially interconnecting their nodes to
+// bootstrap IPC. One node is designated as a broker by the application, and
+// this node typically establishes direct connections to other nodes via the
+// ConnectNode() API. In the example below, assume node A is designated as the
+// broker. Nodes A and B have directly connected via a ConnectNode() call from
+// each. Nodes A and C have done the same:
+//
+//                    ┌───────┐
+//     ConnectNode()  │       │  ConnectNode()
+//        ┌──────────>O   A   O<───────────┐
+//        │           │       │            │
+//        │           └───────┘            │
+//        │                                │
+//        v ConnectNode()                  v ConnectNode()
+//    ┌───O───┐                        ┌───O───┐
+//    │       │                        │       │
+//    │   B   │                        │   C   │
+//    │       │                        │       │
+//    └───────┘                        └───────┘
+//
+// In doing so, the application also establishes initial portals between the
+// two nodes, which can immediately be used to send and receive parcels.
+//
+// Now suppose node B creates a new pair of local portals and then sends one of
+// them over its initial portal to A. This effectively establishes a new pair
+// of portals spanning nodes A and B:
+//
+//                    ┌───────┐
+//                    │       │
+//        ┌──────────>O   A   O<───────────┐
+//        │ ┌────────>O       │            │
+//        │ │         └───────┘            │
+//        │ │                              │
+//        v v                              v
+//    ┌───O─O─┐                        ┌───O───┐
+//    │       │                        │       │
+//    │   B   │                        │   C   │
+//    │       │                        │       │
+//    └───────┘                        └───────┘
+//
+// ipcz becomes concerned with routing once more intersting transactions take
+// place. For example, suppose node A sends this new portal onward over its
+// initial portal to C. The portal has thus moved from B, to A, to C, and this
+// effectively establishes a new direct connection between B and C which did not
+// previously exist:
+//
+//                    ┌───────┐
+//                    │       │
+//        ┌──────────>O   A   O<───────────┐
+//        │           │       │            │
+//        │           └───────┘            │
+//        │                                │
+//        v                                v
+//    ┌───O───┐                        ┌───O───┐
+//    │       │                        │       │
+//    │   B   O────────────────────────O   C   │
+//    │       │                        │       │
+//    └───────┘                        └───────┘
+//
+// Note that the application made no effort to connect B and C directly, but
+// communication between B and C across these portals works efficiently anyway.
+// ipcz supports this kind of behavior while minimizing the end-to-end latency
+// and amortized overhead of message delivery.
+//
+// This header is intended to compile under c++11 or newer, and C99 or newer.
+// The ABI defined here can be considered stable.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -83,7 +180,10 @@ typedef uint64_t IpczDriverHandle;
 typedef uint32_t IpczTransportActivityFlags;
 
 // If set, the driver encountered an unrecoverable error using the transport and
-// ipcz should discard it.
+// ipcz should discard it. This also implies that the driver will not invoke the
+// activity handler again for the same transport. In such cases, ipcz does not
+// invoke DeactivateTransport(), as the transport's deactivation is implied by
+// the error notification.
 #define IPCZ_TRANSPORT_ACTIVITY_ERROR IPCZ_FLAG_BIT(0)
 
 // When ipcz wants to deactivate a transport, it invokes the driver's
@@ -98,17 +198,22 @@ extern "C" {
 #endif
 
 // Notifies ipcz of activity on a transport. `transport` must be a handle to a
-// transport which is currently activated. This handle is acquired exclusively
-// by the driver transport via an ipcz call to the driver's ActivateTransport(),
-// which also provides this handler to the driver.
+// transport which is currently activated. The `transport` handle is acquired
+// exclusively by the driver transport via an ipcz call to the driver's
+// ActivateTransport(), which also provides the handle to the driver.
 //
-// The driver must use this to feed incoming data and driver handles from the
-// transport to ipcz, or to inform ipcz of any error conditions resulting in
-// unexpected and irrecoverable dysfunction of the transport.
+// The driver must use this function to feed incoming data and driver handles
+// from the transport to ipcz, or to inform ipcz of any error conditions
+// resulting in unexpected and irrecoverable dysfunction of the transport.
 //
 // If the driver encounters an unrecoverable error while performing I/O on the
 // transport, it should invoke this with the IPCZ_TRANSPORT_ACTIVITY_ERROR flag
-// to instigate immediate destruction of the transport.
+// to instigate immediate destruction of the transport. This implies that the
+// driver will not invoke this function ever again for `transport`, and that the
+// transport is automatically deactivated without an explicit call to the
+// driver's DeactivateTransport() function.
+//
+// `options` is currently unused and must be null.
 typedef IpczResult(IPCZ_API* IpczTransportActivityHandler)(
     IpczHandle transport,
     const uint8_t* data,
@@ -160,9 +265,9 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // valid, but the serialized outputs would not be transmissible over
   // `transport` specifically, the driver must ignore all other arguments and
   // return IPCZ_RESULT_PERMISSION_DENIED. This implies that neither end of
-  // `transport` is sufficiently privileged to transfer the object directly, and
-  // in this case ipcz may instead attempt to relay the object through a more
-  // capable broker node.
+  // `transport` is sufficiently privileged or otherwise able to transfer the
+  // object directly, and in this case ipcz may instead attempt to relay the
+  // object through a more capable broker node.
   //
   // For all other outcomes, the object identified by `handle` is considered to
   // be serializable and ultimately transmissible.
@@ -275,6 +380,11 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // it must return a result other than IPCZ_RESULT_OK, and this will cause the
   // transport's connection to be severed.
   //
+  // Note that any driver handles in `driver_handles` were obtained by ipcz from
+  // the driver itself, by some prior call to the driver's own Serialize()
+  // function. These handles are therefore expected to be directly transmissible
+  // by the driver alongside any data in `data`.
+  //
   // The net result of this transmission should be an activity handler
   // invocation on the corresponding remote transport by the driver on its node.
   // It is the driver's responsibility to get any data and handles to the other
@@ -317,7 +427,13 @@ struct IPCZ_ALIGN(8) IpczDriver {
 
   // Maps a shared memory region identified by `driver_memory` and returns its
   // mapped address in `address` on success and a driver handle in
-  // `driver_mapping` which can be used to unmap the region later.
+  // `driver_mapping` which can be passed to the driver's Close() to unmap the
+  // region later.
+  //
+  // Note that the lifetime of `driver_mapping` should be independent from that
+  // of `driver_memory`. That is, if `driver_memory` is closed immediately after
+  // this call succeeds, the returned mapping must still remain valid until the
+  // mapping itself is closed.
   IpczResult(IPCZ_API* MapSharedMemory)(IpczDriverHandle driver_memory,
                                         uint32_t flags,
                                         const void* options,
@@ -367,14 +483,15 @@ typedef uint32_t IpczConnectNodeFlags;
 
 // Indicates that the remote node for this connection is expected not to be a
 // broker, but to already have a link to a broker; and that the calling node
-// wishes to inherit that broker as well. This flag must only be used when
-// connecting to a node the caller trusts, and only when the calling node does
-// not already have an established broker from a previous ConnectNode() call.
-// The other node must specify IPCZ_CONNECT_NODE_SHARE_BROKER as well.
+// wishes to inherit the remote node's broker as well. This flag must only be
+// used when connecting to a node the caller trusts. The calling node must not
+// already have an established broker from a previous ConnectNode() call. The
+// remote node must specify IPCZ_CONNECT_NODE_SHARE_BROKER as well.
 #define IPCZ_CONNECT_NODE_INHERIT_BROKER IPCZ_FLAG_BIT(1)
 
-// Indicates that the remote node for this connection is expected not to be a
-// broker, and to specify IPCZ_CONNECT_NODE_INHERITY_BROKER.
+// Indicates that the calling node already has a broker, and that this broker
+// will be inherited by the remote node. The remote node must also specify
+// IPCZ_CONNECT_NODE_INHERIT_BROKER in its corresponding ConnectNode() call.
 #define IPCZ_CONNECT_NODE_SHARE_BROKER IPCZ_FLAG_BIT(2)
 
 // ipcz may periodically allocate shared memory regions to facilitate
@@ -483,7 +600,9 @@ typedef uint32_t IpczPortalStatusFlags;
 
 // Indicates that the opposite portal is closed AND no more parcels can be
 // expected to arrive from it. If this bit is set on a portal's status, the
-// portal is essentially useless.
+// portal is essentially useless. Such portals no longer support Put() or
+// Get() operations, and those operations will subsequently always return
+// IPCZ_RESULT_NOT_FOUND.
 #define IPCZ_PORTAL_STATUS_DEAD IPCZ_FLAG_BIT(1)
 
 // Information returned by QueryPortalStatus() or provided to
@@ -613,7 +732,8 @@ struct IPCZ_ALIGN(8) IpczTrapEvent {
   // Flags indicating which condition(s) triggered this event.
   IpczTrapConditionFlags condition_flags;
 
-  // The current status of the portal which triggered this event.
+  // The current status of the portal which triggered this event. This address
+  // is only valid through the extent of the event handler invocation.
   const struct IpczPortalStatus* status;
 };
 
@@ -733,15 +853,18 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // ConnectNode() call.
   //
   // The calling node opens a number of initial portals (given by
-  // `num_initial_portals`) linked to corresponding initial portals on the other
-  // node as soon as a two-way connection is fully established.
+  // `num_initial_portals`) linked to corresponding initial portals on the
+  // remote node as soon as a two-way connection is fully established.
   //
   // Establishment of this connection is typically asynchronous, but this
   // depends on the driver implementation. In any case, the initial portals are
   // created and returned synchronously and can be used immediately by the
-  // application. If the other node issues a corresponding ConnectNode() call
+  // application. If the remote node issues a corresponding ConnectNode() call
   // with a smaller `num_initial_portals`, the excess portals created by this
-  // node will behave as if their peer has been closed.
+  // node will behave as if their peer has been closed. On the other hand if the
+  // remote node gives a larger `num_initial_portals`, then its own excess
+  // portals will behave as if their peer has been closed.
+  //
   //
   // If IPCZ_CONNECT_NODE_TO_BROKER is given in `flags`, the remote node must
   // be a broker node, and the calling node will treat it as such. If the
@@ -756,7 +879,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Conversely if IPCZ_CONNECT_NODE_TO_BROKER is *not* given and neither the
   // local nor remote nodes is a broker, one of the two nodes MUST NOT have a
   // broker yet and must specify IPCZ_CONNECT_NODE_INHERIT_BROKER in its
-  // ConnectNode() call. The other  MUST have a broker already and it must
+  // ConnectNode() call. The other node MUST have a broker already and it must
   // specify IPCZ_CONNECT_NODE_SHARE_BROKER in its own corresponding
   // ConnectNode() call.
   //
@@ -820,9 +943,9 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // Merges two portals into each other, effectively destroying both while
   // linking their respective peer portals with each other. A portal cannot
   // merge with its own peer, and a portal cannot be merged into another if one
-  // or more parcels have already been put into or taken out of it. There are
-  // however no restrictions on what can be done to the portal's peer prior to
-  // merging the portal with another.
+  // or more parcels have already been put into or taken out of either of them.
+  // There are however no restrictions on what can be done to the portal's peer
+  // prior to merging the portal with another.
   //
   // If we have two portal pairs:
   //
@@ -923,11 +1046,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if the caller attempted to place handles
-  //        into the portal which could not be transferred to the other side due
-  //        some constraint of the driver (e.g., if a boxed driver object was
-  //        not in a serializable state.)
   IpczResult(IPCZ_API* Put)(IpczHandle portal,
                             const void* data,
                             uint32_t num_bytes,
@@ -1029,11 +1147,6 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   //    IPCZ_RESULT_NOT_FOUND if it is known that the opposite portal has
   //        already been closed and anything put into this portal would be lost.
-  //
-  //    IPCZ_RESULT_FAILED_PRECONDITION if the caller attempted to place handles
-  //        into the portal which could not be transferred to the other side due
-  //        some constraint of the driver (e.g., if a boxed driver object was
-  //        not in a serializable state.)
   IpczResult(IPCZ_API* EndPut)(IpczHandle portal,
                                uint32_t num_bytes_produced,
                                const IpczHandle* handles,
@@ -1071,8 +1184,8 @@ struct IPCZ_ALIGN(8) IpczAPI {
   //
   // Returns:
   //
-  //    IPCZ_RESULT_OK if there was at a parcel available in the portal's queue
-  //        and its data and handles were able to be copied into the caller's
+  //    IPCZ_RESULT_OK if there was a parcel available in the portal's queue and
+  //        its data and handles were able to be copied into the caller's
   //        provided buffers. In this case values pointed to by `num_bytes` and
   //        `num_handles` (for each one that is non-null) are updated to reflect
   //        what was actually consumed. Note that the caller assumes ownership
@@ -1113,7 +1226,7 @@ struct IPCZ_ALIGN(8) IpczAPI {
   // operations on the same portal will fail with IPCZ_RESULT_ALREADY_EXISTS.
   //
   // Unlike a plain Get() call, two-phase get operations allow the application
-  // to read directly from parcel memory, potentially reducing memory access
+  // to read directly from portal memory, potentially reducing memory access
   // costs by eliminating redundant copying and caching.
   //
   // If `data` or `num_bytes` is null and the available parcel has at least one
