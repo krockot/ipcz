@@ -5,45 +5,62 @@
 #ifndef IPCZ_INCLUDE_IPCZ_IPCZ_H_
 #define IPCZ_INCLUDE_IPCZ_IPCZ_H_
 
-// ipcz is a fully cross-platform C library for interprocess communication (IPC)
-// which supports efficient routing and data transfer over a very large number
-// of dynamically relocatable messaging routes.
+// ipcz is a cross-platform C library for interprocess communication (IPC) which
+// supports efficient routing and data transfer over a large number of
+// dynamically relocatable messaging endpoints.
 //
 // ipcz operates in terms of a small handful of abstractions encapsulated in
 // this header: nodes, portals, parcels, drivers, boxes, and traps.
 //
-// *Nodes* are ipcz' primary abstraction for system security boundaries such as
-// OS processes. Applications will typically create a single node per process.
+// NOTE: This header is intended to compile under C++11 or newer, and C99 or
+// newer. The ABI defined here can be considered stable.
+//
+// Glossary
+// --------
+// *Nodes* are used by ipcz to model isolated units of an application. A typical
+// application will create one ipcz node within each OS process it controls.
 //
 // *Portals* are messaging endpoints which belong to a specific node. Portals
-// are always created in entangled pairs. These pairs can be created local to a
-// single node, or they can be created to span two nodes. Portals can also be
-// transferred through other portals.
+// are created in entangled pairs: whatever goes into one portal comes out the
+// other (its "peer"). Pairs may be created local to a single node, or they may
+// be created to span two nodes. Portals may also be transferred freely through
+// other portals.
 //
 // *Parcels* are the unit of communication between portals. Parcels can contain
-// arbitrary application data as well as a collection of ipcz handles to
-// transfer portals and other driver-specific objects.
+// arbitrary application data as well as ipcz handles. Handles within a parcel
+// are used to transfer objects (namely other portals, or driver-defined
+// objects) from one portal to another, potentially on a different node.
 //
-// *Drivers* are provided by applications to define a concrete implementation of
-// platform-specific details (see the IpczDriver definition below), and they can
-// also be used to support arbitrary new types of objects to be transmitted in
+// *Traps* provide a flexible mechanism to observe interesting portal state
+// changes such as new parcels arriving or a portal's peer being closed.
+//
+// *Drivers* are provided by applications to implement platform-specific IPC
+// details. They may also define new types of objects to be transmitted in
 // parcels via boxes.
 //
-// *Boxes* are opaque objects used to wrap driver-specific objects so they can
-// be transmitted seamlessly over portals. Drivers define how to serialize and
-// deserialize such objects, and applications use the Box() and Unbox() APIs to
-// go between concrete driver objects and transferrable handles for use with
-// portal APIs.
+// *Boxes* are opaque objects used to wrap driver-defined objects for seamless
+// transmission across portals. Drivers define how to serialize and deserialize
+// such objects, and applications use the Box() and Unbox() APIs to go between
+// concrete driver objects and transferrable handles.
 //
-// *Traps* provide a flexible mechanism to install one-shot hooks observing
-// interesting state changes on specific portals.
+// Overview
+// --------
+// To use ipcz effectively, an application must create multiple nodes to be
+// interconnected. One node must be designated as the "broker" by the
+// application (see CreateNode() flags). The broker is used by ipcz to
+// coordinate certain types of internal transactions which demand a heightened
+// level of trust and capability, so a broker node should always live in a more
+// trustworthy process. For example in Chrome, the browser process is
+// designated as the broker.
 //
-// Applications are responsible for partially interconnecting their nodes to
-// bootstrap IPC. One node is designated as a broker by the application, and
-// this node typically establishes direct connections to other nodes via the
-// ConnectNode() API. In the example below, assume node A is designated as the
-// broker. Nodes A and B have directly connected via a ConnectNode() call from
-// each. Nodes A and C have done the same:
+// In order for a node to communicate with other nodes in the system, the
+// application must explicitly connect it to ONE other node using the
+// ConnectNode() API. Once this is done, ipcz can automatically connect the node
+// to additional other nodes as needed for efficient portal operation.
+//
+// In the example below, assume node A is designated as the broker. Nodes A and
+// B have been connected directly by ConnectNode() calls in the application.
+// Nodes A and C have been similarly connected:
 //
 //                    ┌───────┐
 //     ConnectNode()  │       │  ConnectNode()
@@ -58,12 +75,15 @@
 //    │       │                        │       │
 //    └───────┘                        └───────┘
 //
-// In doing so, the application also establishes initial portals between the
-// two nodes, which can immediately be used to send and receive parcels.
+// ConnectNode() establishes initial portal pairs to link the two nodes
+// together, illustrated above as "O"s. Once ConnectNode() returns, the
+// application may immediately begin transmitting parcels through these portals.
 //
-// Now suppose node B creates a new pair of local portals and then sends one of
-// them over its initial portal to A. This effectively establishes a new pair
-// of portals spanning nodes A and B:
+// Now suppose node B creates a new local pair of portals (using OpenPortals())
+// and sends one of those new portals in a parcel through its
+// already-established portal to node A. The sent portal is effectively
+// transferred to node A, and because its entangled peer still lives on node B
+// there are now TWO portal pairs between nodes A and B:
 //
 //                    ┌───────┐
 //                    │       │
@@ -78,11 +98,10 @@
 //    │       │                        │       │
 //    └───────┘                        └───────┘
 //
-// ipcz becomes concerned with routing once more intersting transactions take
-// place. For example, suppose node A sends this new portal onward over its
-// initial portal to C. The portal has thus moved from B, to A, to C, and this
-// effectively establishes a new direct connection between B and C which did not
-// previously exist:
+// Finally, suppose now the application takes this new portal on node A and
+// sends it further along, through node A's already-established portal to node
+// C. Because the transferred portal's peer still lives on node B, there is now
+// a portal pair spanning nodes B and C:
 //
 //                    ┌───────┐
 //                    │       │
@@ -97,13 +116,10 @@
 //    │       │                        │       │
 //    └───────┘                        └───────┘
 //
-// Note that the application made no effort to connect B and C directly, but
-// communication between B and C across these portals works efficiently anyway.
-// ipcz supports this kind of behavior while minimizing the end-to-end latency
-// and amortized overhead of message delivery.
-//
-// This header is intended to compile under c++11 or newer, and C99 or newer.
-// The ABI defined here can be considered stable.
+// These two nodes were never explicitly connected by the application, but ipcz
+// ensures that the portals will operate as expected. Behind the scenes, ipcz
+// achieves this by establishing a direct, secure, and efficient communication
+// channel between nodes B and C.
 
 #include <stddef.h>
 #include <stdint.h>
