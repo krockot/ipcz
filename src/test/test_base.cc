@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <utility>
 
+#include "api.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/node.h"
 #include "ipcz/portal.h"

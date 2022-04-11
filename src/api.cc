@@ -8,6 +8,7 @@
 #include <memory>
 #include <tuple>
 
+#include "api.h"
 #include "ipcz/box.h"
 #include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
@@ -19,16 +20,6 @@
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/handle_util.h"
 #include "util/ref_counted.h"
-
-#if defined(IPCZ_SHARED_LIBRARY)
-#if defined(WIN32)
-#define MAYBE_EXPORT __declspec(dllexport)
-#else
-#define MAYBE_EXPORT __attribute__((visibility("default")))
-#endif
-#else
-#define MAYBE_EXPORT
-#endif
 
 extern "C" {
 
@@ -380,7 +371,7 @@ constexpr IpczAPI kCurrentAPI = {
 constexpr size_t kVersion0APISize =
     offsetof(IpczAPI, Unbox) + sizeof(kCurrentAPI.Unbox);
 
-MAYBE_EXPORT IpczResult IpczGetAPI(IpczAPI* api) {
+IPCZ_EXPORT IpczResult IPCZ_API IpczGetAPI(IpczAPI* api) {
   if (!api || api->size < kVersion0APISize) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }

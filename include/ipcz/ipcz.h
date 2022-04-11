@@ -772,7 +772,7 @@ extern "C" {
 #endif
 
 // Table of API functions defined by ipcz. Instances of this structure may be
-// populated by passing them to IpczGetAPI().
+// populated by passing them to an implementation of IpczGetAPIFn.
 //
 // Note that all functions follow a consistent parameter ordering:
 //
@@ -792,7 +792,8 @@ extern "C" {
 // but new functions may be added to the end.
 struct IPCZ_ALIGN(8) IpczAPI {
   // The exact size of this structure in bytes. Must be set accurately by the
-  // application before passing the structure to IpczGetAPI().
+  // application before passing the structure to an implementation of
+  // IpczGetAPIFn.
   uint32_t size;
 
   // Releases the object identified by `handle`. If it's a portal, the portal is
@@ -1440,21 +1441,22 @@ struct IPCZ_ALIGN(8) IpczAPI {
                               IpczDriverHandle* driver_handle);
 };
 
-// Populates `api` with a table of ipcz API functions. The `size` field must be
-// set by the caller to the size of the structure before issuing this call.
+// A function which populates `api` with a table of ipcz API functions. The
+// `size` field must be set by the caller to the size of the structure before
+// issuing this call.
 //
-// If the caller is linking statically against the ipcz implementation, they can
-// reasonably expect a complete filled-in API structure. If however the
-// application is linked against ipcz dynamically, it's possible that the
-// available implementation will be older or newer than the application's own
-// copy of the ipcz API definitions.
+// In practice ipcz defines IpczGetAPI() as an implementation of this function
+// type. How applications acquire a reference to that function depends on how
+// the application builds and links against ipcz.
 //
-// In any case, upon return `api->size` will indicate the size of the function
-// table actually populated and therefore which version of the ipcz
-// implementation is in use. Note that this size will never exceed the input
-// value of `api->size`: if the caller is built against an older version than
-// what is available, the available implementation will only populate the
-// functions appropriate for that older version.
+// Upon return, `api->size` indicates the size of the function table actually
+// populated and therefore which version of the ipcz implementation is in use.
+// Note that this size will never exceed the input value of `api->size`: if the
+// caller is built against an older version than what is available, the
+// available implementation will only populate the functions appropriate for
+// that older version. Conversely if the caller is built against a newer version
+// than what is available, `api->size` on output may be smaller than its value
+// was on input.
 //
 // Returns:
 //
@@ -1462,10 +1464,10 @@ struct IPCZ_ALIGN(8) IpczAPI {
 //       `api->size` effectively indicates the API version provided, and the
 //       appropriate function pointers within `api` are filled in.
 //
-//    IPCZ_RESULT_INVALID_ARGUMENT if `api` was invalid, for example if the
-//       caller's provided `api->size` is less than the size of the function
-//       table required to host API version 0.
-IpczResult IPCZ_API IpczGetAPI(struct IpczAPI* api);
+//    IPCZ_RESULT_INVALID_ARGUMENT if `api` is null or the caller's provided
+//       `api->size` is less than the size of the function table required to
+//       host API version 0.
+typedef IpczResult(IPCZ_API* IpczGetAPIFn)(struct IpczAPI* api);
 
 #if defined(__cplusplus)
 }  // extern "C"
