@@ -239,6 +239,16 @@ typedef IpczResult(IPCZ_API* IpczTransportActivityHandler)(
     IpczTransportActivityFlags flags,
     const void* options);
 
+// Structure to be filled in by a driver's GetSharedMemoryInfo().
+struct IPCZ_ALIGN(8) IpczSharedMemoryInfo {
+  // The exact size of this structure in bytes. Set by ipcz before passing the
+  // structure to the driver.
+  uint32_t size;
+
+  // The size of the shared memory region in bytes.
+  uint64_t region_num_bytes;
+};
+
 // IpczDriver is a function table to be populated by the application and
 // provided to ipcz when creating a new node. The driver implements concrete
 // I/O operations to facilitate communication between nodes, giving embedding
@@ -421,7 +431,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   // Allocates a shared memory region and returns a driver handle in
   // `driver_memory` which can be used to reference it in other calls to the
   // driver.
-  IpczResult(IPCZ_API* AllocateSharedMemory)(uint32_t num_bytes,
+  IpczResult(IPCZ_API* AllocateSharedMemory)(uint64_t num_bytes,
                                              uint32_t flags,
                                              const void* options,
                                              IpczDriverHandle* driver_memory);
@@ -431,7 +441,7 @@ struct IPCZ_ALIGN(8) IpczDriver {
   IpczResult(IPCZ_API* GetSharedMemoryInfo)(IpczDriverHandle driver_memory,
                                             uint32_t flags,
                                             const void* options,
-                                            uint32_t* size);
+                                            struct IpczSharedMemoryInfo* info);
 
   // Duplicates a shared memory region handle into a new distinct handle
   // referencing the same underlying region.

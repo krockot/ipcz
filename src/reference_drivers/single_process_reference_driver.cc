@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -304,11 +305,15 @@ IpczResult IPCZ_API Transmit(IpczDriverHandle driver_transport,
                 absl::MakeSpan(handles, num_handles));
 }
 
-IpczResult IPCZ_API AllocateSharedMemory(uint32_t num_bytes,
+IpczResult IPCZ_API AllocateSharedMemory(uint64_t num_bytes,
                                          uint32_t flags,
                                          const void* options,
                                          IpczDriverHandle* driver_memory) {
-  auto memory = MakeRefCounted<InProcessMemory>(num_bytes);
+  if (num_bytes > std::numeric_limits<size_t>::max()) {
+    return IPCZ_RESULT_RESOURCE_EXHAUSTED;
+  }
+
+  auto memory = MakeRefCounted<InProcessMemory>(static_cast<size_t>(num_bytes));
   *driver_memory = ToDriverHandle(memory.release());
   return IPCZ_RESULT_OK;
 }
@@ -316,13 +321,14 @@ IpczResult IPCZ_API AllocateSharedMemory(uint32_t num_bytes,
 IpczResult GetSharedMemoryInfo(IpczDriverHandle driver_memory,
                                uint32_t flags,
                                const void* options,
-                               uint32_t* size) {
+                               IpczSharedMemoryInfo* info) {
   Object* object = Object::FromHandle(driver_memory);
-  if (!object || object->type() != Object::kMemory) {
+  if (!object || object->type() != Object::kMemory || !info ||
+      info->size < sizeof(IpczSharedMemoryInfo)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
-  *size = static_cast<uint32_t>(static_cast<InProcessMemory*>(object)->size());
+  info->region_num_bytes = static_cast<InProcessMemory*>(object)->size();
   return IPCZ_RESULT_OK;
 }
 

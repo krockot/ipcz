@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <utility>
 
 #include "ipcz/ipcz.h"
@@ -18,11 +19,12 @@ DriverMemory::DriverMemory() = default;
 
 DriverMemory::DriverMemory(DriverObject memory) : memory_(std::move(memory)) {
   if (memory_.is_valid()) {
-    uint32_t region_size;
+    IpczSharedMemoryInfo info = {.size = sizeof(info)};
     IpczResult result = memory_.node()->driver().GetSharedMemoryInfo(
-        memory_.handle(), IPCZ_NO_FLAGS, nullptr, &region_size);
-    if (result == IPCZ_RESULT_OK) {
-      size_ = region_size;
+        memory_.handle(), IPCZ_NO_FLAGS, nullptr, &info);
+    if (result == IPCZ_RESULT_OK &&
+        info.region_num_bytes <= std::numeric_limits<size_t>::max()) {
+      size_ = static_cast<size_t>(info.region_num_bytes);
     } else {
       memory_.reset();
     }
