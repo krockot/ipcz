@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "ipcz/parcel_queue.h"
 #include "ipcz/sequence_number.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -131,6 +130,55 @@ TEST(SequencedQueueTest, SparseSequence) {
   EXPECT_EQ(std::end(kEntries), next_expected_pop);
 }
 
+TEST(SequencedQueueTest, FullyConsumed) {
+  TestQueue empty_queue;
+  EXPECT_FALSE(empty_queue.IsSequenceFullyConsumed());
+  EXPECT_TRUE(empty_queue.SetFinalSequenceLength(SequenceNumber(0)));
+  EXPECT_TRUE(empty_queue.IsSequenceFullyConsumed());
+
+  TestQueue q;
+  const std::string kEntries[] = {"a", "b", "c"};
+  EXPECT_FALSE(q.IsSequenceFullyConsumed());
+
+  EXPECT_TRUE(q.Push(SequenceNumber(0), kEntries[0]));
+  EXPECT_TRUE(q.Push(SequenceNumber(1), kEntries[1]));
+  EXPECT_TRUE(q.Push(SequenceNumber(2), kEntries[2]));
+
+  EXPECT_TRUE(q.SetFinalSequenceLength(SequenceNumber(3)));
+  EXPECT_FALSE(q.IsSequenceFullyConsumed());
+
+  std::string s;
+  EXPECT_TRUE(q.Pop(s));
+  EXPECT_TRUE(q.Pop(s));
+  EXPECT_TRUE(q.Pop(s));
+  EXPECT_TRUE(q.IsSequenceFullyConsumed());
+}
+
+TEST(SequencedQueueTest, SkipNextSequenceNumber) {
+  TestQueue q;
+  const std::string kEntry = "woot";
+  q.SkipNextSequenceNumber();
+  EXPECT_FALSE(q.Push(SequenceNumber(0), kEntry));
+  EXPECT_TRUE(q.Push(SequenceNumber(1), kEntry));
+
+  std::string s;
+  EXPECT_TRUE(q.Pop(s));
+
+  // Skip ahead to SequenceNumber 4.
+  q.SkipNextSequenceNumber();
+  q.SkipNextSequenceNumber();
+  EXPECT_FALSE(q.Push(SequenceNumber(2), kEntry));
+  EXPECT_FALSE(q.Push(SequenceNumber(3), kEntry));
+  EXPECT_TRUE(q.Push(SequenceNumber(4), kEntry));
+
+  EXPECT_TRUE(q.SetFinalSequenceLength(SequenceNumber(6)));
+  EXPECT_FALSE(q.IsSequenceFullyConsumed());
+  EXPECT_TRUE(q.Pop(s));
+  EXPECT_FALSE(q.IsSequenceFullyConsumed());
+  q.SkipNextSequenceNumber();
+  EXPECT_TRUE(q.IsSequenceFullyConsumed());
+}
+
 TEST(SequencedQueueTest, Accounting) {
   TestQueueWithSize q;
 
@@ -148,7 +196,7 @@ TEST(SequencedQueueTest, Accounting) {
   EXPECT_FALSE(q.HasNextElement());
 
   // Now we'll insert at the head of the queue and we should be accounting for
-  // entries 0 and 1, but still not parcel 3 yet.
+  // elements 0 and 1, but still not element 3 yet.
   EXPECT_TRUE(q.Push(SequenceNumber(0), kEntries[0]));
   EXPECT_EQ(2u, q.GetNumAvailableElements());
   EXPECT_EQ(kEntries[0].size() + kEntries[1].size(),

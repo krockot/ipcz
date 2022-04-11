@@ -15,7 +15,7 @@ namespace ipcz {
 //
 // More specifically this is used by ipcz to maintain relative ordering of
 // parcels against other parcels from the same source portal, or NodeLink
-// messages against other NodeLink messages from the NodeLink endpoint.
+// messages against other NodeLink messages from the same NodeLink endpoint.
 using SequenceNumber = StrongAlias<class SequenceNumberTag, uint64_t>;
 
 }  // namespace ipcz

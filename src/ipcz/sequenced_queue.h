@@ -31,11 +31,19 @@ struct DefaultSequencedQueueTraits {
 //
 // Storage may be sparsely populated at times, but as elements are consumed from
 // the queue, storage is compacted to reduce waste.
+//
+// ElementTraits may be overridden to attribute a measurable size to each stored
+// element. SequencedQueue performs additional accounting to efficiently track
+// the sum of this size across the set of all currently available elements in
+// the queue.
 template <typename T, typename ElementTraits = DefaultSequencedQueueTraits<T>>
 class SequencedQueue {
  public:
   SequencedQueue() = default;
 
+  // Constructs a new SequenceQueue starting at `initial_sequence_number`. The
+  // queue will not accept elements with a SequenceNumber below this value, and
+  // this will be the SequenceNumber of the first element to be popped.
   explicit SequencedQueue(SequenceNumber initial_sequence_number)
       : base_sequence_number_(initial_sequence_number) {}
 
@@ -69,20 +77,22 @@ class SequencedQueue {
 
   ~SequencedQueue() = default;
 
-  // As a basic smoke test, SequencedQueue won't tolerate sequence gaps larger
-  // than this value.
+  // As a basic practical constraint, SequencedQueue won't tolerate sequence
+  // gaps larger than this value.
   static constexpr uint64_t GetMaxSequenceGap() { return 1000000; }
 
   // The SequenceNumber of the next element that is or will be available from
   // the queue. This starts at the constructor's `initial_sequence_number` and
-  // increments any time an element is successfully popped from the queue.
+  // increments any time an element is successfully popped from the queue or a
+  // a SequenceNumber is explicitly skipped via SkipNextSequenceNumber().
   SequenceNumber current_sequence_number() const {
     return base_sequence_number_;
   }
 
-  // The final length of the sequence to be popped from this queue. Null if the
-  // final length is not yet known. If this is N, then the last ordered element
-  // that can be pushed to or popped from the queue has a SequenceNumber of N-1.
+  // The final length of the sequence that can be popped from this queue. Null
+  // if a final length has not yet been set. If the final length is N, then the
+  // last ordered element that can be pushed to or popped from the queue has a
+  // SequenceNumber of N-1.
   const absl::optional<SequenceNumber>& final_sequence_length() const {
     return final_sequence_length_;
   }
@@ -91,7 +101,8 @@ class SequencedQueue {
   // the queue. This is the number of contiguously sequenced elements
   // available starting from `current_sequence_number()`. If the current
   // SequenceNumber is 5 and this queue holds elements 5, 6, and 8, then this
-  // method returns 2: only elements 5 and 6 are available.
+  // method returns 2: only elements 5 and 6 are available, because element 8
+  // cannot be made available until element 7 is also available.
   size_t GetNumAvailableElements() const {
     if (entries_.empty() || !entries_[0].has_value()) {
       return 0;
@@ -100,10 +111,10 @@ class SequencedQueue {
     return entries_[0]->num_entries_in_span;
   }
 
-  // Returns the total "size" of elements currently ready for popping at the
+  // Returns the total size of elements currently ready for popping at the
   // front of the queue. This is the sum of ElementTraits::GetElementSize() for
-  // each entry counted by `GetNumAvailableElements()` and is returned in
-  // constant time.
+  // each element counted by `GetNumAvailableElements()`, and it is always
+  // returned in constant time.
   size_t GetTotalAvailableElementSize() const {
     if (entries_.empty() || !entries_[0].has_value()) {
       return 0;
@@ -112,24 +123,24 @@ class SequencedQueue {
     return entries_[0]->total_span_size;
   }
 
-  // Returns the length of the sequence known so far by this queue. This is
-  // essentially `current_sequence_number()` plus `GetNumAvailableElements()`.
-  // For example if `current_sequence_number()` is 5 and
+  // Returns the total length of the sequence already popped or
+  // from this queue so far. This is essentially `current_sequence_number()`
+  // plus `GetNumAvailableElements()`. If `current_sequence_number()` is 5 and
   // `GetNumAvailableElements()` is 3, then elements 5, 6, and 7 are available
-  // for retrieval and the total length of the sequence so far is 8; so this
-  // method would return 8.
+  // for retrieval, and the current sequence length so far is 8; so this method
+  // would return 8.
   SequenceNumber GetCurrentSequenceLength() const {
-    return SequenceNumber(current_sequence_number().value() +
-                          GetNumAvailableElements());
+    return SequenceNumber{current_sequence_number().value() +
+                          GetNumAvailableElements()};
   }
 
-  // Sets the known final length of the incoming sequence. This is the sequence
-  // number of the last element that can be pushed, plus 1; or 0 if no elements
-  // can be pushed.
+  // Sets the final length of this queue's sequence. This is the SequenceNumber
+  // of the last element that can be pushed, plus 1. If this is set to zero, no
+  // elements can ever be pushed onto this queue.
   //
-  // May fail and return false if the queue already has elements with a sequence
-  // number greater than or equal to `length`, or if a the final sequence length
-  // had already been set prior to this call.
+  // May fail and return false if the queue already has pushed and/or popped
+  // elements with a SequenceNumber greater than or equal to `length`, or if a
+  // the final sequence length had already been set prior to this call.
   bool SetFinalSequenceLength(SequenceNumber length) {
     if (final_sequence_length_) {
       return false;
@@ -149,12 +160,13 @@ class SequencedQueue {
     return Reallocate(length);
   }
 
-  // Indicates whether this queue is still waiting to have more elements pushed.
-  // This is always true if the final sequence length has not been set yet. Once
-  // the final sequence length is set, this remains true only until all elements
-  // between the initial sequence number (inclusive) and the final sequence
-  // length (exclusive) have been pushed into (and optionally popped from) the
-  // queue.
+  // Indicates whether this queue is still expecting to have more elements
+  // pushed. This is always true if the final sequence length has not been set
+  // yet.
+  //
+  // Once the final sequence length is set, this remains true only until all
+  // elements between the initial sequence number (inclusive) and the final
+  // sequence length (exclusive) have been pushed into the queue.
   bool ExpectsMoreElements() const {
     if (!final_sequence_length_) {
       return true;
@@ -174,32 +186,30 @@ class SequencedQueue {
     return !entries_.empty() && entries_[0].has_value();
   }
 
-  // Indicates if there are no elements in this queue, not even ones beyond the
-  // current sequence number that are merely unavailable.
-  bool IsEmpty() const { return num_entries_ == 0; }
-
-  // Indicates whether this queue is "dead," meaning it will no longer accept
-  // new elements AND there are no more elements left pop. This occurs iff the
-  // final sequence length is known, and all elements from the initial sequence
-  // number up to the final sequence length have been pushed into and then
-  // popped from this queue.
-  bool IsDead() const { return !HasNextElement() && !ExpectsMoreElements(); }
+  // Indicates whether this queue's sequence has been fully consumed. This means
+  // the final sequence length has been set AND all elements up to that length
+  // have been pushed into and popped from the queue.
+  bool IsSequenceFullyConsumed() const {
+    return !HasNextElement() && !ExpectsMoreElements();
+  }
 
   // Resets this queue to start at the initial SequenceNumber `n`. Must be
-  // called only on an empty queue (IsEmpty() == true) and only when the caller
-  // can be sure they won't want to push any elements with a SequenceNumber
-  // below `n`.
+  // called only on an empty queue and only when the caller can be sure they
+  // won't want to push any elements with a SequenceNumber below `n`.
   void ResetInitialSequenceNumber(SequenceNumber n) {
-    ABSL_ASSERT(IsEmpty());
+    ABSL_ASSERT(num_entries_ == 0);
     base_sequence_number_ = n;
   }
 
   // Skips the next SequenceNumber by advancing `base_sequence_number_` by one.
   // Must be called only when no elements are currently available in the queue.
+  // This is equivalent to pushing and immediately popping an element with the
+  // current SequenceNumber, except that it does not grow, shrink, or otherwise
+  // modify the queue's underlying element storage.
   void SkipNextSequenceNumber() {
     ABSL_ASSERT(!HasNextElement());
-    base_sequence_number_ = SequenceNumber(base_sequence_number_.value() + 1);
-    if (!IsEmpty()) {
+    base_sequence_number_ = SequenceNumber{base_sequence_number_.value() + 1};
+    if (num_entries_ != 0) {
       entries_.remove_prefix(1);
     }
   }
@@ -230,7 +240,7 @@ class SequencedQueue {
       return true;
     }
 
-    SequenceNumber new_limit = SequenceNumber(n.value() + 1);
+    SequenceNumber new_limit(n.value() + 1);
     if (new_limit == SequenceNumber(0)) {
       // TODO: Gracefully handle overflow / wraparound?
       return false;
@@ -258,7 +268,7 @@ class SequencedQueue {
     ABSL_ASSERT(num_entries_ > 0);
     --num_entries_;
     const SequenceNumber sequence_number = base_sequence_number_;
-    base_sequence_number_ = SequenceNumber(base_sequence_number_.value() + 1);
+    base_sequence_number_ = SequenceNumber{base_sequence_number_.value() + 1};
 
     // Make sure the next queued entry has up-to-date accounting, if present.
     if (entries_.size() > 1 && entries_[1]) {
@@ -410,14 +420,14 @@ class SequencedQueue {
     //     `entries_`: [2][ ][4][5][6][ ][8][9]
     //
     // For example, above we can designate three contiguous spans: element 2
-    // stands alone at the front of the queue, element 4-6 form a second span,
+    // stands alone at the front of the queue, elements 4-6 form a second span,
     // and then elements 8-9 form the third. Elements 3 and 7 are absent.
     //
-    // We're interested in knowing how many elements (and their total size in
-    // bytes) are available right now, which means we want to answer the
-    // question: how long is the span starting at element 0? In this case since
-    // element 2 stands alone at the front of the queue, the answer is 1.
-    // There's 1 element available right now.
+    // We're interested in knowing how many elements (and their total size, as
+    // designated by ElementTraits) are available right now, which means we want
+    // to answer the question: how long is the span starting at element 0? In
+    // this case since element 2 stands alone at the front of the queue, the
+    // answer is 1. There's 1 element available right now.
     //
     // If we pop element 2 off the queue, it then becomes:
     //
@@ -439,27 +449,28 @@ class SequencedQueue {
     // up-to-date for all entries, but we maintain the invariant that the first
     // and last element of each distinct span has accurate metadata; and as a
     // consequence if any span starts at element 0, then we know element 0's
-    // metadata accurately answers our general questions about the queue.
+    // metadata accurately answers our general questions about the head of the
+    // queue.
     //
     // When an element with sequence number N is inserted into the queue, it can
     // be classified in one of four ways:
     //
-    //    (1) it stands alone with no element at N-1 or N+1
-    //    (2) it follows a element at N-1, but N+1 is empty
-    //    (3) it precedes a element at N+1, but N-1 is empty
-    //    (4) it falls between a element at N-1 and a element at N+1.
+    //    (1) it stands alone with no element present at N-1 or N+1
+    //    (2) it follows an element at N-1, but N+1 is empty
+    //    (3) it precedes an element at N+1, but N-1 is empty
+    //    (4) it falls between present elements at both N-1 and N+1.
     //
     // In case (1) we record in the entry that its span starts and ends at
-    // element N; we also record the length of the span (1) and atraits-defined
+    // element N; we also record the length of the span (1) and a traits-defined
     // accounting of the element's "size". This entry now has trivially correct
-    // metadata about its containing span, of which it is both the head and
-    // tail.
+    // metadata about its containing span, which consists only of the entry
+    // itself.
     //
     // In case (2), element N is now the tail of a pre-existing span. Because
     // tail elements are always up-to-date, we simply copy and augment the data
     // from the old tail (element N-1) into the new tail (element N). From this
-    // data we also know where the head of the span is, so we can update it with
-    // the same new metadata.
+    // data we also know where the head of the span is, and the head entry is
+    // also updated to reflect the same new metadata.
     //
     // Case (3) is similar to case (2). Element N is now the head of a
     // pre-existing span, so we copy and augment the already up-to-date N+1
@@ -476,9 +487,9 @@ class SequencedQueue {
     // entries.
     //
     // Finally, the only other operation that matters for this accounting is
-    // Pop(). All Pop() needs to do though is derive new metadata for the new
-    // head-of-queue's span (if present) after popping. This metadata will
-    // update both the new head-of-queue as well as its span's tail.
+    // Pop(). All Pop() needs to do is derive new metadata for the new
+    // head-of-queue's span (if present) after popping. This metadata is updated
+    // in the new head entry as well as its span's tail.
     size_t num_entries_in_span = 0;
     size_t total_span_size = 0;
     SequenceNumber span_start{0};
@@ -508,7 +519,7 @@ class SequencedQueue {
   // The number of slots in `entries_` which are actually occupied.
   size_t num_entries_ = 0;
 
-  // The known final length of the sequence to be enqueued, if known.
+  // The final length of the sequence to be enqueued, if known.
   absl::optional<SequenceNumber> final_sequence_length_;
 };
 

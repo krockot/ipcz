@@ -174,7 +174,7 @@ IpczResult Router::SendOutboundParcel(Parcel& parcel) {
         outbound_parcels_.GetCurrentSequenceLength();
     parcel.set_sequence_number(sequence_number);
 
-    if (outbound_parcels_.IsEmpty()) {
+    if (outbound_parcels_.current_sequence_number() == sequence_number) {
       // If there are no outbound parcels queued, we may be able to take a fast
       // path. Note that `link` may still be null here, in which case we will
       // fall back on the slower (queue + flush) path.
@@ -373,7 +373,7 @@ bool Router::AcceptRouteClosureFrom(LinkType link_type,
       }
       if (!inward_edge_ && !bridge_) {
         status_.flags |= IPCZ_PORTAL_STATUS_PEER_CLOSED;
-        if (inbound_parcels_.IsDead()) {
+        if (inbound_parcels_.IsSequenceFullyConsumed()) {
           status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
         }
         traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kPeerClosed,
@@ -412,7 +412,7 @@ void Router::AcceptRouteDisconnectionFrom(LinkType link_type) {
         inbound_parcels_.SetFinalSequenceLength(
             inbound_parcels_.GetCurrentSequenceLength());
       }
-      if (inbound_parcels_.IsDead()) {
+      if (inbound_parcels_.IsSequenceFullyConsumed()) {
         status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
       traps_.UpdatePortalStatus(status_, TrapSet::UpdateReason::kPeerClosed,
@@ -443,10 +443,11 @@ IpczResult Router::GetNextIncomingParcel(IpczGetFlags flags,
       return IPCZ_RESULT_INVALID_ARGUMENT;
     }
 
+    if (inbound_parcels_.IsSequenceFullyConsumed()) {
+      return IPCZ_RESULT_NOT_FOUND;
+    }
+
     if (!inbound_parcels_.HasNextElement()) {
-      if (inbound_parcels_.IsDead()) {
-        return IPCZ_RESULT_NOT_FOUND;
-      }
       return IPCZ_RESULT_UNAVAILABLE;
     }
 
@@ -479,7 +480,7 @@ IpczResult Router::GetNextIncomingParcel(IpczGetFlags flags,
 
     status_.num_local_parcels = inbound_parcels_.GetNumAvailableElements();
     status_.num_local_bytes = inbound_parcels_.GetTotalAvailableElementSize();
-    if (inbound_parcels_.IsDead()) {
+    if (inbound_parcels_.IsSequenceFullyConsumed()) {
       status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       traps_.UpdatePortalStatus(
           status_, TrapSet::UpdateReason::kLocalParcelConsumed, dispatcher);
@@ -557,7 +558,7 @@ IpczResult Router::CommitGetNextIncomingParcel(uint32_t num_data_bytes_consumed,
 
     status_.num_local_parcels = inbound_parcels_.GetNumAvailableElements();
     status_.num_local_bytes = inbound_parcels_.GetTotalAvailableElementSize();
-    if (inbound_parcels_.IsDead()) {
+    if (inbound_parcels_.IsSequenceFullyConsumed()) {
       status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       traps_.UpdatePortalStatus(
           status_, TrapSet::UpdateReason::kLocalParcelConsumed, dispatcher);
@@ -701,7 +702,7 @@ Ref<Router> Router::Deserialize(const RouterDescriptor& descriptor,
               descriptor.closed_peer_sequence_length)) {
         return nullptr;
       }
-      if (router->inbound_parcels_.IsDead()) {
+      if (router->inbound_parcels_.IsSequenceFullyConsumed()) {
         router->status_.flags |= IPCZ_PORTAL_STATUS_DEAD;
       }
     }
@@ -1264,9 +1265,9 @@ void Router::Flush(bool force_bypass_attempt) {
       dropped_last_decaying_link = true;
     }
 
-    if (on_central_link && outbound_parcels_.IsDead() &&
+    if (on_central_link && outbound_parcels_.IsSequenceFullyConsumed() &&
         outward_link->TryLockForClosure()) {
-      // If the outbound sequence is dead, our side of the route is gone and we
+      // If the outbound sequence is done, our side of the route is gone and we
       // have no more parcels to transmit. Attempt to propagate our closure,
       // which we can only do if we're also the only router left on our side of
       // the route and the central link can be locked.
@@ -1279,8 +1280,8 @@ void Router::Flush(bool force_bypass_attempt) {
       dead_outward_link = outward_edge_.ReleasePrimaryLink();
     }
 
-    if (inbound_parcels_.IsDead()) {
-      // If the inbound parcel queue is dead, we've not only received all
+    if (inbound_parcels_.IsSequenceFullyConsumed()) {
+      // If the inbound parcel queue is done, we've not only received all
       // inbound parcels, but we've also forwarded all of them if applicable.
       // We can therefore also drop any inward or bridge link.
       final_inward_sequence_length = inbound_parcels_.final_sequence_length();
