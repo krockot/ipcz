@@ -58,6 +58,7 @@ TEST_F(RefCountedTest, NullRef) {
 TEST_F(RefCountedTest, SimpleRef) {
   bool destroyed = false;
   auto ref = MakeRefCounted<TestObject>(destroyed);
+  EXPECT_TRUE(ref);
   EXPECT_FALSE(destroyed);
   ref.reset();
   EXPECT_FALSE(ref);
@@ -68,6 +69,7 @@ TEST_F(RefCountedTest, Copy) {
   bool destroyed1 = false;
   auto ref1 = MakeRefCounted<TestObject>(destroyed1);
   Ref<TestObject> other1 = ref1;
+  EXPECT_TRUE(other1);
   EXPECT_FALSE(destroyed1);
   ref1.reset();
   EXPECT_FALSE(ref1);
@@ -101,6 +103,7 @@ TEST_F(RefCountedTest, Move) {
   bool destroyed1 = false;
   auto ref1 = MakeRefCounted<TestObject>(destroyed1);
   Ref<TestObject> other1 = std::move(ref1);
+  EXPECT_TRUE(other1);
   EXPECT_FALSE(ref1);
   EXPECT_FALSE(destroyed1);
   other1.reset();
@@ -119,6 +122,25 @@ TEST_F(RefCountedTest, Move) {
   EXPECT_TRUE(destroyed2);
   ref2.reset();
   EXPECT_TRUE(destroyed1);
+}
+
+TEST_F(RefCountedTest, Comparison) {
+  bool destroyed = false;
+
+  Ref<TestObject> ref1;
+  Ref<TestObject> ref2;
+  EXPECT_EQ(ref1, ref2);
+  EXPECT_EQ(ref1, nullptr);
+
+  ref1 = MakeRefCounted<TestObject>(destroyed);
+  EXPECT_EQ(ref1, ref1.get());
+  EXPECT_NE(ref1, nullptr);
+  EXPECT_NE(ref1, ref2);
+
+  ref2 = ref1;
+  EXPECT_EQ(ref1, ref2);
+  EXPECT_EQ(ref2, ref1.get());
+  EXPECT_NE(ref2, nullptr);
 }
 
 TEST_F(RefCountedTest, ThreadSafe) {
