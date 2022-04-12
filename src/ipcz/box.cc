@@ -11,7 +11,7 @@
 
 namespace ipcz {
 
-Box::Box(DriverObject object) : APIObject(kBox), object_(std::move(object)) {}
+Box::Box(DriverObject object) : object_(std::move(object)) {}
 
 Box::~Box() = default;
 

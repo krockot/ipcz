@@ -55,7 +55,7 @@ class IPCZ_ALIGN(8) NodeName {
 
   std::string ToString() const;
 
- public:
+ private:
   uint64_t high_ = 0;
   uint64_t low_ = 0;
 };

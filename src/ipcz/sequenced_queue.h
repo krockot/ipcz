@@ -20,13 +20,14 @@ struct DefaultSequencedQueueTraits {
 };
 
 // SequencedQueue retains a queue of objects strictly ordered by SequenceNumber.
+// This class is not thread-safe.
 //
 // This is useful in situations where queued elements may accumulate slightly
 // out-of-order and need to be reordered efficiently for consumption. The
 // implementation relies on an assumption that sequence gaps are common but tend
 // to be small and short-lived. As such, a SequencedQueue retains at least
 // enough linear storage to hold every object between the last popped
-// SequenceNumber (exclusive) and the highest queued (or antiticapted)
+// SequenceNumber (exclusive) and the highest queued (or anticipated)
 // SequenceNumber so far (inclusive).
 //
 // Storage may be sparsely populated at times, but as elements are consumed from
@@ -41,7 +42,7 @@ class SequencedQueue {
  public:
   SequencedQueue() = default;
 
-  // Constructs a new SequenceQueue starting at `initial_sequence_number`. The
+  // Constructs a new SequencedQueue starting at `initial_sequence_number`. The
   // queue will not accept elements with a SequenceNumber below this value, and
   // this will be the SequenceNumber of the first element to be popped.
   explicit SequencedQueue(SequenceNumber initial_sequence_number)
@@ -123,12 +124,12 @@ class SequencedQueue {
     return entries_[0]->total_span_size;
   }
 
-  // Returns the total length of the sequence already popped or
-  // from this queue so far. This is essentially `current_sequence_number()`
-  // plus `GetNumAvailableElements()`. If `current_sequence_number()` is 5 and
-  // `GetNumAvailableElements()` is 3, then elements 5, 6, and 7 are available
-  // for retrieval, and the current sequence length so far is 8; so this method
-  // would return 8.
+  // Returns the total length of the contiguous sequence already pushed and/or
+  // popped from this queue so far. This is essentially
+  // `current_sequence_number()` plus `GetNumAvailableElements()`. If
+  // `current_sequence_number()` is 5 and `GetNumAvailableElements()` is 3, then
+  // elements 5, 6, and 7 are available for retrieval and the current sequence
+  // length is 8; so this method would return 8.
   SequenceNumber GetCurrentSequenceLength() const {
     return SequenceNumber{current_sequence_number().value() +
                           GetNumAvailableElements()};
@@ -223,9 +224,14 @@ class SequencedQueue {
       return false;
     }
 
+    // Compute the appropriate index at which to store this new entry, given its
+    // SequenceNumber and the base SequenceNumber of element 0 in `entries_`.
     size_t index = n.value() - base_sequence_number_.value();
     if (final_sequence_length_) {
+      // If `final_sequence_length_` is set, `entries_` must already be sized
+      // large enough to hold any valid Push().
       if (index >= entries_.size() || entries_[index].has_value()) {
+        // Out of bounds or duplicate entry. Fail.
         return false;
       }
       PlaceNewEntry(index, n, element);
@@ -233,7 +239,10 @@ class SequencedQueue {
     }
 
     if (index < entries_.size()) {
+      // `entries_` is already large enough to place this element without
+      // resizing.
       if (entries_[index].has_value()) {
+        // Duplicate entry. Fail.
         return false;
       }
       PlaceNewEntry(index, n, element);
@@ -242,7 +251,6 @@ class SequencedQueue {
 
     SequenceNumber new_limit(n.value() + 1);
     if (new_limit == SequenceNumber(0)) {
-      // TODO: Gracefully handle overflow / wraparound?
       return false;
     }
 
@@ -412,7 +420,7 @@ class SequencedQueue {
 
     // NOTE: The fields below are maintained during Push and Pop operations and
     // are used to support efficient implementation of GetNumAvailableElements()
-    // and GetTotalAvailableSize(). This warrants some clarification.
+    // and GetTotalAvailableElementSize(). This warrants some clarification.
     //
     // Conceptually we treat the active range of entries as a series of
     // contiguous spans:

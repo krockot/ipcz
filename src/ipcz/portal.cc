@@ -22,7 +22,6 @@
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/handle_util.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
 
@@ -36,7 +35,7 @@ bool ValidateAndAcquireObjectsForTransitFrom(
     Parcel::ObjectVector& objects) {
   objects.resize(handles.size());
   for (size_t i = 0; i < handles.size(); ++i) {
-    auto* object = ToPtr<APIObject>(handles[i]);
+    auto* object = APIObject::FromHandle(handles[i]);
     if (!object || !object->CanSendFrom(sender)) {
       return false;
     }
@@ -48,7 +47,7 @@ bool ValidateAndAcquireObjectsForTransitFrom(
 }  // namespace
 
 Portal::Portal(Ref<Node> node, Ref<Router> router)
-    : APIObject(kPortal), node_(std::move(node)), router_(std::move(router)) {}
+    : node_(std::move(node)), router_(std::move(router)) {}
 
 Portal::~Portal() = default;
 
@@ -116,7 +115,7 @@ IpczResult Portal::Put(absl::Span<const uint8_t> data,
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.
     for (IpczHandle handle : handles) {
-      APIObject::ReleaseHandle(handle);
+      APIObject::TakeFromHandle(handle);
     }
   }
 
@@ -192,7 +191,7 @@ IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
     // If the parcel was sent, the sender relinquishes handle ownership and
     // therefore implicitly releases its ref to each object.
     for (IpczHandle handle : handles) {
-      APIObject::ReleaseHandle(handle);
+      APIObject::TakeFromHandle(handle);
     }
 
     absl::MutexLock lock(&mutex_);

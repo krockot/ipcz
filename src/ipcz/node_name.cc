@@ -8,18 +8,22 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <type_traits>
 
 #include "third_party/abseil-cpp/absl/base/macros.h"
 
 namespace ipcz {
 
+static_assert(std::is_standard_layout<NodeName>::value, "Invalid NodeName");
+
 NodeName::~NodeName() = default;
 
 std::string NodeName::ToString() const {
-  char chars[33];
-  int length = snprintf(chars, 33, "%016" PRIx64 "%016" PRIx64, high_, low_);
+  std::string name(33, 0);
+  int length = snprintf(name.data(), name.size(), "%016" PRIx64 "%016" PRIx64,
+                        high_, low_);
   ABSL_ASSERT(length == 32);
-  return std::string(chars, 32);
+  return name;
 }
 
 }  // namespace ipcz

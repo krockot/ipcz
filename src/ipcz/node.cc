@@ -25,17 +25,13 @@
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/handle_util.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
 
 Node::Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node)
-    : APIObject(kNode),
-      type_(type),
-      driver_(driver),
-      driver_node_(driver_node) {
+    : type_(type), driver_(driver), driver_node_(driver_node) {
   if (type_ == Type::kBroker) {
     // Only brokers assign their own names.
     assigned_name_ = GenerateRandomName();
@@ -74,7 +70,7 @@ IpczResult Node::ConnectNode(IpczDriverHandle driver_transport,
     auto portal =
         MakeRefCounted<Portal>(WrapRefCounted(this), MakeRefCounted<Router>());
     portals[i] = portal;
-    initial_portals[i] = ToHandle(portal.release());
+    initial_portals[i] = Portal::ReleaseAsHandle(std::move(portal));
   }
 
   auto transport = MakeRefCounted<DriverTransport>(

@@ -6,7 +6,7 @@
 
 #include <iterator>
 
-#include "util/handle_util.h"
+#include "reference_drivers/handle_util.h"
 #include "util/ref_counted.h"
 
 namespace ipcz::reference_drivers {

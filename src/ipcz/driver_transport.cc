@@ -9,7 +9,6 @@
 #include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/handle_util.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -23,23 +22,23 @@ IpczResult IPCZ_API NotifyTransport(IpczHandle transport,
                                     uint32_t num_driver_handles,
                                     IpczTransportActivityFlags flags,
                                     const void* options) {
-  if (transport == IPCZ_INVALID_HANDLE) {
+  DriverTransport* t = DriverTransport::FromHandle(transport);
+  if (!t) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
   if (flags & IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED) {
-    Ref<DriverTransport> doomed_transport(RefCounted::kAdoptExistingRef,
-                                          ToPtr<DriverTransport>(transport));
+    const Ref<DriverTransport> doomed_transport =
+        DriverTransport::TakeFromHandle(transport);
     return IPCZ_RESULT_OK;
   }
 
-  DriverTransport& t = ToRef<DriverTransport>(transport);
   if (flags & IPCZ_TRANSPORT_ACTIVITY_ERROR) {
-    t.NotifyError();
+    t->NotifyError();
     return IPCZ_RESULT_OK;
   }
 
-  return t.Notify(DriverTransport::Message(
+  return t->Notify(DriverTransport::Message(
       absl::MakeSpan(data, num_bytes),
       absl::MakeSpan(driver_handles, num_driver_handles)));
 }
@@ -110,7 +109,7 @@ IpczDriverHandle DriverTransport::Release() {
 IpczResult DriverTransport::Activate() {
   // Acquire a self-reference, balanced in NotifyTransport() when the driver
   // invokes its activity handler with IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED.
-  IpczHandle handle = ToHandle(WrapRefCounted(this).release());
+  IpczHandle handle = ReleaseAsHandle(WrapRefCounted(this));
   return transport_.node()->driver().ActivateTransport(
       transport_.handle(), handle, NotifyTransport, IPCZ_NO_FLAGS, nullptr);
 }
@@ -146,6 +145,10 @@ IpczResult DriverTransport::Notify(const Message& message) {
 void DriverTransport::NotifyError() {
   ABSL_ASSERT(listener_);
   listener_->OnTransportError();
+}
+
+IpczResult DriverTransport::Close() {
+  return IPCZ_RESULT_INVALID_ARGUMENT;
 }
 
 }  // namespace ipcz

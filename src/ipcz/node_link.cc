@@ -25,7 +25,6 @@
 #include "ipcz/router_link.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
-#include "util/handle_util.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
 

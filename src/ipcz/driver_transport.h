@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "ipcz/api_object.h"
 #include "ipcz/driver_object.h"
 #include "ipcz/ipcz.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
@@ -22,7 +23,8 @@ class Node;
 
 // Encapsulates shared ownership of a transport endpoint created by an ipcz
 // driver..
-class DriverTransport : public RefCounted {
+class DriverTransport
+    : public APIObjectImpl<DriverTransport, APIObject::kTransport> {
  public:
   using Pair = std::pair<Ref<DriverTransport>, Ref<DriverTransport>>;
 
@@ -127,6 +129,9 @@ class DriverTransport : public RefCounted {
   // handles to be passed back into ipcz.
   IpczResult Notify(const Message& message);
   void NotifyError();
+
+  // APIObject:
+  IpczResult Close() override;
 
  private:
   ~DriverTransport() override;

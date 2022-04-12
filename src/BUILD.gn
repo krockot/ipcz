@@ -123,7 +123,6 @@ portable_source_set("util") {
   public = [
     "util/block_allocator.h",
     "util/function.h",
-    "util/handle_util.h",
     "util/hex_dump.h",
     "util/log.h",
     "util/mpsc_queue.h",
@@ -261,6 +260,7 @@ portable_source_set("reference_drivers") {
     "reference_drivers/channel.h",
     "reference_drivers/event.cc",
     "reference_drivers/event.h",
+    "reference_drivers/handle_util.h",
     "reference_drivers/memory.cc",
     "reference_drivers/memory.h",
     "reference_drivers/multiprocess_reference_driver.cc",

@@ -31,7 +31,7 @@ class Portal;
 // can establish links to and from other routers in other nodes. Every node is
 // assigned a globally unique name by a trusted broker node, and nodes may be
 // introduced to each other exclusively through such brokers.
-class Node : public APIObject {
+class Node : public APIObjectImpl<Node, APIObject::kNode> {
  public:
   enum class Type {
     // A broker node assigns its own name and is able to assign names to other
@@ -47,8 +47,6 @@ class Node : public APIObject {
   };
 
   Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node);
-
-  static constexpr ObjectType object_type() { return kNode; }
 
   Type type() const { return type_; }
   const IpczDriver& driver() const { return driver_; }

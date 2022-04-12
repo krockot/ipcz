@@ -7,18 +7,15 @@
 
 #include "ipcz/api_object.h"
 #include "ipcz/driver_object.h"
-#include "util/handle_util.h"
 
 namespace ipcz {
 
 // Generic handle wrapper around a DriverObject, allowing driver objects to be
 // passed wherever IpczHandles are accepted. More to the point, this allows
 // serializable driver objects to be transferred through portals.
-class Box : public APIObject {
+class Box : public APIObjectImpl<Box, APIObject::kBox> {
  public:
   explicit Box(DriverObject object);
-
-  static constexpr ObjectType object_type() { return kBox; }
 
   DriverObject& object() { return object_; }
 

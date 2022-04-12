@@ -17,7 +17,6 @@
 #include "ipcz/portal.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/handle_util.h"
 
 namespace ipcz {
 
@@ -138,7 +137,7 @@ void Parcel::Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles) {
   ABSL_ASSERT(num_bytes <= data.size());
   ABSL_ASSERT(out_handles.size() <= objects.size());
   for (size_t i = 0; i < out_handles.size(); ++i) {
-    out_handles[i] = ToHandle(objects[i].release());
+    out_handles[i] = APIObject::ReleaseAsHandle(std::move(objects[i]));
   }
 
   data_view_.remove_prefix(num_bytes);
@@ -174,7 +173,7 @@ std::string Parcel::Describe() const {
 
 bool Parcel::CanTransmitOn(const DriverTransport& transport) {
   for (auto object : objects_) {
-    if (auto* box = object->GetAs<Box>()) {
+    if (auto* box = Box::FromObject(object.get())) {
       if (!box->object().CanTransmitOn(transport)) {
         return false;
       }

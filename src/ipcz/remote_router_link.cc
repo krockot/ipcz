@@ -251,11 +251,12 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
         break;
 
       case APIObject::kBox: {
-        Box& box = object->As<Box>();
-        if (!box.object().CanTransmitOn(*node_link()->transport())) {
+        Box* box = Box::FromObject(object.get());
+        ABSL_ASSERT(box);
+        if (!box->object().CanTransmitOn(*node_link()->transport())) {
           driver_objects_will_relay = true;
         }
-        driver_objects.push_back(std::move(box.object()));
+        driver_objects.push_back(std::move(box->object()));
         break;
       }
 
@@ -333,7 +334,7 @@ void RemoteRouterLink::AcceptParcel(Parcel& parcel) {
         descriptor.type = HandleDescriptor::kPortal;
         ABSL_ASSERT(!remaining_routers.empty());
 
-        Ref<Router> router = object.As<Portal>().router();
+        Ref<Router> router = Portal::FromObject(&object)->router();
         router->SerializeNewRouter(*node_link(), remaining_routers[0]);
         routers.push_back(std::move(router));
         remaining_routers.remove_prefix(1);

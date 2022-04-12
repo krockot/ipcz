@@ -23,13 +23,11 @@ class Router;
 
 // A Portal owns a terminal Router along a route. Portals are manipulated
 // directly by public ipcz API calls.
-class Portal : public APIObject {
+class Portal : public APIObjectImpl<Portal, APIObject::kPortal> {
  public:
   using Pair = std::pair<Ref<Portal>, Ref<Portal>>;
 
   Portal(Ref<Node> node, Ref<Router> router);
-
-  static constexpr ObjectType object_type() { return kPortal; }
 
   const Ref<Node>& node() const { return node_; }
   const Ref<Router>& router() const { return router_; }

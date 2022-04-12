@@ -12,12 +12,12 @@
 #include <vector>
 
 #include "ipcz/ipcz.h"
+#include "reference_drivers/handle_util.h"
 #include "reference_drivers/object.h"
 #include "reference_drivers/os_handle.h"
 #include "reference_drivers/random.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/handle_util.h"
 #include "util/ref_counted.h"
 
 namespace ipcz::reference_drivers {

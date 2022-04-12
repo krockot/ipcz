@@ -14,12 +14,12 @@
 #include "ipcz/ipcz.h"
 #include "reference_drivers/blob.h"
 #include "reference_drivers/channel.h"
+#include "reference_drivers/handle_util.h"
 #include "reference_drivers/memory.h"
 #include "reference_drivers/object.h"
 #include "reference_drivers/os_handle.h"
 #include "reference_drivers/random.h"
 #include "reference_drivers/wrapped_os_handle.h"
-#include "util/handle_util.h"
 #include "util/ref_counted.h"
 
 #if BUILDFLAG(IS_WIN)
