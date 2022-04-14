@@ -6,7 +6,6 @@
 
 #include <iterator>
 
-#include "reference_drivers/handle_util.h"
 #include "util/ref_counted.h"
 
 namespace ipcz::reference_drivers {
@@ -16,8 +15,7 @@ Blob::RefCountedFlag::RefCountedFlag() = default;
 Blob::RefCountedFlag::~RefCountedFlag() = default;
 
 Blob::Blob(std::string_view message, absl::Span<OSHandle> handles)
-    : Object(kBlob),
-      message_(message),
+    : message_(message),
       handles_(std::move_iterator(handles.begin()),
                std::move_iterator(handles.end())) {}
 
@@ -36,7 +34,7 @@ IpczDriverHandle Blob::Create(std::string_view message,
 
 // static
 IpczDriverHandle Blob::AcquireHandle(Ref<Blob> blob) {
-  return ToDriverHandle(blob.release());
+  return Object::ReleaseAsHandle(std::move(blob));
 }
 
 // static

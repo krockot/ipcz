@@ -7,7 +7,7 @@
 namespace ipcz::reference_drivers {
 
 WrappedOSHandle::WrappedOSHandle(OSHandle handle)
-    : Object(kOSHandle), handle_(std::move(handle)) {}
+    : handle_(std::move(handle)) {}
 
 WrappedOSHandle::~WrappedOSHandle() = default;
 

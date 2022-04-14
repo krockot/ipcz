@@ -24,7 +24,7 @@ namespace ipcz::reference_drivers {
 // define, a blob is not a type of object known to ipcz. Instead it is used to
 // demonstrate how drivers can define arbitrary new types of transferrable to
 // extend ipcz.
-class Blob : public Object {
+class Blob : public ObjectImpl<Blob, Object::kBlob> {
  public:
   class RefCountedFlag : public RefCounted {
    public:

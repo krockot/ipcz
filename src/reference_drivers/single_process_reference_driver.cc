@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "ipcz/ipcz.h"
-#include "reference_drivers/handle_util.h"
 #include "reference_drivers/object.h"
 #include "reference_drivers/random.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
@@ -69,9 +68,10 @@ struct SavedMessage {
 //
 // As a result, cross-node communications through this driver function as
 // synchronous calls from one node into another.
-class InProcessTransport : public Object {
+class InProcessTransport
+    : public ObjectImpl<InProcessTransport, Object::kTransport> {
  public:
-  InProcessTransport() : Object(kTransport) {}
+  InProcessTransport() = default;
   ~InProcessTransport() override = default;
 
   // Object:
@@ -184,10 +184,10 @@ class InProcessTransport : public Object {
 
 // Shared memory regions for the single-process driver are just regular private
 // heap allocations.
-class InProcessMemory : public Object {
+class InProcessMemory : public ObjectImpl<InProcessMemory, Object::kMemory> {
  public:
   explicit InProcessMemory(size_t size)
-      : Object(kMemory), size_(size), data_(new uint8_t[size]) {
+      : size_(size), data_(new uint8_t[size]) {
     memset(&data_[0], 0, size_);
   }
 
@@ -201,10 +201,10 @@ class InProcessMemory : public Object {
   const std::unique_ptr<uint8_t[]> data_;
 };
 
-class InProcessMapping : public Object {
+class InProcessMapping : public ObjectImpl<InProcessMapping, Object::kMapping> {
  public:
   explicit InProcessMapping(Ref<InProcessMemory> memory)
-      : Object(kMapping), memory_(std::move(memory)) {}
+      : memory_(std::move(memory)) {}
 
   size_t size() const { return memory_->size(); }
   void* address() const { return memory_->address(); }
@@ -280,8 +280,8 @@ IpczResult IPCZ_API CreateTransports(IpczDriverHandle transport0,
   auto second = MakeRefCounted<InProcessTransport>();
   first->SetPeer(second);
   second->SetPeer(first);
-  *new_transport0 = ToDriverHandle(first.release());
-  *new_transport1 = ToDriverHandle(second.release());
+  *new_transport0 = Object::ReleaseAsHandle(std::move(first));
+  *new_transport1 = Object::ReleaseAsHandle(std::move(second));
   return IPCZ_RESULT_OK;
 }
 
@@ -290,14 +290,14 @@ IpczResult IPCZ_API ActivateTransport(IpczDriverHandle driver_transport,
                                       IpczTransportActivityHandler handler,
                                       uint32_t flags,
                                       const void* options) {
-  return ToRef<InProcessTransport>(driver_transport)
-      .Activate(transport, handler);
+  return InProcessTransport::FromHandle(driver_transport)
+      ->Activate(transport, handler);
 }
 
 IpczResult IPCZ_API DeactivateTransport(IpczDriverHandle driver_transport,
                                         uint32_t flags,
                                         const void* options) {
-  ToRef<InProcessTransport>(driver_transport).Deactivate();
+  InProcessTransport::FromHandle(driver_transport)->Deactivate();
   return IPCZ_RESULT_OK;
 }
 
@@ -308,9 +308,9 @@ IpczResult IPCZ_API Transmit(IpczDriverHandle driver_transport,
                              uint32_t num_handles,
                              uint32_t flags,
                              const void* options) {
-  return ToRef<InProcessTransport>(driver_transport)
-      .Transmit(absl::MakeSpan(data, num_bytes),
-                absl::MakeSpan(handles, num_handles));
+  return InProcessTransport::FromHandle(driver_transport)
+      ->Transmit(absl::MakeSpan(data, num_bytes),
+                 absl::MakeSpan(handles, num_handles));
 }
 
 IpczResult IPCZ_API AllocateSharedMemory(uint64_t num_bytes,
@@ -322,7 +322,7 @@ IpczResult IPCZ_API AllocateSharedMemory(uint64_t num_bytes,
   }
 
   auto memory = MakeRefCounted<InProcessMemory>(static_cast<size_t>(num_bytes));
-  *driver_memory = ToDriverHandle(memory.release());
+  *driver_memory = Object::ReleaseAsHandle(std::move(memory));
   return IPCZ_RESULT_OK;
 }
 
@@ -344,8 +344,8 @@ IpczResult IPCZ_API DuplicateSharedMemory(IpczDriverHandle driver_memory,
                                           uint32_t flags,
                                           const void* options,
                                           IpczDriverHandle* new_driver_memory) {
-  Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
-  *new_driver_memory = ToDriverHandle(memory.release());
+  Ref<InProcessMemory> memory(InProcessMemory::FromHandle(driver_memory));
+  *new_driver_memory = Object::ReleaseAsHandle(std::move(memory));
   return IPCZ_RESULT_OK;
 }
 
@@ -354,10 +354,10 @@ IpczResult IPCZ_API MapSharedMemory(IpczDriverHandle driver_memory,
                                     const void* options,
                                     void** address,
                                     IpczDriverHandle* driver_mapping) {
-  Ref<InProcessMemory> memory(ToPtr<InProcessMemory>(driver_memory));
+  Ref<InProcessMemory> memory(InProcessMemory::FromHandle(driver_memory));
   auto mapping = MakeRefCounted<InProcessMapping>(std::move(memory));
   *address = mapping->address();
-  *driver_mapping = ToDriverHandle(mapping.release());
+  *driver_mapping = Object::ReleaseAsHandle(std::move(mapping));
   return IPCZ_RESULT_OK;
 }
 

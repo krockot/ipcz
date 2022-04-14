@@ -260,7 +260,6 @@ portable_source_set("reference_drivers") {
     "reference_drivers/channel.h",
     "reference_drivers/event.cc",
     "reference_drivers/event.h",
-    "reference_drivers/handle_util.h",
     "reference_drivers/memory.cc",
     "reference_drivers/memory.h",
     "reference_drivers/multiprocess_reference_driver.cc",
