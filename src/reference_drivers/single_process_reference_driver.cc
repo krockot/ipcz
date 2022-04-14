@@ -14,7 +14,6 @@
 #include "ipcz/ipcz.h"
 #include "reference_drivers/handle_util.h"
 #include "reference_drivers/object.h"
-#include "reference_drivers/os_handle.h"
 #include "reference_drivers/random.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
@@ -24,6 +23,8 @@ namespace ipcz::reference_drivers {
 
 namespace {
 
+// Provides shared ownership of a transport object given to the driver by ipcz
+// during driver transport activation.
 class TransportWrapper : public RefCounted {
  public:
   TransportWrapper(IpczHandle transport,
@@ -62,6 +63,12 @@ struct SavedMessage {
   std::vector<IpczDriverHandle> handles;
 };
 
+// The driver transport implementation for the single-process driver. Each
+// InProcessTransport holds a direct reference to the other endpoint, and
+// transmitting from one endpoint directly notifies the peer endpoint.
+//
+// As a result, cross-node communications through this driver function as
+// synchronous calls from one node into another.
 class InProcessTransport : public Object {
  public:
   InProcessTransport() : Object(kTransport) {}
@@ -87,6 +94,9 @@ class InProcessTransport : public Object {
           MakeRefCounted<TransportWrapper>(transport, activity_handler);
     }
 
+    // Let the peer know that it can now call into us directly. This may reenter
+    // us as the peer will synchronously flush any queued transmissions before
+    // returning.
     peer_->OnPeerActivated();
     return IPCZ_RESULT_OK;
   }
@@ -172,6 +182,8 @@ class InProcessTransport : public Object {
   std::vector<SavedMessage> saved_messages_ ABSL_GUARDED_BY(mutex_);
 };
 
+// Shared memory regions for the single-process driver are just regular private
+// heap allocations.
 class InProcessMemory : public Object {
  public:
   explicit InProcessMemory(size_t size)
@@ -206,7 +218,7 @@ class InProcessMapping : public Object {
 IpczResult IPCZ_API Close(IpczDriverHandle handle,
                           uint32_t flags,
                           const void* options) {
-  Ref<Object> object = Object::ReleaseFromHandle(handle);
+  Ref<Object> object = Object::TakeFromHandle(handle);
   if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -224,10 +236,6 @@ IpczResult IPCZ_API Serialize(IpczDriverHandle handle,
                               uint32_t* num_handles) {
   Object* object = Object::FromHandle(handle);
   if (!object) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  if (object->type() == Object::kUnserializableGarbage) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
 
@@ -378,10 +386,5 @@ const IpczDriver kSingleProcessReferenceDriver = {
     MapSharedMemory,
     GenerateRandomBytes,
 };
-
-IpczDriverHandle CreateUnserializableTestObject() {
-  Ref<Object> garbage = MakeRefCounted<Object>(Object::kUnserializableGarbage);
-  return ToDriverHandle(garbage.release());
-}
 
 }  // namespace ipcz::reference_drivers

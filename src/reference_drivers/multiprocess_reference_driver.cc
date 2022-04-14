@@ -115,8 +115,8 @@ class MultiprocessTransport : public Object {
     std::vector<OSHandle> os_handles(handles.size());
     for (size_t i = 0; i < handles.size(); ++i) {
       ABSL_ASSERT(Object::FromHandle(handles[i])->type() == Object::kOSHandle);
-      os_handles[i] = Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[i])
-                          ->TakeHandle();
+      os_handles[i] =
+          Object::TakeFromHandleAs<WrappedOSHandle>(handles[i])->TakeHandle();
     }
     channel_->Send(
         Channel::Message(Channel::Data(data), absl::MakeSpan(os_handles)));
@@ -224,7 +224,7 @@ struct IPCZ_ALIGN(8) SerializedObject {
 IpczResult IPCZ_API Close(IpczDriverHandle handle,
                           uint32_t flags,
                           const void* options) {
-  Ref<Object> object = Object::ReleaseFromHandle(handle);
+  Ref<Object> object = Object::TakeFromHandle(handle);
   if (!object) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -432,8 +432,8 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
       os_handles[i] = OSHandle(
           TransferHandle(handle_data[i], remote_process, current_process));
 #else
-      os_handles[i] = Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[i])
-                          ->TakeHandle();
+      os_handles[i] =
+          Object::TakeFromHandleAs<WrappedOSHandle>(handles[i])->TakeHandle();
 #endif
     }
 
@@ -462,7 +462,7 @@ IpczResult IPCZ_API Deserialize(const uint8_t* data,
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
   OSHandle handle =
-      Object::ReleaseFromHandleAs<WrappedOSHandle>(handles[0])->TakeHandle();
+      Object::TakeFromHandleAs<WrappedOSHandle>(handles[0])->TakeHandle();
 #endif
 
   if (!handle.is_valid()) {

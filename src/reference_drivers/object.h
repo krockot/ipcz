@@ -21,11 +21,10 @@ class Object : public RefCounted {
     kTransport,
     kMemory,
     kMapping,
-    kOSHandle,
 
-    // Custom types used only by these reference drivers.
+    // Custom types used only by these reference drivers to exercise boxing.
     kBlob,
-    kUnserializableGarbage,
+    kOSHandle,
   };
 
   explicit Object(Type type);
@@ -41,13 +40,13 @@ class Object : public RefCounted {
         reinterpret_cast<uintptr_t>(object.release()));
   }
 
-  static Ref<Object> ReleaseFromHandle(IpczDriverHandle handle) {
-    return Ref<Object>(RefCounted::kAdoptExistingRef, FromHandle(handle));
+  static Ref<Object> TakeFromHandle(IpczDriverHandle handle) {
+    return AdoptRef(FromHandle(handle));
   }
 
   template <typename T>
-  static Ref<T> ReleaseFromHandleAs(IpczDriverHandle handle) {
-    return Ref<T>(static_cast<T*>(ReleaseFromHandle(handle).release()));
+  static Ref<T> TakeFromHandleAs(IpczDriverHandle handle) {
+    return Ref<T>(static_cast<T*>(TakeFromHandle(handle).release()));
   }
 
   template <typename T>
@@ -57,7 +56,7 @@ class Object : public RefCounted {
 
   template <typename T>
   Ref<T> ReleaseAs() {
-    return Ref<T>(RefCounted::kAdoptExistingRef, static_cast<T*>(this));
+    return AdoptRef(static_cast<T*>(this));
   }
 
   virtual IpczResult Close();
