@@ -20,30 +20,6 @@
 
 namespace ipcz {
 
-namespace {
-
-void MoveObjects(Parcel::ObjectVector& source,
-                 absl::Span<Ref<APIObject>>& source_view,
-                 Parcel::ObjectVector& dest,
-                 absl::Span<Ref<APIObject>>& dest_view) {
-  if (source_view.empty()) {
-    dest = std::move(source);
-    dest_view = {};
-    return;
-  }
-
-  const size_t offset = source_view.data() - source.data();
-  const size_t size = source_view.size();
-  ABSL_ASSERT(offset < source.size());
-  ABSL_ASSERT(size <= source.size());
-  ABSL_ASSERT(source.size() - size >= offset);
-  source_view = {};
-  dest = std::move(source);
-  dest_view = absl::MakeSpan(dest).subspan(offset, size);
-}
-
-}  // namespace
-
 Parcel::Parcel() = default;
 
 Parcel::Parcel(SequenceNumber sequence_number)
@@ -54,8 +30,9 @@ Parcel::Parcel(Parcel&& other)
       data_fragment_(other.data_fragment_),
       inlined_data_(std::move(other.inlined_data_)),
       data_fragment_memory_(std::move(other.data_fragment_memory_)),
-      data_view_(other.data_view_) {
-  MoveObjects(other.objects_, other.objects_view_, objects_, objects_view_);
+      objects_(std::move(other.objects_)),
+      data_view_(other.data_view_),
+      objects_view_(other.objects_view_) {
   other.data_fragment_ = {};
   other.data_view_ = {};
   other.objects_view_ = {};
@@ -66,8 +43,9 @@ Parcel& Parcel::operator=(Parcel&& other) {
   data_fragment_ = other.data_fragment_;
   inlined_data_ = std::move(other.inlined_data_);
   data_fragment_memory_ = std::move(other.data_fragment_memory_);
+  objects_ = std::move(other.objects_);
   data_view_ = other.data_view_;
-  MoveObjects(other.objects_, other.objects_view_, objects_, objects_view_);
+  objects_view_ = other.objects_view_;
   other.data_fragment_ = {};
   other.data_view_ = {};
   other.objects_view_ = {};
@@ -103,7 +81,7 @@ void Parcel::SetInlinedData(std::vector<uint8_t> data) {
   data_view_ = absl::MakeSpan(inlined_data_);
 }
 
-void Parcel::SetObjects(ObjectVector objects) {
+void Parcel::SetObjects(std::vector<Ref<APIObject>> objects) {
   objects_ = std::move(objects);
   objects_view_ = absl::MakeSpan(objects_);
 }

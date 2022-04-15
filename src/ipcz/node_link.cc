@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <cstring>
 #include <utility>
+#include <vector>
 
+#include "ipcz/api_object.h"
 #include "ipcz/box.h"
 #include "ipcz/fragment.h"
 #include "ipcz/fragment_descriptor.h"
@@ -24,7 +26,6 @@
 #include "ipcz/router_descriptor.h"
 #include "ipcz/router_link.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
-#include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
 
@@ -698,7 +699,7 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
   auto driver_objects = accept.driver_objects();
 
   bool is_split_parcel = false;
-  Parcel::ObjectVector objects(handle_descriptors.size());
+  std::vector<Ref<APIObject>> objects(handle_descriptors.size());
   for (size_t i = 0; i < handle_descriptors.size(); ++i) {
     const HandleDescriptor& descriptor = handle_descriptors[i];
     switch (descriptor.type) {
@@ -779,7 +780,7 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
 bool NodeLink::OnAcceptParcelDriverObjects(
     msg::AcceptParcelDriverObjects& accept) {
   Parcel parcel(accept.params().sequence_number);
-  Parcel::ObjectVector objects;
+  std::vector<Ref<APIObject>> objects;
   objects.reserve(accept.driver_objects().size());
   for (auto& object : accept.driver_objects()) {
     objects.push_back(MakeRefCounted<Box>(std::move(object)));

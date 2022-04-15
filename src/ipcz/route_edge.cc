@@ -31,6 +31,7 @@ Ref<Router> RouteEdge::GetDecayingLocalPeer() const {
 }
 
 void RouteEdge::SetPrimaryLink(Ref<RouterLink> link) {
+  ABSL_ASSERT(!primary_link_);
   if (was_decay_deferred_) {
     was_decay_deferred_ = false;
     decaying_link_ = std::move(link);

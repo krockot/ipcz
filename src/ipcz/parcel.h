@@ -27,8 +27,6 @@ class NodeLinkMemory;
 // outgoing transfer.
 class Parcel {
  public:
-  using ObjectVector = absl::InlinedVector<Ref<APIObject>, 4>;
-
   Parcel();
   explicit Parcel(SequenceNumber sequence_number);
   Parcel(Parcel&& other);
@@ -42,7 +40,7 @@ class Parcel {
 
   void SetDataFragment(Ref<NodeLinkMemory> memory, const Fragment& fragment);
   void SetInlinedData(std::vector<uint8_t> data);
-  void SetObjects(ObjectVector objects);
+  void SetObjects(std::vector<Ref<APIObject>> objects);
 
   absl::Span<uint8_t> data_view() { return data_view_; }
   absl::Span<const uint8_t> data_view() const { return data_view_; }
@@ -95,7 +93,7 @@ class Parcel {
   // for its containing buffer.
   Ref<NodeLinkMemory> data_fragment_memory_;
 
-  ObjectVector objects_;
+  std::vector<Ref<APIObject>> objects_;
 
   // Views of unconsumed elements of the parcel's data (either in `inline_data_`
   // or `data_fragment_`) and objects.

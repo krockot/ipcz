@@ -11,7 +11,9 @@
 #include <memory>
 #include <tuple>
 #include <utility>
+#include <vector>
 
+#include "ipcz/api_object.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_type.h"
 #include "ipcz/local_router_link.h"
@@ -32,7 +34,7 @@ namespace {
 bool ValidateAndAcquireObjectsForTransitFrom(
     Portal& sender,
     absl::Span<const IpczHandle> handles,
-    Parcel::ObjectVector& objects) {
+    std::vector<Ref<APIObject>>& objects) {
   objects.resize(handles.size());
   for (size_t i = 0; i < handles.size(); ++i) {
     auto* object = APIObject::FromHandle(handles[i]);
@@ -86,7 +88,7 @@ IpczResult Portal::QueryStatus(IpczPortalStatus& status) {
 IpczResult Portal::Put(absl::Span<const uint8_t> data,
                        absl::Span<const IpczHandle> handles,
                        const IpczPutLimits* limits) {
-  Parcel::ObjectVector objects;
+  std::vector<Ref<APIObject>> objects;
   if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
@@ -164,7 +166,7 @@ IpczResult Portal::BeginPut(IpczBeginPutFlags flags,
 
 IpczResult Portal::CommitPut(uint32_t num_data_bytes_produced,
                              absl::Span<const IpczHandle> handles) {
-  Parcel::ObjectVector objects;
+  std::vector<Ref<APIObject>> objects;
   if (!ValidateAndAcquireObjectsForTransitFrom(*this, handles, objects)) {
     return IPCZ_RESULT_INVALID_ARGUMENT;
   }
