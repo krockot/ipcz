@@ -6,6 +6,7 @@
 #define IPCZ_SRC_REFERENCE_DRIVERS_CHANNEL_H_
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -19,7 +20,6 @@
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 
 namespace ipcz::reference_drivers {
 
@@ -80,8 +80,8 @@ class Channel {
 
   OSHandle TakeHandle();
 
-  using MessageHandler = Function<bool(Message)>;
-  using ErrorHandler = Function<void()>;
+  using MessageHandler = std::function<bool(Message)>;
+  using ErrorHandler = std::function<void()>;
   void Listen(
       MessageHandler message_handler,
       ErrorHandler error_handler = [] {});

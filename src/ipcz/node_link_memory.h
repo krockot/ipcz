@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -25,7 +26,6 @@
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 #include "util/mpsc_queue.h"
 #include "util/ref_counted.h"
 
@@ -108,7 +108,8 @@ class NodeLinkMemory : public RefCounted {
   FragmentRef<RouterLinkState> AllocateRouterLinkState();
 
   // Same as above, but may complete asynchronously.
-  using RouterLinkStateCallback = Function<void(FragmentRef<RouterLinkState>)>;
+  using RouterLinkStateCallback =
+      std::function<void(FragmentRef<RouterLinkState>)>;
   void AllocateRouterLinkStateAsync(RouterLinkStateCallback callback);
 
   // Introduces a new buffer associated with BufferId, for use as a fragment
@@ -152,15 +153,15 @@ class NodeLinkMemory : public RefCounted {
   // buffer's registration being complete, such as sending other messages which
   // reference the buffer's contents.
   using AllocateBufferShareCallback =
-      Function<void(BufferId, DriverMemory, DriverMemoryMapping&)>;
-  using AllocateBufferFinishedCallback = Function<void(bool)>;
+      std::function<void(BufferId, DriverMemory, DriverMemoryMapping&)>;
+  using AllocateBufferFinishedCallback = std::function<void(bool)>;
   void AllocateBuffer(size_t num_bytes,
                       AllocateBufferShareCallback share_callback,
                       AllocateBufferFinishedCallback finished_callback);
 
   // Registers a callback to be invoked as soon as the identified buffer becomes
   // available to this NodeLinkMemory.
-  void OnBufferAvailable(BufferId id, Function<void()> callback);
+  void OnBufferAvailable(BufferId id, std::function<void()> callback);
 
  private:
   struct PrimaryBuffer;
@@ -206,8 +207,8 @@ class NodeLinkMemory : public RefCounted {
       ABSL_GUARDED_BY(mutex_);
 
   // Callbacks to be invoked when an identified buffer becomes available.
-  absl::flat_hash_map<BufferId, std::vector<Function<void()>>> buffer_callbacks_
-      ABSL_GUARDED_BY(mutex_);
+  absl::flat_hash_map<BufferId, std::vector<std::function<void()>>>
+      buffer_callbacks_ ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace ipcz

@@ -6,6 +6,7 @@
 #define IPCZ_SRC_IPCZ_FRAGMENT_ALLOCATOR_H_
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -14,7 +15,6 @@
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -57,17 +57,17 @@ class FragmentAllocator {
   // The callback may be called before this returns, or any time after, but it
   // will only be called once. Allocation may also fail, implying that the
   // application is OOM or has hit some other system resource limit.
-  using AllocateAsyncCallback = Function<void(Fragment)>;
+  using AllocateAsyncCallback = std::function<void(Fragment)>;
   void AllocateAsync(uint32_t num_bytes, AllocateAsyncCallback callback);
 
   // Releases a fragment back to the allocator.
   void Free(const Fragment& fragment);
 
  private:
-  using ExpandCapacityCallback = Function<void(bool)>;
+  using ExpandCapacityCallback = std::function<void(bool)>;
   void ExpandCapacity(uint32_t block_size, ExpandCapacityCallback callback);
 
-  using RequestCapacityCallback = Function<void(bool)>;
+  using RequestCapacityCallback = std::function<void(bool)>;
   void RequestCapacity(uint32_t buffer_size,
                        uint32_t block_size,
                        RequestCapacityCallback callback);

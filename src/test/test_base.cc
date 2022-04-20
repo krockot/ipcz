@@ -28,7 +28,7 @@ TestBase::Parcel& TestBase::Parcel::operator=(Parcel&&) = default;
 TestBase::Parcel::~Parcel() = default;
 
 TestBase::HangTimeout::HangTimeout(absl::Duration timeout,
-                                   Function<void()> handler)
+                                   std::function<void()> handler)
     : thread_([this, timeout, handler = std::move(handler)] {
         if (!notification_.WaitForNotificationWithTimeout(timeout)) {
           handler();

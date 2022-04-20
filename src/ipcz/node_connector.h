@@ -6,13 +6,13 @@
 #define IPCZ_SRC_IPCZ_NODE_CONNECTOR_H_
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_side.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -41,7 +41,7 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
   // In either case this object invokes `callback` if non-null and then destroys
   // itself once the handshake is complete. If this fails, the NodeLink given
   // to the callback will be null.
-  using ConnectCallback = Function<void(Ref<NodeLink> new_link)>;
+  using ConnectCallback = std::function<void(Ref<NodeLink> new_link)>;
   static IpczResult ConnectNode(Ref<Node> node,
                                 Ref<DriverTransport> transport,
                                 IpczCreateNodeFlags flags,
@@ -54,7 +54,7 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
   // transport must be the latter non-broker, issuing its own ConnectNode() call
   //  with the IPCZ_CONNECT_NODE_INHERIT_BROKER flag specified.
   using ConnectIndirectCallback =
-      Function<void(Ref<NodeLink> new_link, uint32_t num_remote_portals)>;
+      std::function<void(Ref<NodeLink> new_link, uint32_t num_remote_portals)>;
   static IpczResult ConnectNodeIndirect(Ref<Node> node,
                                         Ref<NodeLink> referrer,
                                         Ref<DriverTransport> transport,

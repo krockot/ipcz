@@ -7,6 +7,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "ipcz/block_allocator_pool.h"
@@ -16,7 +17,6 @@
 #include "ipcz/router_link_state.h"
 #include "third_party/abseil-cpp/absl/numeric/bits.h"
 #include "util/block_allocator.h"
-#include "util/function.h"
 #include "util/mpsc_queue.h"
 
 namespace ipcz {
@@ -266,7 +266,7 @@ bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
                                                 uint32_t fragment_size,
                                                 DriverMemory memory) {
   fragment_size = absl::bit_ceil(fragment_size);
-  std::vector<Function<void()>> buffer_callbacks;
+  std::vector<std::function<void()>> buffer_callbacks;
   {
     absl::MutexLock lock(&mutex_);
     auto result = buffer_map_.emplace(id, nullptr);
@@ -289,7 +289,7 @@ bool NodeLinkMemory::AddFragmentAllocatorBuffer(BufferId id,
     }
   }
 
-  for (Function<void()>& callback : buffer_callbacks) {
+  for (std::function<void()>& callback : buffer_callbacks) {
     callback();
   }
 
@@ -335,7 +335,7 @@ void NodeLinkMemory::AllocateBuffer(
 
         share_callback(new_buffer_id, std::move(memory), *mapping);
 
-        std::vector<Function<void()>> buffer_callbacks;
+        std::vector<std::function<void()>> buffer_callbacks;
         {
           absl::MutexLock lock(&self->mutex_);
           self->buffer_map_[new_buffer_id] = mapping;
@@ -354,7 +354,8 @@ void NodeLinkMemory::AllocateBuffer(
       });
 }
 
-void NodeLinkMemory::OnBufferAvailable(BufferId id, Function<void()> callback) {
+void NodeLinkMemory::OnBufferAvailable(BufferId id,
+                                       std::function<void()> callback) {
   {
     absl::MutexLock lock(&mutex_);
     auto it = buffer_map_.find(id);

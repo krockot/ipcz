@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -16,7 +17,6 @@
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "third_party/abseil-cpp/absl/time/time.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 
 namespace ipcz::test {
 
@@ -36,7 +36,7 @@ class TestBase : public testing::Test {
   // Helper to set a timeout and run some diagnostics in case of test hangs.
   class HangTimeout {
    public:
-    HangTimeout(absl::Duration timeout, Function<void()> handler);
+    HangTimeout(absl::Duration timeout, std::function<void()> handler);
     ~HangTimeout();
 
    private:
@@ -85,7 +85,7 @@ class TestBase : public testing::Test {
   Parcel Get(IpczHandle portal);
   bool DiscardNextParcel(IpczHandle portal);
 
-  using Handler = Function<void(const IpczTrapEvent& e)>;
+  using Handler = std::function<void(const IpczTrapEvent& e)>;
   IpczResult Trap(IpczHandle portal,
                   const IpczTrapConditions& conditions,
                   Handler handler,

@@ -750,18 +750,8 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
     const Fragment fragment = memory_->GetFragment(descriptor);
     parcel.SetDataFragment(memory_, fragment);
     if (fragment.is_pending()) {
-      memory_->OnBufferAvailable(
-          descriptor.buffer_id(),
-          [self = WrapRefCounted(this), for_sublink, parcel = std::move(parcel),
-           is_split_parcel, size = accept.params().parcel_size]() mutable {
-            if (parcel.ResolveDataFragment()) {
-              parcel.SetDataSize(size);
-              if (is_split_parcel) {
-                self->AcceptParcelWithoutDriverObjects(for_sublink, parcel);
-              }
-              self->AcceptCompleteParcel(for_sublink, parcel);
-            }
-          });
+      AcceptParcelAfterFragmentResolved(for_sublink, parcel, is_split_parcel,
+                                        accept.params().parcel_size);
       return true;
     } else {
       parcel.SetDataSize(accept.params().parcel_size);
@@ -1041,6 +1031,34 @@ IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
   }
 
   return IPCZ_RESULT_OK;
+}
+
+void NodeLink::AcceptParcelAfterFragmentResolved(SublinkId for_sublink,
+                                                 Parcel& p,
+                                                 bool is_split_parcel,
+                                                 size_t parcel_data_size) {
+  // ParcelWrapper wraps a Parcel in a RefCounted object so the reference can
+  // be captured by a lambda below. This is necessary because std::function
+  // must be copyable.
+  struct ParcelWrapper : public RefCounted {
+    explicit ParcelWrapper(Parcel parcel) : parcel(std::move(parcel)) {}
+    Parcel parcel;
+  };
+  const FragmentDescriptor descriptor = p.data_fragment().descriptor();
+  memory_->OnBufferAvailable(
+      descriptor.buffer_id(),
+      [self = WrapRefCounted(this), for_sublink, is_split_parcel,
+       parcel_data_size,
+       parcel_wrapper = MakeRefCounted<ParcelWrapper>(std::move(p))]() {
+        Parcel& parcel = parcel_wrapper->parcel;
+        if (parcel.ResolveDataFragment()) {
+          parcel.SetDataSize(parcel_data_size);
+          if (is_split_parcel) {
+            self->AcceptParcelWithoutDriverObjects(for_sublink, parcel);
+          }
+          self->AcceptCompleteParcel(for_sublink, parcel);
+        }
+      });
 }
 
 bool NodeLink::AcceptParcelWithoutDriverObjects(SublinkId for_sublink,

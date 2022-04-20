@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <tuple>
 #include <type_traits>
@@ -31,7 +32,6 @@
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/function.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -129,7 +129,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
   // message is sent to the broker by an established non-broker on behalf of the
   // new non-broker attempting to join the network.
   using IndirectBrokerConnectionCallback =
-      Function<void(const NodeName&, uint32_t num_remote_portals)>;
+      std::function<void(const NodeName&, uint32_t num_remote_portals)>;
   void RequestIndirectBrokerConnection(
       Ref<DriverTransport> transport,
       size_t num_initial_portals,
@@ -170,7 +170,7 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   // Sends a request to allocate a new shared memory region and invokes
   // `callback` once the request is fulfilled.
-  using RequestMemoryCallback = Function<void(DriverMemory)>;
+  using RequestMemoryCallback = std::function<void(DriverMemory)>;
   void RequestMemory(uint32_t size, RequestMemoryCallback callback);
 
   // Simulates receipt of a new transport message from the remote node. This is
@@ -261,6 +261,10 @@ class NodeLink : public RefCounted, private DriverTransport::Listener {
 
   IpczResult DispatchMessage(const DriverTransport::Message& message);
 
+  void AcceptParcelAfterFragmentResolved(SublinkId for_sublink,
+                                         Parcel& p,
+                                         bool is_split_parcel,
+                                         size_t parcel_data_size);
   bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink, Parcel& p);
   bool AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& p);
   bool AcceptSplitParcel(SublinkId for_sublink,

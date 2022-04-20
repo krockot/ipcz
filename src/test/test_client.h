@@ -6,12 +6,12 @@
 #define IPCZ_SRC_TEST_TEST_CLIENT_H_
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 
 #include "reference_drivers/channel.h"
 #include "reference_drivers/os_process.h"
-#include "util/function.h"
 
 namespace ipcz::test {
 
@@ -95,7 +95,7 @@ class TestClientSupport {
  public:
   static void SetCurrentProgram(const char* path);
   static void RegisterEntryPoint(const char* name,
-                                 Function<void(uint64_t)> entry_point);
+                                 std::function<void(uint64_t)> entry_point);
   static void RunEntryPoint(const std::string& name, uint64_t channel_handle);
   static reference_drivers::Channel RecoverClientChannel(
       uint64_t channel_handle);

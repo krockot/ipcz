@@ -10,7 +10,6 @@
 #include "reference_drivers/single_process_reference_driver.h"
 #include "test/test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "util/function.h"
 
 namespace ipcz {
 namespace {

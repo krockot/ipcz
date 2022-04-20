@@ -5,12 +5,12 @@
 #include "test/test_client.h"
 
 #include <cstring>
+#include <functional>
 #include <sstream>
 #include <tuple>
 
 #include "build/build_config.h"
 #include "reference_drivers/multiprocess_reference_driver.h"
-#include "util/function.h"
 
 #if BUILDFLAG(IS_POSIX)
 #include <errno.h>
@@ -31,7 +31,7 @@ namespace {
 const char* g_current_program;
 bool g_in_client_process = false;
 
-using EntryPointMap = std::map<std::string, Function<void(uint64_t)>>;
+using EntryPointMap = std::map<std::string, std::function<void(uint64_t)>>;
 
 EntryPointMap& GetEntryPoints() {
   static EntryPointMap* entry_points = new EntryPointMap();
@@ -50,7 +50,7 @@ void TestClientSupport::SetCurrentProgram(const char* path) {
 // static
 void TestClientSupport::RegisterEntryPoint(
     const char* name,
-    Function<void(uint64_t)> entry_point) {
+    std::function<void(uint64_t)> entry_point) {
   auto result = GetEntryPoints().insert(
       std::make_pair(std::string(name), std::move(entry_point)));
   ABSL_ASSERT(result.second);

@@ -122,7 +122,6 @@ portable_source_set("util") {
 
   public = [
     "util/block_allocator.h",
-    "util/function.h",
     "util/hex_dump.h",
     "util/log.h",
     "util/mpsc_queue.h",

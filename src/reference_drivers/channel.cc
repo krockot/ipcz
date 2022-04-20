@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -16,7 +17,6 @@
 #include "build/build_config.h"
 #include "reference_drivers/random.h"
 #include "third_party/abseil-cpp/absl/types/optional.h"
-#include "util/function.h"
 #include "util/hex_dump.h"
 #include "util/log.h"
 
@@ -83,7 +83,7 @@ struct Channel::PendingIO {
     ABSL_ASSERT(result);
   }
 
-  using IOCallback = Function<void(bool success, size_t num_bytes)>;
+  using IOCallback = std::function<void(bool success, size_t num_bytes)>;
   bool Read(HANDLE handle, absl::Span<uint8_t> storage, IOCallback callback) {
     is_complete_.clear(std::memory_order_relaxed);
     io_callback_ = std::move(callback);
