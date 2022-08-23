@@ -10,6 +10,7 @@
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
+#include "util/log.h"
 
 namespace ipcz {
 
@@ -34,6 +35,7 @@ IpczResult IPCZ_API NotifyTransport(IpczHandle transport,
   }
 
   if (flags & IPCZ_TRANSPORT_ACTIVITY_ERROR) {
+    LOG(ERROR) << "PLAIN ACTIVIT ERROR WOW";
     t->NotifyError();
     return IPCZ_RESULT_OK;
   }

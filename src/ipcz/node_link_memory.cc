@@ -301,7 +301,7 @@ bool NodeLinkMemory::TestAndSetNotificationPending() {
     return false;
   }
 
-  return outgoing_notification_flag_->test_and_set(std::memory_order_relaxed);
+  return outgoing_notification_flag_->test_and_set(std::memory_order_release);
 }
 
 void NodeLinkMemory::ClearPendingNotification() {
