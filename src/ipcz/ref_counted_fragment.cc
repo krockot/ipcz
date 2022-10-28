@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,6 @@
 namespace ipcz {
 
 RefCountedFragment::RefCountedFragment() = default;
-
-RefCountedFragment::~RefCountedFragment() = default;
 
 void RefCountedFragment::AddRef() {
   ref_count_.fetch_add(1, std::memory_order_relaxed);

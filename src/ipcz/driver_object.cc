@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
-#include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
 
@@ -18,19 +18,17 @@ namespace ipcz {
 
 DriverObject::DriverObject() = default;
 
-DriverObject::DriverObject(Ref<Node> node, IpczDriverHandle handle)
-    : node_(std::move(node)), handle_(handle) {}
+DriverObject::DriverObject(const IpczDriver& driver, IpczDriverHandle handle)
+    : driver_(&driver), handle_(handle) {}
 
 DriverObject::DriverObject(DriverObject&& other)
-    : node_(std::move(other.node_)), handle_(other.handle_) {
-  other.handle_ = IPCZ_INVALID_DRIVER_HANDLE;
-}
+    : driver_(std::exchange(other.driver_, nullptr)),
+      handle_(std::exchange(other.handle_, IPCZ_INVALID_DRIVER_HANDLE)) {}
 
 DriverObject& DriverObject::operator=(DriverObject&& other) {
   reset();
-  node_ = std::move(other.node_);
-  handle_ = other.handle_;
-  other.handle_ = IPCZ_INVALID_DRIVER_HANDLE;
+  driver_ = std::exchange(other.driver_, nullptr);
+  handle_ = std::exchange(other.handle_, IPCZ_INVALID_DRIVER_HANDLE);
   return *this;
 }
 
@@ -40,8 +38,9 @@ DriverObject::~DriverObject() {
 
 void DriverObject::reset() {
   if (is_valid()) {
-    node_->driver().Close(handle_, IPCZ_NO_FLAGS, nullptr);
-    node_.reset();
+    ABSL_ASSERT(driver_);
+    driver_->Close(handle_, IPCZ_NO_FLAGS, nullptr);
+    driver_ = nullptr;
     handle_ = IPCZ_INVALID_DRIVER_HANDLE;
   }
 }
@@ -49,7 +48,7 @@ void DriverObject::reset() {
 IpczDriverHandle DriverObject::release() {
   IpczDriverHandle handle = handle_;
   handle_ = IPCZ_INVALID_DRIVER_HANDLE;
-  node_.reset();
+  driver_ = nullptr;
   return handle;
 }
 
@@ -58,9 +57,9 @@ bool DriverObject::IsSerializable() const {
     return false;
   }
 
-  const IpczResult result = node_->driver().Serialize(
-      handle_, IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS, nullptr, nullptr,
-      nullptr, nullptr, nullptr);
+  const IpczResult result =
+      driver_->Serialize(handle_, IPCZ_INVALID_DRIVER_HANDLE, IPCZ_NO_FLAGS,
+                         nullptr, nullptr, nullptr, nullptr, nullptr);
   return result == IPCZ_RESULT_ABORTED ||
          result == IPCZ_RESULT_RESOURCE_EXHAUSTED;
 }
@@ -70,7 +69,7 @@ bool DriverObject::CanTransmitOn(const DriverTransport& transport) const {
     return false;
   }
 
-  const IpczResult result = node_->driver().Serialize(
+  const IpczResult result = driver_->Serialize(
       handle_, transport.driver_object().handle(), IPCZ_NO_FLAGS, nullptr,
       nullptr, nullptr, nullptr, nullptr);
   return result == IPCZ_RESULT_RESOURCE_EXHAUSTED;
@@ -78,10 +77,8 @@ bool DriverObject::CanTransmitOn(const DriverTransport& transport) const {
 
 DriverObject::SerializedDimensions DriverObject::GetSerializedDimensions(
     const DriverTransport& transport) const {
-  ABSL_ASSERT(IsSerializable());
-  ABSL_ASSERT(CanTransmitOn(transport));
   DriverObject::SerializedDimensions dimensions = {};
-  IpczResult result = node_->driver().Serialize(
+  IpczResult result = driver_->Serialize(
       handle_, transport.driver_object().handle(), IPCZ_NO_FLAGS, nullptr,
       nullptr, &dimensions.num_bytes, nullptr, &dimensions.num_driver_handles);
   ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
@@ -89,19 +86,19 @@ DriverObject::SerializedDimensions DriverObject::GetSerializedDimensions(
   return dimensions;
 }
 
-void DriverObject::Serialize(const DriverTransport& transport,
+bool DriverObject::Serialize(const DriverTransport& transport,
                              absl::Span<uint8_t> data,
                              absl::Span<IpczDriverHandle> handles) {
-  ABSL_ASSERT(IsSerializable());
-  ABSL_ASSERT(CanTransmitOn(transport));
-
-  uint32_t num_bytes = static_cast<uint32_t>(data.size());
-  uint32_t num_handles = static_cast<uint32_t>(handles.size());
-  IpczResult result = node_->driver().Serialize(
+  size_t num_bytes = data.size();
+  size_t num_handles = handles.size();
+  IpczResult result = driver_->Serialize(
       handle_, transport.driver_object().handle(), IPCZ_NO_FLAGS, nullptr,
       data.data(), &num_bytes, handles.data(), &num_handles);
-  ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  release();
+  if (result == IPCZ_RESULT_OK) {
+    release();
+    return true;
+  }
+  return false;
 }
 
 // static
@@ -110,16 +107,15 @@ DriverObject DriverObject::Deserialize(
     absl::Span<const uint8_t> data,
     absl::Span<const IpczDriverHandle> handles) {
   IpczDriverHandle handle;
-  const Ref<Node>& node = transport.driver_object().node();
-  IpczResult result = node->driver().Deserialize(
-      data.data(), static_cast<uint32_t>(data.size()), handles.data(),
-      static_cast<uint32_t>(handles.size()), transport.driver_object().handle(),
-      IPCZ_NO_FLAGS, nullptr, &handle);
+  const IpczDriver* driver = transport.driver_object().driver();
+  IpczResult result = driver->Deserialize(
+      data.data(), data.size(), handles.data(), handles.size(),
+      transport.driver_object().handle(), IPCZ_NO_FLAGS, nullptr, &handle);
   if (result != IPCZ_RESULT_OK) {
     return DriverObject();
   }
 
-  return DriverObject(node, handle);
+  return DriverObject(*driver, handle);
 }
 
 }  // namespace ipcz

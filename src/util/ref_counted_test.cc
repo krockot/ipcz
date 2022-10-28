@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -122,25 +122,6 @@ TEST_F(RefCountedTest, Move) {
   EXPECT_TRUE(destroyed2);
   ref2.reset();
   EXPECT_TRUE(destroyed1);
-}
-
-TEST_F(RefCountedTest, Comparison) {
-  bool destroyed = false;
-
-  Ref<TestObject> ref1;
-  Ref<TestObject> ref2;
-  EXPECT_EQ(ref1, ref2);
-  EXPECT_EQ(ref1, nullptr);
-
-  ref1 = MakeRefCounted<TestObject>(destroyed);
-  EXPECT_EQ(ref1, ref1.get());
-  EXPECT_NE(ref1, nullptr);
-  EXPECT_NE(ref1, ref2);
-
-  ref2 = ref1;
-  EXPECT_EQ(ref1, ref2);
-  EXPECT_EQ(ref2, ref1.get());
-  EXPECT_NE(ref2, nullptr);
 }
 
 TEST_F(RefCountedTest, ThreadSafe) {

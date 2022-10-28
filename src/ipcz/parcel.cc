@@ -1,20 +1,18 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ipcz/parcel.h"
 
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <sstream>
 #include <string>
 #include <utility>
 
-#include "ipcz/box.h"
-#include "ipcz/driver_object.h"
-#include "ipcz/fragment_allocator.h"
+#include "ipcz/node_link.h"
 #include "ipcz/node_link_memory.h"
-#include "ipcz/portal.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 
@@ -25,30 +23,28 @@ Parcel::Parcel() = default;
 Parcel::Parcel(SequenceNumber sequence_number)
     : sequence_number_(sequence_number) {}
 
+// Note: We do not use default move construction or assignment because we want
+// to explicitly clear the data and object views of the moved-from Parcel.
 Parcel::Parcel(Parcel&& other)
     : sequence_number_(other.sequence_number_),
-      data_fragment_(other.data_fragment_),
+      remote_source_(std::move(other.remote_source_)),
       inlined_data_(std::move(other.inlined_data_)),
-      data_fragment_memory_(std::move(other.data_fragment_memory_)),
+      data_fragment_(std::exchange(other.data_fragment_, {})),
+      data_fragment_memory_(
+          std::exchange(other.data_fragment_memory_, nullptr)),
       objects_(std::move(other.objects_)),
-      data_view_(other.data_view_),
-      objects_view_(other.objects_view_) {
-  other.data_fragment_ = {};
-  other.data_view_ = {};
-  other.objects_view_ = {};
-}
+      data_view_(std::exchange(other.data_view_, {})),
+      objects_view_(std::exchange(other.objects_view_, {})) {}
 
 Parcel& Parcel::operator=(Parcel&& other) {
   sequence_number_ = other.sequence_number_;
-  data_fragment_ = other.data_fragment_;
+  remote_source_ = std::move(other.remote_source_);
   inlined_data_ = std::move(other.inlined_data_);
+  data_fragment_ = std::exchange(other.data_fragment_, {});
   data_fragment_memory_ = std::move(other.data_fragment_memory_);
   objects_ = std::move(other.objects_);
-  data_view_ = other.data_view_;
-  objects_view_ = other.objects_view_;
-  other.data_fragment_ = {};
-  other.data_view_ = {};
-  other.objects_view_ = {};
+  data_view_ = std::exchange(other.data_view_, {});
+  objects_view_ = std::exchange(other.objects_view_, {});
   return *this;
 }
 
@@ -61,18 +57,7 @@ Parcel::~Parcel() {
 
   if (!data_fragment_.is_null()) {
     ABSL_ASSERT(data_fragment_memory_);
-    data_fragment_memory_->fragment_allocator().Free(data_fragment_);
-  }
-}
-
-void Parcel::SetDataFragment(Ref<NodeLinkMemory> memory,
-                             const Fragment& fragment) {
-  data_fragment_ = fragment;
-  data_fragment_memory_ = std::move(memory);
-  if (fragment.is_resolved()) {
-    data_view_ = fragment.mutable_bytes();
-  } else {
-    data_view_ = {};
+    data_fragment_memory_->FreeFragment(data_fragment_);
   }
 }
 
@@ -81,9 +66,95 @@ void Parcel::SetInlinedData(std::vector<uint8_t> data) {
   data_view_ = absl::MakeSpan(inlined_data_);
 }
 
+void Parcel::AllocateData(size_t num_bytes,
+                          bool allow_partial,
+                          NodeLinkMemory* memory) {
+  // This should never be called on a Parcel that already has data.
+  ABSL_ASSERT(inlined_data_.empty());
+  ABSL_ASSERT(data_fragment_.is_null());
+  ABSL_ASSERT(data_view_.empty());
+
+  Fragment fragment;
+  if (memory && num_bytes > 0) {
+    const size_t requested_fragment_size = num_bytes + sizeof(FragmentHeader);
+    if (allow_partial) {
+      fragment = memory->AllocateFragmentBestEffort(requested_fragment_size);
+    } else {
+      fragment = memory->AllocateFragment(requested_fragment_size);
+    }
+  }
+
+  if (fragment.is_null()) {
+    inlined_data_.resize(num_bytes);
+    data_view_ = absl::MakeSpan(inlined_data_);
+    return;
+  }
+
+  // The smallest possible Fragment we could allocate above is still
+  // subsantially larger than a FragmentHeader.
+  ABSL_ASSERT(fragment.size() > sizeof(FragmentHeader));
+
+  // Leave room for a FragmentHeader at the start of the fragment. This header
+  // is not written until CommitData().
+  const size_t data_size =
+      std::min(num_bytes, fragment.size() - sizeof(FragmentHeader));
+  data_fragment_ = fragment;
+  data_fragment_memory_ = WrapRefCounted(memory);
+  data_view_ =
+      fragment.mutable_bytes().subspan(sizeof(FragmentHeader), data_size);
+}
+
+bool Parcel::AdoptDataFragment(Ref<NodeLinkMemory> memory,
+                               const Fragment& fragment) {
+  // This should never be called on a Parcel that already has data.
+  ABSL_ASSERT(inlined_data_.empty());
+  ABSL_ASSERT(data_fragment_.is_null());
+  ABSL_ASSERT(data_view_.empty());
+
+  if (!fragment.is_addressable() || fragment.size() <= sizeof(FragmentHeader)) {
+    return false;
+  }
+
+  // This load-acquire is balanced by a store-release in CommitData() by the
+  // producer of this data.
+  const auto& header =
+      *reinterpret_cast<const FragmentHeader*>(fragment.bytes().data());
+  const uint32_t data_size = header.size.load(std::memory_order_acquire);
+  const size_t max_data_size = fragment.size() - sizeof(FragmentHeader);
+  if (data_size > max_data_size) {
+    return false;
+  }
+
+  data_fragment_ = fragment;
+  data_fragment_memory_ = std::move(memory);
+  data_view_ =
+      fragment.mutable_bytes().subspan(sizeof(FragmentHeader), data_size);
+  return true;
+}
+
 void Parcel::SetObjects(std::vector<Ref<APIObject>> objects) {
   objects_ = std::move(objects);
   objects_view_ = absl::MakeSpan(objects_);
+}
+
+void Parcel::CommitData(size_t num_bytes) {
+  data_view_ = data_view_.first(num_bytes);
+  if (data_fragment_.is_null()) {
+    return;
+  }
+
+  ABSL_ASSERT(data_fragment_.is_addressable());
+  ABSL_ASSERT(num_bytes <= data_fragment_.size() + sizeof(FragmentHeader));
+  auto& header =
+      *reinterpret_cast<FragmentHeader*>(data_fragment_.mutable_bytes().data());
+  header.reserved = 0;
+
+  // This store-release is balanced by the load-acquire in AdoptDataFragment()
+  // by the eventual consumer of this data.
+  //
+  // A static_cast is fine here: we do not allocate 4 GB+ fragments.
+  header.size.store(static_cast<uint32_t>(num_bytes),
+                    std::memory_order_release);
 }
 
 void Parcel::ReleaseDataFragment() {
@@ -91,22 +162,6 @@ void Parcel::ReleaseDataFragment() {
   data_fragment_ = {};
   data_fragment_memory_.reset();
   data_view_ = {};
-}
-
-bool Parcel::ResolveDataFragment() {
-  ABSL_ASSERT(!data_fragment_.is_null());
-  if (!data_fragment_.is_pending()) {
-    return true;
-  }
-
-  data_fragment_ =
-      data_fragment_memory_->GetFragment(data_fragment_.descriptor());
-  if (!data_fragment_.is_resolved()) {
-    return false;
-  }
-
-  data_view_ = data_fragment_.mutable_bytes();
-  return true;
 }
 
 void Parcel::Consume(size_t num_bytes, absl::Span<IpczHandle> out_handles) {
@@ -137,8 +192,6 @@ std::string Parcel::Describe() const {
         ss << '"';
       }
     }
-  } else if (data_fragment_.is_pending()) {
-    ss << "data pending";
   } else {
     ss << "no data";
   }
@@ -147,17 +200,6 @@ std::string Parcel::Describe() const {
   }
   ss << ")";
   return ss.str();
-}
-
-bool Parcel::CanTransmitOn(const DriverTransport& transport) {
-  for (auto object : objects_) {
-    if (auto* box = Box::FromObject(object.get())) {
-      if (!box->object().CanTransmitOn(transport)) {
-        return false;
-      }
-    }
-  }
-  return true;
 }
 
 }  // namespace ipcz

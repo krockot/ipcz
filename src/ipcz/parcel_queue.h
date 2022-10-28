@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,9 @@ struct ParcelQueueTraits {
 };
 
 // A ParcelQueue is a SequencedQueue of Parcel objects which also tracks the
-// total data size (in bytes) of available parcels at the head of the queue.
+// total data size (in bytes) of available parcels at the head of the queue and
+// allows for proper accounting of a partially consumed parcel at the head of
+// the queue.
 class ParcelQueue : public SequencedQueue<Parcel, ParcelQueueTraits> {
  public:
   // Fully or partially consumes the next parcel in the queue. Returns true iff

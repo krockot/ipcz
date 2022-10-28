@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "ipcz/fragment.h"
 #include "ipcz/fragment_descriptor.h"
 #include "ipcz/ref_counted_fragment.h"
+#include "third_party/abseil-cpp/absl/base/macros.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
@@ -26,23 +27,16 @@ class GenericFragmentRef {
  public:
   GenericFragmentRef();
 
-  // Does not increase the ref count, effectively assuming ownership of a
-  // previously acquired ref.
+  // Does not increase the ref count of the underlying RefCountedFragment,
+  // effectively assuming ownership of a previously acquired ref.
   GenericFragmentRef(Ref<NodeLinkMemory> memory, const Fragment& fragment);
-  GenericFragmentRef(decltype(RefCountedFragment::kAdoptExistingRef),
-                     Ref<NodeLinkMemory> memory,
-                     const Fragment& fragment);
-  GenericFragmentRef(GenericFragmentRef&& other);
-  GenericFragmentRef& operator=(GenericFragmentRef&& other);
-  GenericFragmentRef(const GenericFragmentRef& other);
-  GenericFragmentRef& operator=(const GenericFragmentRef& other);
+
   ~GenericFragmentRef();
 
   const Ref<NodeLinkMemory>& memory() const { return memory_; }
   const Fragment& fragment() const { return fragment_; }
 
   bool is_null() const { return fragment_.is_null(); }
-  bool is_resolved() const { return fragment_.is_resolved(); }
   bool is_addressable() const { return fragment_.is_addressable(); }
   bool is_pending() const { return fragment_.is_pending(); }
 
@@ -50,20 +44,36 @@ class GenericFragmentRef {
   Fragment release();
 
   int32_t ref_count_for_testing() const {
-    return fragment_.As<RefCountedFragment>()->ref_count_for_testing();
+    return AsRefCountedFragment()->ref_count_for_testing();
   }
 
  protected:
+  RefCountedFragment* AsRefCountedFragment() const {
+    return static_cast<RefCountedFragment*>(fragment_.address());
+  }
+
+  // The NodeLinkMemory who ultimately owns this fragment's memory. May be null
+  // if the FragmentRef is unmanaged.
   Ref<NodeLinkMemory> memory_;
+
   Fragment fragment_;
 };
 
 }  // namespace internal
 
-// Holds a reference to a RefCountedFragment. When this object is constructed,
-// the RefCountedFragment's ref count is increased. When destroyed, the ref
-// count is decreased. If the ref count is decreased to zero, the underlying
-// Fragment is returned to its NodeLink's memory pool.
+// Holds a reference to a RefCountedFragment. When this object is destroyed, the
+// underlying ref count is decreased. If the ref count is decreased to zero, the
+// underlying Fragment is returned to its NodeLinkMemory.
+//
+// Some FragmentRefs may be designated as "unmanaged", meaning that they will
+// never attempt to free the underlying Fragment. These refs are used to
+// preserve type compatibility with other similar (but managed) FragmentRefs
+// when the underlying Fragment isn't dynamically allocated and can't be freed.
+//
+// For example most RouterLinkState fragments are dynamically allocated and
+// managed by FragmentRefs, but some instances are allocated at fixed locations
+// within the NodeLinkMemory and cannot be freed or reused. In both cases, ipcz
+// can refer to these objects using a FragmentRef<RouterLinkState>.
 template <typename T>
 class FragmentRef : public internal::GenericFragmentRef {
  public:
@@ -72,24 +82,37 @@ class FragmentRef : public internal::GenericFragmentRef {
 
   constexpr FragmentRef() = default;
   constexpr FragmentRef(std::nullptr_t) : FragmentRef() {}
-  FragmentRef(Ref<NodeLinkMemory> memory, const Fragment& fragment)
-      : GenericFragmentRef(std::move(memory), fragment) {}
+
+  // Adopts an existing ref to the RefCountedFragment located at the beginning
+  // of `fragment`, which is a Fragment owned by `memory.
   FragmentRef(decltype(RefCountedFragment::kAdoptExistingRef),
               Ref<NodeLinkMemory> memory,
               const Fragment& fragment)
-      : GenericFragmentRef(RefCountedFragment::kAdoptExistingRef,
-                           std::move(memory),
-                           fragment) {}
+      : GenericFragmentRef(std::move(memory), fragment) {
+    ABSL_ASSERT(memory_);
+    ABSL_ASSERT(fragment_.is_null() || fragment_.size() >= sizeof(T));
+  }
+
+  // Constructs an unmanaged FragmentRef, which references `fragment` and
+  // updates its refcount, but which never attempts to release `fragment` back
+  // to its NodeLinkMemory. This is only safe to use with Fragments which cannot
+  // be freed.
   FragmentRef(decltype(RefCountedFragment::kUnmanagedRef),
               const Fragment& fragment)
-      : GenericFragmentRef(nullptr, fragment) {}
+      : GenericFragmentRef(nullptr, fragment) {
+    ABSL_ASSERT(fragment_.is_null() || fragment_.size() >= sizeof(T));
+  }
 
   FragmentRef(const FragmentRef<T>& other)
-      : FragmentRef(other.memory(), other.fragment()) {}
+      : GenericFragmentRef(other.memory(), other.fragment()) {
+    if (!fragment_.is_null()) {
+      ABSL_ASSERT(fragment_.is_addressable());
+      AsRefCountedFragment()->AddRef();
+    }
+  }
+
   FragmentRef(FragmentRef<T>&& other) noexcept
-      : FragmentRef(RefCountedFragment::kAdoptExistingRef,
-                    other.memory(),
-                    other.fragment()) {
+      : GenericFragmentRef(std::move(other.memory_), other.fragment_) {
     other.release();
   }
 
@@ -98,7 +121,8 @@ class FragmentRef : public internal::GenericFragmentRef {
     memory_ = other.memory();
     fragment_ = other.fragment();
     if (!fragment_.is_null()) {
-      fragment_.As<RefCountedFragment>()->AddRef();
+      ABSL_ASSERT(fragment_.is_addressable());
+      AsRefCountedFragment()->AddRef();
     }
     return *this;
   }
@@ -106,11 +130,11 @@ class FragmentRef : public internal::GenericFragmentRef {
   FragmentRef<T>& operator=(FragmentRef<T>&& other) {
     reset();
     memory_ = std::move(other.memory_);
-    std::swap(fragment_, other.fragment_);
+    fragment_ = other.release();
     return *this;
   }
 
-  T* get() const { return static_cast<T*>(fragment_.As<T>()); }
+  T* get() const { return static_cast<T*>(fragment_.address()); }
   T* operator->() const { return get(); }
   T& operator*() const { return *get(); }
 };

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #define IPCZ_SRC_IPCZ_REMOTE_ROUTER_LINK_H_
 
 #include <atomic>
+#include <functional>
+#include <vector>
 
 #include "ipcz/fragment_ref.h"
 #include "ipcz/link_side.h"
@@ -13,6 +15,8 @@
 #include "ipcz/router_link.h"
 #include "ipcz/router_link_state.h"
 #include "ipcz/sublink_id.h"
+#include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "util/ref_counted.h"
 
 namespace ipcz {
 
@@ -27,97 +31,109 @@ class NodeLink;
 // LinkSide at construction time. This assignment is arbitrary but will always
 // be the opposite of the LinkSide assigned to the RemoteRouteLink on the other
 // end.
+//
+// NOTE: This implementation must take caution when calling into any Router. See
+// note on RouterLink's own class documentation.
 class RemoteRouterLink : public RouterLink {
  public:
   // Constructs a new RemoteRouterLink which sends messages over `node_link`
   // using `sublink` specifically. `side` is the side of this link on which
   // this RemoteRouterLink falls (side A or B), and `type` indicates what type
   // of link it is -- which for remote links must be either kCentral,
-  // kPeripheralInward, or kPeripheralOutward.
-  //
-  // `link_state_fragment` is the shared memory span containing link's
-  // RouterLinkState.
-  static Ref<RemoteRouterLink> Create(
-      Ref<NodeLink> node_link,
-      SublinkId sublink,
-      FragmentRef<RouterLinkState> link_state_fragment,
-      LinkType type,
-      LinkSide side);
+  // kPeripheralInward, or kPeripheralOutward. If the link is kCentral, a
+  // non-null `link_state` must be provided for the link's RouterLinkState.
+  static Ref<RemoteRouterLink> Create(const OperationContext& context,
+                                      Ref<NodeLink> node_link,
+                                      SublinkId sublink,
+                                      FragmentRef<RouterLinkState> link_state,
+                                      LinkType type,
+                                      LinkSide side);
 
   const Ref<NodeLink>& node_link() const { return node_link_; }
   SublinkId sublink() const { return sublink_; }
 
-  void SetLinkState(FragmentRef<RouterLinkState> state);
-
   // RouterLink:
   LinkType GetType() const override;
-  Ref<Router> GetLocalTarget() override;
-  bool IsRemoteLinkTo(const NodeLink& node_link,
-                      SublinkId sublink) const override;
-  RouterLinkState::QueueState GetPeerQueueState() override;
-  bool UpdateInboundQueueState(size_t num_bytes, size_t num_parcels) override;
+  RouterLinkState* GetLinkState() const override;
+  void WaitForLinkStateAsync(std::function<void()> callback) override;
+  Ref<Router> GetLocalPeer() override;
+  RemoteRouterLink* AsRemoteRouterLink() override;
+  void AllocateParcelData(size_t num_bytes,
+                          bool allow_partial,
+                          Parcel& parcel) override;
+  void AcceptParcel(const OperationContext& context, Parcel& parcel) override;
+  void AcceptRouteClosure(const OperationContext& context,
+                          SequenceNumber sequence_length) override;
+  void AcceptRouteDisconnected(const OperationContext& context) override;
+  AtomicQueueState* GetPeerQueueState() override;
+  AtomicQueueState* GetLocalQueueState() override;
+  void SnapshotPeerQueueState(const OperationContext& context) override;
   void MarkSideStable() override;
   bool TryLockForBypass(const NodeName& bypass_request_source) override;
   bool TryLockForClosure() override;
   void Unlock() override;
-  void FlushOtherSideIfWaiting() override;
+  bool FlushOtherSideIfWaiting(const OperationContext& context) override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
-  bool WouldParcelExceedLimits(size_t data_size,
-                               const IpczPutLimits& limits,
-                               size_t* max_data_size) override;
-  void AllocateParcelData(size_t num_bytes,
-                          bool allow_partial,
-                          Parcel& parcel) override;
-  void AcceptParcel(Parcel& parcel) override;
-  void AcceptRouteClosure(SequenceNumber sequence_length) override;
-  void AcceptRouteDisconnection() override;
-  void NotifyDataConsumed() override;
-  bool SetSignalOnDataConsumed(bool signal) override;
-  void RequestProxyBypassInitiation(const NodeName& to_new_peer,
-                                    SublinkId proxy_peer_sublink) override;
-  void StopProxying(SequenceNumber proxy_inbound_sequence_length,
-                    SequenceNumber proxy_outbound_sequence_length) override;
-  void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
-  void BypassProxyToSameNode(
-      SublinkId new_sublink,
-      FragmentRef<RouterLinkState> new_link_state,
-      SequenceNumber proxy_inbound_sequence_length) override;
+  void BypassPeer(const OperationContext& context,
+                  const NodeName& bypass_target_node,
+                  SublinkId bypass_request_sublink) override;
+  void StopProxying(const OperationContext& context,
+                    SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length) override;
+  void ProxyWillStop(const OperationContext& context,
+                     SequenceNumber inbound_sequence_length) override;
+  void BypassPeerWithLink(const OperationContext& context,
+                          SublinkId new_sublink,
+                          FragmentRef<RouterLinkState> new_link_state,
+                          SequenceNumber inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
-      SequenceNumber proxy_outbound_sequence_length) override;
-  void ShareLinkStateMemoryIfNecessary() override;
+      const OperationContext& context,
+      SequenceNumber outbound_sequence_length) override;
   void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace() override;
 
  private:
-  RemoteRouterLink(Ref<NodeLink> node_link,
+  RemoteRouterLink(const OperationContext& context,
+                   Ref<NodeLink> node_link,
                    SublinkId sublink,
-                   FragmentRef<RouterLinkState> link_state_fragment,
+                   FragmentRef<RouterLinkState> link_state,
                    LinkType type,
                    LinkSide side);
 
   ~RemoteRouterLink() override;
 
-  void AllocateLinkState();
-
-  RouterLinkState* GetLinkState() const;
+  // Sets this link's RouterLinkState. `state` must be pending or addressable
+  // and this must be a central link.
+  void SetLinkState(const OperationContext& context,
+                    FragmentRef<RouterLinkState> state);
 
   const Ref<NodeLink> node_link_;
   const SublinkId sublink_;
   const LinkType type_;
   const LinkSide side_;
 
-  enum class LinkStatePhase {
-    kNotPresent,
-    kBusy,
-    kPresent,
-  };
-
-  std::atomic<bool> must_share_link_state_fragment_{false};
+  // Local atomic cache of whether this side of the link is marked stable. If
+  // MarkSideStable() is called when no RouterLinkState is present, this will be
+  // used to remember it once a RouterLinkState is finally established.
   std::atomic<bool> side_is_stable_{false};
-  std::atomic<LinkStatePhase> link_state_phase_{LinkStatePhase::kNotPresent};
+
+  // A reference to the shared memory Fragment containing the RouterLinkState
+  // shared by both ends of this RouterLink. Only used by central links. Once
+  // this is set to a non-null fragment and that fragment is addressable by this
+  // link's node, `link_state_` is also updated to cache a pointer to this
+  // fragment's mapped memory.
   FragmentRef<RouterLinkState> link_state_fragment_;
+
+  // Cached address of the shared RouterLinkState referenced by
+  // `link_state_fragment_`. Once this is set to a non-null value it retains
+  // that value indefinitely, so any non-null value loaded from this field is
+  // safe to dereference for the duration of the RemoteRouterLink's lifetime.
   std::atomic<RouterLinkState*> link_state_{nullptr};
+
+  // Set of callbacks to be invoked as soon as this link has a RouterLinkState.
+  absl::Mutex mutex_;
+  std::vector<std::function<void()>> link_state_callbacks_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace ipcz

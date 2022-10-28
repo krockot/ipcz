@@ -1,76 +1,76 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef IPCZ_SRC_IPCZ_LOCAL_ROUTER_LINK_H_
 #define IPCZ_SRC_IPCZ_LOCAL_ROUTER_LINK_H_
 
-#include <utility>
-
 #include "ipcz/link_side.h"
 #include "ipcz/router.h"
 #include "ipcz/router_link.h"
-#include "ipcz/router_link_state.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
 
-// Local link between two Routers on the same node. A LocalRouterLink is always
-// a central link. Several RouterLink overrides are unimplemented by
-// LocalRouterLink as they are unnecessary and unused for local links.
+struct RouterLinkState;
+
+// Local link between two Routers on the same node. This class is thread-safe.
+//
+// NOTE: This implementation must take caution when calling into any Router. See
+// note on RouterLink's own class documentation.
 class LocalRouterLink : public RouterLink {
  public:
-  enum class InitialState {
-    kCannotBypass,
-    kCanBypass,
-  };
-
-  // Creates a new pair of LocalRouterLinks with the given initial link status
-  // and linking the given pair of Routers together. The Routers must not
-  // currently have outward links.
+  // Creates a new pair of LocalRouterLinks linking the given pair of Routers
+  // together. `type` must be either kCentral or kBridge, as local links may
+  // never be peripheral. `initial_state` determines whether the new link starts
+  // in a stable state.
+  //
+  // It is the caller's responsibilty to give the returned links to their
+  // respective Routers.
+  enum InitialState { kUnstable, kStable };
   static RouterLink::Pair CreatePair(LinkType type,
-                                     InitialState initial_state,
-                                     const Router::Pair& routers);
+                                     const Router::Pair& routers,
+                                     InitialState initial_state = kUnstable);
 
   // RouterLink:
   LinkType GetType() const override;
-  Ref<Router> GetLocalTarget() override;
-  bool IsRemoteLinkTo(const NodeLink& node_link,
-                      SublinkId sublink) const override;
-  RouterLinkState::QueueState GetPeerQueueState() override;
-  bool UpdateInboundQueueState(size_t num_bytes, size_t num_parcels) override;
+  RouterLinkState* GetLinkState() const override;
+  void WaitForLinkStateAsync(std::function<void()> callback) override;
+  Ref<Router> GetLocalPeer() override;
+  RemoteRouterLink* AsRemoteRouterLink() override;
+  void AllocateParcelData(size_t num_bytes,
+                          bool allow_partial,
+                          Parcel& parcel) override;
+  void AcceptParcel(const OperationContext& context, Parcel& parcel) override;
+  void AcceptRouteClosure(const OperationContext& context,
+                          SequenceNumber sequence_length) override;
+  void AcceptRouteDisconnected(const OperationContext& context) override;
+  AtomicQueueState* GetPeerQueueState() override;
+  AtomicQueueState* GetLocalQueueState() override;
+  void SnapshotPeerQueueState(const OperationContext& context) override;
   void MarkSideStable() override;
   bool TryLockForBypass(const NodeName& bypass_request_source) override;
   bool TryLockForClosure() override;
   void Unlock() override;
-  void FlushOtherSideIfWaiting() override;
+  bool FlushOtherSideIfWaiting(const OperationContext& context) override;
   bool CanNodeRequestBypass(const NodeName& bypass_request_source) override;
-  bool WouldParcelExceedLimits(size_t data_size,
-                               const IpczPutLimits& limits,
-                               size_t* max_data_size) override;
-  void AllocateParcelData(size_t num_bytes,
-                          bool allow_partial,
-                          Parcel& parcel) override;
-  void AcceptParcel(Parcel& parcel) override;
-  void AcceptRouteClosure(SequenceNumber sequence_length) override;
-  void AcceptRouteDisconnection() override;
-  void NotifyDataConsumed() override;
-  bool SetSignalOnDataConsumed(bool signal) override;
-  void RequestProxyBypassInitiation(const NodeName& to_new_peer,
-                                    SublinkId proxy_peer_sublink) override;
-  void StopProxying(SequenceNumber proxy_inbound_sequence_length,
-                    SequenceNumber proxy_outbound_sequence_length) override;
-  void ProxyWillStop(SequenceNumber proxy_inbound_sequence_length) override;
-  void BypassProxyToSameNode(
-      SublinkId new_sublink,
-      FragmentRef<RouterLinkState> new_link_state,
-      SequenceNumber proxy_inbound_sequence_length) override;
+  void BypassPeer(const OperationContext& context,
+                  const NodeName& bypass_target_node,
+                  SublinkId bypass_target_sublink) override;
+  void StopProxying(const OperationContext& context,
+                    SequenceNumber inbound_sequence_length,
+                    SequenceNumber outbound_sequence_length) override;
+  void ProxyWillStop(const OperationContext& context,
+                     SequenceNumber inbound_sequence_length) override;
+  void BypassPeerWithLink(const OperationContext& context,
+                          SublinkId new_sublink,
+                          FragmentRef<RouterLinkState> new_link_state,
+                          SequenceNumber inbound_sequence_length) override;
   void StopProxyingToLocalPeer(
-      SequenceNumber proxy_outbound_sequence_length) override;
-  void ShareLinkStateMemoryIfNecessary() override;
+      const OperationContext& context,
+      SequenceNumber outbound_sequence_length) override;
   void Deactivate() override;
   std::string Describe() const override;
-  void LogRouteTrace() override;
 
  private:
   class SharedState;

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,21 +12,30 @@
 
 #if BUILDFLAG(IS_WIN)
 #include <windows.h>
+#include <limits>
 #elif BUILDFLAG(IS_FUCHSIA)
 #include <zircon/syscalls.h>
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+#include <asm/unistd.h>
 #include <errno.h>
-#include <sys/random.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #elif BUILDFLAG(IS_MAC)
+#include <sys/random.h>
 #include <unistd.h>
 #elif BUILDFLAG(IS_NACL)
 #include <nacl/nacl_random.h>
 #endif
 
+#if BUILDFLAG(IS_POSIX)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #if BUILDFLAG(IS_WIN)
-// #define needed to link in RtlGenRandom(), a.k.a. SystemFunction036.  See the
-// "Community Additions" comment on MSDN here:
-// http://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx
+// #define needed to properly link in RtlGenRandom(), a.k.a. SystemFunction036.
+// See the documentation here:
+// https://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx
 #define SystemFunction036 NTAPI SystemFunction036
 #include <NTSecAPI.h>
 #undef SystemFunction036
@@ -34,25 +43,63 @@
 
 namespace ipcz::reference_drivers {
 
-void RandomBytes(absl::Span<uint8_t> destination) {
-#if BUILDFLAG(IS_WIN)
-  const bool ok = RtlGenRandom(destination.data(), destination.size());
-  ABSL_ASSERT(ok);
-#elif BUILDFLAG(IS_FUCHSIA)
-  zx_cprng_draw(destination.data(), destination.size());
-#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+namespace {
+
+#if defined(OS_POSIX)
+void RandomBytesFromDevUrandom(absl::Span<uint8_t> destination) {
+  static int urandom_fd = [] {
+    for (;;) {
+      int result = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+      if (result >= 0) {
+        return result;
+      }
+      ABSL_ASSERT(errno == EINTR);
+    }
+  }();
+
   while (!destination.empty()) {
-    ssize_t result = getrandom(destination.data(), destination.size(), 0);
-    if (result == -1) {
+    ssize_t result = read(urandom_fd, destination.data(), destination.size());
+    if (result < 0) {
       ABSL_ASSERT(errno == EINTR);
       continue;
     }
-
     destination.remove_prefix(result);
   }
-#elif BUILDFLAG(IS_MAC)
-  const bool ok = getentropy(destination.data(), destination.size()) == 0;
+}
+#endif
+
+}  // namespace
+
+void RandomBytes(absl::Span<uint8_t> destination) {
+#if BUILDFLAG(IS_WIN)
+  ABSL_ASSERT(destination.size() <= std::numeric_limits<ULONG>::max());
+  const bool ok =
+      RtlGenRandom(destination.data(), static_cast<ULONG>(destination.size()));
   ABSL_ASSERT(ok);
+#elif BUILDFLAG(IS_FUCHSIA)
+  zx_cprng_draw(destination.data(), destination.size());
+#elif BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS) || BUILDFLAG(IS_ANDROID)
+  while (!destination.empty()) {
+    ssize_t result =
+        syscall(__NR_getrandom, destination.data(), destination.size(), 0);
+    if (result == -1 && errno == EINTR) {
+      continue;
+    } else if (result > 0) {
+      destination.remove_prefix(result);
+    } else {
+      RandomBytesFromDevUrandom(destination);
+      return;
+    }
+  }
+#elif BUILDFLAG(IS_MAC)
+  if (__builtin_available(macOS 10.12, *)) {
+    const bool ok = getentropy(destination.data(), destination.size()) == 0;
+    ABSL_ASSERT(ok);
+  } else {
+    RandomBytesFromDevUrandom(destination);
+  }
+#elif BUILDFLAG(IS_IOS)
+  RandomBytesFromDevUrandom(destination);
 #elif BUILDFLAG(IS_NACL)
   while (!destination.empty()) {
     size_t nread;

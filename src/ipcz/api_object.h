@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,6 +24,7 @@ class APIObject : public RefCounted {
     kPortal,
     kBox,
     kTransport,
+    kValidator,
   };
 
   explicit APIObject(ObjectType type);
@@ -56,7 +57,7 @@ class APIObject : public RefCounted {
   virtual bool CanSendFrom(Portal& sender);
 
  protected:
-  ~APIObject() override = default;
+  ~APIObject() override;
 
   const ObjectType type_;
 };
@@ -86,7 +87,7 @@ class APIObjectImpl : public APIObject {
   }
 
  protected:
-  ~APIObjectImpl() = default;
+  ~APIObjectImpl() override = default;
 };
 
 }  // namespace ipcz

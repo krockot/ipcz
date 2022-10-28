@@ -1,10 +1,11 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 // no-include-guard-because-multiply-included
 
-#define IPCZ_PROTOCOL_VERSION(n)
+#define IPCZ_MSG_BEGIN_INTERFACE(name)
+#define IPCZ_MSG_END_INTERFACE()
 
 #define IPCZ_MSG_ID(x)
 #define IPCZ_MSG_VERSION(x)

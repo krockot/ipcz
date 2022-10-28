@@ -1,55 +1,84 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "ipcz/node_link.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <utility>
-#include <vector>
 
-#include "ipcz/api_object.h"
 #include "ipcz/box.h"
-#include "ipcz/fragment.h"
-#include "ipcz/fragment_descriptor.h"
-#include "ipcz/handle_descriptor.h"
+#include "ipcz/fragment_ref.h"
 #include "ipcz/ipcz.h"
-#include "ipcz/message_internal.h"
+#include "ipcz/link_side.h"
+#include "ipcz/link_type.h"
+#include "ipcz/message.h"
 #include "ipcz/node.h"
+#include "ipcz/node_connector.h"
+#include "ipcz/node_link_memory.h"
 #include "ipcz/node_messages.h"
+#include "ipcz/operation_context.h"
+#include "ipcz/parcel.h"
 #include "ipcz/portal.h"
 #include "ipcz/remote_router_link.h"
 #include "ipcz/router.h"
-#include "ipcz/router_descriptor.h"
 #include "ipcz/router_link.h"
+#include "ipcz/router_link_state.h"
+#include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "util/log.h"
 #include "util/ref_counted.h"
-
-#if defined(THREAD_SANITIZER)
-#include <sanitizer/tsan_interface.h>
-#endif
+#include "util/safe_math.h"
 
 namespace ipcz {
 
+namespace {
+
+template <typename T>
+FragmentRef<T> MaybeAdoptFragmentRef(NodeLinkMemory& memory,
+                                     const FragmentDescriptor& descriptor) {
+  if (descriptor.is_null() || descriptor.size() < sizeof(T)) {
+    return {};
+  }
+
+  return memory.AdoptFragmentRef<T>(memory.GetFragment(descriptor));
+}
+
+}  // namespace
+
 // static
-Ref<NodeLink> NodeLink::Create(Ref<Node> node,
-                               LinkSide link_side,
-                               const NodeName& local_node_name,
-                               const NodeName& remote_node_name,
-                               Node::Type remote_node_type,
-                               uint32_t remote_protocol_version,
-                               Ref<DriverTransport> transport,
-                               Ref<NodeLinkMemory> memory) {
-  auto link = AdoptRef(new NodeLink(std::move(node), link_side, local_node_name,
-                                    remote_node_name, remote_node_type,
-                                    remote_protocol_version,
-                                    std::move(transport), std::move(memory)));
-  link->memory().SetNodeLink(link);
-  return link;
+Ref<NodeLink> NodeLink::CreateActive(Ref<Node> node,
+                                     LinkSide link_side,
+                                     const NodeName& local_node_name,
+                                     const NodeName& remote_node_name,
+                                     Node::Type remote_node_type,
+                                     uint32_t remote_protocol_version,
+                                     Ref<DriverTransport> transport,
+                                     Ref<NodeLinkMemory> memory) {
+  return AdoptRef(new NodeLink(std::move(node), link_side, local_node_name,
+                               remote_node_name, remote_node_type,
+                               remote_protocol_version, std::move(transport),
+                               std::move(memory), kActive));
+}
+
+// static
+Ref<NodeLink> NodeLink::CreateInactive(Ref<Node> node,
+                                       LinkSide link_side,
+                                       const NodeName& local_node_name,
+                                       const NodeName& remote_node_name,
+                                       Node::Type remote_node_type,
+                                       uint32_t remote_protocol_version,
+                                       Ref<DriverTransport> transport,
+                                       Ref<NodeLinkMemory> memory) {
+  return AdoptRef(new NodeLink(std::move(node), link_side, local_node_name,
+                               remote_node_name, remote_node_type,
+                               remote_protocol_version, std::move(transport),
+                               std::move(memory), kNeverActivated));
 }
 
 NodeLink::NodeLink(Ref<Node> node,
@@ -59,7 +88,8 @@ NodeLink::NodeLink(Ref<Node> node,
                    Node::Type remote_node_type,
                    uint32_t remote_protocol_version,
                    Ref<DriverTransport> transport,
-                   Ref<NodeLinkMemory> memory)
+                   Ref<NodeLinkMemory> memory,
+                   ActivationState initial_activation_state)
     : node_(std::move(node)),
       link_side_(link_side),
       local_node_name_(local_node_name),
@@ -67,41 +97,62 @@ NodeLink::NodeLink(Ref<Node> node,
       remote_node_type_(remote_node_type),
       remote_protocol_version_(remote_protocol_version),
       transport_(std::move(transport)),
-      memory_(std::move(memory)) {
-  transport_->set_listener(this);
+      memory_(std::move(memory)),
+      activation_state_(initial_activation_state) {
+  if (initial_activation_state == kActive) {
+    transport_->set_listener(WrapRefCounted(this));
+    memory_->SetNodeLink(WrapRefCounted(this));
+  }
 }
 
 NodeLink::~NodeLink() {
-  Deactivate();
+  absl::MutexLock lock(&mutex_);
+  ABSL_HARDENING_ASSERT(activation_state_ != kActive);
+}
+
+void NodeLink::Activate() {
+  transport_->set_listener(WrapRefCounted(this));
+  memory_->SetNodeLink(WrapRefCounted(this));
+
+  {
+    absl::MutexLock lock(&mutex_);
+    ABSL_ASSERT(activation_state_ == kNeverActivated);
+    activation_state_ = kActive;
+  }
+
+  transport_->Activate();
 }
 
 Ref<RemoteRouterLink> NodeLink::AddRemoteRouterLink(
+    const OperationContext& context,
     SublinkId sublink,
     FragmentRef<RouterLinkState> link_state,
     LinkType type,
     LinkSide side,
     Ref<Router> router) {
-  auto link = RemoteRouterLink::Create(WrapRefCounted(this), sublink,
+  auto link = RemoteRouterLink::Create(context, WrapRefCounted(this), sublink,
                                        std::move(link_state), type, side);
 
   absl::MutexLock lock(&mutex_);
+  if (activation_state_ == kDeactivated) {
+    // We don't bind new RemoteRouterLinks once we've been deactivated, lest we
+    // incur leaky NodeLink references.
+    return nullptr;
+  }
+
   auto [it, added] = sublinks_.try_emplace(
       sublink, Sublink(std::move(link), std::move(router)));
   if (!added) {
+    // The SublinkId provided here may have been received from another node and
+    // may already be in use if the node is misbehaving.
     return nullptr;
   }
   return it->second.router_link;
 }
 
-bool NodeLink::RemoveRemoteRouterLink(SublinkId sublink) {
+void NodeLink::RemoveRemoteRouterLink(SublinkId sublink) {
   absl::MutexLock lock(&mutex_);
-  auto it = sublinks_.find(sublink);
-  if (it == sublinks_.end()) {
-    return false;
-  }
-
   sublinks_.erase(sublink);
-  return true;
 }
 
 absl::optional<NodeLink::Sublink> NodeLink::GetSublink(SublinkId sublink) {
@@ -122,273 +173,109 @@ Ref<Router> NodeLink::GetRouter(SublinkId sublink) {
   return it->second.receiver;
 }
 
-void NodeLink::Deactivate() {
-  SublinkMap sublinks;
-  {
-    absl::MutexLock lock(&mutex_);
-    sublinks = std::move(sublinks_);
-    if (!active_) {
-      return;
-    }
-
-    active_ = false;
-  }
-
-  memory_->SetNodeLink(nullptr);
-  sublinks.clear();
-  transport_->Deactivate();
-}
-
-void NodeLink::RequestIndirectBrokerConnection(
-    Ref<DriverTransport> transport,
-    size_t num_initial_portals,
-    IndirectBrokerConnectionCallback callback) {
-  uint64_t request_id;
-  {
-    absl::MutexLock lock(&mutex_);
-    request_id = next_request_id_++;
-    pending_indirect_broker_connections_[request_id] = std::move(callback);
-  }
-
-  msg::RequestIndirectBrokerConnection request;
-  request.params().request_id = request_id;
-  request.params().num_initial_portals =
-      static_cast<uint32_t>(num_initial_portals);
-  request.AppendDriverObject(transport->TakeDriverObject(),
-                             request.params().transport);
-  Transmit(request);
+void NodeLink::AddBlockBuffer(BufferId id,
+                              uint32_t block_size,
+                              DriverMemory memory) {
+  msg::AddBlockBuffer add;
+  add.params().id = id;
+  add.params().block_size = block_size;
+  add.params().buffer = add.AppendDriverObject(memory.TakeDriverObject());
+  Transmit(add);
 }
 
 void NodeLink::RequestIntroduction(const NodeName& name) {
+  ABSL_ASSERT(remote_node_type_ == Node::Type::kBroker);
+
   msg::RequestIntroduction request;
   request.params().name = name;
   Transmit(request);
 }
 
-void NodeLink::IntroduceNode(const NodeName& name,
-                             LinkSide link_side,
-                             Ref<DriverTransport> transport,
-                             DriverMemory link_buffer_memory) {
-  msg::IntroduceNode intro;
-  intro.params().name = name;
-  intro.params().known = (transport != nullptr);
-  intro.params().link_side = link_side;
-  intro.AppendDriverObject(transport->TakeDriverObject(),
-                           intro.params().transport);
-  intro.AppendDriverObject(link_buffer_memory.TakeDriverObject(),
-                           intro.params().buffer);
-  Transmit(intro);
+void NodeLink::AcceptIntroduction(const NodeName& name,
+                                  LinkSide side,
+                                  Node::Type remote_node_type,
+                                  uint32_t remote_protocol_version,
+                                  Ref<DriverTransport> transport,
+                                  DriverMemory memory) {
+  ABSL_ASSERT(node_->type() == Node::Type::kBroker);
+
+  msg::AcceptIntroduction accept;
+  accept.params().name = name;
+  accept.params().link_side = side;
+  accept.params().remote_node_type = remote_node_type;
+  accept.params().remote_protocol_version = remote_protocol_version;
+  accept.params().transport =
+      accept.AppendDriverObject(transport->TakeDriverObject());
+  accept.params().memory = accept.AppendDriverObject(memory.TakeDriverObject());
+  Transmit(accept);
 }
 
-bool NodeLink::BypassProxy(const NodeName& proxy_name,
-                           SublinkId proxy_sublink,
-                           SequenceNumber proxy_outbound_sequence_length,
-                           Ref<Router> new_peer) {
-  // Note that by convention the side which initiates a bypass (this side)
-  // adopts side A of the new bypass link. The other end adopts side B.
-  const SublinkId new_sublink = memory().AllocateSublinkIds(1);
-  FragmentRef<RouterLinkState> state = memory().AllocateRouterLinkState();
-  Ref<RouterLink> new_link = AddRemoteRouterLink(
-      new_sublink, state, LinkType::kCentral, LinkSide::kA, new_peer);
+void NodeLink::RejectIntroduction(const NodeName& name) {
+  ABSL_ASSERT(node_->type() == Node::Type::kBroker);
 
-  DVLOG(4) << "Sending BypassProxy from " << local_node_name_.ToString()
-           << " to " << remote_node_name_.ToString() << " with new sublink "
-           << new_sublink << " to replace its link to proxy "
-           << proxy_name.ToString() << " on sublink " << proxy_sublink;
-
-  msg::BypassProxy bypass;
-  bypass.params().proxy_name = proxy_name;
-  bypass.params().proxy_sublink = proxy_sublink;
-  bypass.params().new_sublink = new_sublink;
-  bypass.params().new_link_state_fragment = state.release().descriptor();
-  bypass.params().proxy_outbound_sequence_length =
-      proxy_outbound_sequence_length;
-  Transmit(bypass);
-
-  // This link is only provided after we transmit the bypass request, ensuring
-  // that `new_peer` doesn't send anything else over the link until the bypass
-  // has been accepted by the remote node.
-  new_peer->SetOutwardLink(new_link);
-
-  return true;
+  msg::RejectIntroduction reject;
+  reject.params().name = name;
+  Transmit(reject);
 }
 
-void NodeLink::AddFragmentAllocatorBuffer(BufferId buffer_id,
-                                          uint32_t fragment_size,
-                                          DriverMemory memory) {
-  msg::AddFragmentAllocatorBuffer add;
-  add.params().buffer_id = buffer_id;
-  add.params().fragment_size = fragment_size;
-  add.AppendDriverObject(memory.TakeDriverObject(), add.params().buffer);
-  Transmit(add);
-}
+void NodeLink::ReferNonBroker(Ref<DriverTransport> transport,
+                              uint32_t num_initial_portals,
+                              ReferralCallback callback) {
+  ABSL_ASSERT(node_->type() == Node::Type::kNormal &&
+              remote_node_type_ == Node::Type::kBroker);
 
-void NodeLink::RequestMemory(uint32_t size, RequestMemoryCallback callback) {
+  uint64_t referral_id;
   {
     absl::MutexLock lock(&mutex_);
-    pending_memory_requests_[size].push_back(std::move(callback));
+    for (;;) {
+      referral_id = next_referral_id_++;
+      auto [it, inserted] =
+          pending_referrals_.try_emplace(referral_id, std::move(callback));
+      if (inserted) {
+        break;
+      }
+    }
+  }
+
+  msg::ReferNonBroker refer;
+  refer.params().referral_id = referral_id;
+  refer.params().num_initial_portals = num_initial_portals;
+  refer.params().transport =
+      refer.AppendDriverObject(transport->TakeDriverObject());
+  Transmit(refer);
+}
+
+void NodeLink::AcceptBypassLink(
+    const NodeName& current_peer_node,
+    SublinkId current_peer_sublink,
+    SequenceNumber inbound_sequence_length_from_bypassed_link,
+    SublinkId new_sublink,
+    FragmentRef<RouterLinkState> link_state) {
+  msg::AcceptBypassLink accept;
+  accept.params().current_peer_node = current_peer_node;
+  accept.params().current_peer_sublink = current_peer_sublink;
+  accept.params().inbound_sequence_length_from_bypassed_link =
+      inbound_sequence_length_from_bypassed_link;
+  accept.params().new_sublink = new_sublink;
+  accept.params().new_link_state_fragment = link_state.release().descriptor();
+  Transmit(accept);
+}
+
+void NodeLink::RequestMemory(size_t size, RequestMemoryCallback callback) {
+  const uint32_t size32 = checked_cast<uint32_t>(size);
+  {
+    absl::MutexLock lock(&mutex_);
+    pending_memory_requests_[size32].push_back(std::move(callback));
   }
 
   msg::RequestMemory request;
-  request.params().size = size;
+  request.params().size = size32;
   Transmit(request);
 }
 
-bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& relay) {
-  // TODO: clean up these hacks
-
-  absl::Span<uint8_t> data = relay.GetArrayView<uint8_t>(relay.params().data);
-  if (data.size() < sizeof(internal::MessageHeaderV0)) {
-    return false;
-  }
-
-  internal::MessageHeaderV0& header = internal::GetMessageHeader(data);
-  if (!internal::IsMessageHeaderValid(data)) {
-    return false;
-  }
-
-  switch (header.message_id) {
-    case msg::AcceptParcel::kId: {
-      msg::AcceptParcel accept;
-      accept.Adopt(data, relay.driver_objects());
-      return OnAcceptParcel(accept);
-    }
-
-    case msg::AcceptParcelDriverObjects::kId: {
-      msg::AcceptParcelDriverObjects accept;
-      accept.Adopt(data, relay.driver_objects());
-      return OnAcceptParcelDriverObjects(accept);
-    }
-
-    case msg::AddFragmentAllocatorBuffer::kId: {
-      msg::AddFragmentAllocatorBuffer add;
-      add.Adopt(data, relay.driver_objects());
-      return OnAddFragmentAllocatorBuffer(add);
-    }
-
-    default:
-      DVLOG(2) << "Ignoring unexpected broker message relay for ID "
-               << static_cast<int>(header.message_id);
-      return true;
-  }
-}
-
-void NodeLink::DiagnoseForTesting() {
-  LOG(ERROR) << "Link from " << local_node_name_.ToString() << " to "
-             << remote_node_name_.ToString();
-
-  // Add other diagnostic logging here as needed.
-}
-
-SequenceNumber NodeLink::GenerateOutgoingSequenceNumber() {
-  auto& generator =
-      reinterpret_cast<std::atomic<uint64_t>&>(next_outgoing_sequence_number_);
-  return SequenceNumber(generator.fetch_add(1, std::memory_order_relaxed));
-}
-
-void NodeLink::TransmitMessage(
-    internal::MessageBase& message,
-    absl::Span<const internal::ParamMetadata> metadata) {
-  if (!message.CanTransmitOn(*transport_)) {
-    // The driver has indicated that it can't transmit this message through our
-    // transport, so the message must instead be relayed through a broker.
-    auto broker = node_->GetBrokerLink();
-    if (!broker) {
-      DLOG(ERROR) << "Cannot relay message without a broker link.";
-      return;
-    }
-
-    broker->RelayMessage(remote_node_name_, message);
-    return;
-  }
-
-  if (!message.Serialize(metadata, *transport_)) {
-    DLOG(ERROR) << "Failed to serialize message";
-    return;
-  }
-
-  // Note that we don't allocate a SequenceNumber until after succeeding or
-  // failing at fragment allocation below, because a successfully allocated
-  // fragment may reside in a buffer which is just about to be shared with the
-  // remote node. If the SequenceNumber of that fragment's message gets
-  // sequenced before that of the message which shares the buffer, the
-  // recipient's message queue will be permanently stuck.
-  absl::optional<SequenceNumber> sequence_number;
-
-  // For small messages we prefer transmission through shared memory blocks, and
-  // we prefer to allocate them as one of the few size classes with a fixed
-  // allocator in the primary buffer. This means the primary buffer ends up
-  // being the most common message allocation source.
-  size_t fragment_size = 0;
-  if (message.data_view().size() <= 256) {
-    fragment_size = 256;
-  } else if (message.data_view().size() <= 512) {
-    fragment_size = 512;
-  } else if (message.data_view().size() <= 1024) {
-    fragment_size = 1024;
-  } else if (message.data_view().size() <= 2048) {
-    fragment_size = 2048;
-  } else {
-    fragment_size = message.data_view().size();
-  }
-  constexpr size_t kMaxSizeFallbackScale = 6;
-  while (message.transmissible_driver_handles().empty()) {
-    Fragment fragment = memory().fragment_allocator().Allocate(fragment_size);
-    if (fragment.is_null()) {
-      if (fragment_size > 2048 ||
-          fragment_size > message.data_view().size() * kMaxSizeFallbackScale) {
-        break;
-      }
-
-      fragment_size *= 2;
-      continue;
-    }
-
-    sequence_number = GenerateOutgoingSequenceNumber();
-    message.header().sequence_number = *sequence_number;
-    memcpy(&fragment.mutable_bytes()[sizeof(uint32_t)],
-           &message.data_view().data()[sizeof(uint32_t)],
-           message.data_view().size() - sizeof(uint32_t));
-    std::atomic_store_explicit(
-        static_cast<std::atomic<uint32_t>*>(fragment.address()),
-        *reinterpret_cast<uint32_t*>(message.data_view().data()),
-        std::memory_order_release);
-
-    NodeLinkMemory::MessageFragment message_fragment(*sequence_number,
-                                                     fragment.descriptor());
-    if (!memory().outgoing_message_fragments().Push(message_fragment)) {
-      // No queue capacity at the moment...
-      memory().fragment_allocator().Free(fragment);
-      break;
-    }
-
-    if (memory().TestAndSetNotificationPending()) {
-      // No flush necessary as the remote node already has some pending I/O to
-      // wake it up.
-      return;
-    }
-
-    msg::FlushLink flush;
-    flush.header().sequence_number = GenerateOutgoingSequenceNumber();
-    transport_->TransmitMessage(
-        DriverTransport::Message(DriverTransport::Data(flush.data_view())));
-    return;
-  }
-
-  if (!sequence_number) {
-    sequence_number = GenerateOutgoingSequenceNumber();
-  }
-
-  memory().TestAndSetNotificationPending();
-  message.header().sequence_number = *sequence_number;
-  transport_->TransmitMessage(
-      DriverTransport::Message(DriverTransport::Data(message.data_view()),
-                               message.transmissible_driver_handles()));
-}
-
-void NodeLink::RelayMessage(const NodeName& to_node,
-                            internal::MessageBase& message) {
+void NodeLink::RelayMessage(const NodeName& to_node, Message& message) {
   ABSL_ASSERT(remote_node_type_ == Node::Type::kBroker);
+
   msg::RelayMessage relay;
   relay.params().destination = to_node;
   relay.params().data =
@@ -400,317 +287,245 @@ void NodeLink::RelayMessage(const NodeName& to_node,
   Transmit(relay);
 }
 
-IpczResult NodeLink::OnTransportMessage(
-    const DriverTransport::Message& message) {
-  IpczResult result = FlushIncomingMessages();
-  if (result != IPCZ_RESULT_OK) {
-    return result;
+bool NodeLink::DispatchRelayedMessage(msg::AcceptRelayedMessage& accept) {
+  // We only allow a limited subset of messages to be relayed through a broker.
+  // Namely, any message which might carry driver objects between two
+  // non-brokers needs to be relayable.
+  //
+  // If an unknown or unsupported message type is relayed it's silently
+  // discarded, rather than being rejected as a validation failure. This leaves
+  // open the possibility for newer versions of a message to introduce driver
+  // objects and support relaying.
+  absl::Span<uint8_t> data = accept.GetArrayView<uint8_t>(accept.params().data);
+  absl::Span<DriverObject> objects = accept.driver_objects();
+  if (data.size() < sizeof(internal::MessageHeaderV0)) {
+    return false;
   }
+  const uint8_t message_id =
+      reinterpret_cast<internal::MessageHeaderV0*>(data.data())->message_id;
+  switch (message_id) {
+    case msg::AcceptParcelDriverObjects::kId: {
+      msg::AcceptParcelDriverObjects accept_parcel;
+      return accept_parcel.DeserializeRelayed(data, objects) &&
+             OnAcceptParcelDriverObjects(accept_parcel);
+    }
 
-  result = DispatchOrQueueTransportMessage(message);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
+    case msg::AddBlockBuffer::kId: {
+      msg::AddBlockBuffer add;
+      return add.DeserializeRelayed(data, objects) && OnAddBlockBuffer(add);
+    }
+
+    default:
+      DVLOG(4) << "Ignoring relayed message with ID "
+               << static_cast<int>(message_id);
+      return true;
   }
-
-  // Note that we don't clear this flag until *after* the above flush. This
-  // allows slightly more time for the remote node to transmit additional
-  // messages in shared memory without signaling us, but it also means we need
-  // to do another flush before returning.
-  memory().ClearPendingNotification();
-
-  return FlushIncomingMessages();
 }
 
-void NodeLink::OnTransportError() {
-  SublinkMap sublinks;
+void NodeLink::Deactivate(const OperationContext& context) {
   {
     absl::MutexLock lock(&mutex_);
-    broken_ = true;
-    std::swap(sublinks, sublinks_);
+    if (activation_state_ != kActive) {
+      return;
+    }
+    activation_state_ = kDeactivated;
   }
 
-  for (auto& [id, sublink] : sublinks) {
-    sublink.receiver->NotifyLinkDisconnected(*this, id);
-  }
+  HandleTransportError(context);
+  transport_->Deactivate();
+  memory_->SetNodeLink(nullptr);
 }
 
-IpczResult NodeLink::DispatchOrQueueTransportMessage(
-    const DriverTransport::Message& message) {
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-  const SequenceNumber sequence_number = header.sequence_number;
-  {
-    absl::MutexLock lock(&mutex_);
-    if (sequence_number < incoming_messages_.current_sequence_number()) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
+void NodeLink::Transmit(Message& message) {
+  if (!message.CanTransmitOn(*transport_)) {
+    // The driver has indicated that it can't transmit this message through our
+    // transport, so the message must instead be relayed through a broker.
+    auto broker = node_->GetBrokerLink();
+    if (!broker) {
+      DLOG(ERROR) << "Cannot relay message without a broker link";
+      return;
     }
 
-    if (sequence_number > incoming_messages_.current_sequence_number() ||
-        is_processing_incoming_messages_) {
-      IncomingMessage incoming_message;
-      incoming_message.data =
-          std::vector<uint8_t>(message.data.begin(), message.data.end());
-      incoming_message.handles = std::vector<IpczDriverHandle>(
-          message.handles.begin(), message.handles.end());
-      bool ok =
-          incoming_messages_.Push(sequence_number, std::move(incoming_message));
-      ABSL_ASSERT(ok);
-      return IPCZ_RESULT_OK;
-    }
-
-    // Otherwise this message is the next to dispatch, so fall through.
-    is_processing_incoming_messages_ = true;
-    incoming_messages_.SkipNextSequenceNumber();
+    broker->RelayMessage(remote_node_name_, message);
+    return;
   }
 
-  IpczResult result = DispatchMessage(message);
-  if (result != IPCZ_RESULT_OK) {
-    return result;
-  }
-
-  {
-    absl::MutexLock lock(&mutex_);
-    is_processing_incoming_messages_ = false;
-  }
-  return FlushIncomingMessages();
+  message.header().sequence_number = GenerateOutgoingSequenceNumber();
+  transport_->Transmit(message);
 }
 
-IpczResult NodeLink::DispatchOrQueueFragmentMessage(
-    SequenceNumber sequence_number,
-    const FragmentDescriptor& descriptor) {
-  const Fragment fragment = memory().GetFragment(descriptor);
-  {
-    absl::MutexLock lock(&mutex_);
-    if (sequence_number < incoming_messages_.current_sequence_number()) {
-      return IPCZ_RESULT_INVALID_ARGUMENT;
-    }
-
-    if (sequence_number > incoming_messages_.current_sequence_number() ||
-        !fragment.is_resolved()) {
-      IncomingMessage incoming_message;
-      incoming_message.fragment = fragment;
-      bool ok =
-          incoming_messages_.Push(sequence_number, std::move(incoming_message));
-      ABSL_ASSERT(ok);
-      return IPCZ_RESULT_OK;
-    }
-
-    // Otherwise this message is the next to dispatch, so fall through.
-    incoming_messages_.SkipNextSequenceNumber();
-  }
-
-#if defined(THREAD_SANITIZER)
-  // Annotate for TSAN that subsequent access to the fragment's contents is
-  // properly synchronized, since it can't deduce this on its own.
-  // Synchronization occurs by virtue of push and pop operations on the
-  // MessageFragment queue which transported this fragment descriptor.
-  __tsan_acquire(fragment.address());
-#endif
-
-  IpczResult result =
-      DispatchMessage(DriverTransport::Message(fragment.bytes()));
-  memory().fragment_allocator().Free(fragment);
-  return result;
+SequenceNumber NodeLink::GenerateOutgoingSequenceNumber() {
+  return SequenceNumber(next_outgoing_sequence_number_generator_.fetch_add(
+      1, std::memory_order_relaxed));
 }
 
-IpczResult NodeLink::FlushIncomingMessages() {
-  {
-    absl::MutexLock lock(&mutex_);
-    if (is_processing_incoming_messages_ || is_next_incoming_message_blocked_) {
-      return IPCZ_RESULT_OK;
-    }
-
-    // NOTE: We don't bother to unset this in any failure return paths here,
-    // since failure implies we don't want to read from the link anymore anyway.
-    is_processing_incoming_messages_ = true;
-  }
-
-  MpscQueue<NodeLinkMemory::MessageFragment>& fragments =
-      memory().incoming_message_fragments();
-  for (;;) {
-    while (const auto* const message_fragment = fragments.Peek()) {
-      const SequenceNumber sequence_number = message_fragment->sequence_number;
-      const FragmentDescriptor descriptor = message_fragment->descriptor;
-      fragments.Pop();
-      IpczResult result =
-          DispatchOrQueueFragmentMessage(sequence_number, descriptor);
-      if (result != IPCZ_RESULT_OK) {
-        return result;
-      }
-    }
-
-    absl::optional<BufferId> wait_for_buffer;
-    IncomingMessage next_message;
-    {
-      absl::MutexLock lock(&mutex_);
-      if (!incoming_messages_.HasNextElement()) {
-        if (fragments.Peek()) {
-          // No more messages in this queue, but the shared memory queue has
-          // more messages now.
-          continue;
-        }
-
-        is_processing_incoming_messages_ = false;
-        return IPCZ_RESULT_OK;
-      }
-
-      IncomingMessage& front = incoming_messages_.NextElement();
-      if (front.fragment.is_pending()) {
-        front.fragment = memory().GetFragment(front.fragment.descriptor());
-      }
-
-      if (front.fragment.is_pending()) {
-        // Still pending, so we have to wait for its buffer before we can kee
-        // processing incoming messages.
-        wait_for_buffer = front.fragment.buffer_id();
-        is_next_incoming_message_blocked_ = true;
-        is_processing_incoming_messages_ = false;
-      } else {
-        incoming_messages_.Pop(next_message);
-      }
-    }
-
-    if (wait_for_buffer) {
-      // This may invoke the callback synchronously if the buffer is already
-      // available since we last tried resolving the fragment, so we don't want
-      // to hold `mutex_` while calling this.
-      memory().OnBufferAvailable(
-          *wait_for_buffer, [self = WrapRefCounted(this)] {
-            {
-              absl::MutexLock lock(&self->mutex_);
-              self->is_next_incoming_message_blocked_ = false;
-            }
-            self->FlushIncomingMessages();
-          });
-      return IPCZ_RESULT_OK;
-    }
-
-    IpczResult result;
-    if (!next_message.fragment.is_null()) {
-#if defined(THREAD_SANITIZER)
-      // Annotate for TSAN that subsequent access to the fragment's contents is
-      // properly synchronized, since it can't deduce this on its own.
-      // Synchronization occurs by virtue of push and pop operations on the
-      // MessageFragment queue which transported this fragment descriptor.
-      __tsan_acquire(next_message.fragment.address());
-#endif
-
-      result = DispatchMessage(DriverTransport::Message(
-          DriverTransport::Data(next_message.fragment.bytes())));
-      memory().fragment_allocator().Free(next_message.fragment);
-    } else {
-      result = DispatchMessage(DriverTransport::Message(
-          DriverTransport::Data(absl::MakeSpan(next_message.data)),
-          absl::MakeSpan(next_message.handles)));
-    }
-    if (result != IPCZ_RESULT_OK) {
-      return result;
-    }
-  }
-}
-
-bool NodeLink::OnConnectFromBrokerToNonBroker(
-    msg::ConnectFromBrokerToNonBroker& connect) {
-  // Only accepted early in a transport's lifetime, before any NodeLink is
-  // listening. See NodeConnector.
-  return false;
-}
-
-bool NodeLink::OnConnectFromNonBrokerToBroker(
-    msg::ConnectFromNonBrokerToBroker& connect) {
-  // Only accepted early in a transport's lifetime, before any NodeLink is
-  // listening. See NodeConnector.
-  return false;
-}
-
-bool NodeLink::OnConnectToBrokerIndirect(
-    msg::ConnectToBrokerIndirect& connect) {
-  // Only accepted early in a transport's lifetime, before any NodeLink is
-  // listening. See NodeConnector.
-  return false;
-}
-
-bool NodeLink::OnConnectFromBrokerIndirect(
-    msg::ConnectFromBrokerIndirect& connect) {
-  // Only accepted early in a transport's lifetime, before any NodeLink is
-  // listening. See NodeConnector.
-  return false;
-}
-
-bool NodeLink::OnConnectFromBrokerToBroker(
-    msg::ConnectFromBrokerToBroker& connect) {
-  // Only accepted early in a transport's lifetime, before any NodeLink is
-  // listening. See NodeConnector.
-  return false;
-}
-
-bool NodeLink::OnRequestIndirectBrokerConnection(
-    msg::RequestIndirectBrokerConnection& request) {
-  if (node_->type() != Node::Type::kBroker) {
+bool NodeLink::OnReferNonBroker(msg::ReferNonBroker& refer) {
+  if (remote_node_type_ != Node::Type::kNormal ||
+      node()->type() != Node::Type::kBroker) {
     return false;
   }
 
-  auto transport = request.TakeDriverObject(request.params().transport);
+  DriverObject transport = refer.TakeDriverObject(refer.params().transport);
   if (!transport.is_valid()) {
     return false;
   }
-  return node_->OnRequestIndirectBrokerConnection(
-      *this, request.params().request_id,
-      MakeRefCounted<DriverTransport>(std::move(transport)),
-      request.params().num_initial_portals);
+
+  return NodeConnector::HandleNonBrokerReferral(
+      node(), refer.params().referral_id, refer.params().num_initial_portals,
+      WrapRefCounted(this),
+      MakeRefCounted<DriverTransport>(std::move(transport)));
 }
 
-bool NodeLink::OnAcceptIndirectBrokerConnection(
-    const msg::AcceptIndirectBrokerConnection& accept) {
-  if (node_->type() == Node::Type::kBroker ||
-      remote_node_type_ != Node::Type::kBroker) {
+bool NodeLink::OnNonBrokerReferralAccepted(
+    msg::NonBrokerReferralAccepted& accepted) {
+  if (remote_node_type_ != Node::Type::kBroker) {
     return false;
   }
 
-  IndirectBrokerConnectionCallback callback;
+  ReferralCallback callback;
   {
     absl::MutexLock lock(&mutex_);
-    auto it =
-        pending_indirect_broker_connections_.find(accept.params().request_id);
-    if (it == pending_indirect_broker_connections_.end()) {
+    auto it = pending_referrals_.find(accepted.params().referral_id);
+    if (it == pending_referrals_.end()) {
       return false;
     }
-
     callback = std::move(it->second);
-    pending_indirect_broker_connections_.erase(it);
+    pending_referrals_.erase(it);
   }
 
-  if (!accept.params().success) {
-    callback(NodeName(), 0);
-  } else {
-    callback(accept.params().connected_node_name,
-             accept.params().num_remote_portals);
+  const uint32_t protocol_version =
+      std::min(msg::kProtocolVersion, accepted.params().protocol_version);
+  auto transport = MakeRefCounted<DriverTransport>(
+      accepted.TakeDriverObject(accepted.params().transport));
+  DriverMemory buffer(accepted.TakeDriverObject(accepted.params().buffer));
+  if (!transport->driver_object().is_valid() || !buffer.is_valid()) {
+    // Not quite a validation failure if the broker simply failed to allocate
+    // resources for this link. Treat it like a connection failure.
+    callback(/*link=*/nullptr, /*num_initial_portals=*/0);
+    return true;
   }
+
+  Ref<NodeLink> link_to_referree = NodeLink::CreateInactive(
+      node_, LinkSide::kA, local_node_name_, accepted.params().name,
+      Node::Type::kNormal, protocol_version, std::move(transport),
+      NodeLinkMemory::Create(node_, buffer.Map()));
+  callback(link_to_referree, accepted.params().num_initial_portals);
+  link_to_referree->Activate();
   return true;
+}
+
+bool NodeLink::OnNonBrokerReferralRejected(
+    msg::NonBrokerReferralRejected& rejected) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  ReferralCallback callback;
+  {
+    absl::MutexLock lock(&mutex_);
+    auto it = pending_referrals_.find(rejected.params().referral_id);
+    if (it == pending_referrals_.end()) {
+      return false;
+    }
+    callback = std::move(it->second);
+    pending_referrals_.erase(it);
+  }
+
+  callback(/*link=*/nullptr, /*num_initial_portals=*/0);
+  return true;
+}
+
+bool NodeLink::OnRequestIntroduction(msg::RequestIntroduction& request) {
+  if (node()->type() != Node::Type::kBroker) {
+    return false;
+  }
+
+  node()->HandleIntroductionRequest(*this, request.params().name);
+  return true;
+}
+
+bool NodeLink::OnAcceptIntroduction(msg::AcceptIntroduction& accept) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  auto memory = DriverMemory(accept.TakeDriverObject(accept.params().memory));
+  if (!memory.is_valid()) {
+    return false;
+  }
+
+  auto mapping = memory.Map();
+  if (!mapping.is_valid()) {
+    return false;
+  }
+
+  auto transport = MakeRefCounted<DriverTransport>(
+      accept.TakeDriverObject(accept.params().transport));
+  node()->AcceptIntroduction(
+      *this, accept.params().name, accept.params().link_side,
+      accept.params().remote_node_type, accept.params().remote_protocol_version,
+      std::move(transport), NodeLinkMemory::Create(node(), std::move(mapping)));
+  return true;
+}
+
+bool NodeLink::OnRejectIntroduction(msg::RejectIntroduction& reject) {
+  if (remote_node_type_ != Node::Type::kBroker) {
+    return false;
+  }
+
+  node()->NotifyIntroductionFailed(*this, reject.params().name);
+  return true;
+}
+
+bool NodeLink::OnRequestIndirectIntroduction(
+    msg::RequestIndirectIntroduction& request) {
+  // By convention only a broker on side B of a broker-to-broker link will send
+  // this message, and so only side-A broker-to-broker links can receive it.
+  if (remote_node_type_ != Node::Type::kBroker ||
+      node()->type() != Node::Type::kBroker || !link_side_.is_side_a()) {
+    return false;
+  }
+
+  return node()->HandleIndirectIntroductionRequest(
+      *this, request.params().target_node, request.params().source_node);
+}
+
+bool NodeLink::OnAddBlockBuffer(msg::AddBlockBuffer& add) {
+  DriverMemory buffer(add.TakeDriverObject(add.params().buffer));
+  if (!buffer.is_valid()) {
+    return false;
+  }
+  return memory().AddBlockBuffer(add.params().id, add.params().block_size,
+                                 buffer.Map());
 }
 
 bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
   absl::Span<const uint8_t> parcel_data =
       accept.GetArrayView<uint8_t>(accept.params().parcel_data);
-  absl::Span<const HandleDescriptor> handle_descriptors =
-      accept.GetArrayView<HandleDescriptor>(accept.params().handle_descriptors);
+  absl::Span<const HandleType> handle_types =
+      accept.GetArrayView<HandleType>(accept.params().handle_types);
   absl::Span<const RouterDescriptor> new_routers =
       accept.GetArrayView<RouterDescriptor>(accept.params().new_routers);
   auto driver_objects = accept.driver_objects();
 
+  // Note that on any validation failure below, we defer rejection at least
+  // until any deserialized objects are stored in a new Parcel object. This
+  // ensures that they're properly cleaned up before we return.
+  bool parcel_valid = true;
   bool is_split_parcel = false;
-  std::vector<Ref<APIObject>> objects(handle_descriptors.size());
-  for (size_t i = 0; i < handle_descriptors.size(); ++i) {
-    const HandleDescriptor& descriptor = handle_descriptors[i];
-    switch (descriptor.type) {
-      case HandleDescriptor::kPortal: {
+  std::vector<Ref<APIObject>> objects(handle_types.size());
+  for (size_t i = 0; i < handle_types.size(); ++i) {
+    switch (handle_types[i]) {
+      case HandleType::kPortal: {
         if (new_routers.empty()) {
-          return false;
+          parcel_valid = false;
+          continue;
         }
 
         Ref<Router> new_router = Router::Deserialize(new_routers[0], *this);
         if (!new_router) {
-          return false;
+          parcel_valid = false;
+          continue;
         }
 
         objects[i] = MakeRefCounted<Portal>(node_, std::move(new_router));
@@ -718,7 +533,7 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
         break;
       }
 
-      case HandleDescriptor::kBox: {
+      case HandleType::kBox: {
         if (driver_objects.empty()) {
           return false;
         }
@@ -728,35 +543,47 @@ bool NodeLink::OnAcceptParcel(msg::AcceptParcel& accept) {
         break;
       }
 
-      case HandleDescriptor::kBoxRelayed: {
+      case HandleType::kRelayedBox: {
         is_split_parcel = true;
         break;
       }
 
       default:
-        return false;
+        parcel_valid = false;
+        break;
     }
+  }
+
+  if (!new_routers.empty() || !driver_objects.empty()) {
+    // There should be no unclaimed routers. If there are, it's a validation
+    // failure.
+    parcel_valid = false;
   }
 
   const SublinkId for_sublink = accept.params().sublink;
   Parcel parcel(accept.params().sequence_number);
   parcel.SetObjects(std::move(objects));
-  if (!accept.params().parcel_fragment.is_null()) {
-    if (accept.params().parcel_size > accept.params().parcel_fragment.size()) {
-      return false;
+  if (!parcel_valid) {
+    return false;
+  }
+
+  const FragmentDescriptor descriptor = accept.params().parcel_fragment;
+  if (!descriptor.is_null()) {
+    // The parcel's data resides in a shared memory fragment.
+    const Fragment fragment = memory().GetFragment(descriptor);
+    if (fragment.is_pending()) {
+      // We don't have this buffer yet, but we expect to receive it ASAP. Defer
+      // acceptance until then.
+      WaitForParcelFragmentToResolve(for_sublink, parcel, descriptor,
+                                     is_split_parcel);
+      return true;
     }
 
-    const FragmentDescriptor descriptor = accept.params().parcel_fragment;
-    const Fragment fragment = memory_->GetFragment(descriptor);
-    parcel.SetDataFragment(memory_, fragment);
-    if (fragment.is_pending()) {
-      AcceptParcelAfterFragmentResolved(for_sublink, parcel, is_split_parcel,
-                                        accept.params().parcel_size);
-      return true;
-    } else {
-      parcel.SetDataSize(accept.params().parcel_size);
+    if (!parcel.AdoptDataFragment(WrapRefCounted(&memory()), fragment)) {
+      return false;
     }
   } else {
+    // The parcel's data was inlined within the AcceptParcel message.
     parcel.SetInlinedData(
         std::vector<uint8_t>(parcel_data.begin(), parcel_data.end()));
   }
@@ -779,185 +606,162 @@ bool NodeLink::OnAcceptParcelDriverObjects(
   return AcceptParcelDriverObjects(accept.params().sublink, parcel);
 }
 
-bool NodeLink::OnRouteClosed(const msg::RouteClosed& route_closed) {
+bool NodeLink::OnRouteClosed(msg::RouteClosed& route_closed) {
+  absl::optional<Sublink> sublink = GetSublink(route_closed.params().sublink);
+  if (!sublink) {
+    // The sublink may have already been removed, for example if the application
+    // has already closed the associated router. It is therefore not considered
+    // an error to receive a RouteClosed message for an unknown sublink.
+    return true;
+  }
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  return sublink->receiver->AcceptRouteClosureFrom(
+      context, sublink->router_link->GetType(),
+      route_closed.params().sequence_length);
+}
+
+bool NodeLink::OnRouteDisconnected(msg::RouteDisconnected& route_closed) {
   absl::optional<Sublink> sublink = GetSublink(route_closed.params().sublink);
   if (!sublink) {
     return true;
   }
 
-  return sublink->receiver->AcceptRouteClosureFrom(
-      sublink->router_link->GetType(), route_closed.params().sequence_length);
+  DVLOG(4) << "Accepting RouteDisconnected at "
+           << sublink->router_link->Describe();
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  return sublink->receiver->AcceptRouteDisconnectedFrom(
+      context, sublink->router_link->GetType());
 }
 
-bool NodeLink::OnSetRouterLinkStateFragment(
-    const msg::SetRouterLinkStateFragment& set) {
-  absl::optional<Sublink> sublink = GetSublink(set.params().sublink);
+bool NodeLink::OnSnapshotPeerQueueState(msg::SnapshotPeerQueueState& snapshot) {
+  const OperationContext context{OperationContext::kTransportNotification};
+  if (Ref<Router> router = GetRouter(snapshot.params().sublink)) {
+    router->SnapshotPeerQueueState(context);
+  }
+  return true;
+}
+
+bool NodeLink::OnBypassPeer(msg::BypassPeer& bypass) {
+  absl::optional<Sublink> sublink = GetSublink(bypass.params().sublink);
   if (!sublink) {
     return true;
   }
 
-  sublink->router_link->SetLinkState(
-      memory().AdoptFragmentRef<RouterLinkState>(set.params().descriptor));
-  return true;
+  // NOTE: This request is authenticated by the receiving Router, within
+  // BypassPeer().
+  const OperationContext context{OperationContext::kTransportNotification};
+  return sublink->receiver->BypassPeer(context, *sublink->router_link,
+                                       bypass.params().bypass_target_node,
+                                       bypass.params().bypass_target_sublink);
 }
 
-bool NodeLink::OnRouteDisconnected(const msg::RouteDisconnected& disconnect) {
-  const SublinkId sublink = disconnect.params().sublink;
-  Ref<Router> router = GetRouter(sublink);
-  if (!router) {
+bool NodeLink::OnAcceptBypassLink(msg::AcceptBypassLink& accept) {
+  Ref<NodeLink> node_link_to_peer =
+      node_->GetLink(accept.params().current_peer_node);
+  if (!node_link_to_peer) {
+    // If the link to the peer has been severed for whatever reason, the
+    // relevant route will be torn down anyway. It's safe to ignore this
+    // request in that case.
     return true;
   }
 
-  router->NotifyLinkDisconnected(*this, sublink);
-  return true;
-}
-
-bool NodeLink::OnNotifyDataConsumed(const msg::NotifyDataConsumed& notify) {
-  Ref<Router> router = GetRouter(notify.params().sublink);
-  if (!router) {
+  const Ref<Router> receiver =
+      node_link_to_peer->GetRouter(accept.params().current_peer_sublink);
+  if (!receiver) {
+    // Similar to above, if the targeted Router cannot be resolved from the
+    // given sublink, this implies that the route has already been at least
+    // partially torn down. It's safe to ignore this request.
     return true;
   }
 
-  router->NotifyOutwardPeerConsumedData();
-  return true;
-}
-
-bool NodeLink::OnRequestIntroduction(const msg::RequestIntroduction& request) {
-  return node_->OnRequestIntroduction(*this, request);
-}
-
-bool NodeLink::OnIntroduceNode(msg::IntroduceNode& intro) {
-  if (remote_node_type_ != Node::Type::kBroker) {
+  auto link_state = MaybeAdoptFragmentRef<RouterLinkState>(
+      memory(), accept.params().new_link_state_fragment);
+  if (link_state.is_null()) {
+    // Bypass links must always come with a valid fragment for their
+    // RouterLinkState. If one has not been provided, that's a validation
+    // failure.
     return false;
   }
 
-  const NodeName name = intro.params().name;
-  const bool known = intro.params().known;
-  if (!known) {
-    node_->OnIntroduceNode(name, known, intro.params().link_side, nullptr,
-                           nullptr);
-    return true;
-  }
-
-  DriverObject transport_object =
-      intro.TakeDriverObject(intro.params().transport);
-  DriverMemory memory(intro.TakeDriverObject(intro.params().buffer));
-  if (!transport_object.is_valid() || !memory.is_valid()) {
-    return false;
-  }
-  return node_->OnIntroduceNode(
-      name, known, intro.params().link_side,
-      NodeLinkMemory::Adopt(node_, std::move(memory)),
-      MakeRefCounted<DriverTransport>(std::move(transport_object)));
+  const OperationContext context{OperationContext::kTransportNotification};
+  return receiver->AcceptBypassLink(
+      context, *this, accept.params().new_sublink, std::move(link_state),
+      accept.params().inbound_sequence_length_from_bypassed_link);
 }
 
-bool NodeLink::OnAddFragmentAllocatorBuffer(
-    msg::AddFragmentAllocatorBuffer& add) {
-  DriverMemory buffer_memory(add.TakeDriverObject(add.params().buffer));
-  if (!buffer_memory.is_valid()) {
-    return false;
-  }
-
-  if (!memory().AddFragmentAllocatorBuffer(add.params().buffer_id,
-                                           add.params().fragment_size,
-                                           std::move(buffer_memory))) {
-    return false;
-  }
-
-  return true;
-}
-
-bool NodeLink::OnStopProxying(const msg::StopProxying& stop) {
-  Ref<Router> router = GetRouter(stop.params().sublink);
-  if (!router) {
-    DVLOG(4) << "Received StopProxying for unknown router";
-    return true;
-  }
-
-  DVLOG(4) << "Received StopProxying on " << local_node_name_.ToString()
-           << " sublink " << stop.params().sublink << " with inbound"
-           << " length " << stop.params().proxy_inbound_sequence_length
-           << " and outbound length "
-           << stop.params().proxy_outbound_sequence_length;
-
-  return router->StopProxying(stop.params().proxy_inbound_sequence_length,
-                              stop.params().proxy_outbound_sequence_length);
-}
-
-bool NodeLink::OnInitiateProxyBypass(const msg::InitiateProxyBypass& request) {
-  Ref<Router> router = GetRouter(request.params().sublink);
-  if (!router) {
-    return true;
-  }
-
-  return router->InitiateProxyBypass(*this, request.params().sublink,
-                                     request.params().proxy_peer_name,
-                                     request.params().proxy_peer_sublink);
-}
-
-bool NodeLink::OnBypassProxy(const msg::BypassProxy& bypass) {
-  return node_->OnBypassProxy(*this, bypass);
-}
-
-bool NodeLink::OnBypassProxyToSameNode(
-    const msg::BypassProxyToSameNode& bypass) {
-  Ref<Router> router = GetRouter(bypass.params().sublink);
-  if (!router) {
-    return true;
-  }
-
-  Ref<RouterLink> new_link =
-      AddRemoteRouterLink(bypass.params().new_sublink,
-                          memory().AdoptFragmentRef<RouterLinkState>(
-                              bypass.params().new_link_state_fragment),
-                          LinkType::kCentral, LinkSide::kB, router);
-  return router->BypassProxyWithNewLinkToSameNode(
-      std::move(new_link), bypass.params().proxy_inbound_sequence_length);
-}
-
-bool NodeLink::OnStopProxyingToLocalPeer(
-    const msg::StopProxyingToLocalPeer& stop) {
+bool NodeLink::OnStopProxying(msg::StopProxying& stop) {
   Ref<Router> router = GetRouter(stop.params().sublink);
   if (!router) {
     return true;
   }
-  return router->StopProxyingToLocalPeer(
-      stop.params().proxy_outbound_sequence_length);
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  return router->StopProxying(context, stop.params().inbound_sequence_length,
+                              stop.params().outbound_sequence_length);
 }
 
-bool NodeLink::OnProxyWillStop(const msg::ProxyWillStop& will_stop) {
+bool NodeLink::OnProxyWillStop(msg::ProxyWillStop& will_stop) {
   Ref<Router> router = GetRouter(will_stop.params().sublink);
   if (!router) {
     return true;
   }
 
-  return router->OnProxyWillStop(
-      will_stop.params().proxy_inbound_sequence_length);
+  const OperationContext context{OperationContext::kTransportNotification};
+  return router->NotifyProxyWillStop(
+      context, will_stop.params().inbound_sequence_length);
 }
 
-bool NodeLink::OnFlushRouter(const msg::FlushRouter& flush) {
+bool NodeLink::OnBypassPeerWithLink(msg::BypassPeerWithLink& bypass) {
+  Ref<Router> router = GetRouter(bypass.params().sublink);
+  if (!router) {
+    return true;
+  }
+
+  auto link_state = MaybeAdoptFragmentRef<RouterLinkState>(
+      memory(), bypass.params().new_link_state_fragment);
+  if (link_state.is_null()) {
+    return false;
+  }
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  return router->AcceptBypassLink(context, *this, bypass.params().new_sublink,
+                                  std::move(link_state),
+                                  bypass.params().inbound_sequence_length);
+}
+
+bool NodeLink::OnStopProxyingToLocalPeer(msg::StopProxyingToLocalPeer& stop) {
+  Ref<Router> router = GetRouter(stop.params().sublink);
+  if (!router) {
+    return true;
+  }
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  return router->StopProxyingToLocalPeer(
+      context, stop.params().outbound_sequence_length);
+}
+
+bool NodeLink::OnFlushRouter(msg::FlushRouter& flush) {
   if (Ref<Router> router = GetRouter(flush.params().sublink)) {
-    router->Flush(/*force_bypass_attempt=*/true);
+    const OperationContext context{OperationContext::kTransportNotification};
+    router->Flush(context, Router::kForceProxyBypassAttempt);
   }
   return true;
 }
 
-bool NodeLink::OnRequestMemory(const msg::RequestMemory& request) {
-  DriverMemory memory(node_, request.params().size);
+bool NodeLink::OnRequestMemory(msg::RequestMemory& request) {
+  DriverMemory memory(node_->driver(), request.params().size);
   msg::ProvideMemory provide;
   provide.params().size = request.params().size;
-  provide.AppendDriverObject(memory.TakeDriverObject(),
-                             provide.params().buffer);
+  provide.params().buffer =
+      provide.AppendDriverObject(memory.TakeDriverObject());
   Transmit(provide);
   return true;
 }
 
 bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
   DriverMemory memory(provide.TakeDriverObject(provide.params().buffer));
-  if (!memory.is_valid()) {
-    return false;
-  }
-
   RequestMemoryCallback callback;
   {
     absl::MutexLock lock(&mutex_);
@@ -979,16 +783,6 @@ bool NodeLink::OnProvideMemory(msg::ProvideMemory& provide) {
   return true;
 }
 
-bool NodeLink::OnLogRouteTrace(const msg::LogRouteTrace& log_request) {
-  absl::optional<Sublink> sublink = GetSublink(log_request.params().sublink);
-  if (!sublink) {
-    return true;
-  }
-
-  sublink->receiver->AcceptLogRouteTraceFrom(sublink->router_link->GetType());
-  return true;
-}
-
 bool NodeLink::OnRelayMessage(msg::RelayMessage& relay) {
   if (node_->type() != Node::Type::kBroker) {
     return false;
@@ -997,117 +791,123 @@ bool NodeLink::OnRelayMessage(msg::RelayMessage& relay) {
   return node_->RelayMessage(remote_node_name_, relay);
 }
 
-bool NodeLink::OnAcceptRelayedMessage(msg::AcceptRelayedMessage& relay) {
+bool NodeLink::OnAcceptRelayedMessage(msg::AcceptRelayedMessage& accept) {
   if (remote_node_type_ != Node::Type::kBroker) {
     return false;
   }
 
-  return node_->AcceptRelayedMessage(relay);
+  return node_->AcceptRelayedMessage(accept);
 }
 
-bool NodeLink::OnFlushLink(const msg::FlushLink& flush) {
-  // No-op: this message is only sent to elicit a transport notification, which
-  // it's already done.
-  return true;
+void NodeLink::OnTransportError() {
+  const OperationContext context{OperationContext::kTransportNotification};
+  HandleTransportError(context);
 }
 
-IpczResult NodeLink::DispatchMessage(const DriverTransport::Message& message) {
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-  const uint8_t message_id = std::atomic_load_explicit(
-      reinterpret_cast<const std::atomic<uint8_t>*>(&header.message_id),
-      std::memory_order_acquire);
-  switch (message_id) {
-// clang-format off
-#include "ipcz/message_macros/message_dispatch_macros.h"
-#include "ipcz/node_message_defs.h"
-#include "ipcz/message_macros/undef_message_macros.h"
-      // clang-format on
-
-    default:
-      DLOG(WARNING) << "Ignoring unknown transport message with ID "
-                    << static_cast<int>(header.message_id);
-      break;
+void NodeLink::HandleTransportError(const OperationContext& context) {
+  SublinkMap sublinks;
+  {
+    absl::MutexLock lock(&mutex_);
+    sublinks.swap(sublinks_);
   }
 
-  return IPCZ_RESULT_OK;
+  for (auto& [id, sublink] : sublinks) {
+    DVLOG(4) << "NodeLink disconnection dropping "
+             << sublink.router_link->Describe() << " which is bound to router "
+             << sublink.receiver.get();
+    sublink.receiver->NotifyLinkDisconnected(context, *sublink.router_link);
+  }
+
+  Ref<NodeLink> self = WrapRefCounted(this);
+  node_->DropConnection(context, remote_node_name_);
 }
 
-void NodeLink::AcceptParcelAfterFragmentResolved(SublinkId for_sublink,
-                                                 Parcel& p,
-                                                 bool is_split_parcel,
-                                                 size_t parcel_data_size) {
+void NodeLink::WaitForParcelFragmentToResolve(
+    SublinkId for_sublink,
+    Parcel& parcel,
+    const FragmentDescriptor& descriptor,
+    bool is_split_parcel) {
   // ParcelWrapper wraps a Parcel in a RefCounted object so the reference can
-  // be captured by a lambda below. This is necessary because std::function
-  // must be copyable.
+  // be captured by a copyable lambda below.
   struct ParcelWrapper : public RefCounted {
     explicit ParcelWrapper(Parcel parcel) : parcel(std::move(parcel)) {}
     Parcel parcel;
   };
-  const FragmentDescriptor descriptor = p.data_fragment().descriptor();
-  memory_->OnBufferAvailable(
-      descriptor.buffer_id(),
-      [self = WrapRefCounted(this), for_sublink, is_split_parcel,
-       parcel_data_size,
-       parcel_wrapper = MakeRefCounted<ParcelWrapper>(std::move(p))]() {
-        Parcel& parcel = parcel_wrapper->parcel;
-        if (parcel.ResolveDataFragment()) {
-          parcel.SetDataSize(parcel_data_size);
-          if (is_split_parcel) {
-            self->AcceptParcelWithoutDriverObjects(for_sublink, parcel);
-          }
-          self->AcceptCompleteParcel(for_sublink, parcel);
+
+  auto wrapper = MakeRefCounted<ParcelWrapper>(std::move(parcel));
+  memory().WaitForBufferAsync(
+      descriptor.buffer_id(), [this_link = WrapRefCounted(this), for_sublink,
+                               is_split_parcel, wrapper, descriptor]() {
+        Ref<NodeLinkMemory> memory = WrapRefCounted(&this_link->memory());
+        const Fragment fragment = memory->GetFragment(descriptor);
+        Parcel& parcel = wrapper->parcel;
+        if (!fragment.is_addressable() ||
+            !parcel.AdoptDataFragment(std::move(memory), fragment)) {
+          // The fragment is out of bounds or had an invalid header. Either way
+          // it doesn't look good for the remote node.
+          this_link->OnTransportError();
+          return;
+        }
+
+        if (is_split_parcel) {
+          this_link->AcceptParcelWithoutDriverObjects(for_sublink, parcel);
+        } else {
+          this_link->AcceptCompleteParcel(for_sublink, parcel);
         }
       });
 }
 
 bool NodeLink::AcceptParcelWithoutDriverObjects(SublinkId for_sublink,
-                                                Parcel& p) {
-  const auto key = std::make_tuple(for_sublink, p.sequence_number());
+                                                Parcel& parcel) {
+  const auto key = std::make_tuple(for_sublink, parcel.sequence_number());
   Parcel parcel_with_driver_objects;
   {
     absl::MutexLock lock(&mutex_);
-    auto [it, ok] = partial_parcels_.try_emplace(key, std::move(p));
-    if (ok) {
+    auto [it, inserted] = partial_parcels_.try_emplace(key, std::move(parcel));
+    if (inserted) {
       return true;
     }
+
     parcel_with_driver_objects = std::move(it->second);
     partial_parcels_.erase(it);
   }
 
-  return AcceptSplitParcel(for_sublink, parcel_with_driver_objects, p);
+  return AcceptSplitParcel(for_sublink, parcel, parcel_with_driver_objects);
 }
 
-bool NodeLink::AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& p) {
-  const auto key = std::make_tuple(for_sublink, p.sequence_number());
-  Parcel parcel_with_data_and_portals;
+bool NodeLink::AcceptParcelDriverObjects(SublinkId for_sublink,
+                                         Parcel& parcel) {
+  const auto key = std::make_tuple(for_sublink, parcel.sequence_number());
+  Parcel parcel_without_driver_objects;
   {
     absl::MutexLock lock(&mutex_);
-    auto [it, ok] = partial_parcels_.try_emplace(key, std::move(p));
-    if (ok) {
+    auto [it, inserted] = partial_parcels_.try_emplace(key, std::move(parcel));
+    if (inserted) {
       return true;
     }
-    parcel_with_data_and_portals = std::move(it->second);
+
+    parcel_without_driver_objects = std::move(it->second);
     partial_parcels_.erase(it);
   }
 
-  return AcceptSplitParcel(for_sublink, p, parcel_with_data_and_portals);
+  return AcceptSplitParcel(for_sublink, parcel_without_driver_objects, parcel);
 }
 
 bool NodeLink::AcceptSplitParcel(SublinkId for_sublink,
-                                 Parcel& parcel_with_driver_objects,
-                                 Parcel& parcel_with_everything_else) {
+                                 Parcel& parcel_without_driver_objects,
+                                 Parcel& parcel_with_driver_objects) {
   // The parcel with no driver objects should still have an object attachemnt
   // slot reserved for every relayed driver object.
-  if (parcel_with_everything_else.num_objects() <
+  if (parcel_without_driver_objects.num_objects() <
       parcel_with_driver_objects.num_objects()) {
     return false;
   }
 
   // Fill in all the object gaps in the data-only parcel with the boxed objects
   // from the driver objects parcel.
+  Parcel& complete_parcel = parcel_without_driver_objects;
   auto remaining_driver_objects = parcel_with_driver_objects.objects_view();
-  for (auto& object : parcel_with_everything_else.objects_view()) {
+  for (auto& object : complete_parcel.objects_view()) {
     if (object) {
       continue;
     }
@@ -1126,11 +926,11 @@ bool NodeLink::AcceptSplitParcel(SublinkId for_sublink,
     return false;
   }
 
-  return AcceptCompleteParcel(for_sublink, parcel_with_everything_else);
+  return AcceptCompleteParcel(for_sublink, complete_parcel);
 }
 
 bool NodeLink::AcceptCompleteParcel(SublinkId for_sublink, Parcel& parcel) {
-  absl::optional<Sublink> sublink = GetSublink(for_sublink);
+  const absl::optional<Sublink> sublink = GetSublink(for_sublink);
   if (!sublink) {
     DVLOG(4) << "Dropping " << parcel.Describe() << " at "
              << local_node_name_.ToString() << ", arriving from "
@@ -1138,18 +938,20 @@ bool NodeLink::AcceptCompleteParcel(SublinkId for_sublink, Parcel& parcel) {
              << for_sublink;
     return true;
   }
+
+  const OperationContext context{OperationContext::kTransportNotification};
+  parcel.set_remote_source(WrapRefCounted(this));
   const LinkType link_type = sublink->router_link->GetType();
-  if (link_type == LinkType::kCentral ||
-      link_type == LinkType::kPeripheralOutward) {
+  if (link_type.is_outward()) {
     DVLOG(4) << "Accepting inbound " << parcel.Describe() << " at "
              << sublink->router_link->Describe();
-    return sublink->receiver->AcceptInboundParcel(parcel);
-  } else {
-    ABSL_ASSERT(link_type == LinkType::kPeripheralInward);
-    DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
-             << sublink->router_link->Describe();
-    return sublink->receiver->AcceptOutboundParcel(parcel);
+    return sublink->receiver->AcceptInboundParcel(context, parcel);
   }
+
+  ABSL_ASSERT(link_type.is_peripheral_inward());
+  DVLOG(4) << "Accepting outbound " << parcel.Describe() << " at "
+           << sublink->router_link->Describe();
+  return sublink->receiver->AcceptOutboundParcel(context, parcel);
 }
 
 NodeLink::Sublink::Sublink(Ref<RemoteRouterLink> router_link,
@@ -1165,14 +967,5 @@ NodeLink::Sublink& NodeLink::Sublink::operator=(Sublink&&) = default;
 NodeLink::Sublink& NodeLink::Sublink::operator=(const Sublink&) = default;
 
 NodeLink::Sublink::~Sublink() = default;
-
-NodeLink::IncomingMessage::IncomingMessage() = default;
-
-NodeLink::IncomingMessage::IncomingMessage(IncomingMessage&&) = default;
-
-NodeLink::IncomingMessage& NodeLink::IncomingMessage::operator=(
-    IncomingMessage&&) = default;
-
-NodeLink::IncomingMessage::~IncomingMessage() = default;
 
 }  // namespace ipcz

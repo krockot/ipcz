@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,26 +6,28 @@
 #define IPCZ_SRC_IPCZ_NODE_H_
 
 #include <functional>
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "ipcz/api_object.h"
 #include "ipcz/driver_memory.h"
-#include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_side.h"
-#include "ipcz/node_link_memory.h"
 #include "ipcz/node_messages.h"
 #include "ipcz/node_name.h"
-#include "ipcz/portal.h"
+#include "ipcz/node_type.h"
+#include "ipcz/operation_context.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
+#include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
+#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
-#include "util/ref_counted.h"
 
 namespace ipcz {
 
 class NodeLink;
-class Portal;
+class NodeLinkMemory;
 
 // A Node controls creation and interconnection of a collection of routers which
 // can establish links to and from other routers in other nodes. Every node is
@@ -33,19 +35,25 @@ class Portal;
 // introduced to each other exclusively through such brokers.
 class Node : public APIObjectImpl<Node, APIObject::kNode> {
  public:
-  enum class Type {
-    // A broker node assigns its own name and is able to assign names to other
-    // nodes upon connection. Brokers are trusted to introduce nodes to each
-    // other upon request, and brokers may connect to other brokers in order to
-    // share information and effectively bridge two node networks together.
-    kBroker,
+  using Type = NodeType;
 
-    // A "normal" (i.e. non-broker) node is assigned a permanent name by the
-    // first broker node it connects to, and it can only make contact with other
-    // nodes by requesting an introduction from that broker.
-    kNormal,
+  // State regarding a connection to a single remote node.
+  struct Connection {
+    // The NodeLink used to communicate with the remote node.
+    Ref<NodeLink> link;
+
+    // The NodeLink used to communicate with the broker of the remote node's
+    // network. If the remote node belongs to the same network as the local
+    // node, then this is the same link the local node's `broker_link_`. If the
+    // local node *is* the broker for the remote node on `link`, then this link
+    // is null.
+    Ref<NodeLink> broker;
   };
 
+  // Constructs a new node of the given `type`, using `driver` to support IPC.
+  // Note that `driver` must outlive the Node. `driver_node` is an arbitrary
+  // driver-specific handle that may be used for additional context when
+  // interfacing with the driver regarding this node.
   Node(Type type, const IpczDriver& driver, IpczDriverHandle driver_node);
 
   Type type() const { return type_; }
@@ -55,145 +63,153 @@ class Node : public APIObjectImpl<Node, APIObject::kNode> {
   // APIObject:
   IpczResult Close() override;
 
-  // Deactivates all NodeLinks and their underlying driver transports in
-  // preparation for this node's imminent destruction.
-  void ShutDown();
-
   // Connects to another node using `driver_transport` for I/O to and from the
-  // other node. `initial_portals` is a collection of new portals who will
-  // immediately begin to route parcel over a link to the new node, assuming the
-  // link is established successfully.
+  // other node. `initial_portals` is a collection of new portals who may
+  // immediately begin to route parcels over a link to the new node, assuming
+  // the link is established successfully.
   IpczResult ConnectNode(IpczDriverHandle driver_transport,
                          IpczConnectNodeFlags flags,
                          absl::Span<IpczHandle> initial_portals);
 
-  void SetPortalsWaitingForLink(const NodeName& node_name,
-                                absl::Span<const Ref<Portal>> portals);
-
-  // Opens a new pair of directly linked portals on this node and returns
-  // references to both of them.
-  Portal::Pair OpenPortals();
-
+  // Retrieves the name assigned to this node, if any.
   NodeName GetAssignedName();
-
-  // Looks up a NodeLink by name. If there's no known link to the named node,
-  // this returns null.
-  Ref<NodeLink> GetLink(const NodeName& name);
 
   // Gets a reference to the node's broker link, if it has one.
   Ref<NodeLink> GetBrokerLink();
 
-  // Sets this nodes broker link. The link must also be registered separately
-  // via AddLink().
-  void SetBrokerLink(Ref<NodeLink> link);
-
-  // Sets this node's assigned name as given by a broker. Must only be called
-  // once and only on non-broker nodes.
+  // Sets this node's assigned name as given by a broker. NodeConnector is
+  // responsible for calling on non-broker Nodes this after receiving the
+  // expected handshake from a broker. Must not be called on broker nodes, as
+  // they assign their own name at construction time.
   void SetAssignedName(const NodeName& name);
 
-  // Registers a new NodeLink for the given `remote_node_name`.
-  bool AddLink(const NodeName& remote_node_name, Ref<NodeLink> link);
+  // Registers a new connection for the given `remote_node_name`.
+  bool AddConnection(const NodeName& remote_node_name, Connection connection);
 
-  // Asynchronously establishes a NodeLink to the named node and invokes
-  // `callback` when complete. If it's determined that establishing a link won't
-  // be possible, `callback` may be invoked with null.
-  //
-  // If this node already has a link to the named node, `callback` may be
-  // invoked with that link synchronously before EstablishLink() returns. If
-  // an introduction request is already in flight for the named node, `callback`
-  // is stored and will be invoked one the introduction is complete. Otherise,
-  // this node will send an introduction request to its broker before returning
-  // and `callback` will be invoked once that request is completed.
-  using EstablishLinkCallback = std::function<void(NodeLink*)>;
-  void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
+  // Returns a copy of the Connection to the remote node named by `name`, or
+  // null if this node has no connection to that node.
+  absl::optional<Node::Connection> GetConnection(const NodeName& name);
 
-  // Handles an incoming request to introduce a new node to this broker
-  // indirectly. The sender on the other end of `from_node_link` is already a
-  // client of this broker, and they're requesting this introduction on behalf
-  // of another (currently brokerless) node.
-  bool OnRequestIndirectBrokerConnection(NodeLink& from_node_link,
-                                         uint64_t request_id,
-                                         Ref<DriverTransport> transport,
-                                         uint32_t num_initial_portals);
+  // Returns a reference to the NodeLink used by this Node to communicate with
+  // the remote node identified by `name`; or null if this node has no NodeLink
+  // connected to that node. This is shorthand for GetConnection() in the common
+  // case where the caller only wants the underlying NodeLink.
+  Ref<NodeLink> GetLink(const NodeName& name);
 
-  // Handles an incoming introduction request. This message is only accepted by
-  // broker nodes. If the broker knows of the node named in `request`, it will
-  // send an IntroduceNode message to both that node, and the node which sent
-  // this request (at `front_node_link`), with a new driver transport for each
-  // one which connects them each other.
-  bool OnRequestIntroduction(NodeLink& from_node_link,
-                             const msg::RequestIntroduction& request);
-
-  // Handles an incoming introduction to the named node. If `known` is false,
-  // then introduction has failed and the rest of the parameters can be ignored.
-  // Otherwise `primary_buffer_memory` establishes an initial memory buffer
-  // shared between the nodes, and `serialized_transport_data` and
-  // `serialized_transport_handles` comprise the complete serialized
-  // representation of a new driver transport which can be used for I/O to and
-  // from the named node.
-  bool OnIntroduceNode(const NodeName& name,
-                       bool known,
-                       LinkSide link_side,
-                       Ref<NodeLinkMemory> link_memory,
-                       Ref<DriverTransport> transport);
-
-  // Handles an incoming request to bypass a proxying router on another node.
-  bool OnBypassProxy(NodeLink& from_node_link, const msg::BypassProxy& bypass);
-
-  // Registers a callback to be invoked as soon as this node acquires a link to
-  // a broker node. If it alread has one, the callback is invoked immediately,
-  // before returning from this call.
-  using BrokerCallback = std::function<void(Ref<NodeLink> broker_link)>;
-  void AddBrokerCallback(BrokerCallback callback);
-
-  // Requests allocation of a new shared memory object of the given size.
-  // `callback` is invoked with the new object when allocation is complete.
-  // This operation is asynchronous, since it may be delegated to a broker node
-  // within some runtime environments.
-  using AllocateSharedMemoryCallback = std::function<void(DriverMemory memory)>;
-  void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
+  // Generates a new random NodeName using this node's driver as a source of
+  // randomness.
+  NodeName GenerateRandomName() const;
 
   // Sets a NodeLink to use for asynchronous shared memory allocation requests.
   // This is configured when the ConnectNode() API is called with
-  // IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE, useful for configuring a node
-  // whose runtime environment cannot support direct shared memory allocation
-  // due to, e.g., security restrictions.
+  // IPCZ_CONNECT_NODE_TO_ALLOCATION_DELEGATE. Typically this is combined with
+  // IPCZ_CONNECT_NODE_TO_BROKER when connecting from a sandboxed process which
+  // cannot allocate its own shared memory regions.
   void SetAllocationDelegate(Ref<NodeLink> link);
 
-  // Unpacks `relay` and forwards it along to the identified relay destination.
-  // Called only on brokers.
+  // Requests allocation of a new shared memory object of the given size.
+  // `callback` is invoked with the new object when allocation is complete.
+  // This operation is asynchronous if allocation is delegated to another node,
+  // but if this node can allocate directly through the driver, `callback` is
+  // invoked with the result before this method returns.
+  using AllocateSharedMemoryCallback = std::function<void(DriverMemory)>;
+  void AllocateSharedMemory(size_t size, AllocateSharedMemoryCallback callback);
+
+  // Asynchronously attempts to establish a new NodeLink directly to the named
+  // node, invoking `callback` when complete. On success, this node will retain
+  // a new NodeLink to the named node, and `callback` will be invoked with a
+  // reference to that link. Otherwise `callback` will be invoked with a null
+  // reference.
+  //
+  // If the calling node already has a link to the named node, `callback` may
+  // be invoked synchronously with a link to that node before this method
+  // returns.
+  using EstablishLinkCallback = std::function<void(NodeLink*)>;
+  void EstablishLink(const NodeName& name, EstablishLinkCallback callback);
+
+  // Handles an incoming introduction request. Must only be called on a broker
+  // node. If this broker has a NodeLink to the node named by `for_node`, it
+  // will introduce that node and the remote node on `from_node_link`.
+  void HandleIntroductionRequest(NodeLink& from_node_link,
+                                 const NodeName& for_node);
+
+  // Accepts an introduction received from the broker. `transport` and `memory`
+  // can be used to establish a new NodeLink to the remote node, whose name is
+  // `name`. The NodeLink must assume a role as the given `side` of the link.
+  void AcceptIntroduction(NodeLink& from_node_link,
+                          const NodeName& name,
+                          LinkSide side,
+                          Node::Type remote_node_type,
+                          uint32_t remote_protocol_version,
+                          Ref<DriverTransport> transport,
+                          Ref<NodeLinkMemory> memory);
+
+  // Handles a rejected introduction for the node named `name` from the
+  // identified broker. This is called on a node that previously requested an
+  // introduction if the broker is unable or unwilling to satisfy the request.
+  void NotifyIntroductionFailed(NodeLink& from_broker, const NodeName& name);
+
+  // Relays a message to its destination on behalf of `from_node`.
   bool RelayMessage(const NodeName& from_node, msg::RelayMessage& relay);
 
-  // Accepts a message relayed by a broker, unwrapping, deserializing, and
-  // dispatching the embedded message.
-  bool AcceptRelayedMessage(msg::AcceptRelayedMessage& relay);
+  // Attempts to dispatch a relayed message from the broker as if it came from
+  // the relay source directly.
+  bool AcceptRelayedMessage(msg::AcceptRelayedMessage& accept);
 
-  // Generates a new NodeName using this node's driver for randomness.
-  NodeName GenerateRandomName() const;
+  // Drops this node's connection to the named node, if one exists.
+  void DropConnection(const OperationContext& context, const NodeName& name);
 
-  // Convenient entry point to inspect node state in tests when things go wrong.
-  void DiagnoseForTesting();
+  // Asynchronously waits for this Node to acquire a broker link and then
+  // invokes `callback` with it. If this node already has a broker link then the
+  // callback is invoked immediately, before this method returns.
+  using BrokerLinkCallback = std::function<void(Ref<NodeLink>)>;
+  void WaitForBrokerLinkAsync(BrokerLinkCallback callback);
+
+  // Processes a request for an indirect cross-network node introduction. The
+  // request was sent by `from_node_link` (a link to another broker) and is
+  // asking us to introduce `our_node` within our network to `their_node` in the
+  // the requestor's network.
+  bool HandleIndirectIntroductionRequest(NodeLink& from_node_link,
+                                         const NodeName& our_node,
+                                         const NodeName& their_node);
 
  private:
+  class PendingIntroduction;
+
   ~Node() override;
 
+  // Deactivates all NodeLinks and their underlying driver transports in
+  // preparation for this node's imminent destruction.
+  void ShutDown();
+
+  // Resolves all pending introduction requests with a null link, implying
+  // failure.
+  void CancelAllIntroductions();
+
+  // Creates a new transport and link memory and sends introduction messages to
+  // introduce the remote node on `first` to the remote node on `second`.
+  void IntroduceRemoteNodes(NodeLink& first, NodeLink& second);
+
   const Type type_;
-  const IpczDriver driver_;
+  const IpczDriver& driver_;
   const IpczDriverHandle driver_node_;
 
   absl::Mutex mutex_;
 
-  // The name assigned to this node by the first broker it connected to. Once
-  // assigned, this name remains constant through the life of the node.
+  // The name assigned to this node by the first broker it connected to, or
+  // self-assigned if this is a broker node. Once assigned, this name remains
+  // constant through the lifetime of the node.
   NodeName assigned_name_ ABSL_GUARDED_BY(mutex_);
 
   // A link to the first broker this node connected to. If this link is broken,
-  // the node will lose all its other links too.
+  // the node will lose all its other links too. This is always null on broker
+  // nodes, though brokers may keep track of links to other brokers within
+  // `other_brokers_`.
   Ref<NodeLink> broker_link_ ABSL_GUARDED_BY(mutex_);
 
-  // A node link over which all internal shared memory allocation is delegated.
-  // If null, this Node will always attempt to allocate shared memory directly
-  // through the ipcz driver.
+  // A link over which all internal shared memory allocation is delegated. If
+  // null, this Node will always attempt to allocate shared memory directly
+  // through its ipcz driver.
   Ref<NodeLink> allocation_delegate_link_ ABSL_GUARDED_BY(mutex_);
 
   // Lookup table of broker-assigned node names and links to those nodes. All of
@@ -201,17 +217,56 @@ class Node : public APIObjectImpl<Node, APIObject::kNode> {
   // if this is a non-broker node. If this is a broker node, these links are
   // either assigned by this node itself, or received from other brokers in the
   // system.
-  absl::flat_hash_map<NodeName, Ref<NodeLink>> node_links_
+  using ConnectionMap = absl::flat_hash_map<NodeName, Connection>;
+  ConnectionMap connections_ ABSL_GUARDED_BY(mutex_);
+
+  // A map of other nodes to which this node is waiting for an introduction,
+  // either from its own broker or (if we are a broker) all the other known
+  // brokers we're connected to.
+  using PendingIntroductionMap =
+      absl::flat_hash_map<NodeName, std::unique_ptr<PendingIntroduction>>;
+  PendingIntroductionMap pending_introductions_ ABSL_GUARDED_BY(mutex_);
+
+  // Nodes may race to request introductions to each other from the same broker.
+  // This can lead to redundant introductions being sent which the requesting
+  // nodes should be able to ignore. However, the following could occur on a
+  // broker which is processing a request from node A on Thread 1 while also
+  // processing a request from node B on thread 2:
+  //
+  //    Thread 1                       Thread 2                      Time
+  //    ---                            ---                             |
+  //    A requests intro to B          B requests intro to A           v
+  //    Send B intro X to A
+  //                                   Send A intro Y to B
+  //    Send A intro X to B
+  //                                   Send B intro Y to A
+  //
+  // Each unique intro shares either end of a transport with its recipients,
+  // so both A and B must accept the same introduction (either X or Y). In this
+  // scenario however, A will first receive and accept intro X, and will ignore
+  // intro Y as redundant. But B will receive intro Y first and ignore intro X
+  // as redundant. This is bad.
+  //
+  // The set of `in_progress_introductions_` allows this (broker) node to guard
+  // against such interleaved introductions. Immediately before sending an intro
+  // to both recipients, a key identifying them is placed into the set. This key
+  // is removed immediately after both introductions are sent. If another thread
+  // is asked to introduce the same two nodes while the key is still present, it
+  // will ignore the request and send nothing.
+  using IntroductionKey = std::pair<NodeName, NodeName>;
+  absl::flat_hash_set<IntroductionKey> in_progress_introductions_
       ABSL_GUARDED_BY(mutex_);
 
-  // A map of other nodes to which this node is waiting for an introduction from
-  // `broker_link_`. Once such an introduction is received, all callbacks for
-  // that NodeName are executed.
-  absl::flat_hash_map<NodeName, std::vector<EstablishLinkCallback>>
-      pending_introductions_ ABSL_GUARDED_BY(mutex_);
+  // Set of callbacks waiting to be invoked as soon as this Node acquires a
+  // broker link.
+  std::vector<BrokerLinkCallback> broker_link_callbacks_
+      ABSL_GUARDED_BY(mutex_);
 
-  // A list of callbacks to be invoked when this node acquires a broker link.
-  std::vector<BrokerCallback> broker_callbacks_ ABSL_GUARDED_BY(mutex_);
+  // Mapping of links to other known brokers in the system. This is the subset
+  // of `links_` which corresponds to remote broker nodes NOT in this node's own
+  // network. This map can only be non-empty on broker nodes.
+  absl::flat_hash_map<NodeName, Ref<NodeLink>> other_brokers_
+      ABSL_GUARDED_BY(mutex_);
 };
 
 }  // namespace ipcz

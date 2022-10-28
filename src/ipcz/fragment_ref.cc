@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,12 +7,10 @@
 #include <algorithm>
 #include <utility>
 
+#include "ipcz/fragment.h"
 #include "ipcz/node_link_memory.h"
 #include "ipcz/ref_counted_fragment.h"
-#include "third_party/abseil-cpp/absl/base/macros.h"
-
-#include "util/log.h"
-#include "util/stack_trace.h"
+#include "util/ref_counted.h"
 
 namespace ipcz::internal {
 
@@ -20,47 +18,7 @@ GenericFragmentRef::GenericFragmentRef() = default;
 
 GenericFragmentRef::GenericFragmentRef(Ref<NodeLinkMemory> memory,
                                        const Fragment& fragment)
-    : memory_(std::move(memory)), fragment_(fragment) {
-  if (fragment_.is_addressable()) {
-    fragment_.As<RefCountedFragment>()->AddRef();
-  }
-}
-
-GenericFragmentRef::GenericFragmentRef(
-    decltype(RefCountedFragment::kAdoptExistingRef),
-    Ref<NodeLinkMemory> memory,
-    const Fragment& fragment)
     : memory_(std::move(memory)), fragment_(fragment) {}
-
-GenericFragmentRef::GenericFragmentRef(GenericFragmentRef&& other)
-    : memory_(std::move(other.memory_)), fragment_(other.fragment_) {
-  other.fragment_ = Fragment();
-}
-
-GenericFragmentRef& GenericFragmentRef::operator=(GenericFragmentRef&& other) {
-  reset();
-  memory_ = std::move(other.memory_);
-  std::swap(fragment_, other.fragment_);
-  return *this;
-}
-
-GenericFragmentRef::GenericFragmentRef(const GenericFragmentRef& other)
-    : memory_(other.memory_), fragment_(other.fragment_) {
-  if (fragment_.is_addressable()) {
-    fragment_.As<RefCountedFragment>()->AddRef();
-  }
-}
-
-GenericFragmentRef& GenericFragmentRef::operator=(
-    const GenericFragmentRef& other) {
-  reset();
-  memory_ = other.memory_;
-  fragment_ = other.fragment_;
-  if (fragment_.is_addressable()) {
-    fragment_.As<RefCountedFragment>()->AddRef();
-  }
-  return *this;
-}
 
 GenericFragmentRef::~GenericFragmentRef() {
   reset();
@@ -78,11 +36,12 @@ void GenericFragmentRef::reset() {
     return;
   }
 
-  if (fragment.As<RefCountedFragment>()->ReleaseRef() > 1 || !memory) {
+  auto* ref_counted = static_cast<RefCountedFragment*>(fragment.address());
+  if (ref_counted->ReleaseRef() > 1 || !memory) {
     return;
   }
 
-  memory->fragment_allocator().Free(fragment);
+  memory->FreeFragment(fragment);
 }
 
 Fragment GenericFragmentRef::release() {

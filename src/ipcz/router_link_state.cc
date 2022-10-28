@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,8 @@
 
 #include <cstring>
 #include <limits>
-#include <new>
+
+#include "ipcz/link_side.h"
 
 namespace ipcz {
 
@@ -33,20 +34,11 @@ T& SelectBySide(LinkSide side, T& for_a, T& for_b) {
 
 RouterLinkState::RouterLinkState() = default;
 
-RouterLinkState::~RouterLinkState() = default;
-
 // static
 RouterLinkState& RouterLinkState::Initialize(void* where) {
   auto& state = *static_cast<RouterLinkState*>(where);
-  memset(&state.allowed_bypass_request_source, 0,
-         sizeof(state.allowed_bypass_request_source));
-  state.num_parcels_queued_for_a.store(0, std::memory_order_relaxed);
-  state.num_bytes_queued_for_a.store(0, std::memory_order_relaxed);
-  state.num_parcels_queued_for_b.store(0, std::memory_order_relaxed);
-  state.num_bytes_queued_for_b.store(0, std::memory_order_relaxed);
-  state.should_signal_a_when_reading_b.store(false, std::memory_order_relaxed);
-  state.should_signal_b_when_reading_a.store(false, std::memory_order_relaxed);
-  state.status.store(kUnstable, std::memory_order_release);
+  new (&state) RouterLinkState();
+  std::atomic_thread_fence(std::memory_order_release);
   return state;
 }
 
@@ -61,16 +53,16 @@ void RouterLinkState::SetSideStable(LinkSide side) {
   }
 }
 
-bool RouterLinkState::TryLock(LinkSide side) {
+bool RouterLinkState::TryLock(LinkSide from_side) {
   const Status kThisSideStable =
-      side == LinkSide::kA ? kSideAStable : kSideBStable;
+      from_side == LinkSide::kA ? kSideAStable : kSideBStable;
   const Status kOtherSideStable =
-      side == LinkSide::kA ? kSideBStable : kSideAStable;
+      from_side == LinkSide::kA ? kSideBStable : kSideAStable;
   const Status kLockedByThisSide =
-      side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
+      from_side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
   const Status kLockedByEitherSide = kLockedBySideA | kLockedBySideB;
   const Status kThisSideWaiting =
-      side == LinkSide::kA ? kSideAWaiting : kSideBWaiting;
+      from_side == LinkSide::kA ? kSideAWaiting : kSideBWaiting;
 
   Status expected = kStable;
   Status desired_bit = kLockedByThisSide;
@@ -97,9 +89,9 @@ bool RouterLinkState::TryLock(LinkSide side) {
   return desired_bit == kLockedByThisSide;
 }
 
-void RouterLinkState::Unlock(LinkSide side) {
+void RouterLinkState::Unlock(LinkSide from_side) {
   const Status kLockedByThisSide =
-      side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
+      from_side == LinkSide::kA ? kLockedBySideA : kLockedBySideB;
   Status expected = kStable | kLockedByThisSide;
   Status desired = kStable;
   while (!status.compare_exchange_weak(expected, desired,
@@ -112,12 +104,13 @@ void RouterLinkState::Unlock(LinkSide side) {
 bool RouterLinkState::ResetWaitingBit(LinkSide side) {
   const Status kThisSideWaiting =
       side == LinkSide::kA ? kSideAWaiting : kSideBWaiting;
+  const Status kLockedByEitherSide = kLockedBySideA | kLockedBySideB;
   Status expected = kStable | kThisSideWaiting;
   Status desired = kStable;
   while (!status.compare_exchange_weak(expected, desired,
                                        std::memory_order_relaxed)) {
     if ((expected & kStable) != kStable || (expected & kThisSideWaiting) == 0 ||
-        (expected & (kLockedBySideA | kLockedBySideB)) != 0) {
+        (expected & kLockedByEitherSide) != 0) {
       // If the link isn't stable yet, or `side` wasn't waiting on it, or the
       // link is already locked, there's no point changing the status here.
       return false;
@@ -132,44 +125,8 @@ bool RouterLinkState::ResetWaitingBit(LinkSide side) {
   return true;
 }
 
-RouterLinkState::QueueState RouterLinkState::GetQueueState(
-    LinkSide side) const {
-  uint32_t num_bytes;
-  uint32_t num_parcels;
-  if (side.is_side_a()) {
-    num_bytes = num_bytes_queued_for_a.load(std::memory_order_relaxed);
-    num_parcels = num_parcels_queued_for_a.load(std::memory_order_relaxed);
-  } else {
-    num_bytes = num_bytes_queued_for_b.load(std::memory_order_relaxed);
-    num_parcels = num_parcels_queued_for_b.load(std::memory_order_relaxed);
-  }
-  return {.num_inbound_bytes_queued = num_bytes,
-          .num_inbound_parcels_queued = num_parcels};
-}
-
-bool RouterLinkState::UpdateQueueState(LinkSide side,
-                                       size_t num_bytes,
-                                       size_t num_parcels) {
-  std::atomic<bool>& should_signal = SelectBySide(
-      side, should_signal_b_when_reading_a, should_signal_a_when_reading_b);
-  std::atomic<uint32_t>& num_bytes_queued =
-      SelectBySide(side, num_bytes_queued_for_a, num_bytes_queued_for_b);
-  std::atomic<uint32_t>& num_parcels_queued =
-      SelectBySide(side, num_parcels_queued_for_a, num_parcels_queued_for_b);
-
-  StoreSaturated(num_bytes_queued, num_bytes);
-  StoreSaturated(num_parcels_queued, num_parcels);
-  return should_signal.load(std::memory_order_relaxed);
-}
-
-bool RouterLinkState::SetSignalOnDataConsumedBy(LinkSide side, bool signal) {
-  std::atomic<bool>& should_signal = SelectBySide(
-      side, should_signal_b_when_reading_a, should_signal_a_when_reading_b);
-  bool previous_value = !signal;
-  should_signal.compare_exchange_strong(previous_value, signal,
-                                        std::memory_order_relaxed,
-                                        std::memory_order_relaxed);
-  return previous_value;
+AtomicQueueState& RouterLinkState::GetQueueState(LinkSide side) {
+  return SelectBySide(side, side_a_queue_state, side_b_queue_state);
 }
 
 }  // namespace ipcz

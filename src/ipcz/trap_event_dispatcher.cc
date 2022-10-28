@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,7 @@ TrapEventDispatcher::~TrapEventDispatcher() {
 }
 
 void TrapEventDispatcher::DeferEvent(IpczTrapEventHandler handler,
-                                     uint64_t context,
+                                     uintptr_t context,
                                      IpczTrapConditionFlags flags,
                                      const IpczPortalStatus& status) {
   events_.emplace_back(handler, context, flags, status);
@@ -34,7 +34,7 @@ void TrapEventDispatcher::DispatchAll() {
 TrapEventDispatcher::Event::Event() = default;
 
 TrapEventDispatcher::Event::Event(IpczTrapEventHandler handler,
-                                  uint64_t context,
+                                  uintptr_t context,
                                   IpczTrapConditionFlags flags,
                                   IpczPortalStatus status)
     : handler(handler), context(context), flags(flags), status(status) {}

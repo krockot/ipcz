@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -95,6 +95,8 @@ class Ref : public GenericRef {
   bool operator!=(const Ref<T>& other) const { return ptr_ != other.ptr_; }
 
   T* release() { return static_cast<T*>(ReleaseImpl()); }
+
+  void swap(Ref<T>& other) noexcept { std::swap(ptr_, other.ptr_); }
 
   template <typename H>
   friend H AbslHashValue(H h, const Ref<T>& ref) {

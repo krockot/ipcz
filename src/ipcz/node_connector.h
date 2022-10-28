@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,12 +12,13 @@
 #include "ipcz/driver_transport.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_side.h"
+#include "ipcz/node.h"
+#include "ipcz/node_messages.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
 
 namespace ipcz {
 
-class Node;
 class NodeLink;
 class Portal;
 
@@ -28,7 +29,7 @@ class Portal;
 // Once an initial handshake is complete the underlying transport is adopted by
 // a new NodeLink and handed off to the local Node to communicate with the
 // remote node, and this object is destroyed.
-class NodeConnector : public RefCounted, public DriverTransport::Listener {
+class NodeConnector : public msg::NodeMessageListener {
  public:
   // Constructs a new NodeConnector to send and receive a handshake on
   // `transport`. The specific type of connector to create is determined by a
@@ -44,63 +45,55 @@ class NodeConnector : public RefCounted, public DriverTransport::Listener {
   using ConnectCallback = std::function<void(Ref<NodeLink> new_link)>;
   static IpczResult ConnectNode(Ref<Node> node,
                                 Ref<DriverTransport> transport,
-                                IpczCreateNodeFlags flags,
+                                IpczConnectNodeFlags flags,
                                 const std::vector<Ref<Portal>>& initial_portals,
                                 ConnectCallback callback = nullptr);
 
-  // Constructs a new NodeConnector to send and receive a handshake on
-  // `transport`, which was passed to this (broker) node by one non-broker
-  // referring another non-broker to the network. On the other side of this
-  // transport must be the latter non-broker, issuing its own ConnectNode() call
-  //  with the IPCZ_CONNECT_NODE_INHERIT_BROKER flag specified.
-  using ConnectIndirectCallback =
-      std::function<void(Ref<NodeLink> new_link, uint32_t num_remote_portals)>;
-  static IpczResult ConnectNodeIndirect(Ref<Node> node,
-                                        Ref<NodeLink> referrer,
-                                        Ref<DriverTransport> transport,
-                                        uint32_t num_initial_portals,
-                                        ConnectIndirectCallback callback);
+  // Handles a request on `node` (which must be a broker) to accept a new
+  // non-broker node referral from `referrer`, referring a new non-broker node
+  // on the remote end of `transport_to_referred_node`. This performs a
+  // handshake with the referred node before introducing it and the referrer to
+  // each other.
+  static bool HandleNonBrokerReferral(
+      Ref<Node> node,
+      uint64_t referral_id,
+      uint32_t num_initial_portals,
+      Ref<NodeLink> referrer,
+      Ref<DriverTransport> transport_to_referred_node);
 
-  virtual void Connect() = 0;
-  virtual bool OnMessage(uint8_t message_id,
-                         const DriverTransport::Message& message) = 0;
+  virtual bool Connect() = 0;
 
  protected:
   NodeConnector(Ref<Node> node,
                 Ref<DriverTransport> transport,
-                IpczCreateNodeFlags flags,
+                IpczConnectNodeFlags flags,
                 std::vector<Ref<Portal>> waiting_portals,
                 ConnectCallback callback);
   ~NodeConnector() override;
 
-  uint32_t num_portals() const {
-    return static_cast<uint32_t>(waiting_portals_.size());
-  }
+  size_t num_portals() const { return waiting_portals_.size(); }
 
-  // Invoked once by the implementation when it has completed the handshake.
-  // `new_link` has already assumed ownership of the underlying transport and
-  // is listening for incoming messages on it. Destroys `this`.
-  void AcceptConnection(Ref<NodeLink> new_link,
-                        LinkSide link_side,
+  // Invoked once by the implementation when it has completed its handshake.
+  // Destroys `this`.
+  void AcceptConnection(Node::Connection connection,
                         uint32_t num_remote_portals);
+
+  // Invoked if the transport observes an error before receiving the expected
+  // handshake message, or if the implementation receives any message other than
+  // the one handshake message it expects to see first.
   void RejectConnection();
 
   const Ref<Node> node_;
   const Ref<DriverTransport> transport_;
-  const IpczCreateNodeFlags flags_;
+  const IpczConnectNodeFlags flags_;
   const std::vector<Ref<Portal>> waiting_portals_;
-  Ref<NodeConnector> active_self_;
+
+  // NodeMessageListener overrides:
+  void OnTransportError() override;
 
  private:
-  void ActivateTransportAndConnect();
-  void EstablishWaitingPortals(Ref<NodeLink> to_link,
-                               LinkSide link_side,
-                               size_t max_valid_portals);
-
-  // DriverTransport::Listener:
-  IpczResult OnTransportMessage(
-      const DriverTransport::Message& message) override;
-  void OnTransportError() override;
+  bool ActivateTransport();
+  void EstablishWaitingPortals(Ref<NodeLink> to_link, size_t max_valid_portals);
 
   const ConnectCallback callback_;
 };

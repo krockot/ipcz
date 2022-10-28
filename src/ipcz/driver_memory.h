@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,8 +14,6 @@
 
 namespace ipcz {
 
-class Node;
-
 // Scoped wrapper around a shared memory region allocated and manipulated
 // through an ipcz driver.
 class DriverMemory {
@@ -27,7 +25,7 @@ class DriverMemory {
 
   // Asks the node to allocate a new driver shared memory region of at least
   // `num_bytes` in size.
-  DriverMemory(Ref<Node> node, size_t num_bytes);
+  DriverMemory(const IpczDriver& driver, size_t num_bytes);
 
   DriverMemory(DriverMemory&& other);
   DriverMemory& operator=(DriverMemory&& other);
@@ -52,6 +50,19 @@ class DriverMemory {
  private:
   DriverObject memory_;
   size_t size_ = 0;
+};
+
+// This pairs a DriverMemory object with a mapping of that same object, for
+// convenience.
+struct DriverMemoryWithMapping {
+  DriverMemoryWithMapping();
+  DriverMemoryWithMapping(DriverMemory memory, DriverMemoryMapping mapping);
+  DriverMemoryWithMapping(DriverMemoryWithMapping&&);
+  DriverMemoryWithMapping& operator=(DriverMemoryWithMapping&&);
+  ~DriverMemoryWithMapping();
+
+  DriverMemory memory;
+  DriverMemoryMapping mapping;
 };
 
 }  // namespace ipcz

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "build/build_config.h"
 #include "ipcz/ipcz.h"
 #include "util/ref_counted.h"
 
@@ -16,46 +17,34 @@ namespace ipcz::reference_drivers {
 class Object : public RefCounted {
  public:
   enum Type : uint32_t {
-    // Types needed to support ipcz operation.
     kTransport,
     kMemory,
     kMapping,
 
-    // Custom types used only by these reference drivers to exercise boxing.
-    kBlob,
-    kOSHandle,
+#if defined(OS_LINUX)
+    // A non-standard driver object type which wraps a FileDescriptor object.
+    kFileDescriptor,
+#endif
   };
 
   explicit Object(Type type);
 
   Type type() const { return type_; }
 
+  IpczDriverHandle handle() const {
+    return reinterpret_cast<IpczDriverHandle>(this);
+  }
+
   static Object* FromHandle(IpczDriverHandle handle) {
-    return reinterpret_cast<Object*>(static_cast<uintptr_t>(handle));
+    return reinterpret_cast<Object*>(handle);
   }
 
   static IpczDriverHandle ReleaseAsHandle(Ref<Object> object) {
-    return static_cast<IpczDriverHandle>(
-        reinterpret_cast<uintptr_t>(object.release()));
+    return reinterpret_cast<IpczDriverHandle>(object.release());
   }
 
   static Ref<Object> TakeFromHandle(IpczDriverHandle handle) {
     return AdoptRef(FromHandle(handle));
-  }
-
-  template <typename T>
-  static Ref<T> TakeFromHandleAs(IpczDriverHandle handle) {
-    return Ref<T>(static_cast<T*>(TakeFromHandle(handle).release()));
-  }
-
-  template <typename T>
-  T& As() {
-    return static_cast<T&>(*this);
-  }
-
-  template <typename T>
-  Ref<T> ReleaseAs() {
-    return AdoptRef(static_cast<T*>(this));
   }
 
   virtual IpczResult Close();
@@ -72,12 +61,23 @@ class ObjectImpl : public Object {
  public:
   ObjectImpl() : Object(kType) {}
 
-  static T* FromHandle(IpczDriverHandle handle) {
-    Object* object = Object::FromHandle(handle);
+  static T* FromObject(Object* object) {
     if (!object || object->type() != kType) {
       return nullptr;
     }
     return static_cast<T*>(object);
+  }
+
+  static T* FromHandle(IpczDriverHandle handle) {
+    return FromObject(Object::FromHandle(handle));
+  }
+
+  static Ref<T> TakeFromObject(Object* object) {
+    return AdoptRef(FromObject(object));
+  }
+
+  static Ref<T> TakeFromHandle(IpczDriverHandle handle) {
+    return AdoptRef(FromHandle(handle));
   }
 
  protected:

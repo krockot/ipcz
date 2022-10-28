@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,19 +14,18 @@
 namespace ipcz {
 
 class DriverTransport;
-class Node;
 
 // Owns an IpczDriverHandle and exposes a generic interface for serialization
 // and deserialization through the driver.
 class DriverObject {
  public:
   DriverObject();
-  DriverObject(Ref<Node> node, IpczDriverHandle handle);
+  DriverObject(const IpczDriver& driver, IpczDriverHandle handle);
   DriverObject(DriverObject&&);
   DriverObject& operator=(DriverObject&&);
   ~DriverObject();
 
-  const Ref<Node>& node() const { return node_; }
+  const IpczDriver* driver() const { return driver_; }
   IpczDriverHandle handle() const { return handle_; }
 
   void reset();
@@ -45,10 +44,10 @@ class DriverObject {
 
   // Returns the data and transmissible handle capacity required to serialize
   // this object for transmission over the identified transport. Must only be
-  // called if the object can be transmissible over that transport.
+  // called on a valid object which is transmissible over that transport.
   struct SerializedDimensions {
-    uint32_t num_bytes;
-    uint32_t num_driver_handles;
+    size_t num_bytes;
+    size_t num_driver_handles;
   };
   SerializedDimensions GetSerializedDimensions(
       const DriverTransport& transport) const;
@@ -59,7 +58,7 @@ class DriverObject {
   // transmissible by the driver without further serialization. Must only be
   // called on valid objects which are known to be serializable and
   // transmissible over `transport`.
-  void Serialize(const DriverTransport& transport,
+  bool Serialize(const DriverTransport& transport,
                  absl::Span<uint8_t> data,
                  absl::Span<IpczDriverHandle> handles);
 
@@ -72,7 +71,7 @@ class DriverObject {
                                   absl::Span<const IpczDriverHandle> handles);
 
  private:
-  Ref<Node> node_;
+  const IpczDriver* driver_ = nullptr;
   IpczDriverHandle handle_ = IPCZ_INVALID_DRIVER_HANDLE;
 };
 

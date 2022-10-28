@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 #define IPCZ_SRC_REFERENCE_DRIVERS_MULTIPROCESS_REFERENCE_DRIVER_H_
 
 #include "ipcz/ipcz.h"
-#include "reference_drivers/channel.h"
-#include "reference_drivers/os_process.h"
+#include "reference_drivers/file_descriptor.h"
+#include "reference_drivers/socket_transport.h"
 
 namespace ipcz::reference_drivers {
 
@@ -16,28 +16,14 @@ namespace ipcz::reference_drivers {
 // all transmissions through this driver are asynchronous.
 extern const IpczDriver kMultiprocessReferenceDriver;
 
-// A variation of the above driver which limits driver object transmission to
-// transports with a broker on at least one of its two endpoints.
-extern const IpczDriver kMultiprocessReferenceDriverWithForcedObjectBrokering;
+// Creates a new multiprocess-capable driver transport from a SocketTransport
+// endpoint and returns an IpczDriverHandle to reference it.
+IpczDriverHandle CreateMultiprocessTransport(Ref<SocketTransport> transport);
 
-// Conveys whether the local node on a transport is a broker.
-enum MultiprocessTransportSource : uint8_t {
-  kFromBroker,
-  kFromNonBroker,
-};
-
-// Conveys whether the remote node on a transport is a broker.
-enum MultiprocessTransportTarget : uint8_t {
-  kToBroker,
-  kToNonBroker,
-};
-
-// Creates a new driver transport from a Channel endpoint connected to the
-// `remote_process` (if known) and returns an IpczDriverHandle to it.
-IpczDriverHandle CreateTransportFromChannel(Channel channel,
-                                            OSProcess remote_process,
-                                            MultiprocessTransportSource source,
-                                            MultiprocessTransportTarget target);
+// Extracts the underlying file descriptor from a socket-based multiprocess
+// driver transport. `transport` is effectively consumed and invalidated by this
+// call.
+FileDescriptor TakeMultiprocessTransportDescriptor(IpczDriverHandle transport);
 
 }  // namespace ipcz::reference_drivers
 

@@ -1,224 +1,251 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "test/api_test.h"
+#include "test/test_base.h"
 
-#include <cstdint>
-#include <utility>
+#include <chrono>
+#include <thread>
 
 #include "api.h"
 #include "ipcz/ipcz.h"
-#include "ipcz/node.h"
 #include "ipcz/portal.h"
 #include "ipcz/router.h"
-#include "ipcz/router_tracker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
 #include "util/ref_counted.h"
 
-namespace ipcz::test {
+namespace ipcz::test::internal {
 
-TestBase::Parcel::Parcel() = default;
+namespace {
 
-TestBase::Parcel::Parcel(Parcel&&) = default;
-
-TestBase::Parcel& TestBase::Parcel::operator=(Parcel&&) = default;
-
-TestBase::Parcel::~Parcel() = default;
-
-TestBase::HangTimeout::HangTimeout(absl::Duration timeout,
-                                   std::function<void()> handler)
-    : thread_([this, timeout, handler = std::move(handler)] {
-        if (!notification_.WaitForNotificationWithTimeout(timeout)) {
-          handler();
-        }
-      }) {}
-
-TestBase::HangTimeout::~HangTimeout() {
-  notification_.Notify();
-  thread_.join();
+void CreateNodeChecked(const IpczAPI& ipcz,
+                       const IpczDriver& driver,
+                       IpczCreateNodeFlags flags,
+                       IpczHandle& handle) {
+  const IpczResult result = ipcz.CreateNode(&driver, IPCZ_INVALID_DRIVER_HANDLE,
+                                            flags, nullptr, &handle);
+  ASSERT_EQ(IPCZ_RESULT_OK, result);
 }
+
+void OpenPortalsChecked(const IpczAPI& ipcz,
+                        IpczHandle node,
+                        IpczHandle& first,
+                        IpczHandle& second) {
+  const IpczResult result =
+      ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, &first, &second);
+  ASSERT_EQ(IPCZ_RESULT_OK, result);
+}
+
+}  // namespace
 
 TestBase::TestBase() {
-  ipcz.size = sizeof(ipcz);
-  IpczGetAPI(&ipcz);
+  IpczGetAPI(&ipcz_);
 }
 
-TestBase::~TestBase() {
-  if (RouterTracker::GetNumRouters() != 0) {
-    RouterTracker::DumpRouters();
+TestBase::~TestBase() = default;
+
+void TestBase::Close(IpczHandle handle) {
+  ASSERT_EQ(IPCZ_RESULT_OK, ipcz().Close(handle, IPCZ_NO_FLAGS, nullptr));
+}
+
+void TestBase::CloseAll(absl::Span<const IpczHandle> handles) {
+  for (IpczHandle handle : handles) {
+    Close(handle);
   }
-  ABSL_ASSERT(RouterTracker::GetNumRouters() == 0);
 }
 
-IpczHandle TestBase::ConnectNode(IpczHandle node,
-                                 IpczDriverHandle driver_transport,
-                                 IpczConnectNodeFlags flags) {
-  const uint32_t num_initial_portals = 1;
-  IpczHandle initial_portal;
-  IpczResult result =
-      ipcz.ConnectNode(node, driver_transport, num_initial_portals, flags,
-                       nullptr, &initial_portal);
-  ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return initial_portal;
+IpczResult TestBase::Merge(IpczHandle a, IpczHandle b) {
+  return ipcz().MergePortals(a, b, IPCZ_NO_FLAGS, nullptr);
 }
 
-IpczHandle TestBase::ConnectToBroker(IpczHandle node,
-                                     IpczDriverHandle driver_transport) {
-  return ConnectNode(node, driver_transport, IPCZ_CONNECT_NODE_TO_BROKER);
+IpczHandle TestBase::CreateNode(const IpczDriver& driver,
+                                IpczCreateNodeFlags flags) {
+  IpczHandle node;
+  CreateNodeChecked(ipcz(), driver, flags, node);
+  return node;
 }
 
-IpczHandle TestBase::ConnectToNonBroker(IpczHandle node,
-                                        IpczDriverHandle driver_transport) {
-  return ConnectNode(node, driver_transport, IPCZ_NO_FLAGS);
+std::pair<IpczHandle, IpczHandle> TestBase::OpenPortals(IpczHandle node) {
+  IpczHandle a, b;
+  OpenPortalsChecked(ipcz(), node, a, b);
+  return {a, b};
 }
 
-void TestBase::OpenPortals(IpczHandle node, IpczHandle* a, IpczHandle* b) {
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.OpenPortals(node, IPCZ_NO_FLAGS, nullptr, a, b));
+IpczResult TestBase::Put(IpczHandle portal,
+                         std::string_view message,
+                         absl::Span<IpczHandle> handles) {
+  return ipcz().Put(portal, message.data(), message.size(), handles.data(),
+                    handles.size(), IPCZ_NO_FLAGS, nullptr);
 }
 
-void TestBase::Put(IpczHandle portal,
-                   const std::string& str,
-                   absl::Span<IpczHandle> handles) {
-  ASSERT_EQ(IPCZ_RESULT_OK,
-            ipcz.Put(portal, str.data(), static_cast<uint32_t>(str.length()),
-                     handles.data(), static_cast<uint32_t>(handles.size()),
-                     IPCZ_NO_FLAGS, nullptr));
-}
-
-IpczResult TestBase::MaybeGet(IpczHandle portal, Parcel& parcel) {
-  uint32_t num_bytes = 0;
-  uint32_t num_handles = 0;
-  IpczResult result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr,
-                               &num_bytes, nullptr, &num_handles);
-  if (result == IPCZ_RESULT_OK) {
-    parcel = {};
-    return IPCZ_RESULT_OK;
-  }
-
-  if (result == IPCZ_RESULT_RESOURCE_EXHAUSTED) {
-    std::vector<char> data(num_bytes);
-    parcel.handles.resize(num_handles);
-    ABSL_ASSERT(result == IPCZ_RESULT_RESOURCE_EXHAUSTED);
-    result = ipcz.Get(portal, IPCZ_NO_FLAGS, nullptr, data.data(), &num_bytes,
-                      parcel.handles.data(), &num_handles);
-    ABSL_ASSERT(result == IPCZ_RESULT_OK);
-
-    parcel.message = {data.begin(), data.end()};
-    return IPCZ_RESULT_OK;
-  }
-
-  return result;
-}
-
-IpczResult TestBase::WaitForIncomingParcel(IpczHandle portal) {
-  absl::Notification notification;
-  IpczTrapConditions conditions = {
-      .size = sizeof(conditions),
-      .flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS | IPCZ_TRAP_DEAD,
-      .min_local_parcels = 0,
+IpczResult TestBase::PutWithLimits(IpczHandle portal,
+                                   const IpczPutLimits& limits,
+                                   std::string_view message,
+                                   absl::Span<IpczHandle> handles) {
+  IpczPutLimits sized_limits = limits;
+  sized_limits.size = sizeof(sized_limits);
+  const IpczPutOptions options = {
+      .size = sizeof(options),
+      .limits = &sized_limits,
   };
-  IpczResult result = Trap(
-      portal, conditions,
-      [&notification](const IpczTrapEvent& event) { notification.Notify(); });
-  if (result == IPCZ_RESULT_OK) {
-    notification.WaitForNotification();
-  }
-  if (result == IPCZ_RESULT_FAILED_PRECONDITION) {
-    return IPCZ_RESULT_OK;
-  }
-  return result;
+  return ipcz().Put(portal, message.data(), message.size(), handles.data(),
+                    handles.size(), IPCZ_NO_FLAGS, &options);
 }
 
-IpczResult TestBase::WaitToGet(IpczHandle portal, Parcel& parcel) {
-  IpczResult result = WaitForIncomingParcel(portal);
-  if (result != IPCZ_RESULT_OK) {
+IpczResult TestBase::Get(IpczHandle portal,
+                         std::string* message,
+                         absl::Span<IpczHandle> handles) {
+  if (message) {
+    message->clear();
+  }
+
+  size_t num_bytes = 0;
+  IpczHandle* handle_storage = handles.empty() ? nullptr : handles.data();
+  size_t num_handles = handles.size();
+  IpczResult result =
+      ipcz().Get(portal, IPCZ_NO_FLAGS, nullptr, nullptr, &num_bytes,
+                 handle_storage, &num_handles, nullptr);
+  if (result != IPCZ_RESULT_RESOURCE_EXHAUSTED) {
     return result;
   }
 
-  return MaybeGet(portal, parcel);
-}
-
-TestBase::Parcel TestBase::Get(IpczHandle portal) {
-  Parcel parcel;
-  IpczResult result = MaybeGet(portal, parcel);
-  ABSL_ASSERT(result == IPCZ_RESULT_OK);
-  return parcel;
-}
-
-bool TestBase::DiscardNextParcel(IpczHandle portal) {
-  Parcel p;
-  IpczResult result = MaybeGet(portal, p);
-  if (result == IPCZ_RESULT_OK) {
-    return true;
+  void* data_storage = nullptr;
+  if (message) {
+    message->resize(num_bytes);
+    data_storage = message->data();
   }
 
-  if (result != IPCZ_RESULT_UNAVAILABLE) {
-    return false;
-  }
-
-  return WaitToGet(portal, p) == IPCZ_RESULT_OK;
+  return ipcz().Get(portal, IPCZ_NO_FLAGS, nullptr, data_storage, &num_bytes,
+                    handle_storage, &num_handles, nullptr);
 }
 
 IpczResult TestBase::Trap(IpczHandle portal,
                           const IpczTrapConditions& conditions,
-                          Handler handler,
-                          IpczTrapConditionFlags* satisfied_condition_flags,
+                          TrapEventHandler fn,
+                          IpczTrapConditionFlags* flags,
                           IpczPortalStatus* status) {
-  auto context = static_cast<uint64_t>(
-      reinterpret_cast<uintptr_t>(new Handler(std::move(handler))));
-  return ipcz.Trap(portal, &conditions, &OnTrapEvent, context, IPCZ_NO_FLAGS,
-                   nullptr, satisfied_condition_flags, status);
+  auto handler = std::make_unique<TrapEventHandler>(std::move(fn));
+  auto context = reinterpret_cast<uintptr_t>(handler.get());
+
+  // For convenience, set the `size` field correctly so callers don't have to.
+  IpczTrapConditions sized_conditions = conditions;
+  sized_conditions.size = sizeof(sized_conditions);
+
+  const IpczResult result =
+      ipcz().Trap(portal, &sized_conditions, &HandleEvent, context,
+                  IPCZ_NO_FLAGS, nullptr, flags, status);
+  if (result == IPCZ_RESULT_OK) {
+    std::ignore = handler.release();
+  }
+  return result;
 }
 
-void TestBase::VerifyEndToEnd(IpczHandle a, IpczHandle b) {
-  Parcel p;
+IpczResult TestBase::WaitForConditions(IpczHandle portal,
+                                       const IpczTrapConditions& conditions) {
+  absl::Notification notification;
+  const IpczResult result = Trap(
+      portal, conditions, [&](const IpczTrapEvent&) { notification.Notify(); });
+
+  switch (result) {
+    case IPCZ_RESULT_OK:
+      notification.WaitForNotification();
+      return IPCZ_RESULT_OK;
+
+    case IPCZ_RESULT_FAILED_PRECONDITION:
+      return IPCZ_RESULT_OK;
+
+    default:
+      return result;
+  }
+}
+
+IpczResult TestBase::WaitForConditionFlags(IpczHandle portal,
+                                           IpczTrapConditionFlags flags) {
+  const IpczTrapConditions conditions = {
+      .size = sizeof(conditions),
+      .flags = flags,
+  };
+  return WaitForConditions(portal, conditions);
+}
+
+IpczResult TestBase::WaitToGet(IpczHandle portal,
+                               std::string* message,
+                               absl::Span<IpczHandle> handles) {
+  const IpczTrapConditions conditions = {
+      .size = sizeof(conditions),
+      .flags = IPCZ_TRAP_ABOVE_MIN_LOCAL_PARCELS,
+      .min_local_parcels = 0,
+  };
+  IpczResult result = WaitForConditions(portal, conditions);
+  if (result != IPCZ_RESULT_OK) {
+    return result;
+  }
+
+  return Get(portal, message, handles);
+}
+
+void TestBase::PingPong(IpczHandle portal) {
+  EXPECT_EQ(IPCZ_RESULT_OK, Put(portal, {}));
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(portal));
+}
+
+void TestBase::WaitForPingAndReply(IpczHandle portal) {
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(portal));
+  EXPECT_EQ(IPCZ_RESULT_OK, Put(portal, {}));
+}
+
+void TestBase::VerifyEndToEnd(IpczHandle portal) {
+  static const char kTestMessage[] = "Ping!!!";
+  std::string message;
+  EXPECT_EQ(IPCZ_RESULT_OK, Put(portal, kTestMessage));
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(portal, &message));
+  EXPECT_EQ(kTestMessage, message);
+}
+
+void TestBase::VerifyEndToEndLocal(IpczHandle a, IpczHandle b) {
   const std::string kMessage1 = "psssst";
   const std::string kMessage2 = "ssshhh";
 
   Put(a, kMessage1);
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, p));
-  EXPECT_EQ(kMessage1, p.message);
-
   Put(b, kMessage2);
-  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, p));
-  EXPECT_EQ(kMessage2, p.message);
+
+  std::string message;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(a, &message));
+  EXPECT_EQ(kMessage2, message);
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(b, &message));
+  EXPECT_EQ(kMessage1, message);
 }
 
-bool TestBase::PortalsAreLocalPeers(IpczHandle a, IpczHandle b) {
-  Ref<Router> router_a = reinterpret_cast<Portal*>(a)->router();
-  Ref<Router> router_b = reinterpret_cast<Portal*>(b)->router();
-  return router_a->HasLocalPeer(router_b);
+void TestBase::WaitForDirectRemoteLink(IpczHandle portal) {
+  const Ref<Router> router = Portal::FromHandle(portal)->router();
+  while (!router->IsOnCentralRemoteLink()) {
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(8ms);
+  }
+
+  const std::string kMessage = "very direct wow";
+  EXPECT_EQ(IPCZ_RESULT_OK, Put(portal, kMessage));
+
+  std::string message;
+  EXPECT_EQ(IPCZ_RESULT_OK, WaitToGet(portal, &message));
+  EXPECT_EQ(kMessage, message);
 }
 
-void TestBase::LogPortalRoute(IpczHandle a) {
-  Ref<Router> router = reinterpret_cast<Portal*>(a)->router();
-  router->LogRouteTrace();
+void TestBase::WaitForDirectLocalLink(IpczHandle a, IpczHandle b) {
+  const Ref<Router> router_a = Portal::FromHandle(a)->router();
+  const Ref<Router> router_b = Portal::FromHandle(b)->router();
+  while (!router_a->HasLocalPeer(*router_b) &&
+         !router_b->HasLocalPeer(*router_a)) {
+    using namespace std::chrono_literals;
+    std::this_thread::sleep_for(8ms);
+  }
 }
 
-// static
-size_t TestBase::GetNumRouters() {
-  return RouterTracker::GetNumRouters();
-}
-
-// static
-void TestBase::DumpAllRouters() {
-  return RouterTracker::DumpRouters();
-}
-
-// static
-void TestBase::DiagnoseNode(IpczHandle node) {
-  reinterpret_cast<ipcz::Node*>(static_cast<uintptr_t>(node))
-      ->DiagnoseForTesting();
-}
-
-// static
-void TestBase::OnTrapEvent(const IpczTrapEvent* event) {
-  std::unique_ptr<Handler> handler(
-      reinterpret_cast<Handler*>(static_cast<uintptr_t>(event->context)));
+void TestBase::HandleEvent(const IpczTrapEvent* event) {
+  auto handler =
+      absl::WrapUnique(reinterpret_cast<TrapEventHandler*>(event->context));
   (*handler)(*event);
 }
 
-}  // namespace ipcz::test
+}  // namespace ipcz::test::internal

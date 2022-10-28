@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,7 @@
 #include "third_party/abseil-cpp/absl/base/log_severity.h"
 
 #if BUILDFLAG(IS_POSIX)
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -30,6 +31,9 @@ namespace {
 std::atomic_int g_verbosity_level{0};
 
 #if defined(THREAD_SANITIZER)
+// Accessing std::cerr is supposed to be thread-safe, but it was triggering
+// TSAN data race warnings. We explicitly guard it with a Mutex here to avoid
+// any potential issues for now.
 absl::Mutex* GetCerrMutex() {
   static absl::Mutex* mutex = new absl::Mutex();
   return mutex;
@@ -40,7 +44,10 @@ absl::Mutex* GetCerrMutex() {
 
 LogMessage::LogMessage(const char* file, int line, Level level) {
   stream_ << "[";
-#if BUILDFLAG(IS_POSIX)
+#if BUILDFLAG(IS_LINUX) || BUILDFLAG(IS_CHROMEOS)
+  stream_ << getpid() << ":" << syscall(__NR_gettid) << ":";
+  const char* trimmed_file = strrchr(file, '/') + 1;
+#elif BUILDFLAG(IS_ANDROID)
   stream_ << getpid() << ":" << gettid() << ":";
   const char* trimmed_file = strrchr(file, '/') + 1;
 #elif BUILDFLAG(IS_WIN)

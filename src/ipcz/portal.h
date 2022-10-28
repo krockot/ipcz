@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,17 +21,21 @@ namespace ipcz {
 class Node;
 class Router;
 
-// A Portal owns a terminal Router along a route. Portals are manipulated
-// directly by public ipcz API calls.
+// A Portal owns a terminal Router along a route. Portals are thread-safe and
+// are manipulated directly by public ipcz API calls.
 class Portal : public APIObjectImpl<Portal, APIObject::kPortal> {
  public:
   using Pair = std::pair<Ref<Portal>, Ref<Portal>>;
 
+  // Creates a new portal which assumes control over `router` and which lives on
+  // `node`.
   Portal(Ref<Node> node, Ref<Router> router);
 
   const Ref<Node>& node() const { return node_; }
   const Ref<Router>& router() const { return router_; }
 
+  // Creates a new pair of portals which live on `node` and which are directly
+  // connected to each other by a LocalRouterLink.
   static Pair CreatePair(Ref<Node> node);
 
   // APIObject:
@@ -39,30 +43,32 @@ class Portal : public APIObjectImpl<Portal, APIObject::kPortal> {
   bool CanSendFrom(Portal& sender) override;
 
   // ipcz portal API implementation:
-  IpczResult Merge(Portal& other);
   IpczResult QueryStatus(IpczPortalStatus& status);
+  IpczResult Merge(Portal& other);
 
   IpczResult Put(absl::Span<const uint8_t> data,
                  absl::Span<const IpczHandle> handles,
                  const IpczPutLimits* limits);
   IpczResult BeginPut(IpczBeginPutFlags flags,
                       const IpczPutLimits* limits,
-                      uint32_t& num_data_bytes,
+                      size_t& num_data_bytes,
                       void** data);
-  IpczResult CommitPut(uint32_t num_data_bytes_produced,
+  IpczResult CommitPut(size_t num_data_bytes_produced,
                        absl::Span<const IpczHandle> handles);
   IpczResult AbortPut();
 
   IpczResult Get(IpczGetFlags flags,
                  void* data,
-                 uint32_t* num_data_bytes,
+                 size_t* num_data_bytes,
                  IpczHandle* handles,
-                 uint32_t* num_handles);
+                 size_t* num_handles,
+                 IpczHandle* validator);
   IpczResult BeginGet(const void** data,
-                      uint32_t* num_data_bytes,
-                      uint32_t* num_handles);
-  IpczResult CommitGet(uint32_t num_data_bytes_consumed,
-                       absl::Span<IpczHandle> handles);
+                      size_t* num_data_bytes,
+                      size_t* num_handles);
+  IpczResult CommitGet(size_t num_data_bytes_consumed,
+                       absl::Span<IpczHandle> handles,
+                       IpczHandle* validator);
   IpczResult AbortGet();
 
  private:
@@ -72,7 +78,11 @@ class Portal : public APIObjectImpl<Portal, APIObject::kPortal> {
   const Ref<Router> router_;
 
   absl::Mutex mutex_;
+
+  // The parcel being built by the in-progress two-phase Put operation, if one
+  // is in progress.
   absl::optional<Parcel> pending_parcel_ ABSL_GUARDED_BY(mutex_);
+
   bool in_two_phase_put_ ABSL_GUARDED_BY(mutex_) = false;
   bool in_two_phase_get_ ABSL_GUARDED_BY(mutex_) = false;
 };

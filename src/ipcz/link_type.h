@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,19 +10,29 @@
 namespace ipcz {
 
 // Enumeration indicating what role a specific RouterLink plays along its route.
-// Every end-to-end route has exactly one central link -- the link that bridges
-// one side of the route to the other -- along with any number of peripheral
-// links to extend the route outward on either side from the central link.
+// Every end-to-end route has exactly one "central" link -- the link that
+// connects one side of the route to the other -- along with any number of
+// "peripheral" links extending the route away from the central link on one side
+// or the other.
 //
-// When two routes are merged via the MergePortals API, two terminal routers
-// (one from each route) are linked together via a bridge link.
+// If a peripheral link connects a router R1 to another router R2 which is
+// closer to the central link, the link is considered to be "outward" from R1
+// and "inward" from R2. Conversely if a peripheral link connects a router R1 to
+// another router R2 which is *further* from the central link, the link is
+// considered to be inward R1 and outward from R2.
+//
+// Finally, when two routes are joined via the MergePortals API, the merged
+// portals' routers are linked together via a bridge link.
 //
 // The stable state of any given route is to have exactly two routers, both
 // terminal, with a single central link between them. Routes which are extended
 // by portal relocation or bridged via portal merges may grow into arbitrarily
-// long chains of bridged routes with many peripheral links, but over time all
-// interior routers are bypassed by incrementally decaying and replacing central
-// links and bridge links with new central links.
+// long chains of linked routers, but over time all interior routers are
+// incrementally bypassed and discarded through a process of link decay and
+// replacement.
+//
+// The different link classifications defined here help with the orchestration
+// of this incremental reduction process.
 struct LinkType {
   enum class Value {
     // The link along a route which connects one side of the route to the other.
@@ -67,6 +77,7 @@ struct LinkType {
   bool operator==(const LinkType& rhs) const { return value_ == rhs.value_; }
   bool operator!=(const LinkType& rhs) const { return value_ != rhs.value_; }
 
+  bool is_outward() const { return is_central() || is_peripheral_outward(); }
   bool is_central() const { return value_ == Value::kCentral; }
   bool is_peripheral_inward() const {
     return value_ == Value::kPeripheralInward;

@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,9 @@
 #include <sstream>
 
 #include "third_party/abseil-cpp/absl/base/log_severity.h"
+
+// This header defines a minimal polyfill for the LOG macros in Chromium //base,
+// for use when NOT linking ipcz into Chromium.
 
 #define LOG(level)                                                        \
   ::ipcz::standalone::LogMessage(                                         \

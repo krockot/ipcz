@@ -1,3 +1,7 @@
+// Copyright 2022 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 #include "ipcz/driver_transport.h"
 
 #include <cstddef>
@@ -5,22 +9,21 @@
 #include <cstring>
 
 #include "ipcz/ipcz.h"
-#include "ipcz/message_internal.h"
+#include "ipcz/message.h"
 #include "ipcz/node.h"
 #include "third_party/abseil-cpp/absl/base/macros.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
-#include "util/log.h"
 
 namespace ipcz {
 
 namespace {
 
 IpczResult IPCZ_API NotifyTransport(IpczHandle transport,
-                                    const uint8_t* data,
-                                    uint32_t num_bytes,
+                                    const void* data,
+                                    size_t num_bytes,
                                     const IpczDriverHandle* driver_handles,
-                                    uint32_t num_driver_handles,
+                                    size_t num_driver_handles,
                                     IpczTransportActivityFlags flags,
                                     const void* options) {
   DriverTransport* t = DriverTransport::FromHandle(transport);
@@ -31,54 +34,24 @@ IpczResult IPCZ_API NotifyTransport(IpczHandle transport,
   if (flags & IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED) {
     const Ref<DriverTransport> doomed_transport =
         DriverTransport::TakeFromHandle(transport);
+    doomed_transport->NotifyDeactivated();
     return IPCZ_RESULT_OK;
   }
 
   if (flags & IPCZ_TRANSPORT_ACTIVITY_ERROR) {
-    LOG(ERROR) << "PLAIN ACTIVIT ERROR WOW";
     t->NotifyError();
     return IPCZ_RESULT_OK;
   }
 
-  return t->Notify(DriverTransport::Message(
-      absl::MakeSpan(data, num_bytes),
-      absl::MakeSpan(driver_handles, num_driver_handles)));
+  if (!t->Notify({absl::MakeSpan(static_cast<const uint8_t*>(data), num_bytes),
+                  absl::MakeSpan(driver_handles, num_driver_handles)})) {
+    return IPCZ_RESULT_INVALID_ARGUMENT;
+  }
+
+  return IPCZ_RESULT_OK;
 }
 
 }  // namespace
-
-DriverTransport::Descriptor::Descriptor() = default;
-
-DriverTransport::Descriptor::Descriptor(Descriptor&&) = default;
-
-DriverTransport::Descriptor& DriverTransport::Descriptor::operator=(
-    Descriptor&&) = default;
-
-DriverTransport::Descriptor::~Descriptor() = default;
-
-DriverTransport::Data::Data() = default;
-
-DriverTransport::Data::Data(absl::Span<const uint8_t> data) : Span(data) {}
-
-DriverTransport::Data::Data(absl::Span<const char> str)
-    : Span(reinterpret_cast<const uint8_t*>(str.data()), str.size()) {}
-
-absl::Span<const char> DriverTransport::Data::AsString() const {
-  return absl::MakeSpan(reinterpret_cast<const char*>(data()), size());
-}
-
-DriverTransport::Message::Message(Data data) : data(data) {}
-
-DriverTransport::Message::Message(Data data,
-                                  absl::Span<const IpczDriverHandle> handles)
-    : data(data), handles(handles) {}
-
-DriverTransport::Message::Message(const Message&) = default;
-
-DriverTransport::Message& DriverTransport::Message::operator=(const Message&) =
-    default;
-
-DriverTransport::Message::~Message() = default;
 
 DriverTransport::DriverTransport(DriverObject transport)
     : transport_(std::move(transport)) {}
@@ -87,20 +60,26 @@ DriverTransport::~DriverTransport() = default;
 
 // static
 DriverTransport::Pair DriverTransport::CreatePair(
-    const DriverTransport& transport0,
-    const DriverTransport& transport1) {
+    const IpczDriver& driver,
+    const DriverTransport* transport0,
+    const DriverTransport* transport1) {
   IpczDriverHandle new_transport0;
   IpczDriverHandle new_transport1;
-  const Ref<Node>& node = transport0.driver_object().node();
-  ABSL_ASSERT(transport1.driver_object().node() == node);
-  IpczResult result = node->driver().CreateTransports(
-      transport0.driver_object().handle(), transport1.driver_object().handle(),
-      IPCZ_NO_FLAGS, nullptr, &new_transport0, &new_transport1);
+  IpczDriverHandle target_transport0 = IPCZ_INVALID_DRIVER_HANDLE;
+  IpczDriverHandle target_transport1 = IPCZ_INVALID_DRIVER_HANDLE;
+  if (transport0) {
+    ABSL_ASSERT(transport1);
+    target_transport0 = transport0->driver_object().handle();
+    target_transport1 = transport1->driver_object().handle();
+  }
+  IpczResult result = driver.CreateTransports(
+      target_transport0, target_transport1, IPCZ_NO_FLAGS, nullptr,
+      &new_transport0, &new_transport1);
   ABSL_ASSERT(result == IPCZ_RESULT_OK);
   auto first =
-      MakeRefCounted<DriverTransport>(DriverObject(node, new_transport0));
-  auto second = MakeRefCounted<DriverTransport>(
-      DriverObject(std::move(node), new_transport1));
+      MakeRefCounted<DriverTransport>(DriverObject(driver, new_transport0));
+  auto second =
+      MakeRefCounted<DriverTransport>(DriverObject(driver, new_transport1));
   return {std::move(first), std::move(second)};
 }
 
@@ -112,44 +91,61 @@ IpczResult DriverTransport::Activate() {
   // Acquire a self-reference, balanced in NotifyTransport() when the driver
   // invokes its activity handler with IPCZ_TRANSPORT_ACTIVITY_DEACTIVATED.
   IpczHandle handle = ReleaseAsHandle(WrapRefCounted(this));
-  return transport_.node()->driver().ActivateTransport(
+  return transport_.driver()->ActivateTransport(
       transport_.handle(), handle, NotifyTransport, IPCZ_NO_FLAGS, nullptr);
 }
 
 IpczResult DriverTransport::Deactivate() {
-  return transport_.node()->driver().DeactivateTransport(
-      transport_.handle(), IPCZ_NO_FLAGS, nullptr);
+  return transport_.driver()->DeactivateTransport(transport_.handle(),
+                                                  IPCZ_NO_FLAGS, nullptr);
 }
 
-IpczResult DriverTransport::TransmitMessage(const Message& message) {
-  return transport_.node()->driver().Transmit(
-      transport_.handle(), message.data.data(),
-      static_cast<uint32_t>(message.data.size()), message.handles.data(),
-      static_cast<uint32_t>(message.handles.size()), IPCZ_NO_FLAGS, nullptr);
+IpczResult DriverTransport::Transmit(Message& message) {
+  ABSL_ASSERT(message.CanTransmitOn(*this));
+  if (!message.Serialize(*this)) {
+    // If serialization fails despite the object appearing to be serializable,
+    // we have to assume the transport is in a dysfunctional state and will be
+    // torn down by the driver soon. Discard the transmission.
+    return IPCZ_RESULT_FAILED_PRECONDITION;
+  }
+
+  const absl::Span<const uint8_t> data = message.data_view();
+  const absl::Span<const IpczDriverHandle> handles =
+      message.transmissible_driver_handles();
+  return transport_.driver()->Transmit(transport_.handle(), data.data(),
+                                       data.size(), handles.data(),
+                                       handles.size(), IPCZ_NO_FLAGS, nullptr);
 }
 
-IpczResult DriverTransport::Notify(const Message& message) {
-  // Do some basic validation of the header vs the message contents.
-  if (message.data.size() < sizeof(internal::MessageHeader)) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
-  const auto& header =
-      *reinterpret_cast<const internal::MessageHeader*>(message.data.data());
-  if (header.size < sizeof(internal::MessageHeader)) {
-    return IPCZ_RESULT_INVALID_ARGUMENT;
-  }
-
+bool DriverTransport::Notify(const RawMessage& message) {
   ABSL_ASSERT(listener_);
-  return listener_->OnTransportMessage(message);
+  // Listener methods may set a new Listener on this DriverTransport, and that
+  // may drop their own last reference. Keep a reference here to ensure this
+  // Listener remains alive through the extent of its notification.
+  Ref<Listener> listener = listener_;
+  return listener->OnTransportMessage(message, *this);
 }
 
 void DriverTransport::NotifyError() {
   ABSL_ASSERT(listener_);
-  listener_->OnTransportError();
+  // Listener methods may set a new Listener on this DriverTransport, and that
+  // may drop their own last reference. Keep a reference here to ensure this
+  // Listener remains alive through the extent of its notification.
+  Ref<Listener> listener = listener_;
+  return listener->OnTransportError();
+}
+
+void DriverTransport::NotifyDeactivated() {
+  ABSL_ASSERT(listener_);
+  Ref<Listener> listener = std::move(listener_);
+  listener->OnTransportDeactivated();
 }
 
 IpczResult DriverTransport::Close() {
+  // Applications should not close transport handles provided to the driver
+  // by ActivateTransport(). These handles are automatically closed on
+  // deactivation by ipcz, or when the driver signals an unrecoverable error via
+  // IPCZ_TRANSPORT_ACTIVITY_ERROR.
   return IPCZ_RESULT_INVALID_ARGUMENT;
 }
 

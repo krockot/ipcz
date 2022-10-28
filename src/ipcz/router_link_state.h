@@ -1,13 +1,15 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_
-#define IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_
+#ifndef IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_H_
+#define IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_H_
 
 #include <atomic>
 #include <cstdint>
+#include <type_traits>
 
+#include "ipcz/atomic_queue_state.h"
 #include "ipcz/ipcz.h"
 #include "ipcz/link_side.h"
 #include "ipcz/node_name.h"
@@ -15,40 +17,33 @@
 
 namespace ipcz {
 
-class ParcelQueue;
-
-// Structure which lives in shared memory and is used by both ends of a
-// RouterLink to synchronously query and reflect router state. Note that each
-// instance of this structure is only shared between at most two routers on two
-// nodes.
+// Structure shared between both Routers connected by RouterLink. This is used
+// to synchronously query and reflect the state of each Router to the other,
+// and ultimately to facilitate orderly state changes across the route. This
+// may live in shared memory, where it should be managed as a
+// RefCountedFragment.
+//
+// Note that RouterLinkStates are effectively only used by central links.
 struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
   RouterLinkState();
-  ~RouterLinkState();
 
   // In-place initialization of a new RouterLinkState at `where`.
   static RouterLinkState& Initialize(void* where);
 
-  // Link status which both sides atomically update to coordinate proxy bypass.
-  // The link's status is only relevant for a central link -- that is, a link
-  // which links one half of a route to the other. Every route has at most one
-  // central transverse link, and zero if and only if the route is dead.
-  //
-  // Every route begins life with a single central link whose status is kStable,
-  // allowing either side to lock the link for bypass if it becomes a proxy.
-  //
-  // The only other time a central link is created is for proxy bypass, where
-  // the new link is created with a kUnstable status. Then as each side of the
-  // bypass link loses its decaying links over time, it updates the status to
-  // reflect that its side is ready to support another bypass operation if one
-  // is needed.
+  // Link status which both sides atomically update to coordinate orderly proxy
+  // bypass, route closure propagation, and other operations.
   using Status = uint32_t;
 
-  // This is a fresh link established to bypass a proxy. Each side of the link
-  // still has at least one decaying link and is therefore not yet ready to
-  // support any potential replacement of this link.
+  // Status constants follow.
+
+  // This is a fresh central link established to bypass a proxy. The Routers on
+  // either side both still have decaying links and therefore cannot yet support
+  // another bypass operation.
   static constexpr Status kUnstable = 0;
 
-  // Set if side A or B of this link is stable, respectively.
+  // Set if side A or B of this link is stable, respectively, meaning it has no
+  // decaying router links. If both bits are set, the link itself is considered
+  // to be stable.
   static constexpr Status kSideAStable = 1 << 0;
   static constexpr Status kSideBStable = 1 << 1;
   static constexpr Status kStable = kSideAStable | kSideBStable;
@@ -70,32 +65,21 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
 
   std::atomic<Status> status{kUnstable};
 
-  // This is populated by a proxying router once it has successfully
-  // negotiated its own turn to be bypassed, and it names the node which hosts
-  // the proxy's own inward peer. That peer will imminently reach out to the
-  // proxy's outward peer directly (who shares this link with the proxy) to
-  // establish a bypass link. The outward peer can authenticate the source of
-  // that request against the name stored here.
+  // In a situation with three routers A-B-C and a central link between A and
+  // B, B will eventually ask C to connect directly to A and bypass B along the
+  // route. In order to facilitate this, B will also first stash C's name in
+  // this field on the central link between A and B. This is sufficient for A to
+  // validate that C is an appropriate source of such a bypass request.
   NodeName allowed_bypass_request_source;
 
-  // Approximates the number of parcels and data bytes received and queued for
-  // retrieval on each side of this link. These values are saturated if the
-  // actual values would exceed 2**32-1.
-  std::atomic<uint32_t> num_parcels_queued_for_a;
-  std::atomic<uint32_t> num_bytes_queued_for_a;
-  std::atomic<uint32_t> num_parcels_queued_for_b;
-  std::atomic<uint32_t> num_bytes_queued_for_b;
+  // An approximation of the queue state on each side of the link. These are
+  // used both for best-effort querying of remote conditions as well as for
+  // reliable synchronization against remote activity.
+  AtomicQueueState side_a_queue_state;
+  AtomicQueueState side_b_queue_state;
 
-  // Flags for each side to indicate to the other that it wants to be signaled
-  // when parcel data is consumed on the other side. These are set when the
-  // corresponding router has at least one trap installed to watch for a drop in
-  // the quantity of remotely queued parcels or bytes.
-  std::atomic<bool> should_signal_a_when_reading_b;
-  std::atomic<bool> should_signal_b_when_reading_a;
-
-  // Reserved slots.
-  uint8_t reserved0[2];
-  uint32_t reserved1[5];
+  // More reserved slots, padding out this structure to 64 bytes.
+  uint32_t reserved1[2] = {0};
 
   bool is_locked_by(LinkSide side) const {
     Status s = status.load(std::memory_order_relaxed);
@@ -105,46 +89,49 @@ struct IPCZ_ALIGN(8) RouterLinkState : public RefCountedFragment {
     return (s & kLockedBySideB) != 0;
   }
 
-  // Updates the status to reflect that the given `side` is stable, meaning it's
-  // no longer holding on to any decaying links.
+  // Updates the status to reflect that the given `side` is stable, meaning that
+  // it's no longer holding onto any decaying links.
   void SetSideStable(LinkSide side);
 
-  // Attempts to lock the state of this link from one side so that the router on
-  // that side can coordinate its own bypass or propagate its own closure. In
-  // order for this to succeed, both kStable bits must be set and the link must
-  // not already be locked by the other side. Returns true if the link was
-  // locked succesfully, or false otherwise.
-  bool TryLock(LinkSide side);
+  // Attempts to lock the state of this link from one side, so that the Router
+  // on that side can coordinate its own bypass or propagate its own side's
+  // closure. In order for this to succeed, both kStable bits must be set and
+  // the link must not already be locked. Returns true iff locked successfully.
+  //
+  // If the opposite side is still unstable, this sets the waiting bit for
+  // `from_side` and returns false.
+  //
+  // In any other situation, the status is unmodified and this returns false.
+  [[nodiscard]] bool TryLock(LinkSide from_side);
 
-  // Unlocks a link previously locked by a successful call to TryLock() for the
-  // same `side`.
-  void Unlock(LinkSide side);
+  // Unlocks a link previously locked by TryLock().
+  void Unlock(LinkSide from_side);
 
-  // If both sides of the link are stable AND `side` was marked as waiting for
-  // that to happen, this resets that wating bit and returns true. Otherwise
-  // this returns false and the link's status is unchanged.
+  // If both sides of the link are stable AND `side` was marked as waiting
+  // before that happened, this resets the waiting bit and returns true.
+  // Otherwise the link's status is unchanged and this returns false.
+  //
+  // Note that the waiting bit for `side` will have only been set if a prior
+  // attempt was made to TryLock() from that side, while the other side was
+  // still unstable.
   bool ResetWaitingBit(LinkSide side);
 
-  // Returns a structure describing a best-effort snapshot of the inbound parcel
-  // queue state on the given side of this link.
-  struct QueueState {
-    uint32_t num_inbound_bytes_queued;
-    uint32_t num_inbound_parcels_queued;
-  };
-  QueueState GetQueueState(LinkSide side) const;
-
-  // Updates the queue state for the given side. Values which exceed 2**32-1 are
-  // clamped to that value. Returns true iff the opposite side of the link wants
-  // to be notified about this update.
-  bool UpdateQueueState(LinkSide side, size_t num_bytes, size_t num_parcels);
-
-  // Sets an appropriate bit to indicate whether the router on the given `side`
-  // of this link should notify the opposite side after consuming inbound parcel
-  // data. Returns the previous value of the modified bit, which may be the same
-  // as the new value.
-  bool SetSignalOnDataConsumedBy(LinkSide side, bool signal);
+  // Returns a view of the inbound parcel queue state for the given `side` of
+  // this link.
+  AtomicQueueState& GetQueueState(LinkSide side);
 };
+
+// The size of this structure is fixed at 64 bytes to ensure that it fits the
+// smallest block allocation size supported by NodeLinkMemory.
+static_assert(sizeof(RouterLinkState) == 64,
+              "RouterLinkState size must be 64 bytes");
+
+// RouterLinkState instances may live in shared memory. Trivial copyability is
+// asserted here as a sort of proxy condition to catch changes which might break
+// that usage (e.g. introduction of a non-trivial destructor).
+static_assert(std::is_trivially_copyable<RouterLinkState>::value,
+              "RouterLinkState must be trivially copyable");
 
 }  // namespace ipcz
 
-#endif  // IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_
+#endif  // IPCZ_SRC_IPCZ_ROUTER_LINK_STATE_H_

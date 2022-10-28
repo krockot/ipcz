@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,8 +12,10 @@ namespace ipcz {
 
 // A simple wrapper around an A/B enum to consistently distinguish between two
 // sides of a single conceptual link between nodes or routers. Side A and side B
-// are arbitrary choices, but it's important that each side of a link identify
-// as one or the other.
+// are arbitrary choices, but it's important that each side of a link identifies
+// as the opposite of the other side. This idenitity helps to establish
+// conventions around usage and manipulation of state shared by both ends of a
+// link.
 struct LinkSide {
   enum class Value : uint8_t {
     kA = 0,

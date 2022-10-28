@@ -1,4 +1,4 @@
-// Copyright 2022 The Chromium Authors. All rights reserved.
+// Copyright 2022 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,19 +23,26 @@ namespace ipcz {
 class TrapEventDispatcher {
  public:
   TrapEventDispatcher();
+  TrapEventDispatcher(const TrapEventDispatcher&) = delete;
+  TrapEventDispatcher& operator=(const TrapEventDispatcher&) = delete;
   ~TrapEventDispatcher();
 
+  // Schedules a new event for dispatch by this object as soon as DispatchAll()
+  // is explicitly called or the TrapEventDispatcher is destroyed.
   void DeferEvent(IpczTrapEventHandler handler,
-                  uint64_t context,
+                  uintptr_t context,
                   IpczTrapConditionFlags flags,
                   const IpczPortalStatus& status);
+
+  // Dispatches any events deferred by DeferEvent() above.
   void DispatchAll();
 
  private:
+  // Details of an event to be dipsatched.
   struct Event {
     Event();
     Event(IpczTrapEventHandler handler,
-          uint64_t context,
+          uintptr_t context,
           IpczTrapConditionFlags flags,
           IpczPortalStatus status);
     Event(const Event&);
@@ -43,11 +50,13 @@ class TrapEventDispatcher {
     ~Event();
 
     IpczTrapEventHandler handler;
-    uint64_t context;
+    uintptr_t context;
     IpczTrapConditionFlags flags;
     IpczPortalStatus status;
   };
 
+  // Space for four events should avoid heap allocations in the vast majority of
+  // cases where we accumulate events for imminent dispatch.
   using DeferredEventQueue = absl::InlinedVector<Event, 4>;
   DeferredEventQueue events_;
 };
