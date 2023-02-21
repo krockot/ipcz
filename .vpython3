@@ -50,14 +50,34 @@ wheel: <
 # Chromium tests using Telemetry function properly.
 wheel: <
   name: "infra/python/wheels/numpy/${vpython_platform}"
-  version: "version:1.20.3"
+  version: "version:1.2x.supported.1"
+>
+wheel: <
+  name: "infra/python/wheels/pexpect/${vpython_platform}"
+  version: "version:4.8.0.chromium.1"
 >
 wheel: <
   name: "infra/python/wheels/psutil/${vpython_platform}"
-  version: "version:5.8.0.chromium.2"
+  version: "version:5.8.0.chromium.3"
 >
 wheel: <
   name: "infra/python/wheels/requests-py2_py3"
-  version: "version:2.13.0"
+  version: "version:2.26.0"
+>
+wheel: <
+  name: "infra/python/wheels/pillow/${vpython_platform}"
+  version: "version:8.3.1"
+  # There is currently no Linux arm/arm64 version in CIPD.
+  not_match_tag <
+    platform: "linux_aarch64"
+  >
+>
+wheel: <
+  name: "infra/python/wheels/opencv_python/${vpython_platform}"
+  version: "version:4.5.3.56.chromium.4"
+  # There is currently no Linux arm/arm64 version in CIPD.
+  not_match_tag <
+    platform: "linux_aarch64"
+  >
 >
 
