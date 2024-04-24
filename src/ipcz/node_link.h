@@ -8,10 +8,13 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
+#include <vector>
 
 #include "ipcz/driver_memory.h"
 #include "ipcz/driver_transport.h"
+#include "ipcz/features.h"
 #include "ipcz/fragment_ref.h"
 #include "ipcz/link_side.h"
 #include "ipcz/link_type.h"
@@ -23,7 +26,6 @@
 #include "ipcz/sublink_id.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_map.h"
 #include "third_party/abseil-cpp/absl/synchronization/mutex.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
 #include "third_party/abseil-cpp/absl/types/span.h"
 #include "util/ref_counted.h"
 
@@ -65,6 +67,7 @@ class NodeLink : public msg::NodeMessageListener {
                                     const NodeName& remote_node_name,
                                     Node::Type remote_node_type,
                                     uint32_t remote_protocol_version,
+                                    const Features& remote_features,
                                     Ref<DriverTransport> transport,
                                     Ref<NodeLinkMemory> memory);
 
@@ -77,6 +80,7 @@ class NodeLink : public msg::NodeMessageListener {
                                       const NodeName& remote_node_name,
                                       Node::Type remote_node_type,
                                       uint32_t remote_protocol_version,
+                                      const Features& remote_features,
                                       Ref<DriverTransport> transport,
                                       Ref<NodeLinkMemory> memory);
 
@@ -86,6 +90,9 @@ class NodeLink : public msg::NodeMessageListener {
   const NodeName& remote_node_name() const { return remote_node_name_; }
   Node::Type remote_node_type() const { return remote_node_type_; }
   uint32_t remote_protocol_version() const { return remote_protocol_version_; }
+  const Features& remote_features() const { return remote_features_; }
+  const Features& available_features() const { return available_features_; }
+
   const Ref<DriverTransport>& transport() const { return transport_; }
 
   NodeLinkMemory& memory() { return *memory_; }
@@ -117,7 +124,7 @@ class NodeLink : public msg::NodeMessageListener {
 
   // Retrieves the Router and RemoteRouterLink currently bound to `sublink`
   // on this NodeLink.
-  absl::optional<Sublink> GetSublink(SublinkId sublink);
+  std::optional<Sublink> GetSublink(SublinkId sublink);
 
   // Retrieves only the Router currently bound to `sublink` on this NodeLink.
   Ref<Router> GetRouter(SublinkId sublink);
@@ -141,6 +148,7 @@ class NodeLink : public msg::NodeMessageListener {
                           LinkSide side,
                           Node::Type remote_node_type,
                           uint32_t remote_protocol_version,
+                          const Features& remote_features,
                           Ref<DriverTransport> transport,
                           DriverMemory memory);
 
@@ -210,6 +218,8 @@ class NodeLink : public msg::NodeMessageListener {
   void Transmit(Message& message);
 
  private:
+  friend class RefCounted<NodeLink>;
+
   enum ActivationState {
     kNeverActivated,
     kActive,
@@ -222,6 +232,7 @@ class NodeLink : public msg::NodeMessageListener {
            const NodeName& remote_node_name,
            Node::Type remote_node_type,
            uint32_t remote_protocol_version,
+           const Features& remote_features,
            Ref<DriverTransport> transport,
            Ref<NodeLinkMemory> memory,
            ActivationState initial_activation_state);
@@ -265,16 +276,19 @@ class NodeLink : public msg::NodeMessageListener {
   // not yet known to the local node. This schedules the parcel for acceptance
   // as soon as that buffer is available.
   void WaitForParcelFragmentToResolve(SublinkId for_sublink,
-                                      Parcel& parcel,
+                                      std::unique_ptr<Parcel> parcel,
                                       const FragmentDescriptor& descriptor,
                                       bool is_split_parcel);
 
-  bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink, Parcel& parcel);
-  bool AcceptParcelDriverObjects(SublinkId for_sublink, Parcel& parcel);
+  bool AcceptParcelWithoutDriverObjects(SublinkId for_sublink,
+                                        std::unique_ptr<Parcel> parcel);
+  bool AcceptParcelDriverObjects(SublinkId for_sublink,
+                                 std::unique_ptr<Parcel> parcel);
   bool AcceptSplitParcel(SublinkId for_sublink,
-                         Parcel& parcel_without_driver_objects,
-                         Parcel& parcel_with_driver_objects);
-  bool AcceptCompleteParcel(SublinkId for_sublink, Parcel& parcel);
+                         std::unique_ptr<Parcel> parcel_without_driver_objects,
+                         std::unique_ptr<Parcel> parcel_with_driver_objects);
+  bool AcceptCompleteParcel(SublinkId for_sublink,
+                            std::unique_ptr<Parcel> parcel);
 
   const Ref<Node> node_;
   const LinkSide link_side_;
@@ -282,6 +296,8 @@ class NodeLink : public msg::NodeMessageListener {
   const NodeName remote_node_name_;
   const Node::Type remote_node_type_;
   const uint32_t remote_protocol_version_;
+  const Features remote_features_;
+  const Features available_features_;
   const Ref<DriverTransport> transport_;
   const Ref<NodeLinkMemory> memory_;
 
@@ -308,7 +324,8 @@ class NodeLink : public msg::NodeMessageListener {
   // Tracks partially received contents of split parcels so they can be
   // reconstructed for dispatch.
   using PartialParcelKey = std::tuple<SublinkId, SequenceNumber>;
-  using PartialParcelMap = absl::flat_hash_map<PartialParcelKey, Parcel>;
+  using PartialParcelMap =
+      absl::flat_hash_map<PartialParcelKey, std::unique_ptr<Parcel>>;
   PartialParcelMap partial_parcels_ ABSL_GUARDED_BY(mutex_);
 
   // Mapping from subparcel index to Parcel object.

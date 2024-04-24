@@ -13,7 +13,10 @@
 #include "test/test_transport_listener.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/abseil-cpp/absl/synchronization/notification.h"
-#include "third_party/abseil-cpp/absl/types/optional.h"
+
+#if !defined(IPCZ_STANDALONE)
+#include "base/sanitizer_buildflags.h"  // nogncheck
+#endif
 
 namespace ipcz {
 namespace {
@@ -70,7 +73,17 @@ MULTINODE_TEST_NODE(ConnectTestNode, ExpectDisconnectFromBroker) {
   Close(b);
 }
 
-MULTINODE_TEST(ConnectTest, DISABLED_DisconnectWithoutBrokerHandshake) {
+#if defined(IPCZ_STANDALONE)
+#define MAYBE_DisconnectWithoutBrokerHandshake \
+  DISABLED_DisconnectWithoutBrokerHandshake
+#elif BUILDFLAG(USING_SANITIZER)
+// TODO(crbug.com/1400965): Fix the failing MojoIpczInProcess on linux tsan.
+#define MAYBE_DisconnectWithoutBrokerHandshake \
+  DISABLED_DisconnectWithoutBrokerHandshake
+#else
+#define MAYBE_DisconnectWithoutBrokerHandshake DisconnectWithoutBrokerHandshake
+#endif
+MULTINODE_TEST(ConnectTest, MAYBE_DisconnectWithoutBrokerHandshake) {
   IpczDriverHandle our_transport;
   auto controller =
       SpawnTestNodeNoConnect<ExpectDisconnectFromBroker>(our_transport);
@@ -263,6 +276,16 @@ MULTINODE_TEST_NODE(ConnectTestNode, FailedNonBrokerReferralClient) {
 }
 
 MULTINODE_TEST(ConnectTest, FailedNonBrokerReferral) {
+#if BUILDFLAG(IS_ANDROID)
+  // Client nodes launching other client nodes doesn't work for Chromium's
+  // custom test driver on Android. Limit this test to the reference test
+  // drivers there.
+  if (&GetDriver() != &reference_drivers::kSyncReferenceDriver &&
+      &GetDriver() != &reference_drivers::kAsyncReferenceDriver) {
+    return;
+  }
+#endif
+
   IpczHandle c = SpawnTestNode<FailedNonBrokerReferralClient>();
   EXPECT_EQ(IPCZ_RESULT_OK, WaitForConditionFlags(c, IPCZ_TRAP_PEER_CLOSED));
   Close(c);
@@ -318,6 +341,16 @@ MULTINODE_TEST_BROKER_NODE(ConnectTestNode, BrokerWithClientNode) {
 }
 
 MULTINODE_TEST(ConnectTest, MultiBrokerIntroductions) {
+#if BUILDFLAG(IS_ANDROID)
+  // Client nodes launching other client nodes doesn't work reliably for
+  // Chromium's multiprocess test driver on Android. Limit this test to a few
+  // reference drivers there.
+  if (&GetDriver() != &reference_drivers::kSyncReferenceDriver &&
+      &GetDriver() != &reference_drivers::kAsyncReferenceDriver) {
+    return;
+  }
+#endif
+
   // This test covers introductions in a multi-broker network. There are four
   // test nodes involved here: the main node (this one, call it A), a secondary
   // broker B launched with the BrokerWithClientNode body defined above; and
